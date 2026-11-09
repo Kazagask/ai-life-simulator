@@ -1,0 +1,18 @@
+{
+  "name": "ai-life-simulator",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @life-sim/server --filter @life-sim/web dev",
+    "build": "pnpm typecheck && pnpm --filter @life-sim/web build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "pnpm --filter @life-sim/game-core test"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0"
+  }
+}

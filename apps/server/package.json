@@ -1,0 +1,20 @@
+{
+  "name": "@life-sim/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc --noEmit -p ../../tsconfig.json"
+  },
+  "dependencies": {
+    "@life-sim/shared": "workspace:*",
+    "@life-sim/game-core": "workspace:*",
+    "fastify": "^5.3.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0",
+    "@types/node": "^22.15.0"
+  }
+}
