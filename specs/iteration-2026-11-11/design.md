@@ -17,25 +17,25 @@
 5. 继承 `AGENTS.md`、ADR-0001、ADR-0002 与附录 A 已接受决策，不重新讨论被否决项。
 6. **时间穿越（S2 A3）延期至 R3**：本轮不实现、不写 ADR-0004，但必须保留 §8 末列出的三个接口预留点（Seam）。
 
-## 2. 现状盘点（实施前须复核）
+## 2. 现状盘点（阶段 0 复核结果，2026-11-11）
 
-> 落盘时工作区有另一 Agent 的 v2 WIP 未提交，下表按当时文件快照整理；阶段 0 差距报告必须以**当时实际代码**为准更新此表。
+> 本节由 `T0-01` / `tasks/reports/R2-GAP-ANALYSIS.md` 按**当时工作区实际代码**复核更新（仅静态审查，工具集无 Bash / 测试）。仓库存在另一 Agent 的 42 项未提交 WIP（v2 实现正在写入），结论可能随其提交而变化。行号均指该快照；路径缩写见报告 §0.1。
 
-| 能力 | 现状文件 | 已有 | R2 动作 |
+| 能力 | 现状文件（证据） | 复核结果 | R2 动作 |
 |---|---|---|---|
-| 模板协议 | `specs/data/TEMPLATE_PROTOCOL_V2.md`（15 章） | YAML 分域、三段式事件、链/池、preset 白名单 | 扩章节，不重写 |
-| Schema | `packages/shared/src/schema/*.ts`（world/character/event/item/skill/status-effect/npc-action） | Zod 为单一事实来源 | 新增领域 schema 文件 |
-| 时间 | `packages/game-core/src/v2/time.ts` | ADR-0002 时间适配器化（已落盘，待实施） | 本轮不动；保持 TimeAdapter 边界，为 R3 穿越预留 |
-| 事件 | `schema/event.ts`、协议 §9 | 池 + chains + `nextEventId` + schedule | **保持现状**，只加实例层元数据 |
-| 轮次 | `v2/turn.ts`、`v2/engine.ts` | 轮次管线、条件/效果结算 | 增加阶段门禁 |
-| NPC | `v2/npc.ts`、`schema/npc-action.ts` | 触发式 + 效用评分（本轮另一 Agent 实施中） | 复用其触发/评分设施 |
-| 战斗 | `v2/battle.ts`、协议 §10 | 回合状态机、preset 判定、控制白名单 | 抽出 AI 决策层 |
-| 投影 | `v2/projection.ts` | 可见性投影 | 沿用现有 hidden 过滤；穿越隐秘化属 R3 |
-| 人生评价 | `packages/game-core/src/evaluation.ts`（legacy，`evaluateLife`） | 基础规则评分 | **不重写**，新增独立评价模块并逐步迁移 |
-| 开局/结局/归档 | — | **缺失** | 新建 |
-| 装备 | `schema/item.ts`、协议 §8 仅预留 `type: equipment` | 引擎忽略 | 规格落盘 + 接线 |
-| 战斗 AI | `v2/battle.ts` 内简单权重策略 | 部分 | 分层决策独立模块 |
-| 时间穿越 | ADR-0002 仅预留「实例-定义分离接口位」 | **缺失** | **⛔ 延期 R3**：本轮仅保留接口 seam，不新建模块 |
+| 模板协议 | `协议`（15 章） | 覆盖世界/角色/技能/物品/补正/事件/战斗；**无开局/结局/评价/装备/战斗 AI 章节**；§8 `type: equipment` 仅预留、引擎忽略（L295） | 扩章节（T1-03），不重写 |
+| Schema | `schema/*.ts`（8 文件，`schema/index.ts:7-14`） | `WorldTemplateV2Schema.strict()`（`schema/world.ts:88-176`）仅 14 分域；**无 lifecycle/opening/ending/evaluation/equipment/combat-ai/event-instance** | 新增 7 个领域 schema 文件 |
+| 时间 | `v2/time.ts:48-104` | ADR-0002 `TimeAdapter` **已落盘**（resolveStep/format/elapsedYears/resolveLifeStage）；但 `amountToMinutes/UNIT_MINUTES`（L18-30）为模块级硬编码、被 engine/turn 直接 import；接口无时间点解析/回拨语义 | 本轮不动；seam ② 缺口登记 `R3-PRE-02` |
+| 事件 | `schema/event.ts:13-43,123-154`、`v2/turn.ts:130-135,147-165,239-271,337-346` | 池 + chains（仅 `active/completed`，`shared/v2.ts:133`）+ `nextEventId` + schedule 已实现；`source` 固定 4 类（`schema/event.ts:15`）；**事件为定义级，无 EventInstance/instanceId/definitionId/origin/status**（`shared/v2.ts:159`） | **保持现状**（A4/A5），仅加实例层 `origin`；seam ① 缺口登记 `R3-PRE-01` |
+| 轮次 | `v2/turn.ts:378-461`（`advanceTurnV2`）、`:38-116`（`createWorldV2`） | 10 步轮次管线完整；**无阶段门禁、无 phase/LifecycleState**（`shared/v2.ts:148-168`） | 增加阶段门禁（T2-02） |
+| NPC | `v2/npc.ts:28-93`、`schema/npc-action.ts` | A6 触发式 + 效用评分（`pickBest` L73-86）**已实现**（非 WIP） | 复用其触发/评分设施（T6-01） |
+| 战斗 | `v2/battle.ts`、协议 §10 | 回合状态机/preset 判定/控制白名单已实现；敌人 AI 为 `aiTurn` 简单权重（L326-350）；**ADR-0003「组队战斗」阵营化已部分落地代码**（`team`/`allies` L24/L119），但 `DECISIONS.md:79-109` 仍标「待评审」 | 抽出 AI 决策层（T6-01）；ADR-0003 编号冲突见报告 §6.1 |
+| 投影 | `v2/projection.ts:16-117` | 补正按 `def.visibility === "known"` 过滤（L29/L125）；**NPC 未按 visibility 过滤（L91-99）、历史无 visibility 字段（`shared/v2.ts:137-146`）、`playerVisibleHistory`（`v2/turn.ts:459`）与 `/api/worlds/:id/history`（`server/index.ts:190-195`）全量返回** | 沿用并补齐 hidden 过滤；seam ③ 缺口登记 `R3-PRE-03` |
+| 人生评价 | legacy `evaluation.ts:53-99`（`evaluateLife`）、`v2/projection.ts:186-201`（`evaluateSummaryV2`）、`shared/v2.ts:268`（`V2Snapshot.evaluation`） | **两份评价并存且均嵌入投影/轮次**：legacy 4 硬编码维度 + v2 单 `overall` + 世界观专名文本（L197-200）；只看最终属性面板、无 `evidenceIds`、无模板维度、无 LLM 总结 | **不重写**，新建 `life-evaluation.ts` 并解耦（T4-04/05）；同步 `CORE_ENGINE §8` |
+| 开局/结局/归档 | —（全仓 Grep 无 lifecycle/opening/ending/archive/EndingRecord/EvaluationRecord/phaseLog） | **完全缺失**；`createWorldV2` 无 phase/openingId；无 `handoff`；无只读门禁（`server/store.ts:23` 无条件 save） | 新建 4 模块（T2/T3/T4） |
+| 装备 | `schema/item.ts:9-23`、协议 §8 | 仅 `type: equipment` 枚举值（L12）；**无槽位/品质/词条/实例/穿脱**；`effectiveAttributes` 管线已具备（`v2/engine.ts:52-76`） | 规格落盘 + 接线（T5） |
+| 战斗 AI | `v2/battle.ts:326-350`（`aiTurn`） | 简单权重策略（部分）；`private.combatHints.skillWeights`（`schema/character.ts:53`）可复用；无五步分层/风格/条件化策略 | 分层决策独立模块（T6） |
+| 时间穿越 | `docs/DECISIONS.md:65`（ADR-0002 仅预留「实例-定义分离接口位」） | **缺失**；现状 `firedEvents`/`pendingEvents` 为定义级引用、`Math.max` 时间单调（`v2/engine.ts:312` / `v2/turn.ts:397`）、schedule 无实例状态 | **⛔ 延期 R3**：本轮仅保留 §8 末三个 seam，缺口登记 `R3-PRE-01/02/03` |
 
 ## 3. Lifecycle 顶层架构
 
