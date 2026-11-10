@@ -1,6 +1,6 @@
 # 迭代 R2 任务清单（Tasks）
 
-**版本：2026-11-11（R2.2 决策修订）｜状态：阶段 0/1 已完成，阶段 2/3 施工中（T2-01/03/04、T3-01..04 已验收；T2-02 与 T3-05 收尾待接门禁）｜上游：`requirements.md`、`design.md`**
+**版本：2026-11-11（R2.2 决策修订）｜状态：阶段 0/1/2/3 已完成（T2-01..04、T3-01..05 全部验收）；下一任务阶段 4 `T4-01`｜上游：`requirements.md`、`design.md`**
 
 > **R2.1：时间穿越延期。** 阶段 7（`T7-01`～`T7-06`）与 `T1-02`（ADR-0005）整体 `DEFERRED`，编号与原文保留在文末「附录 A」，供 R3 恢复。本轮执行 34 个 ACTIVE 任务，验收 45 条 ACTIVE 需求。
 >
@@ -23,7 +23,8 @@
 - **状态约定（R2.1）**：`R-TT-01..07` 及所有时间穿越任务为 `DEFERRED` —— **不执行、不验收、不计入 DoD**；编号保留供 R3 复用，清单见文末「附录 A」。
 - **状态约定（R2.2）**：`R-LC-01..06` 为 `RETIRED` —— 不执行、不验收、不计入 DoD；不得再以 `phase` / `LifecycleState` / 阶段日志作为任务产出。
 - 任务计数：共 **41 个编号** = **34 个 ACTIVE**（阶段 0–6、8）+ **7 个 DEFERRED**（T1-02、T7-01..06）。
-- **施工顺序调整（用户 2026-11-11 已确认）**：`T2-02`（`assertActive()` 门禁）从阶段 2 顺延到 `T3-05` 的 `handoff()` 之后最后接入。原因：`createWorldV2` 初始化 `openingCompleted = false`，若先接门禁，阶段 2→3 之间所有未交接世界（含 `apps/server` 运行时）都会被 `NOT_ACTIVE` 拒绝，dev 不可推进。按「先建能力、最后接门禁」保证 `main` 全程可跑；`T3-05` 完成定义中「推进请求被拒」一项随之并入 `T2-02` 验收。
+- **施工顺序调整（用户 2026-11-11 已确认，已执行完毕）**：`T2-02`（`assertActive()` 门禁）从阶段 2 顺延到 `T3-05` 的 `handoff()` 之后最后接入。原因：`createWorldV2` 初始化 `openingCompleted = false`，若先接门禁，阶段 2→3 之间所有未交接世界（含 `apps/server` 运行时）都会被 `NOT_ACTIVE` 拒绝，dev 不可推进。实际按「先建能力、最后接门禁」执行完毕，`main` 全程可跑；`T2-02` 与 `T3-05` 已于 06:51 一并验收。
+- **阶段 4 承接项（T2-02 范围内刻意未做）**：`T2-02` 完成定义中「终止条件命中时先结算完当前事件再落 `termination`」属 T4；且门禁当前只接在 `advanceTurnV2`，`chooseOptionV2` / `battleActionV2` / `useItemV2` 等其它行动入口尚未加门禁，已终止/已归档世界仍可能经这些入口写状态，阶段 4 须补齐统一门禁。
 
 ## 1. 阶段 0 — 审查（不修改实现代码）
 
@@ -66,7 +67,7 @@
   实现 `openingCompleted`（boolean）、`termination`（`TerminationRecord | null`）、`archived`（boolean）三个并列字段；`markTerminated()` 幂等，重复调用不追加记录；**不创建 `lifecycle.ts`、不引入 `Phase` 枚举或 `PhaseTransitionLog`**。
   完成定义：正常终止 / 重复终止 / 终止后写状态三类测试通过；P2 属性成立。
 
-- [ ] **T2-02** 依赖：T2-01｜需求：R-TM-02、R-TM-01｜产出：轮次管线门禁（`v2/turn.ts` 最小改动）
+- [x] **T2-02** 依赖：T2-01｜需求：R-TM-02、R-TM-01｜产出：轮次管线门禁（`v2/turn.ts` 最小改动）
   在 `advanceTurnV2` 入口加 `assertActive()`：开局未完成 ⇒ `NOT_ACTIVE`，已终止/已归档 ⇒ `TERMINATED`；两者均逐字段不改状态。终止条件命中时先结算完当前事件再落 `termination`。
   完成定义：Given 开局未完成 / 已终止，推进请求被拒且世界时间与事件历史不变；现有 v2 回归测试全绿。
 
@@ -96,10 +97,10 @@
   开局事件复用统一事件系统；连续事件接 chains，定时/条件事件接 schedule；静态检查无栈模块、无新增 `source` 枚举。
   完成定义：开局产出的事件与普通事件共用同一结算路径；`origin` 为 `opening + openingId`。
 
-- [ ] **T3-05** 依赖：T3-01..04、T2-01｜需求：R-OP-07、R-TM-02｜产出：`handoff()` 与 `openingCompleted` 交接
+- [x] **T3-05** 依赖：T3-01..04、T2-01｜需求：R-OP-07、R-TM-02｜产出：`handoff()` 与 `openingCompleted` 交接
   `completionConditions` 满足后交接给模拟引擎并置 `openingCompleted = true`（不设阶段枚举）。
   完成定义：未完成即时事件与未来事件分别进入正确队列，首轮推进能消费；`openingCompleted === true` 且开局未完成时的推进请求被拒（R-TM-02）。
-  **施工顺序调整（用户 2026-11-11 已确认）**：`handoff()` / `openingCompleted` 置位、事件分流、server 接线均已完成并验收；完成定义中「开局未完成时的推进请求被拒」由 `T2-02` 的 `assertActive()` 门禁承担，故本条保持未勾选，待 `T2-02` 落地后一并勾选，以避免阶段 2/3 之间 dev 不可推进的中间态。
+  **施工顺序调整（用户 2026-11-11 已确认，已执行完毕）**：`handoff()` / `openingCompleted` 置位、事件分流、server 接线均已完成并验收；完成定义中「开局未完成时的推进请求被拒」由 `T2-02` 的 `assertActive()` 门禁承担（2026-11-11 06:51 落地，`guard.test.ts` 5 例 + HTTP 端到端验证），故本条与 `T2-02` 一并勾选；按「先建能力、最后接门禁」执行，阶段 2/3 期间 `main` 全程可跑。
 
 ## 5. 阶段 4 — Ending / Evaluation / Archive
 

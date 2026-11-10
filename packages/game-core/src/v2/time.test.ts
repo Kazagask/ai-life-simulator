@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { WorldTemplateV2 } from "@life-sim/shared";
 import { amountToMinutes, createTimeAdapter, minutesToAmount } from "./time.js";
-import { advanceTurnV2, createWorldV2 } from "./turn.js";
+import { advanceTurnV2 } from "./turn.js";
+import { createActiveWorldV2 } from "./test-utils.js";
 import { createLookup } from "./lookup.js";
 
 function makeTemplate(overrides?: Partial<WorldTemplateV2>): WorldTemplateV2 {
@@ -96,7 +97,7 @@ describe("时间系统集成 · 推进模式与条件", () => {
       actions: [{ id: "skip", label: "跳转", advanceTo: { value: 2, unit: "day" } }],
     });
     const lookup = createLookup(template);
-    const state = createWorldV2({ templateId: "t", playerName: "测试者", seed: 1 }, template, "w1");
+    const state = createActiveWorldV2({ templateId: "t", playerName: "测试者", seed: 1 }, template, "w1");
     const res = advanceTurnV2(state, { action: { type: "skip", description: "" } }, template, lookup);
     expect(state.worldTime).toBe(2880);
     expect(state.turnIndex).toBe(1);
@@ -122,7 +123,7 @@ describe("时间系统集成 · 推进模式与条件", () => {
       ],
     });
     const lookup = createLookup(template);
-    const state = createWorldV2({ templateId: "t", playerName: "测试者", seed: 1 }, template, "w1");
+    const state = createActiveWorldV2({ templateId: "t", playerName: "测试者", seed: 1 }, template, "w1");
 
     advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
     expect(state.pendingEvents).toHaveLength(0);
@@ -146,7 +147,7 @@ describe("时间系统集成 · 推进模式与条件", () => {
       ],
     });
     const lookup = createLookup(template);
-    const state = createWorldV2({ templateId: "t", playerName: "测试者", seed: 1 }, template, "w1");
+    const state = createActiveWorldV2({ templateId: "t", playerName: "测试者", seed: 1 }, template, "w1");
 
     advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
     expect(state.pendingEvents[0]?.eventId).toBe("ev-sched");
@@ -160,7 +161,7 @@ describe("时间系统集成 · 推进模式与条件", () => {
       },
     });
     const lookup = createLookup(template);
-    const state = createWorldV2({ templateId: "t", playerName: "测试者", seed: 1 }, template, "w1");
+    const state = createActiveWorldV2({ templateId: "t", playerName: "测试者", seed: 1 }, template, "w1");
     const res = advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
     expect(res.snapshot.formattedTime).toBe("2000年1月2日 00:00");
     expect(res.snapshot.lifeStage).toBe("youth");

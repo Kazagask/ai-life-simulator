@@ -31,6 +31,7 @@ import { createBattle, finishBattle, performBattleAction } from "./battle.js";
 import { runNpcActionsV2 } from "./npc.js";
 import type { TemplateLookup } from "./lookup.js";
 import { projectSnapshotV2 } from "./projection.js";
+import { assertActive } from "./ending.js";
 
 const MAX_TRIGGER_DEPTH = 8;
 
@@ -388,6 +389,7 @@ export function advanceTurnV2(
   lookup: TemplateLookup,
   ctx?: RunnerContext,
 ): V2TurnResult {
+  assertActive(state);
   if (state.pendingEvents.length > 0) throw new Error("pending_event_required");
   if (state.battle && !state.battle.over) throw new Error("battle_in_progress");
   // 清理上一场已结束的战斗（结果已回写）

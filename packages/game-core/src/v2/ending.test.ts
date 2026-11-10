@@ -6,6 +6,7 @@ import {
   type WorldTemplateV2,
 } from "@life-sim/shared";
 import { createWorldV2 } from "./turn.js";
+import { createActiveWorldV2 } from "./test-utils.js";
 import { assertActive, EndingGuardError, markTerminated, type EndingGuardCode } from "./ending.js";
 
 /** 最小可运行模板（与 npc / time 测试同构，不经 YAML）。 */
@@ -37,14 +38,14 @@ function makeTemplate(): WorldTemplateV2 {
 }
 
 function makeActiveState(): WorldStateV2 {
-  const state = createWorldV2(
+  // 与轮次测试一样走真实的 runOpening + handoff 交接，不再手工置位。
+  const state = createActiveWorldV2(
     { templateId: "t", playerName: "测试者", seed: 1 },
     makeTemplate(),
     "w1",
   );
   state.worldTime = 525600;
   state.turnIndex = 7;
-  state.openingCompleted = true; // 模拟 handoff 完成（T3-05 接线前的夹具）
   return state;
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { WorldTemplateV2 } from "@life-sim/shared";
-import { advanceTurnV2, createWorldV2 } from "./turn.js";
+import { advanceTurnV2 } from "./turn.js";
+import { createActiveWorldV2 } from "./test-utils.js";
 import { createLookup } from "./lookup.js";
 
 function makeTemplate(overrides?: Partial<WorldTemplateV2>): WorldTemplateV2 {
@@ -46,7 +47,7 @@ const npcChar = {
 function makeState(actions: WorldTemplateV2["npcActions"]) {
   const template = makeTemplate({ characters: [npcChar], npcActions: actions });
   const lookup = createLookup(template);
-  const state = createWorldV2({ templateId: "t", playerName: "测试者", seed: 1 }, template, "w1");
+  const state = createActiveWorldV2({ templateId: "t", playerName: "测试者", seed: 1 }, template, "w1");
   return { state, template, lookup };
 }
 

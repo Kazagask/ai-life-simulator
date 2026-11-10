@@ -2,6 +2,7 @@ import type { WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
 import { createLookup } from "./lookup.js";
 import { advanceTurnV2, createWorldV2 } from "./turn.js";
 import { createRunnerContext } from "./runner-context.js";
+import { createDefaultOpeningTemplate, handoff, runOpening, type OpeningRunnerContext } from "./opening.js";
 
 /** 回放指令：与 advanceTurnV2 的 command 参数同形。 */
 export interface ReplayCommand {
@@ -34,7 +35,14 @@ export function replay(spec: ReplaySpec): WorldStateV2 {
     spec.worldId,
     ctx,
   );
-  let current: WorldStateV2 = state;
+  // T2-02 门禁：createWorldV2 产出 openingCompleted=false，首条指令会被 NOT_ACTIVE 拒绝。
+  // 与 store.create 同样先交接激活；默认开局不改变轮次/时间/事件，保证逐字段可复现。
+  const openingCtx: OpeningRunnerContext = {
+    ...createRunnerContext(spec.seed),
+    lookup,
+  };
+  const { state: opened, run } = runOpening(state, createDefaultOpeningTemplate(), openingCtx);
+  let current: WorldStateV2 = handoff(opened, run);
   for (const command of spec.commands) {
     current = advanceTurnV2(current, command, template, lookup, ctx).state;
   }

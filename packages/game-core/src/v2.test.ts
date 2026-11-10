@@ -8,7 +8,8 @@ import { createLookup } from "./v2/lookup.js";
 import { createBattle, finishBattle, performBattleAction } from "./v2/battle.js";
 import { applyEffectsV2, computeMax, playerEffectiveAttributes, type EffectContextV2 } from "./v2/engine.js";
 import { projectSnapshotV2 } from "./v2/projection.js";
-import { advanceTurnV2, battleActionV2, chooseOptionV2, createWorldV2 } from "./v2/turn.js";
+import { advanceTurnV2, battleActionV2, chooseOptionV2 } from "./v2/turn.js";
+import { createActiveWorldV2 } from "./v2/test-utils.js";
 
 // ---------- JJk 模板经 Schema 校验可加载 ----------
 
@@ -72,7 +73,7 @@ describe("V2 引擎 · 怀玉玉折主线链路", () => {
   it("识破伏击 → 里子·甚尔存活结局", () => {
     const template = loadJjkTemplate();
     const lookup = createLookup(template);
-    const state = createWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 7 }, template, "w-sp");
+    const state = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 7 }, template, "w-sp");
     // 直接注入开场事件（等价于 schedule 事件在绝对时间到达时被触发）
     state.pendingEvents = [{ eventId: "ev-sp-briefing" }];
     state.firedEvents["ev-sp-briefing"] = state.turnIndex;
@@ -110,7 +111,7 @@ describe("V2 引擎 · 怀玉玉折主线链路", () => {
     const template = loadJjkTemplate();
     const lookup = createLookup(template);
 
-    const canon = createWorldV2({ templateId: "jjk-2006", playerName: "甲", seed: 7 }, template, "w-canon");
+    const canon = createActiveWorldV2({ templateId: "jjk-2006", playerName: "甲", seed: 7 }, template, "w-canon");
     canon.pendingEvents = [{ eventId: "ev-sp-ambush" }];
     canon.firedEvents["ev-sp-ambush"] = canon.turnIndex;
     const rc = chooseOptionV2(canon, { optionId: "opt-hesitate" }, template, lookup);
@@ -118,7 +119,7 @@ describe("V2 引擎 · 怀玉玉折主线链路", () => {
     expect(canon.flags.getoDarkened).toBe(true);
     expect(canon.flags.gojoAlive).toBe(true);
 
-    const dead = createWorldV2({ templateId: "jjk-2006", playerName: "乙", seed: 7 }, template, "w-dead");
+    const dead = createActiveWorldV2({ templateId: "jjk-2006", playerName: "乙", seed: 7 }, template, "w-dead");
     dead.pendingEvents = [{ eventId: "ev-sp-ambush" }];
     dead.firedEvents["ev-sp-ambush"] = dead.turnIndex;
     const rd = chooseOptionV2(dead, { optionId: "opt-reckless" }, template, lookup);
@@ -134,7 +135,7 @@ describe("V2 引擎 · 补正与六眼", () => {
   it("六眼补正 simulation.attributeModifiers 生效", () => {
     const template = loadJjkTemplate();
     const lookup = createLookup(template);
-    const state = createWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 42 }, template, "w-six");
+    const state = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 42 }, template, "w-six");
     const base = state.player.attributes.cursedEnergy;
     state.player.statuses = [{ statusId: "six-eyes", stacks: 1, appliedTurn: 0 }];
     const eff = playerEffectiveAttributes(state, lookup);
@@ -145,7 +146,7 @@ describe("V2 引擎 · 补正与六眼", () => {
   it("五条悟初始携带六眼补正", () => {
     const template = loadJjkTemplate();
     const lookup = createLookup(template);
-    const state = createWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 42 }, template, "w-gojo");
+    const state = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 42 }, template, "w-gojo");
     const gojo = state.npcs.find((n) => n.id === "npc-gojo");
     expect(gojo?.statuses.some((s) => s.statusId === "six-eyes")).toBe(true);
   });
@@ -154,7 +155,7 @@ describe("V2 引擎 · 补正与六眼", () => {
     const template = loadJjkTemplate();
     const lookup = createLookup(template);
     const setup = () => {
-      const s = createWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 42 }, template, "w-dmg");
+      const s = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 42 }, template, "w-dmg");
       s.battle = createBattle(
         "ev-curse-ambush",
         { enemies: [{ ref: "enemy-curse-larva", levelScale: 1 }], canFlee: false },
@@ -186,7 +187,7 @@ describe("V2 引擎 · advanceTime 绝对/相对时间推进", () => {
   it("advanceTime by 相对推进世界时间与年龄", () => {
     const template = loadJjkTemplate();
     const lookup = createLookup(template);
-    const state = createWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 42 }, template, "w-time");
+    const state = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 42 }, template, "w-time");
     const before = state.worldTime;
     const ctx: EffectContextV2 = { state, lookup, rng: () => 0.5, logs: [] };
     applyEffectsV2(ctx, [{ type: "advanceBy", value: { value: 1, unit: "year" } }]);
@@ -198,7 +199,7 @@ describe("V2 引擎 · advanceTime 绝对/相对时间推进", () => {
   it("玉折结局 → 时间跳跃至百鬼夜行并开启二选一", () => {
     const template = loadJjkTemplate();
     const lookup = createLookup(template);
-    const state = createWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 7 }, template, "w-night");
+    const state = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 7 }, template, "w-night");
     state.pendingEvents = [{ eventId: "ev-sp-ending-canon" }];
     state.firedEvents["ev-sp-ending-canon"] = state.turnIndex;
     // 模拟已走过的 schedule 开场事件，避免 advanceTo 后重复触发
@@ -237,7 +238,7 @@ describe("V2 引擎 · 事件链起点触发（回归）", () => {
   it("上报高专 → startChain 随机起点事件即时结算，不再卡死", () => {
     const template = loadJjkTemplate();
     const lookup = createLookup(template);
-    const state = createWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 7 }, template, "w-report");
+    const state = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 7 }, template, "w-report");
     state.pendingEvents = [{ eventId: "ev-curse-sighting" }];
     state.firedEvents["ev-curse-sighting"] = state.turnIndex;
 
@@ -261,7 +262,7 @@ describe("V2 引擎 · 组队战斗", () => {
   const lookup = createLookup(template);
 
   function teamBattle(eventId: string, worldId: string) {
-    const state = createWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 7 }, template, worldId);
+    const state = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 7 }, template, worldId);
     const event = lookup.event(eventId);
     if (!event || event.kind !== "combat") throw new Error(`not a combat event: ${eventId}`);
     state.battle = createBattle(eventId, event.settle.combat, state, lookup);
@@ -508,7 +509,7 @@ function makeTestTemplate(): WorldTemplateV2 {
 function makeState(seed = 42): { state: WorldStateV2; template: WorldTemplateV2 } {
   const template = makeTestTemplate();
   const lookup = createLookup(template);
-  const state = createWorldV2({ templateId: "test", playerName: "测试者", seed }, template, "w1");
+  const state = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed }, template, "w1");
   return { state, template };
 }
 
@@ -551,7 +552,7 @@ describe("V2 引擎 · 世界创建", () => {
     // 自定义属性 willpower 驱动 HP 上限：50 + 10×3 = 80
     template.resources.hp = { base: 50, perLevel: 0, perAttribute: { willpower: 10 } };
     const lookup = createLookup(template);
-    const state = createWorldV2({ templateId: "test", playerName: "测试者", seed: 42 }, template, "w-custom");
+    const state = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed: 42 }, template, "w-custom");
     expect(state.player.hp).toBe(80);
     expect(state.player.attributes.willpower).toBe(3);
 
@@ -680,7 +681,7 @@ describe("V2 引擎 · 事件轮次", () => {
       settle: { combat: { enemies: [{ ref: "enemy-x", levelScale: 1 }] } },
     });
     const lookup = createLookup(template);
-    const state = createWorldV2({ templateId: "test", playerName: "测试者", seed: 42 }, template, "w-conflict");
+    const state = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed: 42 }, template, "w-conflict");
     const res = advanceTurnV2(state, { action: { type: "patrol", description: "" } }, template, lookup);
 
     // 第一场战斗（action-hook）生效
@@ -714,7 +715,7 @@ describe("V2 引擎 · 事件轮次", () => {
       },
     ];
     const lookup = createLookup(template);
-    const state = createWorldV2({ templateId: "test", playerName: "测试者", seed: 42 }, template, "w-priority");
+    const state = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed: 42 }, template, "w-priority");
     // 注入 active 链，使 nextTurn 步在本轮触发链战斗
     state.chains.push({ id: "chain-test", stepIndex: 0, status: "active", startedTurn: 0 });
 
@@ -739,7 +740,7 @@ describe("V2 引擎 · 事件轮次", () => {
       settle: { combat: { enemies: [{ ref: "enemy-x", levelScale: 1 }] } },
     });
     const lookup = createLookup(template);
-    const state = createWorldV2({ templateId: "test", playerName: "测试者", seed: 42 }, template, "w-sched");
+    const state = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed: 42 }, template, "w-sched");
     const res = advanceTurnV2(state, { action: { type: "patrol", description: "" } }, template, lookup);
 
     // schedule 战斗（时间触发）优先于 action-hook 战斗抢占槽位
@@ -789,7 +790,7 @@ describe("V2 引擎 · 事件轮次", () => {
       },
     ];
     const lookup = createLookup(template);
-    const state = createWorldV2({ templateId: "test", playerName: "测试者", seed: 42 }, template, "w-normal-prio");
+    const state = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed: 42 }, template, "w-normal-prio");
     state.chains.push({ id: "chain-normal-test", stepIndex: 0, status: "active", startedTurn: 0 });
 
     const res = advanceTurnV2(state, { action: { type: "patrol", description: "" } }, template, lookup);
@@ -828,7 +829,7 @@ describe("V2 引擎 · 事件轮次", () => {
       settle: { normal: { options: [{ id: "opt-ok", text: "继续" }] } },
     });
     const lookup = createLookup(template);
-    const state = createWorldV2({ templateId: "test", playerName: "测试者", seed: 42 }, template, "w-normal-insert");
+    const state = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed: 42 }, template, "w-normal-insert");
     // 预置遗留队列：三个同优先级 pool 事件，相对顺序需保持
     state.pendingEvents.push(
       { eventId: "ev-normal" },

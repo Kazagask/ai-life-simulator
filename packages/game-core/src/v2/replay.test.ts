@@ -4,6 +4,8 @@ import { createLookup } from "./lookup.js";
 import { advanceTurnV2, createWorldV2 } from "./turn.js";
 import { createRunnerContext } from "./runner-context.js";
 import { replay, type ReplayCommand, type ReplaySpec } from "./replay.js";
+import { createActiveWorldV2 } from "./test-utils.js";
+import { EndingGuardError } from "./ending.js";
 
 /**
  * 回放用模板：无 NPC、无战斗、无选项事件，advanceTurnV2 可连续推进而不卡
@@ -140,13 +142,28 @@ describe("T2-04 · 边界与无隐藏全局状态", () => {
   });
 });
 
-describe("T2-04 · 现有公开签名兼容（advanceTurnV2 入口未接 assertActive）", () => {
-  it("createWorldV2 三参数 / advanceTurnV2 四参数调用仍可推进；openingCompleted=false 不被门禁拒绝", () => {
+describe("T2-04 · 现有公开签名兼容（advanceTurnV2 入口已接 assertActive）", () => {
+  it("openingCompleted=false 被 NOT_ACTIVE 拒绝，且 state 逐字段不变", () => {
     const template = makeReplayTemplate();
     const lookup = createLookup(template);
     const state = createWorldV2({ templateId: "replay", playerName: "兼容", seed: 5 }, template, "w-compat");
     expect(state.openingCompleted).toBe(false);
-    // 若 T2-02 的 assertActive 被提前接入，此推进会抛 NOT_ACTIVE 而失败
+    const before = structuredClone(state);
+    try {
+      advanceTurnV2(state, { action: { type: "rest" } }, template, lookup);
+      throw new Error("应当被门禁拒绝");
+    } catch (err) {
+      expect(err).toBeInstanceOf(EndingGuardError);
+      expect((err as EndingGuardError).code).toBe("NOT_ACTIVE");
+    }
+    expect(state).toEqual(before);
+  });
+
+  it("状态已激活时，三参数 / 四参数调用仍可推进", () => {
+    const template = makeReplayTemplate();
+    const lookup = createLookup(template);
+    const state = createActiveWorldV2({ templateId: "replay", playerName: "兼容", seed: 5 }, template, "w-compat-active");
+    expect(state.openingCompleted).toBe(true);
     const res = advanceTurnV2(state, { action: { type: "rest" } }, template, lookup);
     expect(res.state.turnIndex).toBe(1);
   });

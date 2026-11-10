@@ -17,9 +17,9 @@
 |---|---|
 | 当前迭代 | R2.2「终止模型 + 结局评价 + 遗留能力补齐」，**已确认并进入实施（2026-11-11 05:10）** |
 | 范围 | 45 条 `ACTIVE` / 7 条 `DEFERRED`（时间穿越，转 R3）/ 6 条 `RETIRED`（Lifecycle 状态机） |
-| 进度 | `specs/iteration-2026-11-11/tasks.md`：34 个 ACTIVE 任务；阶段 0（T0-01..04）、阶段 1（T1-01/03/04）、**T2-01 / T2-03 / T2-04、T3-01..04 已验收**；剩 `T2-02`（门禁）与 `T3-05`（其完成定义中「推进被拒」并入 T2-02） |
-| 已有产出 | 差距报告 `tasks/reports/R2-GAP-ANALYSIS.md`（含 §10 R2.2 增量复核）；`docs/DECISIONS.md` ADR-0004（已接受）；`specs/data/TEMPLATE_PROTOCOL_V2.md` V2.1（§16–§20）；`CORE_ENGINE.md §8` 已标注取代；V1 引擎与类型已于 04:01 下线，仅保留 V2 共用 `rng.ts`；**V2 实现已固化为基线提交 `f8206ca`**；T2-01 终止模型三字段 + `assertActive()` / 幂等 `markTerminated()`；T2-03 静态边界检查、T2-04 `RunnerContext` + 同 seed 回放夹具；**阶段 3 开局分域**（`schema/opening.ts`、`event-instance.ts`、`v2/opening.ts` 的 `drawOpeningEvents` / `runOpening` / `handoff`、server `runOpening + handoff` 接线、按 `openingId` 选择开局） |
-| 下一步 | **按用户已确认的「先建能力、最后接门禁」**：驱动 `T2-02` 把 `assertActive()` 接入 `advanceTurnV2` 入口，统一激活既有测试夹具（含 `replay()` 与 `replay.test.ts` 的兼容用例），验收 `NOT_ACTIVE` / `TERMINATED` 两条拒绝路径与 dev 首轮推进；随后勾选 `T3-05`，再进入阶段 4（Ending / Evaluation / Archive） |
+| 进度 | `specs/iteration-2026-11-11/tasks.md`：34 个 ACTIVE 任务；**阶段 0（T0-01..04）、阶段 1（T1-01/03/04）、阶段 2（T2-01..04）、阶段 3（T3-01..05）已全部验收**；下一任务 `T4-01`（阶段 4） |
+| 已有产出 | 差距报告 `tasks/reports/R2-GAP-ANALYSIS.md`（含 §10 R2.2 增量复核）；`docs/DECISIONS.md` ADR-0004（已接受）；`specs/data/TEMPLATE_PROTOCOL_V2.md` V2.1（§16–§20）；`CORE_ENGINE.md §8` 已标注取代；V1 引擎与类型已于 04:01 下线，仅保留 V2 共用 `rng.ts`；**V2 实现已固化为基线提交 `f8206ca`**；T2-01 终止模型三字段 + `assertActive()` / 幂等 `markTerminated()`；T2-03 静态边界检查、T2-04 `RunnerContext` + 同 seed 回放夹具；阶段 3 开局分域（schema / `drawOpeningEvents` / `runOpening` / `handoff` / server 接线 / 按 `openingId` 选择）；**T2-02 `assertActive()` 门禁已接入 `advanceTurnV2` 入口**，配 `test-utils.ts` 统一激活夹具与 `guard.test.ts` |
+| 下一步 | 进入 **阶段 4（Ending / Evaluation / Archive）**，从 `T4-01` 起按 tasks.md 顺序施工。**两项必须在该阶段承接的遗留**：① `T2-02` 完成定义中的「终止条件命中先结算完当前事件再落 `termination`」属 T4；② 门禁目前只在 `advanceTurnV2`，`chooseOptionV2` / `battleActionV2` / `useItemV2` 尚未加门禁，已终止/已归档世界仍可能经这些入口写状态，须补齐统一门禁 |
 | 待决问题 | `docs/OPEN_QUESTIONS.md`（未决项不得自行伪造共识） |
 
 > 状态会变。每轮迭代收尾时**只更新本表**，不要在别处另建第二份状态。
