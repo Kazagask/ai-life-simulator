@@ -12,3 +12,4 @@ export * from "./status-effect.js";
 export * from "./npc-action.js";
 export * from "./event.js";
 export * from "./world.js";
+export * from "./ending.js";

@@ -101,6 +101,9 @@ export function createWorldV2(
     battle: null,
     lastWheel: null,
     history: [],
+    openingCompleted: false,
+    termination: null,
+    archived: false,
   };
   state.player.hp = maxHp(state.player, template);
   state.player.mp = maxMp(state.player, template);

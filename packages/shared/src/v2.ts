@@ -11,6 +11,7 @@ import type {
   StatusEffect,
   TimeAmount,
   WorldTemplateV2,
+  TerminationRecord,
 } from "./schema/index.js";
 
 /**
@@ -165,6 +166,12 @@ export interface WorldStateV2 {
   /** 最近一次转盘结果（持久化到状态，供刷新后回放） */
   lastWheel: WheelResultView | null;
   history: HistoryEntryV2[];
+  /** 开局交接完成标记；false 时拒绝普通轮次推进 */
+  openingCompleted: boolean;
+  /** 唯一终止事实来源：null=运行，非 null=已终止（固化后只读） */
+  termination: TerminationRecord | null;
+  /** 归档只读标记；为真时拒绝任何状态写入 */
+  archived: boolean;
 }
 
 // ---------- 投影与命令 ----------

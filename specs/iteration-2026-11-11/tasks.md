@@ -61,7 +61,7 @@
 
 ## 3. 阶段 2 — 终止模型与门禁（R2.2：不建 Lifecycle 状态机）
 
-- [ ] **T2-01** 依赖：T1-01｜需求：R-TM-01、R-TM-03｜产出：`packages/shared/src/schema/ending.ts` 内 `TerminationRecord`、`packages/game-core/src/v2/ending.ts` 的 `markTerminated()` / `assertActive()`
+- [x] **T2-01** 依赖：T1-01｜需求：R-TM-01、R-TM-03｜产出：`packages/shared/src/schema/ending.ts` 内 `TerminationRecord`、`packages/game-core/src/v2/ending.ts` 的 `markTerminated()` / `assertActive()`
   实现 `openingCompleted`（boolean）、`termination`（`TerminationRecord | null`）、`archived`（boolean）三个并列字段；`markTerminated()` 幂等，重复调用不追加记录；**不创建 `lifecycle.ts`、不引入 `Phase` 枚举或 `PhaseTransitionLog`**。
   完成定义：正常终止 / 重复终止 / 终止后写状态三类测试通过；P2 属性成立。
 
