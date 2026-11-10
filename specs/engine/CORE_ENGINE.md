@@ -109,7 +109,13 @@ AI 不允许：
 - 读取或泄露当前观察者无权获知的秘密。
 - 决定未经过规则层验证的战斗/行动结果。
 
-## 8. 人生评价
+## 8. 人生评价（⚠️ 已由 R2.2 规格取代，2026-11-11）
+
+> **本节的 P0 早期描述不再是实现依据，保留仅作历史沿革。** 人生评价的权威规格为 `specs/data/TEMPLATE_PROTOCOL_V2.md` §18、`specs/iteration-2026-11-11/requirements.md` §D（R-EV-01..06）与 `design.md` §4 / §11；实现落点为 `packages/game-core/src/v2/life-evaluation.ts` + `packages/shared/src/schema/evaluation.ts`，由 T4-04 / T4-05 落地。
+>
+> **取代要点**：六通用维度 + 模板增删改名调权；基于过程记录（事件历史 / 选择 / 关系 / 目标）的确定性评分，结局类型仅作背景、**不得直接映射总分**；每维度 `evidenceIds[]` 必须可在本局历史解析（P6）；LLM 只组织语言、失败回退模板文本；归档后只读。
+>
+> 实施阶段**不得**按本节另建第二份评价实现，也不得继续在 `v2/projection.ts` 的 `evaluateSummaryV2` 里现算评价作为事实来源。
 
 评价不是单一分数。P0 至少生成：
 - 关键选择摘要

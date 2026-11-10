@@ -413,3 +413,65 @@ Glob `specs/data/templates/` 仅有 `jjk-2006/` 六文件；`design §13`（`des
 - 未执行 `git add / commit / checkout / reset / push`，未提交他人 WIP。
 - 除本报告与 `design.md §2`「现状盘点」表外，未新建或修改任何其它文件。
 - 报告内所有「建议」均为自然语言的最小改造方向，**不含实现代码**；需 ADR 处只提「先经 ADR 评审」的建议，不落 ADR 文本。
+
+------------------------------------------------------------------------
+
+## 10. R2.2 增量复核（T0-04，2026-11-11 05:10）
+
+> **口径**：需求集在本报告（§1–§9）产出后发生变更——6 条 `R-LC-*` 退役、6 条新需求加入。本节是**对当前基线的独立复核**，不是对 §1–§9 历史快照的修订：此时 V1 legacy 已下线、`packages/` 与 `apps/` 的 V2 实现已固化为基线提交（`f8206ca`），工作区干净。五态定义沿用 §0.3，含其「约束性需求需禁令与接线皆成立才判已实现」的注记。
+>
+> **范围**：6 条新增 ACTIVE（`R-TM-01..03` / `R-EN-07/08` / `R-CA-06`）逐条标注；6 条 `R-LC-*` 登记退役；专项核查 `design.md` §9.3 的 HP clamp 现状与 §9.2 的公有字段边界。**本节只出报告，不含代码改动，不改 ADR。** 证据行号基于当前工作区静态读取。
+
+### 10.1 六条新增需求逐条复核
+
+| 需求 | 状态 | 证据（文件:行号） | 缺口与最小改造建议 |
+|---|---|---|---|
+| **R-TM-01** 终止时固化 `TerminationRecord`、停止接收行动、当前事件结算完才落定、重复终止幂等 | **缺失** | `packages/shared/src/v2.ts:148-168`（`WorldStateV2` 无 `termination` / `openingCompleted` / `archived`）；`packages/game-core/src/v2/turn.ts:378-389`（`advanceTurnV2` 入口仅 `pending_event_required` / `battle_in_progress` 两个 guard）；`v2/battle.ts:504-509`（`finishBattle` 只回写 HP，无终止）；全仓 Grep 无 `TerminationRecord` / `markTerminated` | 按 ADR-0004 新建 `shared/src/schema/ending.ts` 定义 `TerminationRecord`（`reason/worldTime/turnIndex/endingId?/source`），在 `v2/ending.ts` 实现幂等 `markTerminated()`；终止检查只挂「事件结算后 / 时间推进后 / 玩家主动结束」三处边界，命中后先结算完当前事件再落标记（T2-01 / T4-01） |
+| **R-TM-02** 开局未完成拒绝轮次推进，`handoff` 后首轮可消费 chains 与 schedule | **缺失** | `v2.ts:148-168`（无 `openingCompleted`）；`turn.ts:38`（`createWorldV2` 只记 `templateId`）；`turn.ts:384-385`（无 `NOT_ACTIVE` 分支）；全仓无 `handoff` / `assertActive` | 三字段并列加入 `WorldStateV2`（ADR-0004 已定落点）；`handoff()` 置 `openingCompleted = true`；`advanceTurnV2` 入口调 `assertActive()`，`false` ⇒ 返回 `NOT_ACTIVE` 且世界时间/历史逐字段不变（T2-02 / T3-05） |
+| **R-TM-03** 以「运行 / 已终止」二态 + 归档只读表达结束，**不得**新增状态机 / `Phase` / `PhaseTransitionLog` / `lifecycle.ts`，阶段序列不得进入回放断言 | **部分实现** | 禁令未被违反：`packages/game-core/src/v2/` 现只有 `battle / engine / lookup / npc / projection / time / turn`（+3 个 test），无 `lifecycle.ts`；全仓 Grep 无 `Phase` / `PhaseTransitionLog` / `transition(state, to: Phase)` / `assertPhase`；`R2-GAP-ANALYSIS.md §5` 的 seam 核查也未把阶段序列纳入回放。但**验收能力未接线**：无 T2-03 静态边界检查、无 T2-04 同 seed 全链路回放夹具 | 补 T2-03 静态扫描（失败时指向具体文件，纳入 `pnpm test`）与 T2-04 回放夹具；**不得**因此新建任何阶段概念。按 §0.3 注记，禁令未违反但无用例 ⇒ 判「部分实现」而非「已实现」 |
+| **R-EN-07** 模拟中 HP ≥ 1，且 HP 不得作为终止/死亡判据 | **部分实现** | 数值侧已具备：`v2/battle.ts:405-407`（`hp <= 1` ⇒ 置 `hp = 1`、`over = "defeat"`）、`v2/battle.ts:509`（`state.player.hp = battle.over === "defeat" ? 1 : Math.max(1, battle.player.hp)`）、`v2/engine.ts:269`（资源效果 `clamp(..., 1, maxHp(...))`）、`specs/data/TEMPLATE_PROTOCOL_V2.md §10`（战斗中 HP 最低 1）。缺口：无 `ending.ts`，「HP 不作判据」的静态检查与模板侧「禁止 `hp <= 0` 条件」的校验规则均不存在；无 P9 回归用例 | **不要重复实现 clamp**。T4-01 只需静态检查 `ending.ts` 不读 HP 判死、协议 §13 增「禁止以 HP 归零为结局条件」校验规则，并补 P9 回放断言（任意结算后 `hp >= 1`） |
+| **R-EN-08** 战败 + 死亡条件 ⇒ `deathMode: event`（死亡事件走既有 chains）或 `direct`（直接结局）；两路径不改 HP、统一终止；条件不满足则继续 | **缺失** | `v2/battle.ts:504-509` 战败后仅回写 HP 便继续模拟；全仓 Grep 无 `deathMode` / `DeathRoute` / `EndingRecord` / `markTerminated`；`specs/data/templates/jjk-2006/` 仅 6 个分域 YAML，无 `endings.yaml` | T4-02 实现 `DeathRoute` 两路径并统一走 `markTerminated()`；`event` 路径复用既有 chains + 实例级 `origin` 元数据，不新增 `source` 枚举（对齐附录 A A5）；模板新增 `endings.yaml` 分域 |
+| **R-CA-06** 条件化 AI 只读公有字段，非公有字段引用在**加载期**被拒并给出字段路径 | **部分实现** | 公有字段素材已存在：`packages/shared/src/schema/common.ts:176`（`visibility: "public" \| "hidden"`）、`v2/engine.ts:340`（`effect.visibility === "public"` 才写入 `ctx.logs`）、`v2/projection.ts:14/29/125`（按 `visibility === "known"` 过滤，注释明确「敌人 `combatHints` 与 `secrets` 永不出现」）。缺口：全仓无 `PublicConditionContext` / `combat-ai.ts` / 条件化策略；模板加载期拒绝非公有字段引用的校验不存在。**风险点**：`v2/battle.ts:151` 现有敌方简单权重 AI 直接读 `def.private.combatHints.skillWeights`——这正是 R-CA-06 禁止条件化 AI 读取的私有来源，两者须明确区分 | T6-03 定义 `PublicConditionContext` 白名单（投影可见字段 + `visibility: "public"` 日志/效果 + 已公开战斗状态），Zod/协议在**加载期**拒绝 `hidden/unknown/secrets/combatHints/knownGoals` 引用并给出字段路径，静态检查 `decide()` 不接收完整 `WorldStateV2`；**不得**复用 `battle.ts:151` 的 `private` 读取路径作为条件求值输入 |
+
+**六条汇总**：已实现 0 / 部分实现 3（`R-TM-03` / `R-EN-07` / `R-CA-06`）/ 缺失 3（`R-TM-01` / `R-TM-02` / `R-EN-08`）/ 耦合 0 / 需重构 0。
+
+### 10.2 `design.md §9.3` HP clamp 现状专项核查
+
+结论：**§9.3 对现状的描述属实，三处 clamp 均成立**，`R-EN-07` 的数值不变量无需再实现。
+
+| 位置 | 现状 | 与本轮关系 |
+|---|---|---|
+| `v2/battle.ts:405-407` | `checkBattleEnd()` 在 `hp <= 1` 时置 `hp = 1` 且 `over = "defeat"` | 战斗镜像层面守住 HP 下限 |
+| `v2/battle.ts:509` | `finishBattle()` 回写 `state.player.hp = defeat ? 1 : Math.max(1, hp)` | 世界状态层面守住 HP 下限 |
+| `v2/engine.ts:269` | 资源效果 `clamp(state.player.hp + effect.value, 1, maxHp(...))` | 事件效果层面守住 HP 下限 |
+| 协议 §10 | 明写「战斗中 HP 最低打到 1（不死）；善后由胜负结算效果承担」 | 规格与实现一致 |
+
+真正缺失的不是 clamp，而是**死亡结局路径（R-EN-08）**与「HP 不得成为判据」的**校验/静态检查**。T4-01 的完成定义中「静态检查 `ending.ts` 不读取 HP 判死」应作为新增检查项，而不是改写上述 clamp。
+
+### 10.3 `design.md §9.2` 公有字段边界现状专项核查
+
+- **已具备**：`visibility` 枚举与 `public` 日志写入、`projection.ts` 的可见性过滤与「敌人私有信息不进投影」既有注释，构成 `PublicConditionContext` 的素材来源；协议 §12 条件/效果 DSL 已有声明式基础。
+- **未具备**：`PublicConditionContext` 类型本身、加载期字段白名单校验、`combat-ai.ts` 决策模块，以及「`decide()` 不接收完整 `WorldStateV2`」的静态检查。
+- **需显式隔离的既有代码**：`v2/battle.ts:151` 的 `def.private.combatHints?.skillWeights` 属于 ADR-0003 草案所述「复用现有权重选技能」的**敌方私有提示**，用于简单权重 AI；R-CA-06 约束的是**条件化 AI 的条件求值输入**。T6-03 不得把该私有读取路径包装成公有上下文，否则会把隐藏信息泄漏进决策（违反 R-NFR-04 / P7）。
+
+### 10.4 六条退役需求登记
+
+| 需求 | 状态 | 说明 |
+|---|---|---|
+| `R-LC-01` 六阶段状态机、绑定世界与开局模板 | **RETIRED，不再验收** | 由 `R-TM-01..03` 取代；不得产出 `Phase` 类型 / 合法迁移表 / `lifecycle.ts` |
+| `R-LC-02` 非法迁移拒绝、状态逐字段不变 | **RETIRED，不再验收** | 门禁语义由 `assertActive()` 承担（R-TM-02） |
+| `R-LC-03` Lifecycle 只做阶段编排、不 import 事件/时间/评分 | **RETIRED，不再验收** | 模块不存在，无需解耦；评价解耦由 `R-EV-01..06` 与 T4-04 承担 |
+| `R-LC-04` CREATED/OPENING 拒绝普通轮次推进 | **RETIRED，不再验收** | 并入 R-TM-02 的 `NOT_ACTIVE` |
+| `R-LC-05` ENDING 及之后停止接收行动、结算完成后固化 | **RETIRED，不再验收** | 并入 R-TM-01 幂等终止 |
+| `R-LC-06` 每次阶段切换写含 from/to/原因/时间/轮次的日志 | **RETIRED，不再验收** | 由单条 `TerminationRecord` 取代；不得产出 `PhaseTransitionLog` |
+
+> §2.A 的 6 行标注、§7 的 Lifecycle 改造建议与 §0.4 的 LC 统计行**仅描述 R2.1 历史快照**，自本节起不再计入验收或任务执行。
+
+### 10.5 对阶段 1 / 阶段 2 的输入
+
+1. **ADR-0004** 已在同一清场批次落盘（`docs/DECISIONS.md`，状态「已接受」），其决策覆盖本节 `R-TM-01..03` 的三字段落点、`assertActive()` 门禁、`TerminationRecord` / `DeathRoute`、HP 解耦与「否决六阶段状态机」的替代方案说明；本复核确认该 ADR 与代码缺口一致。
+2. **协议 V2.1（T1-03）** 需新增两条校验规则：§13 禁止以 `hp <= 0` / HP 归零作为结局条件（R-EN-07）；条件化 AI 条件字段白名单 + 加载期拒绝非公有引用并给出字段路径（R-CA-06）。其余开局/结局/评价/装备/战斗 AI 章节按 `design.md §12` 补齐。
+3. **T2-03 静态边界检查** 应覆盖本节的禁令项：`lifecycle.ts` / `Phase` / `PhaseTransitionLog` / `transition(state, to: Phase)` / `assertPhase`，以及 `ending.ts` 不读取 HP 判死。
+4. **不要重复实现已有的 HP clamp**（§10.2）与可见性过滤（§10.3）；本轮工作是接线、门禁与校验，不是重写。
+5. 本报告未修改任何 `packages/` / `apps/` 代码；`docs/DECISIONS.md` 的 ADR-0004 由清场批次的 T1-01 单独落盘，不属于本 T0-04 产出。
+

@@ -1,6 +1,6 @@
 # 迭代 R2 任务清单（Tasks）
 
-**版本：2026-11-11（R2.2 决策修订）｜状态：待启动｜上游：`requirements.md`、`design.md`**
+**版本：2026-11-11（R2.2 决策修订）｜状态：阶段 0/1 已完成，阶段 2 待启动（2026-11-11 05:10）｜上游：`requirements.md`、`design.md`**
 
 > **R2.1：时间穿越延期。** 阶段 7（`T7-01`～`T7-06`）与 `T1-02`（ADR-0005）整体 `DEFERRED`，编号与原文保留在文末「附录 A」，供 R3 恢复。本轮执行 34 个 ACTIVE 任务，验收 45 条 ACTIVE 需求。
 >
@@ -26,36 +26,36 @@
 
 ## 1. 阶段 0 — 审查（不修改实现代码）
 
-- [ ] **T0-01** 依赖：无｜需求：45 条 ACTIVE（审查输入）｜产出：`tasks/reports/R2-GAP-ANALYSIS.md`
+- [x] **T0-01** 依赖：无｜需求：45 条 ACTIVE（审查输入）｜产出：`tasks/reports/R2-GAP-ANALYSIS.md`
   对照 `requirements.md` 45 条 `ACTIVE` 需求与**当时工作区实际代码**，逐组输出「已实现 / 部分实现 / 缺失 / 耦合 / 需重构」五态，并更新 `design.md` §2 现状盘点表；另设一节核查 `design.md` §8 末三个接口预留点（时间穿越 seam）的现状，缺口记为 **R3 前置改造项**。
   完成定义：45 条 ACTIVE 需求全部有状态标注；7 条 `DEFERRED` 仅登记「延期」、不分析实现状态；每个「缺失」项给出最小改造建议；报告不含代码改动。
 
-- [ ] **T0-02** 依赖：T0-01｜需求：R-EV-01、R-EV-05、R-TM-03
+- [x] **T0-02** 依赖：T0-01｜需求：R-EV-01、R-EV-05、R-TM-03
   专项核查开局/结局/评价是否被错误耦合（尤其「结局类型直接映射人生评分」），以及 `evaluateSummaryV2` 与 `advanceTurnV2` 是否承担了**终止判定**职责（R2.2 后不再核查 Lifecycle 阶段职责）。（本项 03:34–03:47 执行时 V1 尚存，报告结论按当时快照理解；V1 已于 04:01 下线。）
   完成定义：结论写进 T0-01 报告，含具体文件与行号。
 
-- [ ] **T0-03** 依赖：T0-01｜需求：R-OP-06、S4 A4/A5
+- [x] **T0-03** 依赖：T0-01｜需求：R-OP-06、S4 A4/A5
   核查开局事件能否复用现有 Event Engine 与 chains/schedule，确认 `design.md` §7 C1/C2 映射无需新增栈式调度器或枚举。
   完成定义：给出「可行 / 需调整」结论与调整项；若需调整，先提 ADR 而不是直接改代码。
 
-- [ ] **T0-04（R2.2 新增）** 依赖：T0-01｜需求：R-TM-01..03、R-EN-07/08、R-CA-06｜产出：`tasks/reports/R2-GAP-ANALYSIS.md` 追加「R2.2 增量复核」一节
+- [x] **T0-04（R2.2 新增）** 依赖：T0-01｜需求：R-TM-01..03、R-EN-07/08、R-CA-06｜产出：`tasks/reports/R2-GAP-ANALYSIS.md` 追加「R2.2 增量复核」一节
   需求集在阶段 0 报告产出后发生变更：6 条 `R-LC-*` 退役、6 条新需求（TM 3 / EN 2 / CA 1）加入。逐条对**当前工作区代码**标注五态并给证据行号；另核查 `design.md` §9.3 的 HP clamp 现状与 §9.2 的公有字段边界是否已有实现。
   完成定义：6 条新增需求均有状态标注与最小改造建议；6 条退役需求登记「RETIRED，不再验收」；报告不含代码改动。
 
 ## 2. 阶段 1 — ADR 与协议修订（仍不改实现）
 
-- [ ] **T1-01** 依赖：T0-01、T0-04｜需求：R-TM-*、R-EN-07/08｜产出：`docs/DECISIONS.md` ADR-0004
+- [x] **T1-01** 依赖：T0-01、T0-04｜需求：R-TM-*、R-EN-07/08｜产出：`docs/DECISIONS.md` ADR-0004
   落盘**终止模型**决策：`openingCompleted / termination / archived` 三字段在 `WorldStateV2` 的落点、`assertActive()` 门禁对轮次管线的影响、`TerminationRecord` / `DeathRoute` 结构；**替代方案须写明「六阶段 Lifecycle 状态机」并给出否决理由**（R2.2 决策 ①）。不得改动 `DECISIONS.md` 已有的 ADR-0003「组队战斗」草案。
   完成定义：ADR 状态为「已接受」，明确对 `WorldStateV2` 与轮次管线的影响面，且编号不与 ADR-0003 冲突。
 
 - **T1-02（⛔ DEFERRED，延期至 R3，编号保留）** 依赖：—｜需求：R-TT-*（DEFERRED）
   原计划落盘 ADR-0005（时间穿越语义，R2.2 顺延后的编号）。按用户 2026-11-11 决定延期，**本轮不执行、不写 ADR**；R3 立项时从「附录 A」恢复。
 
-- [ ] **T1-03** 依赖：T1-01｜需求：R-OP-*、R-EN-*、R-EV-*、R-EQ-*、R-CA-*｜产出：`specs/data/TEMPLATE_PROTOCOL_V2.md` 修订
+- [x] **T1-03** 依赖：T1-01｜需求：R-OP-*、R-EN-*、R-EV-*、R-EQ-*、R-CA-*｜产出：`specs/data/TEMPLATE_PROTOCOL_V2.md` 修订
   新增开局 / 结局 / 评价 / 装备 / 战斗 AI 章节（**不含时间穿越**，留待 R3）；扩 §8 `items.yaml`、§13 校验清单、§14 必须覆盖的测试；模板目录新增 `opening.yaml / endings.yaml / evaluation.yaml / equipment.yaml / combat-ai.yaml` 分域约定。
   完成定义：协议新增章节均可映射到 Zod schema 草案；不出现与 ADR-0001/0002 冲突的语义。
 
-- [ ] **T1-04** 依赖：T1-01｜需求：R-EV-*、R-NFR-02｜产出：`specs/engine/CORE_ENGINE.md` §8 修订、`docs/OPEN_QUESTIONS.md` 状态更新
+- [x] **T1-04** 依赖：T1-01｜需求：R-EV-*、R-NFR-02｜产出：`specs/engine/CORE_ENGINE.md` §8 修订、`docs/OPEN_QUESTIONS.md` 状态更新
   标注人生评价由新规格取代；#9 / #11 / #13 登记为**用户已决**（决策 ③④⑤：动态补正 / HP 与死亡解耦 / 只读公有字段）、#27 ADR 编号冲突登记为**已解决**（ADR-0004 / 0005）；#21 / #22 的 NPC 死亡语义仍待决，不并入本轮。
   完成定义：仓库内不存在两份互相冲突的人生评价事实来源。
 
@@ -193,6 +193,9 @@
 7. **R2.2 决策项**：无 `lifecycle.ts` / `Phase` / 阶段日志；HP 全程 ≥ 1 且未被用作死亡判据；装备补正不写回基础属性；条件化 AI 模板不含隐藏字段引用。
 
 ## 11. 阶段 0 启动指令（可直接复制给 Coding Agent）
+
+> **执行状态（2026-11-11 05:10）：已完成。** T0-01/02/03 结论见 `tasks/reports/R2-GAP-ANALYSIS.md` §1–§9（历史快照），T0-04 增量复核见同报告 §10；T1-01（ADR-0004）、T1-03（协议 V2.1）、T1-04（CORE_ENGINE §8 / OPEN_QUESTIONS 同步）均已落盘并提交。V2 WIP 已固化为基线提交 `f8206ca`，工作区干净；下方原文的「另一 Agent 未提交 WIP」描述仅适用于当时快照。**下一阶段为 T2-01（阶段 2 终止模型与门禁）。**
+
 
 > 阅读 `specs/iteration-2026-11-11/README.md`、`requirements.md`、`design.md`、`tasks.md`，以及 `specs/DESIGN_INCREMENT_LIFECYCLE_2026-11-11.md` 与 `specs/DESIGN_INCREMENT_2026-11-10.md`。对照**当前工作区实际代码**（注意存在未提交的 v2 WIP）执行 `T0-01`～`T0-03`：输出 `tasks/reports/R2-GAP-ANALYSIS.md` 差距报告，逐条标注 **R2.2 口径 45 条 ACTIVE 需求**的实现状态（**7 条 `R-TT-*` 为 DEFERRED、6 条 `R-LC-*` 为 RETIRED，都只登记状态不分析**），另执行 `T0-04` 复核 R2.2 新增需求；核查开局/结局/评价耦合、终止判定归属与事件复用可行性，并核查 `design.md` §8 末三个接口预留点。**本阶段只交报告，不改实现代码，不写 ADR（尤其不写 ADR-0005），不重构。** 完成后按 `AGENTS.md` §4 格式汇报。
 

@@ -2,12 +2,15 @@
 
 本规格定义"AI 人生模拟器"世界模板协议 V2。模板以 YAML 创作，Zod Schema（`packages/shared/src/schema/`）为协议的可执行定义与单一事实来源。引擎不允许硬编码具体世界观，世界观专属内容只进模板不进引擎。
 
-配套决策见 `docs/DECISIONS.md` ADR-0001；待定项见 `docs/OPEN_QUESTIONS.md`。
+配套决策见 `docs/DECISIONS.md` ADR-0001（协议）、ADR-0002（时间/属性）、**ADR-0004（终止模型）**；待定项见 `docs/OPEN_QUESTIONS.md`。
+
+> **V2.1 修订（2026-11-11，R2.2 / T1-03）**：新增开局（§16）、结局与终止（§17）、人生评价（§18）、装备动态补正（§19）、战斗 AI 分层（§20）五个分域章节，并扩充 §8 物品、§13 校验与 §14 测试。**不含时间穿越、不含任何阶段状态机**：前者属 R3（ADR-0005，本轮不落盘），后者是 ADR-0004 明确否决的替代方案。新章节按追加方式编号（§16–§20），不重排既有编号，以保留报告与规格中的交叉引用。
 
 ## 1. 目标与范围
 
 - 覆盖：世界元信息与历法、角色（含自定义性别与心情）、状态栏、补正（原"异常状态"，buff/debuff 统称）、技能（战斗/通用）、物品栏、通用事件协议（普通/随机转盘/战斗）、事件链、世界事件池、交互式战斗。
-- 不覆盖：AI 叙事接口（沿用 CORE_ENGINE 的 Mock/Adapter 约定）、装备系统（物品 type 预留）、云存档。
+- 不覆盖：AI 叙事接口（沿用 CORE_ENGINE 的 Mock/Adapter 约定）、云存档、**时间穿越（R3，本轮不写配置）**、**六阶段 Lifecycle 状态机（ADR-0004 已否决）**。
+- V2.1 起覆盖：开局 Opening、结局 Ending 与模拟终止、人生评价 Evaluation、归档只读标记、装备与动态补正、战斗 AI 分层决策（§16–§20）；装备不再是「物品 type 预留」。
 - 所有随机必须走注入 seed 的 RNG，同 seed 同指令完全可复现；hidden 信息不得进入玩家可见投影。
 
 ## 2. 术语与状态分层
@@ -28,15 +31,21 @@ specs/data/templates/<world-id>/
   world.yaml        # 元信息、历法、genders、mood 档位、statusBar、属性、判定默认值
   characters.yaml   # 玩家初始、NPC、敌人角色
   skills.yaml
-  items.yaml
+  items.yaml        # 物品；V2.1 起含 type: equipment 与 dynamicModifier
   statuses.yaml     # 补正
   events.yaml       # 事件池 + 事件链
+  # —— 以下 5 个为 V2.1 新增分域（可选，按文件存在性加载）——
+  opening.yaml      # 开局模板、事件池、completionConditions、handoff
+  endings.yaml      # 终止条件、结局模板、DeathRoute
+  evaluation.yaml   # 评价维度、权重、证据规则
+  equipment.yaml    # 槽位、类别、品质、初始装备
+  combat-ai.yaml    # 战斗风格与条件化策略
 ```
 
 加载约定：
 
-- 每世界一目录；六个文件除 events 依赖其余相互独立，events 最后合并。
-- 加载顺序：`world -> characters -> skills -> items -> statuses -> events`；全部文件经 Zod 校验后聚合成 `WorldTemplateV2`。
+- 每世界一目录；前六个文件除 events 依赖其余相互独立，events 最后合并。**V2.1 的 5 个分域为可选**：未提供时该能力按模板缺省关闭，加载器按文件存在性加载，不要求所有世界一次性补齐（T8-01 负责补三世界观模板）。
+- 加载顺序：`world -> characters -> skills -> items -> statuses -> equipment -> opening -> endings -> evaluation -> combat-ai -> events`；全部文件经 Zod 校验后聚合成 `WorldTemplateV2`。新增分域的引用完整性在 events 合并前校验，确保引用断裂在加载期暴露。
 - 全库 id 唯一：同一目录内任意两个实体不得重 id；建议前缀约定 `ev-`（事件）、`chain-`（链）、`opt-`（选项）、`sk-`（技能）、`item-`（物品）、`npc-`/`enemy-`（角色）。
 - 跨文件引用完整性（实现阶段在加载器中校验）：技能的 `applyStatus[].status`、补正的 `cureConditions[].item`、事件的 `nextEventId`/`chainId`、战斗的 `enemies[].ref`、选项的 `requiresSkill` 必须指向已定义实体。
 - Schema 拒绝未知字段（strict mode），模板拼写错误在加载期暴露而非运行期。
@@ -292,7 +301,21 @@ checks:
 ```
 
 - 库存为角色级映射 `{ itemId: count }`；获取途径由事件/战斗奖励的 `grantItem` 效果提供。
-- `equipment` 类型 V0.1 预留（Schema 接受但引擎忽略装备逻辑），见 OPEN_QUESTIONS。
+- `equipment` 类型 **V2.1 起正式启用**（用户 2026-11-11 决策 ③：词条统一动态补正）。定义/实例分离：`ItemSchema` 的 equipment 分支描述**定义**（`slot` / `category` / `quality` / `dynamicModifier`），`EquipmentInstance` 只存 `itemId / ownerId / slot / stacks? / durability?`，**不存补正结果**。完整字段、preset 白名单与求值链见 §19。
+
+```yaml
+- id: item-cursed-ring
+  type: equipment
+  name: 咒缚之戒
+  slot: accessory
+  category: ring
+  quality: rare
+  dynamicModifier:
+    preset: stack-scaled           # 只允许 §10 既有 preset 白名单
+    params: { attribute: cursedEnergy, base: 2, perStack: 1 }
+    conditions:                    # 声明式条件，见 §12
+      - { status: absorbed-curses, present: true }
+```
 
 ## 9. events.yaml：事件三段式、链与池
 
@@ -481,11 +504,30 @@ Schema 层（加载即校验）：
 - 技能 `applyStatus[].status`、物品 `use[].cureStatus`、条件 `status`/`inventory`/`requiresSkill`、战斗 `enemies[].ref`、事件 `nextEventId`/`chainId`/`startEventId` 均须指向已定义实体。
 - 事件链 `startEventId` 的 `trigger.source` 必须为 `chain`。
 
+### V2.1 新增校验（加载即拒绝，错误信息须含字段路径）
+
+- **开局（§16）**：`OpeningTemplateSchema` strict；`openingId` 全库唯一；`steps[].kind` 与 `eventPools[]` 抽取字段只取白名单；`completionConditions` 非空；`handoff` 的 `pendingEvents` / `schedule` 引用完整性；**不得出现 `phase` / `stage` 字段**。
+- **结局 / 终止（§17）**：`EndingConditionSchema` 的 `type` 只取七类白名单（含 `battleDefeat`）；`combinator` 为 `AND|OR`；`terminationMode` 为 `immediate|afterSettle`；**拒绝任何以 `hp <= 0` / `hp == 0` /「HP 归零」为条件的结局声明**（R-EN-07 / P9）；`DeathRoute.deathMode` 只取 `event|direct`，`event` 路径的 `deathEventId` 必须指向已定义事件；`EndingTemplateSchema` 不含评分字段；`TerminationRecord` 由引擎固化，**模板不得声明或写入**。
+- **评价（§18）**：`EvaluationConfigSchema` strict；维度 id 唯一、权重为有限正数、`ranges` 不重叠；模板可增删改名调权但不得声明硬编码 `overall` 总分；**结局类型不得作为评分维度或权重来源**。
+- **装备（§19）**：`dynamicModifier.preset` 只取既有 preset 白名单（含 `stack-scaled`）；`params` 按 preset 形状 strict 校验；**拒绝 `modifierMode` / `static|dynamic` 二选一字段、拒绝自由表达式（任何字符串公式）、拒绝 `attributeModifiers.perStack`**（S3 #18 延期，须报可诊断错误而非静默忽略）；`slot` 必须在 `equipment.yaml` 的 `slots[]` 中。
+- **战斗 AI（§20）**：`PublicConditionContext` 字段白名单校验——条件引用只能是玩家投影可见字段、`visibility: "public"` 的日志/效果、该阵营已公开战斗状态；**加载期拒绝** `hidden` / `unknown` / `secrets` / `combatHints`（敌方私有）/ `knownGoals`（NPC 私有目标）/ 任何指向完整 `WorldStateV2` 的引用，错误信息须给出具体字段路径且不留部分初始化状态（R-CA-06）；`actionId` 必须是引擎已注册行动。
+- **跨分域**：`openingId / endingId / dimensionId / styleId / slot` 纳入全库 id 唯一校验；所有新分域均 strict mode 拒绝未知字段。
+
 ## 14. 必须覆盖的测试
 
 - JJK 示例模板六个 YAML 通过 `WorldTemplateV2Schema` 校验。
 - 非法样例被拒绝：双面均缺失的补正；未知 control 语义；未知字段；引用断裂（技能指向不存在的补正、事件指向不存在的链）；mood 区间重叠；probability 与 weight 并存。
 - 加载器引用完整性测试与 Schema 测试同套件（实现阶段补引擎测试：进战斗带入/带出转换、control OR 合并、HP 持久化、转盘 seed 复现）。
+
+### V2.1 新增测试（按需求编号）
+
+- **开局**：同 seed 抽取可复现、互斥组至多命中一个、必选必出现、`countRange` 落在区间（R-OP-04）；两个不同开局模板均加载通过（R-OP-01）；缺字段报错含路径。
+- **结局 / 终止**：七类条件与 AND/OR、`immediate` / `afterSettle` 各有测试且无半更新状态（R-EN-02/03）；三结局同时满足时 `priority` 决胜稳定、无专属命中走 `fallback`、隐藏结局未解锁不进候选（R-EN-04/05）；**`deathMode: event` / `direct` 两条路径各有测试，且都不改写 HP**（R-EN-08 / P9）；任意结算后 `state.player.hp >= 1`（R-EN-07）；`markTerminated()` 幂等与归档只读（P2/P3）。
+- **评价**：同结局不同过程得分不同、同过程不同结局得分可相近（R-EV-01/02）；每条 `evidenceIds[]` 可在本局历史解析（P6）；篡改分数的 LLM 输出被拒（R-EV-05）。
+- **装备**：模板声明 `modifierMode` / 自由表达式被拒（R-EQ-02/06）；同一装备在两份不同状态下补正值不同、穿脱前后基础属性逐字段不变（R-EQ-03/04 / P8）；`perStack` 报可诊断错误；槽位冲突被拒；同 seed 回放补正序列一致。
+- **战斗 AI**：五步可单测、候选集不含被禁止行动（R-CA-01）；三种风格至少一次决策不同（R-CA-02）；低血治疗条件命中/不命中（R-CA-03）；**引用隐藏字段的模板在加载期被拒**、非法 actionId 回退、同 seed 决策一致且上下文不含隐藏字段（R-CA-04/05/06 / P7）。
+- **静态边界**：无 `lifecycle.ts` / `Phase` / `PhaseTransitionLog` / `transition(state, to: Phase)` / `assertPhase`；`ending.ts` 不读取 HP 判死；`decide()` 不接收完整 `WorldStateV2`；`game-core` 无世界观专名常量（R-TM-03 / R-EN-07 / R-CA-06 / R-NFR-06）。
+- **LLM 失败注入**：全链路不可用时仍可到达归档只读，叙事与总结回退模板文本并记录 `summarySource: fallback`（R-EN-06 / R-NFR-03）。
 
 ## 15. 与 V1 的关系与迁移（已完成，2026-11-11）
 
@@ -494,3 +536,163 @@ Schema 层（加载即校验）：
 - **例外保留**：`game-core/src/rng.ts` 是 V2 共用的确定性 RNG（`v2/{battle,engine,npc,turn}.ts` 直接 `import "../rng.js"`），不属于 V1 遗留，继续保留并导出。
 - **验收**：`pnpm typecheck` 0 错误；game-core 46/46、shared 23/23；web build 通过；server `/health` 与 `/api/templates` 正常。JJK YAML 与旧 `jjk.ts` 的逐行为等价对照按项目决定未单独补齐，以 V2 全量测试与运行时验证为准。
 - **沿革说明**：本文件中「沿用 V1 TimeAmount 语义」「链状态机沿用 V1」以及各章「实现阶段」措辞，均为协议设计时的来源标注或实现要求，不表示 V1 代码仍存在。
+
+------------------------------------------------------------------------
+
+## 16. opening.yaml：开局（V2.1 新增）
+
+**Schema 落点**：`packages/shared/src/schema/opening.ts` → `OpeningTemplateSchema` / `OpeningRunSchema`；`EventInstanceSchema`（实例级 `origin` 元数据）落在 `schema/event-instance.ts`。全部 strict。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `openingId` / `name` / `description` | `string` | `openingId` 全库唯一，按 id 选择开局 |
+| `entryConditions` | `Condition[]` | §12 条件 DSL，选择该开局的门槛 |
+| `steps[]` | `{ id, kind: required\|optional\|branch, ref? }` | 必经/可选/分支步骤；模板可增删 |
+| `characterSetup` / `worldSetup` / `npcSetup` | `object` | 初始角色、世界、NPC；关系须带 `source`，**未声明关系不得默认为相识** |
+| `eventPools[]` | `{ id, countRange, exclusiveGroup?, sequence?, seed?, events[] }`；`events[]` 每项含 `id / tags[] / weight / conditions[] / required / effects[] / nextEvents[]` | 抽取字段白名单；不提供自定义表达式 |
+| `objectives` / `choices` | `object` | 初始目标与关键节点玩家选择 |
+| `completionConditions` | `Condition[]` | 满足才允许 `handoff()` |
+| `handoff` | `{ pendingEvents: eventId[], schedule: object[] }` | 未完成即时事件与未来事件的去向 |
+
+```yaml
+- openingId: op-2006-tokyo
+  name: 2006 · 东京高专
+  steps:
+    - { id: step-character, kind: required }
+    - { id: step-first-choice, kind: branch, ref: ev-first-day }
+  eventPools:
+    - id: pool-opening-random
+      countRange: [1, 3]
+      events:
+        - { id: ev-meet-senpai, tags: [campus], weight: 3, required: true }
+        - { id: ev-curse-omen,  tags: [night],  weight: 1, exclusiveGroup: omen }
+  completionConditions:
+    - { flag: openingDone, eq: true }
+  handoff:
+    pendingEvents: [ev-first-day]
+    schedule: []
+```
+
+**硬约束**
+
+- 开局事件复用统一事件系统：连续事件进现有 chains，未来/条件事件进现有 schedule；**不新增事件栈调度器、不新增 `source` 枚举**（附录 A A4/A5）。实例级 `origin: { kind: "opening", id: openingId }` 只是元数据，不参与事件类型判定。
+- `completionConditions` 满足后 `handoff()` 置 `openingCompleted = true`（ADR-0004 / R-TM-02）；**不得**产出 `phase` / `LifecycleState` / 阶段日志。
+- 同 seed + 同模板抽取结果一致；`exclusiveGroup` 至多命中一个、`required` 必出现、数量落在 `countRange`；固定主事件与随机遭遇走同一抽取管线。
+- `EventInstance` 保持 `instanceId / definitionId` 可区分（R3 穿越 seam），本轮只写 `origin`，**不引入 `EventRecord`**。
+
+## 17. endings.yaml：终止条件、结局与死亡路径（V2.1 新增）
+
+**Schema 落点**：`packages/shared/src/schema/ending.ts` → `EndingConditionSchema` / `EndingTemplateSchema` / `EndingRecordSchema` / `DeathRouteSchema` / **`TerminationRecordSchema`**（并入同文件，**不新增 `lifecycle.ts` 或 `termination.ts`**）。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `terminationConditions[]` | `{ type, params, combinator: AND\|OR, terminationMode: immediate\|afterSettle }` | `type` 七类白名单：`timeReached / characterState / objective / worldState / eventOccurred / playerRequested / battleDefeat` |
+| `endings[]` | `EndingTemplate` | `endingId / name / description / triggerConditions / priority / endingType / narrativeConfig / visibility / exclusiveGroup / fallback`；`visibility` 取 `public\|hidden`，`hidden` 结局未解锁不进候选集（R-EN-05 / R-NFR-04） |
+| `deathRoute` | `DeathRoute` | `{ deathMode: event\|direct, deathEventId?, conditions[] }`；引擎不硬编码死亡判定 |
+| `fallback` | `endingId` | 无专属命中时的兜底结局 |
+
+```yaml
+terminationConditions:
+  - { type: objective, params: { objectiveId: main }, combinator: AND, terminationMode: afterSettle }
+  - { type: battleDefeat, params: { minSeverity: fatal }, combinator: OR, terminationMode: immediate }
+deathRoute:
+  deathMode: event
+  deathEventId: ev-death-funeral       # 复用既有事件定义，不新增 source 枚举
+  conditions:
+    - { flag: fatalWound, eq: true }
+endings:
+  - endingId: end-hero
+    priority: 10
+    triggerConditions: [{ flag: mainObjectiveDone, eq: true }]
+    narrativeConfig: { source: template }
+    visibility: public
+fallback: end-ordinary
+```
+
+**硬约束**
+
+- 终止只在明确模拟边界检查（事件结算后 / 时间推进后 / 玩家主动结束），命中后**先结算完当前事件**再写 `termination`，不留半更新状态（R-TM-01 / R-EN-02）。
+- **HP 不得作为终止或死亡判据**（R-EN-07 / P9）；协议在加载期拒绝 `hp <= 0` 类条件；重伤/昏迷由模板以补正或事件效果表达，不引入「HP 归零」语义。
+- 战败（`over = "defeat"`）且死亡条件满足 ⇒ `deathMode: event` 生成模板死亡事件走既有 chains 结算后触发结局，或 `direct` 直接触发结局；两条路径都统一走 `markTerminated()`、都不改写 HP、不新增事件类型枚举；条件不满足则继续模拟（R-EN-08）。
+- `TerminationRecord`（`reason / worldTime / turnIndex / endingId? / source`）由引擎 `v2/ending.ts` 固化且幂等；模板只声明条件与结局，**不得写终止记录、不得包含评分字段**。
+- 不产出 `Phase` / `PhaseTransitionLog` / `LifecycleState` / `lifecycle.ts`（ADR-0004 否决六阶段状态机）。
+
+## 18. evaluation.yaml：人生评价（V2.1 新增）
+
+**Schema 落点**：`packages/shared/src/schema/evaluation.ts` → `EvaluationConfigSchema` / `EvaluationRecordSchema`。
+
+六通用维度（可由模板增删改名、调权）：`relationships / achievements / choices / growth / influence / regrets`；每条含 `id / label / weight / ranges / explainRules`。`EvaluationRecord` 每维度输出 `{ id, score, level, explanation, evidenceIds[] }` + `summary` + `summarySource`。
+
+```yaml
+dimensions:
+  - { id: relationships, label: 羁绊, weight: 1.0, ranges: [0, 100], explainRules: [relation-events] }
+  - { id: achievements,  label: 成就, weight: 1.2, ranges: [0, 100], explainRules: [objective-events] }
+worldSpecificDimensions:
+  - { id: cursedEnergyMastery, label: 咒力掌控, weight: 0.8, ranges: [0, 100], explainRules: [skill-events] }
+```
+
+**硬约束**
+
+- 基于过程记录（事件历史 / 选择 / 关系变化 / 目标）确定性评分；**结局类型仅作背景，不得直接映射总分**（R-EV-01/02）。
+- 每维度 `evidenceIds[]` 必须能在本局历史解析（P6）；LLM 只组织语言，不得决定分数、改写维度或证据；结构校验失败/超时回退模板文本并记 `summarySource: fallback`（R-EV-05 / R-NFR-03）。
+- 本模块是评价的**唯一事实来源**：`v2/projection.ts` 的 `evaluateSummaryV2` 现算评价由 T4-04 取代；`specs/engine/CORE_ENGINE.md §8` 已标注由本规格取代，避免仓库内出现两份互相冲突的评价事实来源。
+- 归档只读后评价不得回写结局或 `state.player`（R-EV-06 / R-AR-02 / P3）。
+
+## 19. equipment.yaml + items.yaml 扩展：装备与动态补正（V2.1 新增）
+
+**Schema 落点**：`packages/shared/src/schema/equipment.ts` + `schema/item.ts` 的 equipment 分支 → `EquipmentDefinitionSchema` / `EquipmentInstanceSchema` / `DynamicModifierSpecSchema`。
+
+| 分域 | 字段 | 说明 |
+|---|---|---|
+| `equipment.yaml` | `slots[]: { id, label, allowedCategories[], maxCount }`、`initialEquipment[]` | 槽位与初始装备 |
+| `items.yaml`（`type: equipment`） | `slot / category / quality / dynamicModifier` | 装备**定义** |
+| `EquipmentInstance`（运行时） | `itemId / ownerId / slot / stacks? / durability?` | **不存补正结果** |
+
+```yaml
+# equipment.yaml
+slots:
+  - { id: weapon,   label: 武器, allowedCategories: [blade, cursed-tool], maxCount: 1 }
+  - { id: accessory, label: 饰品, allowedCategories: [ring, charm],        maxCount: 2 }
+```
+
+**动态补正（用户决策 ③）**
+
+- 每次结算由 `evaluateDynamicModifier(spec, ctx)` 按当前状态 / 补正层数 / 条件 / 心情档位求值；`preset` 只取 §10 既有白名单（含 `stack-scaled` 的 `base + stacks * perStack`），`params` 按 preset 形状 strict 校验；**不接受自由表达式 DSL**（ADR-0001 / ADR-0002）。
+- 求值结果并入 `effectiveAttributes()` 的**运行时累加链**（基础值 → 状态补正 × 层数 → 装备动态补正 → 心情档位 → caps），**不写回 `state.player.attributes`、不写入 `EquipmentInstance`**；固定值只是「无条件、无层数」的退化 preset，走同一管线。
+- **不提供 `modifierMode: static|dynamic` 二选一**；模板声明该字段或自由表达式 ⇒ 加载期拒绝并给出字段路径（R-EQ-02/06）。
+- `attributeModifiers.perStack`（S3 #18 通用属性补正模型）本轮明确报可诊断错误，不得静默忽略。
+- 穿脱/替换经 Zod 校验槽位冲突；同 seed 回放补正序列逐次相等（R-EQ-05 / R-NFR-01 / P8）。
+
+## 20. combat-ai.yaml：战斗风格与条件化策略（V2.1 新增）
+
+**Schema 落点**：`packages/shared/src/schema/combat-ai.ts` → `CombatStyleProfileSchema` / `ConditionalStrategySchema` / `PublicConditionContextSchema`。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `styleId` | `string` | 风格标识，**仅为模板数据，引擎不得按风格名分支** |
+| `candidateFilters[]` | `ActionFilter[]` | 行动过滤参数 |
+| `scoreWeights` | `Record<actionId, number>` | 评分权重 |
+| `conditions[]` | `ConditionalStrategy[]` | 条件化策略，只引用 `PublicConditionContext` 字段 |
+
+```yaml
+- styleId: cautious
+  scoreWeights: { sk-heal: 2.0, sk-guard: 1.4, sk-attack: 0.8 }
+  conditions:
+    - when: { publicPlayerHpRatio: { lte: 0.3 } }   # 公有字段：玩家投影可见的 HP 比例
+      prefer: [sk-heal]
+```
+
+**硬约束**
+
+- 五步决策：① 规则约束（控制语义 / 资源 / CD 过滤，只用已注册 `actionId`）→ ② 候选集 → ③ 评分（`scoreWeights` + 条件化策略 + 可选注入 RNG 扰动）→ ④ 最高分选择（平局按模板决胜，默认稳定排序）→ ⑤ 交回 `v2/battle.ts` 既有结算路径；**AI 不自行写状态**（R-CA-01/05）。
+- 风格只解析为权重/过滤参数，**引擎内不得出现风格名常量或分支**（R-CA-02）。
+- 条件求值的**唯一输入**是 `PublicConditionContext` = 玩家端投影可见字段 + `visibility === "public"` 的日志/效果 + 该阵营已公开战斗状态。禁止 `hidden` / `unknown` / `secrets`、`combatHints`（敌方私有）、`knownGoals`（NPC 私有目标）、完整 `WorldStateV2` 与服务端内部状态。
+- ⚠️ **现有 `v2/battle.ts:151` 的 `def.private.combatHints?.skillWeights` 属于既有简单权重 AI 的敌方私有提示，不得被包装成条件化策略的求值输入**；否则隐藏信息会泄漏进决策（R-CA-06 / P7）。
+- 模板引用非公有字段在**加载期**由 Zod/协议校验拒绝并给出字段路径，且无部分初始化状态；运行时不得静默降级（R-CA-06）。
+- 不依赖 LLM；同 seed + 同状态 + 同模板决策一致；非法 `actionId` 被拒并回退合法候选（R-CA-04/05 / P1）。
+
+### V2.1 边界声明
+
+- 本轮**不交付**：时间穿越章节、`WorldLineRecord`、`jumpTo()`、隐秘未来事件、ADR-0005、Steins;Gate 穿越剧本，以及六阶段 Lifecycle 状态机 / `lifecycle.ts` / `PhaseTransitionLog`。
+- §16–§20 是**协议层约定**：Zod Schema 草案由 T1-03 定义、实现由阶段 3–6 落地；5 个新分域文件可选，未提供的世界不受影响。
+- 世界时间仍经 `TimeAdapter`（ADR-0002）；§16–§20 **不得写死「时间单调 / 未来事件不可撤销」假设**。`EventInstance` 的 `instanceId / definitionId` 分离、时间适配器不写死单调假设、投影按 `visibility` 过滤——三个 R3 接口预留点保持不变。
