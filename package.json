@@ -5,6 +5,7 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "dev": "pnpm --parallel --filter @life-sim/server --filter @life-sim/web dev",
+    "start": "pnpm --filter @life-sim/server start",
     "build": "pnpm typecheck && pnpm --filter @life-sim/web build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "pnpm --filter @life-sim/game-core test"

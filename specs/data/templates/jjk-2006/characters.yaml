@@ -1,0 +1,200 @@
+# JJK Demo 世界模板 · characters.yaml
+# NPC 与敌人角色；玩家由 playerTemplate + 创建输入生成。
+characters:
+  - id: npc-gojo
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 五条悟
+      age: 17
+      gender: male
+      description: 白发的天才特级术师，言行张扬，实力深不可测。
+    mood: { value: 75 }
+    attributes: { cursedEnergy: 100, intellect: 9, physique: 9, agility: 9, reputation: 90 }
+    skills: [sk-gojo-blue, sk-gojo-red, sk-domain-void]
+    statuses: [six-eyes]
+    public:
+      personality: 轻浮不定，以强者的姿态俯瞰咒术界。
+      knownGoals:
+        - 培养能改变咒术界的学生
+        - 让强者的傲慢不再主宰界内秩序
+    private:
+      knowledge: [jujutsu, missions, rumor-star-plasma]
+      goals: [become-stronger, protect-students]
+      traits: [diligent, confident, vigilant]
+      combatHints:
+        skillWeights: { sk-gojo-blue: 3, sk-gojo-red: 2, sk-domain-void: 1 }
+      secrets:
+        - 知晓世界线偏差的存在，并暗中观察它的走向
+    relationship: 0
+
+  - id: npc-geto
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 夏油杰
+      age: 17
+      gender: male
+      description: 沉静自律的高专学生，以正义自持，深受同伴信任。
+    mood: { value: 65 }
+    attributes: { cursedEnergy: 80, intellect: 8, physique: 7, agility: 6, reputation: 60 }
+    skills: [sk-gather-curses, sk-uzumaki]
+    public:
+      personality: 温和有礼，语调永远不疾不徐。
+      knownGoals:
+        - 建立由术师保护普通人的秩序
+    private:
+      knowledge: [jujutsu, missions]
+      goals: [establish-order]
+      traits: [calm, idealistic, diligent]
+      secrets:
+        - 对"非术师"的失望正在悄悄积累
+    relationship: 0
+
+  - id: npc-shoko
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 家入硝子
+      age: 17
+      gender: female
+      description: 高专的治疗师预备生，慵懒随性，烟不离手。
+    mood: { value: 55 }
+    attributes: { cursedEnergy: 60, intellect: 8, physique: 4, agility: 5, reputation: 40 }
+    public:
+      personality: 慵懒毒舌，但对同伴的伤势从不含糊。
+      knownGoals:
+        - 成为独当一面的反转术师
+    private:
+      knowledge: [jujutsu, medical]
+      goals: [become-healer]
+      traits: [lazy, caring]
+    relationship: 0
+
+  - id: npc-riko
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 天内里子
+      age: 14
+      gender: female
+      description: 被选为天元同化容器的"星浆体"，一名向往普通生活的女中学生。
+    mood: { value: 60 }
+    attributes: { cursedEnergy: 3, intellect: 6, physique: 3, agility: 4, reputation: 10 }
+    public:
+      personality: 开朗直率，珍惜平凡日常，对天元同化心有不甘。
+      knownGoals:
+        - 在天元同化之前，尽量像普通少女一样生活
+    private:
+      knowledge: [school]
+      goals: [live-ordinary-life]
+      traits: [cheerful, determined]
+    relationship: 0
+
+  - id: npc-yuta
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 乙骨忧太
+      age: 16
+      gender: male
+      description: 被五条悟寄予厚望的特级咒术师，咒力总量深不可测。
+    mood: { value: 65 }
+    attributes: { cursedEnergy: 95, intellect: 7, physique: 5, agility: 6, reputation: 70 }
+    skills: [sk-cursed-strike, sk-reverse-heal]
+    public:
+      personality: 温和腼腆，为守护同伴而战。
+      knownGoals:
+        - 保护同伴
+        - 结束夏油杰发动的百鬼夜行
+    private:
+      knowledge: [jujutsu, missions]
+      goals: [protect-comrades]
+      traits: [kind, determined]
+      combatHints:
+        skillWeights: { sk-cursed-strike: 3, sk-reverse-heal: 1 }
+    relationship: 0
+
+  # 敌人角色（供战斗事件引用；可 levelScale 缩放）
+  - id: enemy-grade2-curse
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 二级咒灵
+      age: 0
+      gender: agender
+      description: 由都市负面情绪凝成的二级咒灵，形如扭曲的兽影。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 40, intellect: 2, physique: 7, agility: 6, reputation: 0 }
+    skills: [sk-curse-bite, sk-curse-wail]
+    public:
+      personality: 只会循着恐惧捕食。
+    private:
+      combatHints:
+        skillWeights: { sk-curse-bite: 5, sk-curse-wail: 2 }
+    relationship: -100
+
+  - id: enemy-curse-larva
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 咒灵幼虫
+      age: 0
+      gender: agender
+      description: 刚成形不久的弱小咒灵，行动迟缓但数量常成群。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 15, intellect: 1, physique: 3, agility: 3, reputation: 0 }
+    skills: [sk-curse-wail]
+    public:
+      personality: 本能地畏惧咒力。
+    private:
+      combatHints:
+        skillWeights: { sk-curse-wail: 5 }
+    relationship: -100
+
+  - id: enemy-miguel
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 米格尔
+      age: 27
+      gender: male
+      description: 夏油杰雇佣的国外咒术师，以注入咒力的特制「黑绳」缠斗见长。
+    mood: { value: 60 }
+    attributes: { cursedEnergy: 18, intellect: 5, physique: 45, agility: 40, reputation: 0 }
+    skills: [sk-miguel-strike]
+    public:
+      personality: 嘴上不饶人，却信守契约。
+    private:
+      combatHints:
+        skillWeights: { sk-miguel-strike: 5 }
+    relationship: -100
+
+  - id: enemy-geto
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 夏油杰
+      age: 27
+      gender: male
+      description: 发动百鬼夜行的特级诅咒师，以咒灵操术统御万千咒灵。
+    mood: { value: 55 }
+    attributes: { cursedEnergy: 30, intellect: 8, physique: 8, agility: 7, reputation: 0 }
+    skills: [sk-gather-curses, sk-uzumaki]
+    public:
+      personality: 曾经的理想主义者，如今只剩冰冷的执念。
+    private:
+      combatHints:
+        skillWeights: { sk-gather-curses: 3, sk-uzumaki: 4 }
+    relationship: -100
+
+# 玩家初始模板（姓名由创建输入提供）
+playerTemplate:
+  identity:
+    age: 16
+    gender: female
+  mood: 60
+  attributes: { cursedEnergy: 8, intellect: 7, physique: 6, agility: 6, luck: 6, reputation: 0 }
+  skills: [sk-basic-strike, sk-cursed-speech, sk-cursed-strike, sk-reverse-heal, sk-investigation]
+  items:
+    - { itemId: item-first-aid, count: 2 }

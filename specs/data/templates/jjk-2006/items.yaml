@@ -1,0 +1,40 @@
+# JJK Demo 世界模板 · items.yaml
+# 物品：使用效果为效果 DSL；战斗内/外可用性分开声明。
+items:
+  - id: item-first-aid
+    type: consumable
+    name: 急救包
+    description: 高专配发的基础医疗包。
+    stackable: true
+    usableInBattle: true
+    usableOutsideBattle: true
+    use:
+      - { type: adjustResource, resource: hp, value: 30 }
+
+  - id: item-antidote
+    type: consumable
+    name: 净化剂
+    description: 中和轻度咒毒的药剂。
+    stackable: true
+    usableInBattle: true
+    usableOutsideBattle: true
+    use:
+      - { type: cureStatus, status: curse-poison }
+
+  - id: item-curse-tool
+    type: key
+    name: 咒具·残刃
+    description: 从咒灵巢穴回收的残破咒具，隐约有诅咒残留。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+
+  - id: item-talisman
+    type: material
+    name: 结界符纸
+    description: 布设简易结界用的消耗性符纸。
+    stackable: true
+    usableInBattle: false
+    usableOutsideBattle: true
+    use:
+      - { type: adjustMood, value: 2 }

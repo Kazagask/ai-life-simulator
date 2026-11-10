@@ -1,5 +1,7 @@
 # 世界模板数据契约草案
 
+> **V2 指引**：本文档为 V0.1 草案，保留作历史参考。现行协议以 [TEMPLATE_PROTOCOL_V2.md](./TEMPLATE_PROTOCOL_V2.md) 为准（YAML 唯一模板源，Zod Schema 见 `packages/shared/src/schema/`，决策见 `docs/DECISIONS.md` ADR-0001）。
+
 模板采用 JSON/TypeScript 数据定义；引擎不允许硬编码具体世界观。
 
 ```text

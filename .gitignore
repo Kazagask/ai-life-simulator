@@ -5,3 +5,9 @@ dist
 !.env.example
 coverage
 .DS_Store
+
+# Agent scratch / local experiment artifacts (not part of the repo)
+.codebuddy/
+.workbuddy/memory/
+test-junc/
+packages/game-core/test-output.txt

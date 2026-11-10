@@ -41,6 +41,18 @@ pnpm test
 pnpm build
 ```
 
+## 手机试玩测试包
+
+P0 Demo 已实现"创建世界 → 推进轮次 → NPC 自主行动 → 事件池/事件链 → 信息可见性 → 人生评价"闭环。
+
+```bash
+pnpm install        # 本机沙箱环境如遇 workspace 链接失败，加 --config.node-linker=hoisted
+pnpm build          # 类型检查 + 构建 web 产物到 apps/web/dist
+pnpm start          # 启动服务（默认 0.0.0.0:3000，同时托管 web 构建产物）
+```
+
+启动后手机与电脑连同一 Wi-Fi，访问 `http://<电脑局域网IP>:3000` 即可（可通过"添加到主屏幕"以独立应用方式运行）。注意存档在内存中，服务重启即清空。
+
 ## 先读这些文件
 
 1. `AGENTS.md`：所有 Coding Agent 必须遵循的工程规则。

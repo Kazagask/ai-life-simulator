@@ -8,7 +8,12 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@life-sim/shared": ["packages/shared/src/index.ts"],
+      "@life-sim/game-core": ["packages/game-core/src/index.ts"]
+    }
   },
   "include": [
     "packages/**/*.ts",

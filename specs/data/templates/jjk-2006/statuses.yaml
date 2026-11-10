@@ -1,0 +1,125 @@
+# JJK Demo 世界模板 · statuses.yaml
+# 补正（buff/debuff 统称）：单定义双面（simulation / combat，至少其一）。
+# 转换规则为引擎固定逻辑：进战斗激活 combat 面（缺省休眠不消失）；
+# 战斗结束存续 simulation 面（仅 combat 面则清除）；战斗中 duration.turns 不递减。
+statuses:
+  - id: curse-poison
+    name: 咒毒
+    description: 咒灵的毒素侵蚀身体。
+    duration: { turns: 3 }
+    stacking: refresh
+    simulation:
+      attributeModifiers: { physique: -2 }
+      moodDeltaPerTurn: -1
+      eventConditionTag: curse-poisoned
+    combat:
+      onRoundEnd:
+        - { damage: { preset: fixed, value: 3 } }
+    cureConditions:
+      - { item: item-antidote }
+    visibility: known
+
+  - id: cursed-burn
+    name: 咒火
+    description: 被咒力灼烧，持续受损。
+    duration: { turns: 2 }
+    stacking: refresh
+    simulation:
+      attributeModifiers: { physique: -1 }
+      moodDeltaPerTurn: -1
+    combat:
+      onRoundEnd:
+        - { damage: { preset: fixed, value: 4 } }
+      battleRounds: 2
+    visibility: known
+
+  - id: injured-sim
+    name: 轻伤
+    description: 身上添了几处擦伤与扭伤。
+    duration: { turns: 2 }
+    stacking: refresh
+    simulation:
+      attributeModifiers: { agility: -2 }
+      moodDeltaPerTurn: -2
+    cureConditions:
+      - { restTurns: 2 }
+    visibility: known
+
+  # ---- 仅战斗面的控制类补正（战斗结束自动清除） ----
+
+  - id: stun
+    name: 眩晕
+    description: 无法行动。
+    duration: { turns: 2 }
+    stacking: refresh
+    combat:
+      control: [cannot_act]
+      battleRounds: 1
+    visibility: known
+
+  - id: seal
+    name: 封印
+    description: 咒力被封锁，无法使用技能。
+    duration: { turns: 2 }
+    stacking: refresh
+    combat:
+      control: [cannot_use_skills]
+      battleRounds: 2
+    visibility: known
+
+  - id: bind
+    name: 束缚
+    description: 行动被咒力拘束。
+    duration: { turns: 2 }
+    stacking: refresh
+    combat:
+      control: [cannot_flee, cannot_use_items]
+      battleRounds: 2
+    visibility: known
+
+  # ---- 夏油杰的咒灵储备（代替召唤物系统的可叠层补正） ----
+
+  - id: absorbed-curses
+    name: 收集咒灵
+    description: 已吞下的咒灵储备。数量越多，旋涡的献祭威力越大。
+    duration: { turns: 5 }      # 仅 combat 面：战斗结束自动清除，符合"无召唤物系统"的临时性
+    stacking: stack
+    combat: {}                   # 纯计数储备，无战斗修正；层数由 sk-gather-curses 叠加、sk-uzumaki 献祭消耗
+    visibility: known
+
+  # ---- 隐藏补正（仅引擎可见，如敌方增益） ----
+
+  - id: enrage
+    name: 狂化
+    description: 咒灵被激怒，攻击性暴增。
+    duration: { turns: 2 }
+    stacking: refresh
+    combat:
+      damageDealt: 0.3
+      battleRounds: 2
+    visibility: hidden
+
+  # ---- 供状态栏自定义区块演示的正面补正 ----
+
+  - id: cursed-quality
+    name: 咒力质感
+    description: 你的咒力呈现出与众不同的质感。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 2 }
+    visibility: known
+
+  # ---- 五条悟的六眼（永久正面补正，双面都生效） ----
+
+  - id: six-eyes
+    name: 六眼
+    description: 五条家相传的「六眼」，能看穿咒力的流动，以近乎零损耗运转咒力。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 20, agility: 10, intellect: 10 }
+    combat:
+      hitChance: 0.2
+      damageDealt: 0.3
+    visibility: known

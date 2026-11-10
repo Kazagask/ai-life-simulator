@@ -1,0 +1,134 @@
+# JJK Demo 世界模板 · world.yaml
+# 元信息、历法、性别枚举、心情档位、状态栏、属性/资源、回复与判定默认值。
+meta:
+  id: jjk-2006
+  name: 咒术回战 · 平行世界
+  description: 2006 年，东京咒术高专。你以一名原创咒术师的身份进入这个由诅咒与术式交织的世界。
+  startYear: 2006
+  engineProtocol: v2
+
+time:
+  defaultStep: { value: 4, unit: hour }
+  lifeStageSteps:
+    childhood: { value: 1, unit: day }
+    youth: { value: 4, unit: hour }
+    adulthood: { value: 6, unit: hour }
+    elderhood: { value: 1, unit: day }
+  # 人生阶段阈值（模板可配置，替代引擎硬编码）
+  lifeStages:
+    - { id: childhood, label: 幼年, maxAge: 12 }
+    - { id: youth, label: 青年, maxAge: 29 }
+    - { id: adulthood, label: 壮年, maxAge: 59 }
+    - { id: elderhood, label: 暮年 }
+
+# 性别为世界自定义枚举（非二元），角色只能取此处 id
+genders:
+  - { id: male, label: 男 }
+  - { id: female, label: 女 }
+  - { id: femboy, label: 男娘 }
+  - { id: agender, label: 无性别 }
+  - { id: custom-heli, label: 武装直升机 }
+
+mood:
+  min: 0
+  max: 100
+  defaultValue: 60
+  bands:
+    - { id: low, label: 消沉, min: 0, max: 40, attributeModifiers: { intellect: -1 } }
+    - { id: normal, label: 平静, min: 41, max: 70, attributeModifiers: {} }
+    - { id: high, label: 高昂, min: 71, max: 100, attributeModifiers: { physique: 1 } }
+
+statusBar:
+  - { id: sb-identity, label: 基本, source: identity }
+  - { id: sb-mood, label: 心情, source: mood }
+  - { id: sb-hp, label: 生命, source: resource, key: hp }
+  - { id: sb-mp, label: 咒力, source: resource, key: mp }
+  - { id: sb-attrs, label: 属性, source: attribute, keys: [cursedEnergy, intellect, physique, agility, luck, reputation] }
+  - { id: sb-status, label: 补正, source: status }
+  - id: sb-cursed-quality
+    label: 咒力质感
+    source: custom
+    visibleWhen:
+      - { status: cursed-quality, present: true }
+
+attributes:
+  order: [cursedEnergy, intellect, physique, agility, luck, reputation]
+  defaults: { cursedEnergy: 5, intellect: 6, physique: 5, agility: 5, luck: 5, reputation: 0 }
+  caps: { cursedEnergy: 200 }
+
+# HP/MP 为共享资源池：战斗与模拟读写同一池子（见规格 10.3）
+# 上限 = base + perLevel × growthLevel + Σ perAttribute[attr] × 基础属性值
+# 初始（玩家咒力 5）→ HP 100 / MP 50；咒力成长会同步推高上限
+resources:
+  hp: { base: 75, perLevel: 10, perAttribute: { cursedEnergy: 5 } }
+  mp: { base: 40, perLevel: 5, perAttribute: { cursedEnergy: 2 } }
+
+# 回复节奏跟模拟轮次
+regen:
+  perTurn: { hp: 2, mp: 1 }
+  actions:
+    rest: { hp: 20, mp: 10 }
+
+checks:
+  opposedDefault: { attacker: agility, defender: agility, baseChance: 0.5 }
+  scaledDefault: { multiplier: 1.0 }
+
+# 玩家行动（action-hook 事件引用此处 id；rest 同时享受 regen.actions.rest 额外回复）
+actions:
+  - id: train
+    label: 修炼
+    description: 打熬咒力与体术。
+    duration: { value: 4, unit: hour }
+    effects:
+      - { type: adjustAttribute, attribute: cursedEnergy, value: 1 }
+      - { type: adjustResource, resource: mp, value: -5 }
+  - id: patrol
+    label: 巡逻
+    description: 在结界薄弱处巡逻，可能遭遇咒灵。
+    duration: { value: 4, unit: hour }
+    effects:
+      - { type: adjustFlag, id: patrolCount, value: 1 }
+  - id: study
+    label: 上课
+    description: 高专的咒理课程。
+    duration: { value: 4, unit: hour }
+    effects:
+      - { type: adjustAttribute, attribute: intellect, value: 1 }
+  - id: socialize
+    label: 交往
+    description: 与同伴相处。
+    duration: { value: 2, unit: hour }
+    effects:
+      - { type: adjustMood, value: 4 }
+  - id: rest
+    label: 休息
+    description: 回宿舍休整，恢复 HP/MP。
+    duration: { value: 8, unit: hour }
+
+# NPC 自主行动（触发式 + 效用评分；goalMatch/traitAffinity 对应角色的 private.goals/traits）
+npcActions:
+  - id: npc-train
+    summary: "{name} 独自打熬咒力。"
+    trigger: { probability: 0.25, cooldownTurns: 2 }
+    utility:
+      base: 1
+      goalMatch: [become-stronger]
+      traitAffinity: [diligent]
+    effects:
+      - { type: adjustRelation, npcId: __self__, value: 1 }
+  - id: npc-mission
+    summary: "{name} 接下了一项祓除任务。"
+    trigger: { probability: 0.2, requireKnowledge: [missions] }
+    utility:
+      base: 1
+      traitAffinity: [diligent, vigilant]
+    effects:
+      - { type: adjustFlag, id: missionsCompleted, value: 1 }
+  - id: npc-socialize
+    summary: "{name} 找同伴闲聊。"
+    trigger: { probability: 0.3 }
+    utility:
+      base: 1
+      traitAffinity: [caring, confident]
+    effects:
+      - { type: adjustRelation, npcId: __self__, value: 2 }
