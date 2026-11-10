@@ -11,7 +11,7 @@ import {
   projectSnapshotV2,
   useItemV2,
 } from "@life-sim/game-core";
-import { loadTemplates } from "./templates.js";
+import { getOpeningTemplates, loadTemplates } from "./templates.js";
 import { worldStore } from "./store.js";
 
 const app = Fastify({ logger: true });
@@ -36,6 +36,8 @@ const createWorldSchema = z.object({
   templateId: z.string().min(1),
   playerName: z.string().min(1).max(20),
   seed: z.number().int().optional(),
+  /** R-OP-01：可选，按 openingId 选择开局；省略则用默认/首个开局。 */
+  openingId: z.string().min(1).optional(),
 });
 
 const turnSchema = z.object({
@@ -66,6 +68,11 @@ app.get("/api/templates", async () => ({
     name: t.meta.name,
     description: t.meta.description,
     startYear: t.meta.startYear,
+    openings: getOpeningTemplates(t.meta.id).map((o) => ({
+      id: o.openingId,
+      name: o.name,
+      description: o.description,
+    })),
   })),
 }));
 
@@ -77,6 +84,12 @@ app.post("/api/worlds", async (request, reply) => {
   const template = templates.get(parsed.data.templateId);
   if (!template) {
     return reply.code(404).send({ error: "template_not_found", templateId: parsed.data.templateId });
+  }
+  if (
+    parsed.data.openingId !== undefined &&
+    !getOpeningTemplates(template.meta.id).some((o) => o.openingId === parsed.data.openingId)
+  ) {
+    return reply.code(404).send({ error: "opening_not_found", openingId: parsed.data.openingId });
   }
   const world = worldStore.create(parsed.data, template);
   const lookup = lookups.get(template.meta.id)!;

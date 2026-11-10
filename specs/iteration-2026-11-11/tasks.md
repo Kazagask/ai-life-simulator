@@ -1,6 +1,6 @@
 # 迭代 R2 任务清单（Tasks）
 
-**版本：2026-11-11（R2.2 决策修订）｜状态：阶段 0/1 已完成，阶段 2 待启动（2026-11-11 05:10）｜上游：`requirements.md`、`design.md`**
+**版本：2026-11-11（R2.2 决策修订）｜状态：阶段 0/1 已完成，阶段 2/3 施工中（T2-01/03/04、T3-01..04 已验收；T2-02 与 T3-05 收尾待接门禁）｜上游：`requirements.md`、`design.md`**
 
 > **R2.1：时间穿越延期。** 阶段 7（`T7-01`～`T7-06`）与 `T1-02`（ADR-0005）整体 `DEFERRED`，编号与原文保留在文末「附录 A」，供 R3 恢复。本轮执行 34 个 ACTIVE 任务，验收 45 条 ACTIVE 需求。
 >
@@ -23,6 +23,7 @@
 - **状态约定（R2.1）**：`R-TT-01..07` 及所有时间穿越任务为 `DEFERRED` —— **不执行、不验收、不计入 DoD**；编号保留供 R3 复用，清单见文末「附录 A」。
 - **状态约定（R2.2）**：`R-LC-01..06` 为 `RETIRED` —— 不执行、不验收、不计入 DoD；不得再以 `phase` / `LifecycleState` / 阶段日志作为任务产出。
 - 任务计数：共 **41 个编号** = **34 个 ACTIVE**（阶段 0–6、8）+ **7 个 DEFERRED**（T1-02、T7-01..06）。
+- **施工顺序调整（用户 2026-11-11 已确认）**：`T2-02`（`assertActive()` 门禁）从阶段 2 顺延到 `T3-05` 的 `handoff()` 之后最后接入。原因：`createWorldV2` 初始化 `openingCompleted = false`，若先接门禁，阶段 2→3 之间所有未交接世界（含 `apps/server` 运行时）都会被 `NOT_ACTIVE` 拒绝，dev 不可推进。按「先建能力、最后接门禁」保证 `main` 全程可跑；`T3-05` 完成定义中「推进请求被拒」一项随之并入 `T2-02` 验收。
 
 ## 1. 阶段 0 — 审查（不修改实现代码）
 
@@ -79,25 +80,26 @@
 
 ## 4. 阶段 3 — Opening 开局
 
-- [ ] **T3-01** 依赖：T1-03｜需求：R-OP-01、R-OP-02、R-NFR-02｜产出：`schema/opening.ts`、模板 `opening.yaml` 样例
+- [x] **T3-01** 依赖：T1-03｜需求：R-OP-01、R-OP-02、R-NFR-02｜产出：`schema/opening.ts`、模板 `opening.yaml` 样例
   定义 `OpeningTemplate` / `OpeningRun` Zod schema 与步骤模型（必经/可选/分支）。
   完成定义：缺字段模板加载报错含字段路径；两个不同开局模板加载均通过。
 
-- [ ] **T3-02** 依赖：T3-01｜需求：R-OP-04、R-OP-03｜产出：`v2/opening.ts` 事件池抽取
+- [x] **T3-02** 依赖：T3-01｜需求：R-OP-04、R-OP-03｜产出：`v2/opening.ts` 事件池抽取
   实现 tags / weight / conditions / required / countRange / exclusiveGroup / sequence / seed / effects / nextEvents 抽取。
   完成定义：同 seed 可复现、互斥组至多命中一个、必选必出现、数量落在区间（四类测试齐备）。
 
-- [ ] **T3-03** 依赖：T3-01｜需求：R-OP-05｜产出：初始化编排（角色/NPC/关系/权限/目标/装备）
+- [x] **T3-03** 依赖：T3-01｜需求：R-OP-05｜产出：初始化编排（角色/NPC/关系/权限/目标/装备）
   初始化世界状态，关系带来源，未声明关系不默认为相识。
   完成定义：Given 未声明关系的 NPC，`unknown` 且不带关系条目；信息权限按模板分级。
 
-- [ ] **T3-04** 依赖：T3-02、T0-03｜需求：R-OP-06｜产出：`schema/event-instance.ts`、`origin` 元数据接线
+- [x] **T3-04** 依赖：T3-02、T0-03｜需求：R-OP-06｜产出：`schema/event-instance.ts`、`origin` 元数据接线
   开局事件复用统一事件系统；连续事件接 chains，定时/条件事件接 schedule；静态检查无栈模块、无新增 `source` 枚举。
   完成定义：开局产出的事件与普通事件共用同一结算路径；`origin` 为 `opening + openingId`。
 
 - [ ] **T3-05** 依赖：T3-01..04、T2-01｜需求：R-OP-07、R-TM-02｜产出：`handoff()` 与 `openingCompleted` 交接
   `completionConditions` 满足后交接给模拟引擎并置 `openingCompleted = true`（不设阶段枚举）。
   完成定义：未完成即时事件与未来事件分别进入正确队列，首轮推进能消费；`openingCompleted === true` 且开局未完成时的推进请求被拒（R-TM-02）。
+  **施工顺序调整（用户 2026-11-11 已确认）**：`handoff()` / `openingCompleted` 置位、事件分流、server 接线均已完成并验收；完成定义中「开局未完成时的推进请求被拒」由 `T2-02` 的 `assertActive()` 门禁承担，故本条保持未勾选，待 `T2-02` 落地后一并勾选，以避免阶段 2/3 之间 dev 不可推进的中间态。
 
 ## 5. 阶段 4 — Ending / Evaluation / Archive
 
