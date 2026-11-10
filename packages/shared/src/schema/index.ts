@@ -13,3 +13,5 @@ export * from "./npc-action.js";
 export * from "./event.js";
 export * from "./world.js";
 export * from "./ending.js";
+export * from "./event-instance.js";
+export * from "./opening.js";

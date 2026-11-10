@@ -1,0 +1,73 @@
+# 开局分域样例（协议 V2.1 §16）。两个不同开局模板，均可经 OpeningTemplateSchema 校验。
+# 本文件放在 specs/data/examples/（不在 templates/ 下），不参与 apps/server 的模板目录遍历，
+# 仅作为协议样例与测试夹具；jjk-2006 保持六文件，走最小默认开局。
+#
+# ⚠️ 挂载提示：下列 ev-first-day / ev-meet-senpai 等为协议示意 id，jjk-2006 的 events.yaml
+# 并未定义它们。若要把本样例挂到真实世界目录，须把 steps[].ref、eventPools[].events[].id、
+# handoff.pendingEvents / schedule 全部改成该模板 events.yaml 中已定义的事件 id
+# （pendingEvents 必须是 kind: normal 的事件，否则首轮会被 event_not_normal 卡住）。
+
+- openingId: op-2006-tokyo
+  name: 2006 · 东京高专
+  description: 以高专一年级新生身份进入 2006 年的东京，从入学第一天开始。
+  entryConditions: []
+  steps:
+    - { id: step-character, kind: required }
+    - { id: step-first-choice, kind: branch, ref: ev-first-day }
+  characterSetup:
+    effects:
+      - { type: grantItem, itemId: item-talisman, count: 1 }
+  worldSetup:
+    flags: { openingDone: true }
+  npcSetup:
+    relations:
+      - { npcId: npc-gojo, value: 5, source: 入学引导 }
+    visibility:
+      npc-riko: unknown
+  eventPools:
+    - id: pool-opening-random
+      tags: [campus]
+      countRange: [1, 3]
+      seed: 2006
+      events:
+        - { id: ev-meet-senpai, tags: [campus], weight: 3, required: true }
+        - { id: ev-campus-rumor, tags: [campus], weight: 2, sequence: 1 }
+        - { id: ev-curse-omen, tags: [night], weight: 1, exclusiveGroup: omen }
+  objectives:
+    flags: { objective: 成为独当一面的术师 }
+  choices:
+    flags: { openingChoice: first-day }
+  completionConditions:
+    - { flag: openingDone, eq: true }
+  handoff:
+    pendingEvents: [ev-first-day]
+    schedule:
+      - { eventId: ev-sp-briefing, at: { value: 1, unit: day } }
+
+- openingId: op-2006-kyoto
+  name: 2006 · 京都分校
+  description: 以京都分校交流生身份开局，起始地点与初始关系不同。
+  entryConditions: []
+  steps:
+    - { id: step-character, kind: required }
+  characterSetup: {}
+  worldSetup:
+    flags: { openingDone: true }
+  npcSetup:
+    relations:
+      - { npcId: npc-geto, value: 3, source: 同窗 }
+    visibility: {}
+  eventPools:
+    - id: pool-kyoto
+      countRange: [1, 2]
+      seed: 206
+      events:
+        - { id: ev-kyoto-arrival, tags: [campus], weight: 2, required: true }
+        - { id: ev-kyoto-duel, tags: [night], weight: 1 }
+  objectives: {}
+  choices: {}
+  completionConditions:
+    - { flag: openingDone, eq: true }
+  handoff:
+    pendingEvents: []
+    schedule: []
