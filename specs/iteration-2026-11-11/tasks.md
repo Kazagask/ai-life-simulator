@@ -69,7 +69,7 @@
   在 `advanceTurnV2` 入口加 `assertActive()`：开局未完成 ⇒ `NOT_ACTIVE`，已终止/已归档 ⇒ `TERMINATED`；两者均逐字段不改状态。终止条件命中时先结算完当前事件再落 `termination`。
   完成定义：Given 开局未完成 / 已终止，推进请求被拒且世界时间与事件历史不变；现有 v2 回归测试全绿。
 
-- [ ] **T2-03** 依赖：T2-01｜需求：R-TM-03、R-NFR-05｜产出：静态边界检查（测试或脚本）
+- [x] **T2-03** 依赖：T2-01｜需求：R-TM-03、R-NFR-05｜产出：静态边界检查（测试或脚本）
   断言 `game-core/src/v2/` 无 `lifecycle.ts`、无 `Phase` / `PhaseTransitionLog`、无 `transition(state, to: Phase)` 形式导出；`game-core` 无世界观专名常量；回放断言不依赖阶段序列。
   完成定义：检查纳入 `pnpm test`，失败时报错指向具体文件。
 
