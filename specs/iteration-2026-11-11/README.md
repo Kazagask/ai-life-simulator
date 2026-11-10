@@ -1,8 +1,10 @@
 # 迭代 R2 Spec Coding 包：生命周期系统 + 遗留能力补齐
 
-**版本：2026-11-11**
+**版本：2026-11-11（R2.1 范围修订）**
 **状态：草案（待确认）** — 本包只定义「要做什么、如何验收、如何拆分」，不含实现代码，不构成对现行 ADR 的修订。
 **方法：Spec Coding** — `requirements.md`（做什么）→ `design.md`（怎么做、边界与冲突）→ `tasks.md`（按什么顺序做）。
+
+> **R2.1 变更（用户 2026-11-11 决定）：时间穿越（S2 A3）恢复为「延期，下次迭代」状态，不纳入本轮范围与验收。** 与 `specs/DESIGN_INCREMENT_2026-11-10.md` 附录 A 中 A3「下次迭代（本次不做）」及 ADR-0002「P4 单独立项」保持一致。本轮 `ACTIVE` 需求 45 条；7 条 `R-TT-*` 保留编号、原文与设计草案，状态统一为 `DEFERRED`，留作 R3 输入。
 
 > 本包是交予 Coding Agent（WorkBuddy / CodeBuddy）的下一轮输入。按 `AGENTS.md` §0 与两份源文档的共同要求：**先审查、先对齐，再实施；不要直接重构。**
 
@@ -26,17 +28,21 @@
 | 来源 | 内容 | 本轮处理 |
 |---|---|---|
 | S1 `DESIGN_INCREMENT_LIFECYCLE_2026-11-11.md` | 开局 Opening / 结局 Ending / 人生评价 Evaluation / 归档 Archive，统一归入 Lifecycle | 全部纳入（R-LC / R-OP / R-EN / R-EV / R-AR） |
-| S2 `DESIGN_INCREMENT_2026-11-10.md` 附录 A | A3 时间穿越、A10 装备系统、A11 战斗 AI 分层，均被标为「下次迭代（本次不做）」 | 全部纳入（R-TT / R-EQ / R-CA） |
+| S2 `DESIGN_INCREMENT_2026-11-10.md` 附录 A | A10 装备系统、A11 战斗 AI 分层（原标「下次迭代」） | 纳入（R-EQ / R-CA） |
+| S2 `DESIGN_INCREMENT_2026-11-10.md` 附录 A | **A3 时间穿越** | **⛔ 延期**：R-TT-01..07 状态 `DEFERRED`，R3 再立项 |
+
+延期不等于删除：时间穿越的 7 条需求、`design.md` §8 语义草案、`tasks.md` 附录 A 的任务原文全部保留，仅从本轮验收、任务执行与 ADR 清单中摘除。本轮仍需守住三个接口预留点（见 `design.md` §8 末），使 R3 不必重构。
 | S3 `docs/OPEN_QUESTIONS.md` | #9 装备词条、#13 敌人 AI 模板化、#11/#12/#16/#17/#18/#19 等 | #9/#13 随 S2 一并规格化；其余列为**关联待决项**，不纳入验收范围 |
 | S4 `AGENTS.md` / ADR-0001 / ADR-0002 / 附录 A 决策 | 工程规范与已接受决策 | 作为**硬约束**继承，不重新讨论（R-NFR） |
 
-## 3. 必须先知道的三个对齐点
+## 3. 必须先知道的四个对齐点
 
 新补充方案里有些措辞是**设计意图**，不能直接照搬成实现决策，否则会推翻已有 ADR：
 
 1. **「事件栈 / 未来事件队列」≠ 新增调度结构。** 附录 A 的 A4 已决定「保持现状：不引入事件栈，维持事件池 + chains 状态机 + `nextEventId`」。补充方案 §3.5 的意图应映射到现有 chains 状态机（当前连续事件）与 schedule 事件（未来触发），详见 `design.md` §7。
 2. **「来源 `opening`」≠ 新增事件类型枚举。** A5 已决定「语义复用，不加枚举」。开局事件来源用实例级元数据 `origin` 表达，不动 `source` 枚举。
 3. **「通用基础属性 / 公式覆写」不在本轮。** ADR-0002 已决定维持纯自定义属性层与 preset 白名单、拒绝自由表达式 DSL。装备与战斗 AI 只能在既有语义上扩展。
+4. **「时间穿越延期」≠「把接口封死」。** 本轮不实现穿越、不写 ADR-0004，但新增的 `EventInstance`（`instanceId / definitionId`）、`TimeAdapter` 与可见性投影**不得写死「时间单调」假设**；具体预留点见 `design.md` §8 末。这是 R3 能低成本接入穿越的前提。
 
 ## 4. 硬约束（继承自 S4，不可协商）
 
@@ -49,13 +55,14 @@
 
 ## 5. 交给 Coding Agent 的读法
 
-1. 通读本包四件套与两份原文，对照**当前工作区代码**（不是仅对照旧 spec）输出差距报告。
-2. 差距报告确认后，按 `design.md` §12 先落 ADR 与协议修订，再按 `tasks.md` 阶段 2 起实施。
+1. 通读本包四件套与两份原文，对照**当前工作区代码**（不是仅对照旧 spec）输出差距报告；差距分析只覆盖 45 条 `ACTIVE` 需求，7 条 `DEFERRED` 仅登记状态、不分析实现。
+2. 差距报告确认后，按 `design.md` §12 先落 **ADR-0003**（ADR-0004 已随穿越延期）与协议修订，再按 `tasks.md` 阶段 2 起实施。
 3. 每完成一个任务，按其「完成定义」自验；汇报格式遵循 `AGENTS.md` §4（改动摘要 / 关键决策 / 命令与结果 / 未完成项 / 是否改了 Spec）。
 4. 不确定的产品规则写进 `docs/OPEN_QUESTIONS.md`，**不要自行伪造共识**。
 
 ## 6. 边界声明
 
-- 本包**新增文件**，不修改 `specs/data/TEMPLATE_PROTOCOL_V2.md`、`specs/engine/CORE_ENGINE.md`、`docs/DECISIONS.md` 或任何 `packages/` / `apps/` 代码。协议与 ADR 的修订由实施阶段按 `tasks.md` 阶段 1 完成。
+- 本包**新增文件**，不修改 `specs/data/TEMPLATE_PROTOCOL_V2.md`、`specs/engine/CORE_ENGINE.md`、`docs/DECISIONS.md` 或任何 `packages/` / `apps/` 代码。协议与 ADR 的修订由实施阶段按 `tasks.md` 阶段 1 完成；本轮协议修订**不含时间穿越章节**，**不落盘 ADR-0004**。
+- 本轮**不交付**：时间穿越、`WorldLineRecord`、`jumpTo()`、隐秘未来事件、ADR-0004 与 Steins;Gate 穿越剧本。`tasks.md` 阶段 7 与 T1-02 已转入文末「附录 A：R3 延期任务」。
 - 本包不承诺一次性做出复杂结局演出；目标是可配置、可测试、可扩展的骨架（补充方案 §九末段）。
 - 本包落盘时，工作区存在另一 Agent 的 v2 实现 WIP（未提交）；两者文件不交叠，但**同一时刻只应有一个 Agent 写 `packages/`**。
