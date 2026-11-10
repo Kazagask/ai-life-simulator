@@ -17,9 +17,9 @@
 |---|---|
 | 当前迭代 | R2.2「终止模型 + 结局评价 + 遗留能力补齐」，**已确认并进入实施（2026-11-11 05:10）** |
 | 范围 | 45 条 `ACTIVE` / 7 条 `DEFERRED`（时间穿越，转 R3）/ 6 条 `RETIRED`（Lifecycle 状态机） |
-| 进度 | `specs/iteration-2026-11-11/tasks.md`：34 个 ACTIVE 任务；**阶段 0（T0-01..04）与阶段 1（T1-01/03/04）已完成**，下一任务 `T2-01` |
-| 已有产出 | 差距报告 `tasks/reports/R2-GAP-ANALYSIS.md`（含 §10 R2.2 增量复核）；`docs/DECISIONS.md` ADR-0004（已接受）；`specs/data/TEMPLATE_PROTOCOL_V2.md` V2.1（§16–§20）；`CORE_ENGINE.md §8` 已标注取代；V1 引擎与类型已于 04:01 下线，仅保留 V2 共用 `rng.ts`；**V2 实现已固化为基线提交 `f8206ca`** |
-| 下一步 | 按 `tasks.md` 阶段 2 起实施：`T2-01`（终止模型与门禁）→ `T2-02` → `T2-03` → `T2-04`；一次一个任务，小步提交 |
+| 进度 | `specs/iteration-2026-11-11/tasks.md`：34 个 ACTIVE 任务；阶段 0（T0-01..04）、阶段 1（T1-01/03/04）与 **T2-01 已完成**（提交 `6a733d4`）；阶段 2 剩 T2-02 / T2-03 / T2-04 |
+| 已有产出 | 差距报告 `tasks/reports/R2-GAP-ANALYSIS.md`（含 §10 R2.2 增量复核）；`docs/DECISIONS.md` ADR-0004（已接受）；`specs/data/TEMPLATE_PROTOCOL_V2.md` V2.1（§16–§20）；`CORE_ENGINE.md §8` 已标注取代；V1 引擎与类型已于 04:01 下线，仅保留 V2 共用 `rng.ts`；**V2 实现已固化为基线提交 `f8206ca`**；T2-01 终止模型三字段 + `assertActive()` / 幂等 `markTerminated()` + 8 项测试 |
+| 下一步 | **待定（需选择）**：`T2-02` 把门禁接入 `advanceTurnV2` 后，`openingCompleted` 在 `T3-05` 的 `handoff()` 落地前恒为 `false`，会让测试夹具与 dev 运行时推进被 `NOT_ACTIVE` 拒绝。可选：①按 spec 顺序接门禁并统一激活测试夹具（接受中间态）；②先做 T2-03 / T2-04 与阶段 3 开局，T2-02 延后到 T3-05 之后（main 随时可跑）；③接门禁同时在 `apps/server/src/store.ts` 加「无 opening 模板视为开局完成」过渡置位，T3-05 后移除 |
 | 待决问题 | `docs/OPEN_QUESTIONS.md`（未决项不得自行伪造共识） |
 
 > 状态会变。每轮迭代收尾时**只更新本表**，不要在别处另建第二份状态。
