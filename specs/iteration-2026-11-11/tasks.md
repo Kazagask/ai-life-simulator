@@ -73,7 +73,7 @@
   断言 `game-core/src/v2/` 无 `lifecycle.ts`、无 `Phase` / `PhaseTransitionLog`、无 `transition(state, to: Phase)` 形式导出；`game-core` 无世界观专名常量；回放断言不依赖阶段序列。
   完成定义：检查纳入 `pnpm test`，失败时报错指向具体文件。
 
-- [ ] **T2-04** 依赖：T2-01｜需求：R-NFR-01、R-NFR-02｜产出：`RunnerContext` 注入约定与回放测试骨架
+- [x] **T2-04** 依赖：T2-01｜需求：R-NFR-01、R-NFR-02｜产出：`RunnerContext` 注入约定与回放测试骨架
   统一 rng / now / idFactory 注入；建立「同 seed 全链路回放逐字段相等」测试夹具（不含阶段序列）。
   完成定义：夹具可供阶段 3–6 复用；P1 属性有基线测试。
 

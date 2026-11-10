@@ -14,6 +14,7 @@ import type {
   WorldTemplateV2,
 } from "@life-sim/shared";
 import { createRng, deriveTurnSeed, pickWeighted, type Rng } from "../rng.js";
+import type { RunnerContext } from "./runner-context.js";
 import { amountToMinutes, createTimeAdapter, minutesToAmount } from "./time.js";
 import {
   applyEffectsV2,
@@ -39,8 +40,10 @@ export function createWorldV2(
   input: { templateId: string; playerName: string; seed?: number },
   template: WorldTemplateV2,
   worldId: string,
+  ctx?: RunnerContext,
 ): WorldStateV2 {
-  const seed = input.seed ?? Math.floor(Math.random() * 0xffffffff);
+  // 保持公开签名兼容：不传 ctx 时沿用原有默认；传入时用注入 rng 派生确定性 seed。
+  const seed = input.seed ?? (ctx ? Math.floor(ctx.rng() * 0xffffffff) : Math.floor(Math.random() * 0xffffffff));
   const pt = template.playerTemplate;
   const playerAge = pt?.identity.age ?? 16;
   const mood = pt?.mood ?? template.mood.defaultValue;
@@ -383,13 +386,16 @@ export function advanceTurnV2(
   command: { action: { type: string; description?: string }; mode?: "single" | "fast" },
   template: WorldTemplateV2,
   lookup: TemplateLookup,
+  ctx?: RunnerContext,
 ): V2TurnResult {
   if (state.pendingEvents.length > 0) throw new Error("pending_event_required");
   if (state.battle && !state.battle.over) throw new Error("battle_in_progress");
   // 清理上一场已结束的战斗（结果已回写）
   state.battle = null;
 
-  const rng = createRng(deriveTurnSeed(state.seed, state.turnIndex + 1));
+  // 未注入 ctx 时沿用原有按轮派生 seed（行为逐字段不变）；
+  // 注入时用 RunnerContext 的确定性 rng，供同 seed 全链路回放复用。
+  const rng = ctx?.rng ?? createRng(deriveTurnSeed(state.seed, state.turnIndex + 1));
   const adapter = createTimeAdapter(template);
   const action = lookup.action(command.action.type);
   const lifeStage = adapter.resolveLifeStage(state.player.age);
