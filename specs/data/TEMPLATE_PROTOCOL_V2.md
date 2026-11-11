@@ -324,22 +324,27 @@ statusBar:
 - id: ev-curse-sighting
   title: 市区咒灵目击
   narrative: 新宿方向的结界出现波动……
-  trigger:                          # 一、触发
-    source: pool                    # pool | chain | schedule | action-hook
-    conditions: [...]               # 第 12 节条件 DSL
-    probability: 0.3                # 与 weight 二选一
-    weight: 5
-    cooldownTurns: 4
-    once: false
-    priority: 10
-  kind: random                      # 二、类型：normal | random | combat
+  trigger:                          # 一、触发（R2.5 字段全集见 §9.6 / §22）
+    source: pool                    # pool | chain | schedule | action-hook（action-hook 保留旧名）
+    conditions: [...]               # 第 12 节条件 DSL；出队时做终判
+    probability: 0.3                # 与 weight 二选一（配置域只读，仅入队门控消费一次）
+    once: false                     # 配置域只读；入队门控消费
+    priority: 10                    # 配置域只读；pool 抽取排序 / 待决队列优先级
+    cooldown: { value: 4, unit: day }   # 时间维度冷却（替代已退役的 cooldownTurns）
+    timeCost: { value: 1, unit: hour }  # 可选：结算轮耗时，缺省 0（只占槽不耗时）
+    # window: { start: { value: 1, unit: day }, end: { value: 3, unit: day } }
+    # delay: { value: 2, unit: hour }   # 声明 window 或 delay 即为「延时触发」
+    # missWhen: [...]                   # 触发前提永久失效谓词；missLabel: "…"
+  kind: normal                      # 二、类型：normal | random | combat
   settle:                           # 三、结算（按 kind 分派）
-    random:
-      wheel:
-        segments:
-          - { weight: 5, label: 发现咒灵巢穴, effects: [...], nextEventId: ev-curse-investigate }
-          - { weight: 2, label: 虚惊一场, effects: [...] }
+    normal:
+      options: [...]
 ```
+
+> **退役字段**：`atTurn` / `atWorldTime` / `cooldownTurns` 在 R2.5 一律**加载期拒绝**并给出替代表达的
+> 诊断信息（`atTurn` → `window.start`；`atWorldTime` → `window.start`；`cooldownTurns` → `cooldown`）。
+> 三字段仍声明在 `EventTriggerSchema` 中仅为让错误信息可诊断、并让迁移期 TS 消费点继续编译，**模板不得使用**。
+> 技能 `cooldownTurns`（§7）与 NPC 行动 `cooldownTurns`（§9.5）是独立语义，**本轮不改**。
 
 ### 9.2 普通事件（normal）与选项出现条件
 
@@ -376,12 +381,16 @@ chains:
 ```
 
 - 链状态机沿用 V1：`pending -> active -> completed | paused | cancelled`。
-- `advanceWhen: nextTurn` 表示上一事件结算后的下一轮推进；战斗/转盘类步骤在对应 settle 完成后推进。
+- `advanceWhen: nextTurn` 表示上一事件结算后的下一轮推进（Q-R25-06 裁决**保留**：「下一轮」是槽位语义，不是时间量）；战斗/转盘类步骤在对应 settle 完成后推进。
+- `ChainStepSchema.delay?: TimeSpec`（R2.5 新增）：声明 `delay` 的步骤**不进 `pendingEvents`**，改为入延时队列（`origin: effect`、`chainId` 记录），链保持 `active`；断链判定 `evaluateChain()` 以「队列仍有该链 waiting 实例」为 active 的充分条件之一。`stepIndex` 只经 `alignChainStep()` 单一规则推进，`advanceChain` 效果不再盲目 `+1`。
 
 ### 9.4 世界事件池
 
-- 模板内全部 `source: pool` 的事件构成事件池；引擎每轮按"条件 -> 冷却/once -> 概率或权重 -> 优先级"结算（沿用 CORE_ENGINE 规则，条件在逐个结算时求值以支持同轮因果）。
-- `source: schedule` 为定时事件（`atTurn` 按轮次、`atWorldTime` 按相对世界起始的 `TimeAmount` 偏移触发）；`action-hook` 为行动钩子事件（`onActionId` 在玩家执行对应行动时触发）。
+- 模板内全部 `source: pool` 的事件构成**抽取器**：每轮一次，按「`once` / `cooldown` / `conditions` → `priority` 排序 → `probability` 逐事件掷骰或 `weight` 加权抽一」求门控。
+- **门控在候选产生时求值（入队前）**：通过者经 `enqueueCandidate()` 只进延时队列（`delay` 缺省相对 0 分钟），**不立即 `triggerEventV2`**、不产生 `pendingEvents` 条目；门控失败**不产生实例、不记错失**。
+- 六策略 `probability/weight/once/priority/conditions/onActionId` 是**配置域只读**：实例不复制任何一字段，判定一律经 `lookup.event(definitionId)` 读定义现值（R-EV-15）。`weight`/`priority` 只在 pool 抽取阶段消费，`onActionId` 只在行动命中时匹配。
+- **加载期拒绝 `source: pool` + `kind: combat`**（并提示改用 normal/random 事件的链立即步触发战斗）；抽取期保留防御性过滤。战斗会话占槽直至结束，不与「抽中 → 入队 → 延时触发」语义叠加。
+- `source: schedule` 事件在世界初始化（now=0）按 `window.start` 一次性入队；`action-hook` **保留旧名**，`onActionId` 命中玩家行动时触发：未声明 `window`/`delay` ⇒ 立即触发，声明了 ⇒ 入延时队列。完整触发契约见 §9.6 与 §22。
 
 ### 9.5 NPC 自主行动（npcActions）
 
@@ -406,6 +415,38 @@ npcActions:
 
 - NPC 运行时私有字段 `private.goals` / `private.traits` / `private.knowledge` / `private.secrets` 不进投影，仅参与效用评分与信息差约束。
 - 每个 NPC 每轮至多自主行动一次；行动结果写入 history（`npc_action` 类型，`summary` 为玩家可见摘要）。
+- 本节的 `trigger.cooldownTurns` / `duration.turns` / 技能 `cooldownTurns` 属**轮次语义**，R2.5 不改；事件触发冷却已改为时间维度 `trigger.cooldown: TimeSpec`（§9.6）。
+
+### 9.6 触发契约（R2.5：立即 / 延时、时间窗与错失）
+
+**立即 / 延时与 `source` 正交**：判据是「是否声明时间窗」——声明 `window` 或 `delay` 即延时触发，否则立即触发。`action-hook` 保留旧名，两种形态都允许。
+
+| 触发字段 | 类型 | 语义 |
+|---|---|---|
+| `window.start` | `TimeSpec` | 相对**入队时刻**的窗口起点；入队时一次性换算为绝对世界分钟固化进实例 |
+| `window.end` | `TimeSpec?` | 相对入队时刻的窗口终点；缺省 = 无限期，实例用 `hasEnd: false` 显式表达（**不用** `Infinity` / `MAX_SAFE_INTEGER` 哨兵） |
+| `delay` | `TimeSpec?` | 候选产生后入队的延迟；缺省 = 相对 0 分钟 |
+| `cooldown` | `TimeSpec?` | 时间维度冷却：`worldTime - lastFiredIndex[id].worldTime < cooldown 分钟` |
+| `timeCost` | `TimeSpec?` | 事件结算轮的 `worldTime` 增量；缺省 0（只占槽不耗时） |
+| `missWhen` | `Condition[]` | 触发前提永久失效谓词（与 `conditions` 同一 DSL）；命中即错失出队 |
+| `missLabel` | `string?` | 错失事实的人类可读标签，仅 `miss_when` 有意义 |
+| `conditions` | `Condition[]` | 出队时做**终判**；窗口内不满足 ⇒ 留队重估、零错失记录 |
+| `once` / `probability` | — | 配置域只读，**只在入队门控消费一次** |
+
+**`TimeSpec`**：本轮只有 `TimeAmount { value: 正整数, unit }` 对象形态，默认相对入队时刻。字符串字面量 / 真实公历 / 自定义纪元 / 年号渲染 / 世界时间数值上界校验均**延期到 R2.6**（`CalendarAdapter.parseTimeSpec` / `toMinutes` 仅预留 seam，加载期不做字符串解析）。世界时间标量 = **整数分钟**。
+
+**两段式判定（顺序固定不得重排）**：
+
+1. **入队门控**（候选产生时，`enqueueCandidate`）：`once` → `probability`（每候选恰好 1 次骰）→ pool 的 `conditions`。失败 ⇒ **不产生实例、不记错失**。`weight`/`priority` 只在 pool 抽取阶段消费，`onActionId` 只在行动命中时匹配。
+2. **出队判定**（`evaluateDue`）：`missWhen`（drop，`reason = miss_when`，可带 `missLabel`）→ `conditions` 终判（hold）→ `cooldown`（hold）→ fire。窗口结束仍未触发由 drain 循环头判 `window_expired`。
+
+**`MissReason` 封闭枚举**：`window_expired | miss_when`。`once_fired` / `probability_failed` 已移除——门控失败根本没入队，不构成错失。模板唯一自由度是 `missLabel`（不参与判定）。
+
+**`#36` 裁决**：窗口内 `conditions`/`cooldown` 不满足一律 **hold 留队、每次 drain 重估、零错失记录**；仅 `worldTime > window.end` 才出队并追加 `reason="window_expired"`；无 `window.end` 永不因时间过期，由显式 `missWhen` 兜底。
+
+**`#35` 裁决（加载期静态拒绝）**：同一 `onActionId` 上 ≥2 条**未声明 `window`/`delay` 的立即 `action-hook`** 直接拒载，错误信息须提示「可为后续 hook 声明 window/delay 转为延时」。延时 hook、链延时步、`schedule`、`pool` 全部豁免。
+
+**三个 drain 入口**：① `advanceTurnV2` 时间推进后（保持「链 > 时间触发」优先级）；② 任何效果推进世界时间 / `enqueueEvent` 入队后；③ 入队后队首已到期（`window.start <= worldTime`）。详见 §22。
 
 ## 10. 战斗协议
 
@@ -478,6 +519,8 @@ stack-scaled : { base, perStack, status }      base + 施放者指定补正层�
 { time: { gte|gt|lte|lt: <TimeAmount> } }            世界时间比较（相对世界起始的偏移）
 ```
 
+**`missWhen`（R2.5）**：`EventTrigger.missWhen` 复用**同一份条件 DSL**（数组内 AND），语义是「触发前提已永久失效」。引擎**不做隐式推断**（不从 `conditions` 反推依赖角色），模板必须显式声明；求值点是出队时刻、恒读定义现值。命中 ⇒ 实例 `status = "expired"` + `missedEvents` 追加 `reason = "miss_when"`（可带 `missLabel`），不再留队成为僵尸条目。与 `conditions` 的区别：`conditions` 不满足只是 hold 留队重估，`missWhen` 命中是终局丢弃。
+
 效果（声明式，引擎白名单实现）：
 
 ```text
@@ -487,8 +530,14 @@ grantItem / removeItem
 applyStatus / cureStatus       施加/解除补正（仅这三条途径可施加）
 unlockSkill / adjustProficiency / adjustGrowth
 startChain / advanceChain / cancelChain
+advanceTo / advanceBy          绝对 / 相对推进世界时间（推进后 MUST 触发一次 drain）
+enqueueEvent(eventId, delay?)  R2.5 新增：延时入队的唯一声明式通道；delay 缺省 = 相对入队时刻 0 分钟
+                              门控（once/probability）在候选产生时求值，失败不产生实例、不记错失
+                              引用未知事件 ⇒ 加载期拒绝 / 运行时抛可诊断错误，不静默吞掉
 log(visibility)                写历史记录并标注可见性
 ```
+
+> R2.6 的 `setNpcLifecycle` / `spawnNpc` 效果本轮**未实现、无消费点**，模板不得使用。
 
 ## 13. 校验规则清单
 
@@ -514,6 +563,15 @@ Schema 层（加载即校验）：
 - **战斗 AI（§20）**：`PublicConditionContext` 字段白名单校验——条件引用只能是玩家投影可见字段、`visibility: "public"` 的日志/效果、该阵营已公开战斗状态；**加载期拒绝** `hidden` / `unknown` / `secrets` / `combatHints`（敌方私有）/ `knownGoals`（NPC 私有目标）/ 任何指向完整 `WorldStateV2` 的引用，错误信息须给出具体字段路径且不留部分初始化状态（R-CA-06）；`actionId` 必须是引擎已注册行动。
 - **跨分域**：`openingId / endingId / dimensionId / styleId / slot` 纳入全库 id 唯一校验；所有新分域均 strict mode 拒绝未知字段。
 
+### R2.5 新增校验（加载即拒绝，错误信息须含字段路径与替代写法）
+
+- **退役字段**：`trigger.atTurn` / `atWorldTime` / `cooldownTurns` 一律拒绝，错误信息分别指明 `window.start` / `window.start` / `cooldown: TimeSpec`；三字段仍声明为 deprecated，仅为给出可诊断信息（防止通用 `Unrecognized key`）。
+- **`source: schedule`** 必须声明 `window.start`；**`source: pool`** 必须声明 `probability` 或 `weight` 且二者互斥；`action-hook` 必须有 `onActionId`。
+- **`source: pool` + `kind: combat`** 拒绝，并提示改用 normal/random 事件再经链立即步触发战斗（R-EV-13）。
+- **`#35` 立即 hook 唯一性**：同一 `onActionId` 上 ≥2 条**未声明 `window`/`delay`** 的立即 `action-hook` 拒载，提示「可为后续 hook 声明 window/delay 转为延时」；延时 hook / 链延时步 / schedule / pool 豁免。
+- **`enqueueEvent.eventId`** 必须指向已定义事件；`TimeSpec.value` 为整数（整数分钟口径）；`ScheduledEventInstance` strict 且不含六个配置域字段副本。
+- 存档信封 `schemaVersion` 必须为 `2`；`schemaVersion: 1` 旧档**拒载**（不自动迁移）。
+
 ## 14. 必须覆盖的测试
 
 - JJK 示例模板六个 YAML 通过 `WorldTemplateV2Schema` 校验。
@@ -530,6 +588,13 @@ Schema 层（加载即校验）：
 - **战斗 AI**：五步可单测、候选集不含被禁止行动（R-CA-01）；三种风格至少一次决策不同（R-CA-02）；低血治疗条件命中/不命中（R-CA-03）；**引用隐藏字段的模板在加载期被拒**、非法 actionId 回退、同 seed 决策一致且上下文不含隐藏字段（R-CA-04/05/06 / P7）。
 - **静态边界**：无 `lifecycle.ts` / `Phase` / `PhaseTransitionLog` / `transition(state, to: Phase)` / `assertPhase`；`ending.ts` 不读取 HP 判死；`decide()` 不接收完整 `WorldStateV2`；`game-core` 无世界观专名常量（R-TM-03 / R-EN-07 / R-CA-06 / R-NFR-06）。
 - **LLM 失败注入**：全链路不可用时仍可到达归档只读，叙事与总结回退模板文本并记录 `summarySource: fallback`（R-EN-06 / R-NFR-03）。
+
+### R2.5 新增测试（调度 / 错失 / 槽位）
+
+- **调度器**（`v2/scheduler.test.ts`）：三键排序（`start → hasEnd → end → enqueueSeq`）幂等、出队条件终判、同输入两次出队序列逐字段一致、`missWhen` drop 带 label、无 `end` 永不因时间过期、`#36` hold 零错失 + `window_expired`、门控失败零实例零错失、`pool+combat` 加载期拒绝、静态扫描实例无配置域快照、链与队列对账不断链。
+- **槽位与结算轮**（`v2/r25-acceptance.test.ts`）：结算 `turnIndex += 1` 且释放槽位后拒绝新自由行动；`timeCost` 缺省 0 / 非 0 分别断言 `worldTime` 与 `elapsed`；战斗结束算结算轮、用物品不算；同 seed 同输入含新事实层逐字段一致；玩家端投影不含 `scheduledEvents` / `eventFires` / `lastFiredIndex` / `missedEvents` 等实例层与事实层字段。
+- **效果与状态**（`v2/r25-acceptance.test.ts` / `persistence.test.ts` / `shared/r25-schema.test.ts`）：`enqueueEvent` 按 delay 固化窗口、未知事件抛可诊断错误；`advanceChain` 不盲目 `+1`；`schemaVersion=2` 存档往返、旧档拒载；`eventFires` / `missedEvents` append-only。
+- **退役字段诊断**：三类旧字段各一条加载期拒绝用例 + `#35` 三组用例（1 立即 + N 延时合法 / 2 立即拒载带提示 / 全延时合法）。
 
 ## 15. 与 V1 的关系与迁移（已完成，2026-11-11）
 
@@ -736,7 +801,7 @@ slots:
 
 ```jsonc
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,               // R2.5：1 → 2，旧档拒载
   "savedAt": "2026-11-11T13:40:00.000Z",
   "templateId": "jjk-2006",
   "templateFingerprint": "sha256:…",
@@ -744,8 +809,93 @@ slots:
 }
 ```
 
+**R2.5 新增 `WorldStateV2` 字段**（`strict` 校验逐字段要求存在，旧档因缺字段与 `schemaVersion` 双重拒载）：
+
+| 字段 | 层 | 语义 |
+|---|---|---|
+| `scheduledEvents: ScheduledEventInstance[]` | 实例层 | 延时队列，保持排序键序；`fired/expired/cancelled` 条目保留供审计 |
+| `enqueueSeqCounter: number` | 实例层 | 全局单调入队序号，`instanceId = evi-<seq>`；无 `Date`/`Math.random` |
+| `eventFires: Array<{eventId, turnIndex, worldTime}>` | 事实层 | append-only 触发日志；同 eventId 可多条 |
+| `missedEvents: MissedEventRecord[]` | 事实层 | append-only 错失日志；`reason` ∈ `window_expired \| miss_when`，可带 `label` |
+| `lastFiredIndex: Record<eventId, {turnIndex, worldTime}>` | 派生索引 | 从 `eventFires` 可重建；承接 `once` 与时间冷却的 O(1) 查询 |
+| `firedEvents: Record<eventId, number>` | 过渡期索引 | 保留给既有 `eventOccurred` 等消费点；与上面两者由 `recordFire()` **一处**写齐，R2.6 收敛 |
+
+`worldTime` 为**整数分钟**；`ScheduledEventInstance` 不含 `probability/weight/once/priority/conditions/onActionId` 任何副本，也不含 `snapshot`。`schemaVersion=1` 存档**拒绝加载**（`schema_version_mismatch: 1`，log.error 跳过、不阻断启动）；指纹由模板 YAML 运行时计算，模板改动后指纹自动变化，无需手改常量。
+
 **数据目录**（ADR-0007）：默认 `<仓库根>/data/worlds/`（按 server 模块位置解析，不依赖 cwd）；环境变量 `LIFE_SIM_DATA_DIR` 可覆盖为任意绝对路径以支持挂载；不得落在 `apps/server` 下。
 
 **模板指纹算法**：模板目录内全部 YAML 文件按文件名排序，拼接 `文件名 + "\0" + 内容`，sha256。指纹不匹配的存档**拒绝加载**（log.error 跳过，不阻断启动）。
 
-**加载拒绝条件**（四道关任一不过即拒绝该档）：`JSON.parse` 失败；`schemaVersion !== 1`；指纹不匹配；`WorldStateV2Schema.safeParse` 不通过。加载是处理不可信输入，一律 Zod 校验。
+**加载拒绝条件**（四道关任一不过即拒绝该档）：`JSON.parse` 失败；`schemaVersion !== 2`；指纹不匹配；`WorldStateV2Schema.safeParse` 不通过。加载是处理不可信输入，一律 Zod 校验。
+
+---
+
+## 22. 延时队列与调度（R2.5 新增）
+
+> 本章是 R2.5 事件模型的**规范性**章节（ADR-0010/0011）；字段写法见 §9.6、条件/效果 DSL 见 §12、加载期校验见 §13、存档字段见 §21.2。
+
+### 22.1 三层分离
+
+| 层 | 载体 | 约束 |
+|---|---|---|
+| 配置层 | `template.events[*].trigger` | 只读；六策略是配置域值，运行时经 `lookup.event(definitionId)` 读现值 |
+| 实例层 | `state.scheduledEvents: ScheduledEventInstance[]` | 有 `instanceId` / `status` / 固化窗口；**不复制任何配置域字段**，无 `snapshot` |
+| 事实层 | `state.eventFires` / `missedEvents`（+ 派生 `lastFiredIndex`） | 只追加、写入后逐字段不变（R-LM-03）；触发事实唯一写入口 `recordFire()` |
+
+`ScheduledEventInstance`：`{ instanceId, definitionId, origin, chainId?, window: {start, end?}, hasEnd, enqueuedAt, enqueueSeq, status }`；`origin.kind ∈ opening | schedule-init | effect | pool`。`status: waiting → fired | expired | cancelled`，终局条目保留在数组中供审计与 R3 回溯。
+
+### 22.2 `TimeSpec` 与窗口固化
+
+- 本轮 `TimeSpec ≡ TimeAmount { value: 整数, unit }`；**默认相对入队时刻**（#37）。`resolveTimeSpec(spec, now, calendar)` 在 `enqueueScheduled()` 时一次性换算为绝对世界分钟并固化进 `window`——后续时间前拨/回拨不影响已固化窗口（R3 穿越 seam）。
+- 字符串字面量 / 真实公历 / 自定义历 / 年号 / 世界时间数值上界**均延期 R2.6**；`CalendarAdapter` 仅预留 `parseTimeSpec` / `toMinutes` 接口形状，加载期不做字符串解析、不做数值上界拒载。
+- `window.end` 缺省 ⇒ `hasEnd: false`（`+∞`），**不用** `Infinity` / `MAX_SAFE_INTEGER` 数值哨兵；比较时 `hasEnd=false` 排在有 end 之后。
+- **例外**：`opening.yaml` 的 `handoff.schedule[].at` 语义是「相对世界起始」的偏移，与 `TimeSpec` 的「相对入队时刻」不同；交接时按**绝对世界分钟**固化，避免被交接时刻二次平移。
+
+### 22.3 排序与确定性
+
+排序键严格固定：`window.start asc → hasEnd(false = +∞，排后) → window.end asc → enqueueSeq asc`。`enqueueSeq` 全局唯一 ⇒ 全序严格、排序幂等、与插入历史无关。`instanceId` 由 `state.enqueueSeqCounter` 派生（`evi-<seq>`），不依赖注入的 `RunnerContext.idFactory`，保证 id 进存档且可重现。
+
+**RNG 消耗顺序（同 seed 序列对 R2.4b 有变更）**：① 入队门控 `probability`（每候选恰 1 次）；② pool 抽取（probability 逐事件 + weight 加权抽一）；③ drain 只可能消耗条件 DSL 内 `random` 的骰，按排序键固定顺序；hold / drop 不消耗 RNG。引擎内**禁止** `Date.now()` / `Math.random()` / 真实时间。
+
+### 22.4 入队门控 vs 出队判定
+
+```
+候选产生 → enqueueCandidate（门控：once → probability → pool conditions）
+              └ 失败：无实例、无错失记录
+              └ 通过：enqueueScheduled（固化窗口）→ state.scheduledEvents
+到点     → drainScheduledEvents（按排序键序）
+              ├ start > now                  ⇒ break
+              ├ hasEnd && now > end         ⇒ expired + miss(window_expired)
+              ├ evaluateDue:
+              │    missWhen 命中             ⇒ expired + miss(miss_when[, label])
+              │    conditions 不满足         ⇒ hold（留队、零错失）
+              │    cooldown 未过             ⇒ hold（留队、零错失）
+              │    否则                      ⇒ fired + triggerEventV2
+              └ 定义缺失                    ⇒ cancelled（不是「错失」）
+```
+
+门控失败 ≠ 错失：一条 `missedEvents` 记录必然能在 `scheduledEvents` 找到对应 `instanceId`。`MissReason` 封闭为 `window_expired | miss_when`。
+
+### 22.5 三个 drain 入口与断链保护
+
+1. `advanceTurnV2` 时间推进后（替换旧的 `resolveScheduleV2` 全模板扫描；位置不变，保持「链 > 时间触发」优先级）。
+2. 任何效果推进世界时间后（`advanceTo` / `advanceBy` 的 `timeAdvanced` 消费点：`chooseOptionV2` / `battleActionV2` / `useItemV2` / 转盘结算）。
+3. 入队后队首已到期（`delay` 缺省相对 0 分钟的 pool / `enqueueEvent` 实例）。
+
+`createWorldV2` 在 now=0 为全部 `source: schedule` 定义入队（`origin: schedule-init`）；`opening.handoff()` 真正入队（`origin: opening`）并取代旧的 `openingScheduled:*` flags 占位标记。drain 循环遍历**入队时的排序快照**，`onFire` 内新入队 / 推进时间的实例不在本轮递归 drain，而是在同一安全边界的下一轮 pass 或下一个入口消费；实例按 `status` 跳过，不会重复触发。
+
+### 22.6 槽位不变量与结算轮（#34）
+
+- 一个轮次槽位 = 「一个事件被呈现并结算」**或**「一次玩家自由行动」。事件结算 `chooseOptionV2` ⇒ `turnIndex += 1`；`worldTime += resolveTimeSpec(event.trigger.timeCost)`（缺省 0 ⇒ 不变）；`elapsed` 反映耗时。
+- 战斗结束算一次结算轮（战果占槽，`turnIndex += 1`）；战斗回合内 `battleActionV2` 不推进（ADR-0001）；**用物品 / 装备穿脱不算**结算轮。
+- 事件轮**跑完整管线**（NPC 行动 → pool 门控 → drain → 终止边界），`advanceTurnV2` 与 `chooseOptionV2` 共用同一 `runTurnTail()`；同窗多事件每个各占一轮，逐个结算。
+- `pending_event_required` 收窄为「槽位被待决事件占用 ⇒ 拒绝提交新的自由行动」；不再拦截「结算本身」。
+- `turnsPlayed` flag（≡ `turnIndex` 的冗余副本）与 `openingScheduled:*` 均已删除；模板条件改用 `time` DSL。
+
+### 22.7 `action-hook` 保留名与退役字段
+
+`source: action-hook` **不改名**（Q-R25-01）：既可为立即（`onActionId` 命中即触发），也可为延时（声明 `window` / `delay` 后入队）。退役 `atTurn` / `atWorldTime` / `cooldownTurns` 的替代表达与诊断信息见 §9.6 / §13。技能与 NPC 行动的 `cooldownTurns` 属轮次语义，**本轮不改**。`advanceWhen: nextTurn` 保留（Q-R25-06 裁决 A）。
+
+### 22.8 范围边界（R2.6）
+
+本轮**不做**：NPC 生命周期 / `setNpcLifecycle` / `spawnNpc` 消费点、真实公历与自定义纪元/年号、字符串 `TimeSpec` 字面量、世界时间数值上界校验、`eventFires` 与 `firedEvents` 双索引收敛、隐藏信息（NPC 私有字段）投影重构。
