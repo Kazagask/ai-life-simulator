@@ -19,7 +19,7 @@
 | 归档记录 `history: archived.history.map(...)` —— **全量**，随 `POST /archive` 返回 | `packages/game-core/src/v2/archive.ts` |
 | 历史写入点共 **7 处**：`battle.ts:616`（battle）、`ending.ts:368`（event）、`npc.ts:63`（npc_action）、`turn.ts:220`/`653`（event）、`turn.ts:532`/`785`（player_action） | 见左 |
 | `EventV2Schema` 没有 `visibility` 字段 —— **经用户裁决（OPEN_QUESTIONS #33）不加**：事件无隐藏语义，进轮次即公开 | `packages/shared/src/schema/event.ts` |
-| `EndingTemplateSchema.visibility` 已存在，默认 `public` | `packages/shared/src/schema/ending.ts:124` |
+| `EndingTemplateSchema` 无 `visibility` 字段（ADR-0006 删除）；隐藏结局 = `narrativeConfig.masked` 存在，`unlockConditions` 对任意结局统一门控 | `packages/shared/src/schema/ending.ts` |
 | `NpcAction` 无可见性字段 | `packages/shared/src/schema/character.ts`（行为段） |
 
 **结论**：今天的泄漏源是**结局**——`hidden` 结局有"不该让玩家看到"的语义（已有掩码投影），但它触发写入的历史条目不带可见性，而历史接口是全量。事件按用户裁决（OPEN_QUESTIONS #33）无隐藏语义，不是泄漏源。`npc_action` 的 `summary` 由模板撰写、内容是"可见行为"（NPC 秘密在 `def.secrets`，不进 summary），本轮判定其属于公开世界动态，**不分级**（登记 `OPEN_QUESTIONS` #32）。
@@ -106,14 +106,14 @@ function pushHistory(
 | 位置 | `type` | `visibility` 取值 |
 |---|---|---|
 | `battle.ts:616` | `battle` | `"public"` |
-| `ending.ts:368` | `event` | 结局 `visibility`（`hidden` → `"hidden"`） |
+| `ending.ts:368` | `event` | 结局叙事掩码（`narrativeConfig.masked` 存在 → `"hidden"`，ADR-0006） |
 | `npc.ts:63` | `npc_action` | `"public"`（本轮不分级，见 2.6） |
 | `turn.ts:220` | `event` | `"public"`（事件无隐藏语义，OPEN_QUESTIONS #33） |
 | `turn.ts:532` | `player_action` | `"public"` |
 | `turn.ts:653` | `event` | `"public"`（同上） |
 | `turn.ts:785` | `player_action` | `"public"` |
 
-**事件不加可见性字段**（2026-11-11 用户裁决，OPEN_QUESTIONS #33）：事件只要进轮次调度就必须对玩家可见，`EventV2Schema` 保持现状；"不该让玩家看到"的能力只由结局表达——`ending.ts:368` 一处按结局 `visibility` 继承即可。协议 §8 不新增事件可见性条款。
+**事件不加可见性字段**（2026-11-11 用户裁决，OPEN_QUESTIONS #33）：事件只要进轮次调度就必须对玩家可见，`EventV2Schema` 保持现状；"不该让玩家看到"的能力只由结局表达——`ending.ts:368` 一处按结局叙事掩码（`narrativeConfig.masked`，ADR-0006）继承即可。协议 §8 不新增事件可见性条款。
 
 ### 2.3 读取侧（三个出口，一个判定）
 
@@ -158,7 +158,7 @@ export function projectArchiveForPlayer(record: ArchiveRecord): ArchiveRecord & 
 
 ## 3. 持久化设计（`R-PS-01..07`）
 
-### 3.1 选型（先落 ADR-0006）
+### 3.1 选型（先落 ADR-0007）
 
 | 方案 | 优点 | 缺点 | 结论 |
 |---|---|---|---|
@@ -461,8 +461,8 @@ inventory: Array<{ itemId, name, description, count, usableOutsideBattle, usable
 
 | ADR | 主题 | 必须写清的内容 |
 |---|---|---|
-| **ADR-0006** | 存档持久化：选型与落盘格式 | 为什么不用 DB/新增依赖；信封结构与 `schemaVersion`；模板指纹的作用与代价；加载失败策略（拒绝 vs 修复）；`WorldStateV2Schema` 双维护的缓解；与 `R-AR-03` 的关系 |
-| **ADR-0007** | 时间跨度：双层时间分辨率 | 为什么不是"调大步长"；跨度内 `turnIndex` 递增语义；事件限流与 NPC 抽样；状态衰减一次结算的近似口径；combat 事件在跨度内延后的理由；对 R-EN-02 边界判定的影响 |
+| **ADR-0007** | 存档持久化：选型与落盘格式 | 为什么不用 DB/新增依赖；信封结构与 `schemaVersion`；模板指纹的作用与代价；加载失败策略（拒绝 vs 修复）；`WorldStateV2Schema` 双维护的缓解；与 `R-AR-03` 的关系（ADR-0006 已被结局可见性 DSL 化占用，2026-11-11） |
+| **ADR-0008** | 时间跨度：双层时间分辨率 | 为什么不是"调大步长"；跨度内 `turnIndex` 递增语义；事件限流与 NPC 抽样；状态衰减一次结算的近似口径；combat 事件在跨度内延后的理由；对 R-EN-02 边界判定的影响 |
 
 两个 ADR 的编号依据：ADR-0005 已被时间穿越预留（R3），不得占用。
 

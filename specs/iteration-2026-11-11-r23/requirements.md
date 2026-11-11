@@ -82,9 +82,9 @@
 - 验收：Given 一条 `visibility: "hidden"` 的历史，When 请求上述三个出口，Then 响应中均不含该条 `id`；Given 一条 `public` 记录，Then 三个出口均包含。
 - 追溯：`design.md §2.3`｜任务 `T2-02`
 
-**R-VS-03（事件驱动）** 历史记录的可见性应当只由来源语义决定：事件来源的历史条目一律 `public`（事件没有隐藏语义，OPEN_QUESTIONS #33 已裁决）；由 `visibility: "hidden"` 的**结局**触发写入的历史条目（结局揭示）应当为 `hidden`。
+**R-VS-03（事件驱动）** 历史记录的可见性应当只由来源语义决定：事件来源的历史条目一律 `public`（事件没有隐藏语义，OPEN_QUESTIONS #33 已裁决）；由**隐藏结局**（模板声明 `narrativeConfig.masked`，ADR-0006）触发写入的历史条目（结局揭示）应当为 `hidden`。
 
-- 验收：Given 任意事件被触发并写入历史，Then 该条目 `visibility === "public"`；Given 模板中 `visibility: "hidden"` 的结局命中并写入历史，Then 该条目 `visibility === "hidden"`。
+- 验收：Given 任意事件被触发并写入历史，Then 该条目 `visibility === "public"`；Given 模板声明 `narrativeConfig.masked` 的结局命中并写入历史，Then 该条目 `visibility === "hidden"`。
 - 追溯：`design.md §2.2`｜任务 `T2-01`
 
 **R-VS-04（普遍）** 归档响应应当只向玩家端下发 public 历史，并给出被隐藏条目的计数（`hiddenHistoryCount`），完整历史仅保留在服务端存档中。

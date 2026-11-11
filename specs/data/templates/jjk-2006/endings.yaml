@@ -44,9 +44,9 @@ endings:
       source: template
       title: 战殁
       summary: 你在咒灵的交锋中败下阵来。伤太重，这一次没能站起来。
-    visibility: public
 
-  # 星浆体支线：幸存（隐藏结局，需先察觉伏击才进入候选集）
+  # 星浆体支线：幸存（隐藏结局：narrativeConfig.masked 声明掩码（ADR-0006），
+  # 非空 unlockConditions 需先察觉伏击才进入候选集）
   - endingId: end-sp-aware
     name: 未言明的守护
     description: 你提前察觉了伏击，改变了本该发生的事。
@@ -60,7 +60,9 @@ endings:
       source: template
       title: 未言明的守护
       summary: 你比命运早了一步。有些名字因此没有出现在墓碑上。
-    visibility: hidden
+      masked:
+        title: 未公开的结局
+        summary: 有一个不会出现在公开名录里的结局被达成了。
     exclusiveGroup: sp-outcome
 
   - endingId: end-sp-survival
@@ -74,7 +76,6 @@ endings:
       source: template
       title: 星浆体 · 幸存
       summary: 理子活着走出了那两天。咒术界的账本上，多了一笔没人算得清的债。
-    visibility: public
     exclusiveGroup: sp-outcome
 
   - endingId: end-sp-canon
@@ -88,7 +89,6 @@ endings:
       source: template
       title: 星浆体 · 原轨
       summary: 一切按原本的轨迹走完了。你在其中，什么也没能改变。
-    visibility: public
     exclusiveGroup: sp-outcome
 
   - endingId: end-sp-decline
@@ -102,7 +102,6 @@ endings:
       source: template
       title: 星浆体 · 退场
       summary: 你说了不。往后的新闻里，那件事只剩一段短短的注脚。
-    visibility: public
     exclusiveGroup: sp-outcome
 
   # 寿终：走到时间边界时的收束
@@ -117,7 +116,6 @@ endings:
       source: template
       title: 漫长的一生
       summary: 咒术师很少活到这个年纪。你活到了，代价是把太多人送在了前面。
-    visibility: public
 
   # 主动收束：玩家自己选择停下（无其它专属结局命中时用这一条）
   - endingId: end-retire
@@ -130,7 +128,6 @@ endings:
       source: template
       title: 主动收束
       summary: 你放下了术式，把剩下的日子还给自己。
-    visibility: public
 
   # 兜底：没有专属结局命中时使用
   - endingId: end-ordinary
@@ -143,7 +140,6 @@ endings:
       source: template
       title: 平凡收束
       summary: 故事在这里停下。没有传奇，也没有遗言。
-    visibility: public
     fallback: true
 
 fallback: end-ordinary

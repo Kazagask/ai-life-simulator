@@ -133,7 +133,6 @@ function endingTemplate(id: string, overrides: Partial<EndingTemplate> = {}): En
     priority: 0,
     endingType: "neutral",
     narrativeConfig: { source: "template" },
-    visibility: "public",
     fallback: false,
     unlockConditions: [],
     ...overrides,
@@ -382,7 +381,7 @@ describe("T4-02 · resolveEnding 决胜", () => {
     const templates = [
       endingTemplate("end-public", { priority: 5 }),
       endingTemplate("end-secret", {
-        priority: 50, visibility: "hidden", unlockConditions: [flagCond("secretUnlocked", true)],
+        priority: 50, unlockConditions: [flagCond("secretUnlocked", true)],
       }),
     ];
     expect(selectEndingTemplates(state, templates, makeCtx(state)).map((t) => t.endingId)).toEqual(["end-public"]);

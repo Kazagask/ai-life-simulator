@@ -152,8 +152,9 @@ export function projectSnapshotV2(
 
 /**
  * 结局投影：只读取模板的公有叙事字段。
- * hidden 结局即便命中也不外泄 name / description（R-EN-05 / R-NFR-04），
- * 仅保留 endingId 与 visibility 供前端提示，正文替换为掩码文案。
+ * 隐藏结局（模板声明 narrativeConfig.masked，ADR-0006）即便命中也不外泄 name / description
+ * （R-EN-05 / R-NFR-04）：title/summary 按掩码配置下发（缺省回退默认掩码文案），
+ * 仅保留 endingId 与派生的 visibility 供前端提示，evidenceIds 置空。
  */
 function buildEndingView(
   termination: TerminationRecord,
@@ -179,11 +180,12 @@ function buildEndingView(
       ...base,
     };
   }
-  if (tpl.visibility === "hidden") {
+  const masked = tpl.narrativeConfig.masked;
+  if (masked) {
     return {
       endingId: tpl.endingId,
-      title: "未公开的结局",
-      summary: "有一个不会出现在公开名录里的结局被达成了。",
+      title: masked.title ?? "未公开的结局",
+      summary: masked.summary ?? "有一个不会出现在公开名录里的结局被达成了。",
       endingType: tpl.endingType,
       visibility: "hidden",
       narrativeSource: "template",

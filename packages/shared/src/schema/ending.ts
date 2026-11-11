@@ -105,12 +105,20 @@ export const NarrativeConfigSchema = z
     /** 模板回退文本（source=template 或 LLM 失败时使用） */
     title: z.string().min(1).optional(),
     summary: z.string().min(1).optional(),
+    /** 叙事掩码（ADR-0006）：存在即隐藏结局——命中后 title/summary 按此掩码下发、evidenceIds 置空；文案缺省回退引擎默认掩码 */
+    masked: z
+      .object({
+        title: z.string().min(1).optional(),
+        summary: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
 /**
  * 结局模板只负责选择与描述；strict 拒绝任何评分字段（R-EN-05）。
- * hidden 结局需 unlockConditions 满足才进候选集（R-EN-05 / R-NFR-04）。
+ * 非空 unlockConditions 必须满足才进候选集（任意结局，ADR-0006）；隐藏结局 = narrativeConfig.masked 存在。
  */
 export const EndingTemplateSchema = z
   .object({
@@ -121,7 +129,6 @@ export const EndingTemplateSchema = z
     priority: z.number().int().default(0),
     endingType: z.string().min(1).default("neutral"),
     narrativeConfig: NarrativeConfigSchema.default({ source: "template" }),
-    visibility: z.enum(["public", "hidden"]).default("public"),
     exclusiveGroup: z.string().min(1).optional(),
     fallback: z.boolean().default(false),
     unlockConditions: z.array(ConditionSchema).default([]),

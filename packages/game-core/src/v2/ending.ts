@@ -226,8 +226,8 @@ export function terminateWithEnding(
 // ---------- 结局筛选与决胜（T4-02） ----------
 
 /**
- * 按 triggerConditions / visibility / exclusiveGroup / priority 决胜，返回排序后的候选。
- * hidden 结局未满足 unlockConditions 不进候选集（R-EN-05）；同一互斥组只保留优先级最高者。
+ * 按 triggerConditions / unlockConditions / exclusiveGroup / priority 决胜，返回排序后的候选。
+ * 任意结局的非空 unlockConditions 必须满足才进候选集（ADR-0006）；同一互斥组只保留优先级最高者。
  */
 export function selectEndingTemplates(
   state: WorldStateV2,
@@ -236,7 +236,7 @@ export function selectEndingTemplates(
 ): EndingTemplate[] {
   void state;
   const candidates = templates.filter((t) => {
-    if (t.visibility === "hidden" && !checkAllConditions(t.unlockConditions, ctx)) return false;
+    if (!checkAllConditions(t.unlockConditions, ctx)) return false;
     return checkAllConditions(t.triggerConditions, ctx);
   });
   candidates.sort(

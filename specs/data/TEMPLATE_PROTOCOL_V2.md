@@ -589,7 +589,7 @@ Schema 层（加载即校验）：
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `terminationConditions[]` | `{ type, params, combinator: AND\|OR, terminationMode: immediate\|afterSettle }` | `type` 七类白名单：`timeReached / characterState / objective / worldState / eventOccurred / playerRequested / battleDefeat` |
-| `endings[]` | `EndingTemplate` | `endingId / name / description / triggerConditions / priority / endingType / narrativeConfig / visibility / exclusiveGroup / fallback`；`visibility` 取 `public\|hidden`，`hidden` 结局未解锁不进候选集（R-EN-05 / R-NFR-04） |
+| `endings[]` | `EndingTemplate` | `endingId / name / description / triggerConditions / priority / endingType / narrativeConfig / exclusiveGroup / fallback / unlockConditions`；**任意结局**的非空 `unlockConditions` 必须满足才进候选集；隐藏结局 = `narrativeConfig.masked` 存在（`{ title?, summary? }`，掩码文案可配置，命中后 `evidenceIds` 置空）（ADR-0006 / R-EN-05 / R-NFR-04） |
 | `deathRoute` | `DeathRoute` | `{ deathMode: event\|direct, deathEventId?, conditions[] }`；引擎不硬编码死亡判定 |
 | `fallback` | `endingId` | 无专属命中时的兜底结局 |
 
@@ -607,7 +607,11 @@ endings:
     priority: 10
     triggerConditions: [{ flag: mainObjectiveDone, eq: true }]
     narrativeConfig: { source: template }
-    visibility: public
+  - endingId: end-secret          # 隐藏结局：masked 存在 + unlockConditions 门控（ADR-0006）
+    priority: 20
+    triggerConditions: [{ flag: secretPath, eq: true }]
+    unlockConditions: [{ flag: secretFound, eq: true }]
+    narrativeConfig: { source: template, masked: { title: "???", summary: "一个尚未揭晓的结局。" } }
 fallback: end-ordinary
 ```
 

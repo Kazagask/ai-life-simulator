@@ -186,3 +186,30 @@ R2 原方案（补充方案 §2/§6）拟引入六阶段 Lifecycle 状态机（`
 - **装备投影**：`snapshot.player.equipment` 下发实例展示字段（`instanceId / itemId / slot / name / slotLabel / stacks? / durability?`），**不含任何补正结果**（R-EQ-04 / P8）；前端已有装备栏由此获得数据源。
 - **归档封存**：`worldStore.seal()` 作为 `save()` 的唯一例外通道，仅接受已终止世界；`save()` 的 archived 拒写门禁不变（R-AR-02）。新增 `POST /api/worlds/:id/archive`，幂等。
 - **内容**：`jjk-2006` 新增 `endings.yaml`（寿终 / 战败 / 星浆体三支线 / 主动收束 / 兜底 / 1 个 hidden）与 `opening.yaml`（东京 / 京都两开局，待决事件引用真实事件 id）。
+
+## ADR-0006 结局可见性 DSL 化：删除 `EndingTemplate.visibility`，统一 `unlockConditions` + `narrativeConfig.masked`
+
+状态：**已接受**（2026-11-11，用户裁决：「隐藏结局是业务语义，工程上应该是模板 DSL 条件配置」）
+
+### 背景
+
+`EndingTemplateSchema.visibility: "public" | "hidden"`（`packages/shared/src/schema/ending.ts:124`，缺省 `public`）有两个消费点：
+
+1. **门控**（`v2/ending.ts:239`）：`visibility === "hidden"` 时要求 `unlockConditions` 全满足才进候选集；**public 结局的 `unlockConditions` 被静默忽略**——同一字段配在不同结局上语义不同，是配置陷阱。
+2. **投影掩码**（`v2/projection.ts:182`）：命中的 hidden 结局 title/summary 被替换为**引擎硬编码**文案（「未公开的结局」），`evidenceIds` 置空；`EndingView.visibility` 下发给前端（`apps/web/src/main.tsx:517/523`）用于样式与「隐藏结局」标注。
+
+问题：门控本质是 DSL 条件（`unlockConditions`），却与 `visibility` 枚举耦合——hidden + 空 `unlockConditions` 静默放行，public + 非空 `unlockConditions` 静默失效；掩码文案属表现层关注点，却硬编码在引擎里且不可配置。
+
+### 决策
+
+1. **删除 `EndingTemplateSchema.visibility` 字段**。strict schema 下含该字段的旧模板将被加载期拒绝；仓库内模板与测试夹具同步迁移。
+2. **`unlockConditions` 统一语义**：任何结局，非空 `unlockConditions` 必须全部满足才进候选集（`checkAllConditions([]) === true`，空数组即现状，向后兼容）。隐藏/公开不再参与门控判定。
+3. **掩码改为叙事配置**：`narrativeConfig.masked?: { title?, summary? }`（strict）。**存在 `masked` 即隐藏结局**（业务语义由模板声明）；掩码文案取 `masked.title / masked.summary`，缺省回退引擎默认文案（与原硬编码一致）；命中的掩码结局 `evidenceIds` 置空不变。
+4. **`EndingView.visibility` 保留为玩家端派生输出**：投影层按「是否套用掩码」派生 `"hidden" / "public"`，前端消费不变。它是"达成记录的显示标志"，不是模板配置。
+5. 隐藏语义只存在于结局——与 OPEN_QUESTIONS #33 裁决（事件无隐藏语义）同口径。
+
+### 后果
+
+- **玩家可见行为不变**：jjk-2006 唯一 hidden 结局（end-sp-aware）的 unlockConditions 门控与掩码文案随模板迁移，投影输出逐字段一致。
+- **影响面**：`shared/src/schema/ending.ts`、`game-core/src/v2/ending.ts` / `projection.ts`、`specs/data/templates/jjk-2006/endings.yaml`、`TEMPLATE_PROTOCOL_V2.md`（§21 结局字段表与示例）、相关测试；R2.3 规格中"按结局 `visibility` 继承"的措辞改为"按结局叙事掩码继承"。
+- **ADR 编号**：本 ADR 占用 0006；R2.3 计划中的持久化 / 时间跨度 ADR 顺延为 **ADR-0007 / ADR-0008**。

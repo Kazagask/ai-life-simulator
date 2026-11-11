@@ -269,6 +269,12 @@ describe("结局 / 开局分域（jjk-2006 真实文件）", () => {
     expect(parsed.data.endings.some((e) => e.fallback)).toBe(true);
     expect(parsed.data.fallback).toBe("end-ordinary");
     expect(parsed.data.deathRoute?.deathMode).toBe("direct");
+    // ADR-0006：隐藏结局 = narrativeConfig.masked 存在；模板不再有 visibility 字段
+    const secret = parsed.data.endings.find((e) => e.endingId === "end-sp-aware");
+    expect(secret?.narrativeConfig.masked).toBeDefined();
+    expect(secret?.unlockConditions.length).toBeGreaterThan(0);
+    const raw = readRaw("endings.yaml") as { endings: Array<Record<string, unknown>> };
+    expect(raw.endings.every((e) => !("visibility" in e))).toBe(true);
   });
 
   it("拒绝：以 HP 数值作终止判据（R-EN-07 / P9）", () => {

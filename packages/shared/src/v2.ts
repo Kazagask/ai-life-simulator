@@ -240,14 +240,15 @@ export interface StatusView {
 
 /**
  * 结局投影（R-EN-05 / R-NFR-04）。
- * 只承载玩家可见的结局信息：hidden 结局不得泄漏其 name/description，
- * 由投影层替换为掩码文案并保留 visibility 标志，供前端提示「已达成隐藏结局」。
+ * 只承载玩家可见的结局信息：隐藏结局（模板声明 narrativeConfig.masked，ADR-0006）不得泄漏其
+ * name/description，由投影层替换为掩码文案并派生 visibility 标志，供前端提示「已达成隐藏结局」。
  */
 export interface EndingView {
   endingId: string;
   title: string;
   summary: string;
   endingType: string;
+  /** 派生显示标志（ADR-0006）：模板 narrativeConfig.masked 存在 ⇒ "hidden"，非模板配置字段 */
   visibility: "public" | "hidden";
   /** 终止来源：condition / player / battleDefeat / event */
   source: string;

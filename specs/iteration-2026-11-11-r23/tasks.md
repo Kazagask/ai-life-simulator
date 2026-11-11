@@ -20,8 +20,8 @@
 
 ```
 阶段 2（可见性，小、独立、立刻消除硬约束违反）
-  → 阶段 3（持久化，大，需先有 ADR-0006）
-  → 阶段 4（时间跨度，需先有 ADR-0007）
+  → 阶段 3（持久化，大，需先有 ADR-0007）
+  → 阶段 4（时间跨度，需先有 ADR-0008）
   → 阶段 5（装备穿脱，与 3/4 无强耦合，可并行但不得同写 packages/）
 ```
 
@@ -37,11 +37,11 @@
 
 ## 2. 阶段 1 — ADR 与协议（仍不改实现）
 
-- [ ] **T1-01** 依赖：T0-01｜需求：`R-PS-01..07`｜产出：`docs/DECISIONS.md` **ADR-0006**
+- [ ] **T1-01** 依赖：T0-01｜需求：`R-PS-01..07`｜产出：`docs/DECISIONS.md` **ADR-0007**
   按 `design.md §3.1` 落盘存档选型：为什么 JSON 文件而非 DB/新依赖；信封结构与 `schemaVersion`；模板指纹的作用与代价；加载失败策略；`WorldStateV2Schema` 双维护的缓解；与 `R-AR-03` 的关系。必须写明被否决的备选（`node:sqlite`、`better-sqlite3`、纯命令日志回放）与否决理由。
   完成定义：状态「已接受」；不触碰 ADR-0003；编号不占用 ADR-0005。
 
-- [ ] **T1-02** 依赖：T0-01｜需求：`R-TS-01..05`｜产出：`docs/DECISIONS.md` **ADR-0007**
+- [ ] **T1-02** 依赖：T0-01｜需求：`R-TS-01..05`｜产出：`docs/DECISIONS.md` **ADR-0008**
   按 `design.md §4` 落盘双层时间分辨率：为什么不是"调大步长"；跨度内 `turnIndex` 递增语义；事件限流与 NPC 抽样；状态衰减一次结算的近似口径；combat 事件延后；对 `R-EN-02` 边界判定的影响。
   完成定义：状态「已接受」；明确写出"跨度不改变 `R-EN-02` 的判定点"。
 
@@ -52,7 +52,7 @@
 ## 3. 阶段 2 — 可见性收口
 
 - [ ] **T2-01** 依赖：T1-03｜需求：`R-VS-01`、`R-VS-03`｜产出：`packages/shared/src/v2.ts`、`packages/game-core/src/v2/turn.ts`、`battle.ts`、`npc.ts`、`ending.ts`
-  加 `HistoryVisibility` 与 `HistoryEntryV2.visibility?`；`isPlayerVisible()` 唯一判定；`pushHistory()` 的 `visibility` 改必填并补齐 7 个写入点（`npc.ts:63` 那处不走 `pushHistory`，需单独赋值）；事件来源写入点一律传 `"public"`（OPEN_QUESTIONS #33：事件无隐藏语义，`EventV2Schema` 不加字段），仅 `ending.ts:368` 按结局 `visibility` 继承。
+  加 `HistoryVisibility` 与 `HistoryEntryV2.visibility?`；`isPlayerVisible()` 唯一判定；`pushHistory()` 的 `visibility` 改必填并补齐 7 个写入点（`npc.ts:63` 那处不走 `pushHistory`，需单独赋值）；事件来源写入点一律传 `"public"`（OPEN_QUESTIONS #33：事件无隐藏语义，`EventV2Schema` 不加字段），仅 `ending.ts:368` 按结局叙事掩码（`narrativeConfig.masked`，ADR-0006）继承。
   完成定义：typecheck 0；缺失可见性的调用点应报类型错误（用一次临时删除自证后还原）；既有测试全绿（老数据缺字段视为 public）。
 
 - [ ] **T2-02** 依赖：T2-01｜需求：`R-VS-02`、`R-VS-04`｜产出：`packages/game-core/src/v2/history.ts`（新）、`projection.ts`、`archive.ts`、`apps/server/src/index.ts`
@@ -143,7 +143,7 @@
 2. `pnpm typecheck` 0 错误；`pnpm test` 全绿；`pnpm --filter @life-sim/shared test` 全绿；`pnpm --filter @life-sim/web build` 通过。
 3. 四条端到端证据成立：① 强杀重启后同一 `worldId` 可继续推进；② 任意状态下三个出口均不含 `visibility !== "public"` 条目；③ 默认模板仅用跨度动作 ≤ 800 轮到达寿终；④ 界面上可穿可卸且基础属性逐字段不变。
 4. 无新增 npm 依赖；`game-core` 无世界观专名；无 `lifecycle.ts` / `Phase` / 阶段日志；跨度实现不用 `Math.random`。
-5. ADR-0006 / ADR-0007 状态为「已接受」，ADR-0003 与 ADR-0005 未被占用或改动。
+5. ADR-0007 / ADR-0008 状态为「已接受」，ADR-0003 与 ADR-0005 未被占用或改动。
 6. `DEFERRED` 的阶段 8 四项：**不执行、不测试、不计入本门槛**。
 
 ------------------------------------------------------------------------
