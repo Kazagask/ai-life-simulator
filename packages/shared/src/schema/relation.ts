@@ -27,6 +27,11 @@ export const KinshipKindSchema = z.enum([
   "younger-brother",
   "elder-sister",
   "younger-sister",
+  /**
+   * 未指明代数的亲属（如「据称是远亲」）。配 `gap: true` 使用 ⇒ 只出粗称谓「远亲」，
+   * 不猜代数。专属关系链记号为「亲戚」，relationship.js 无此词条时会自然回退粗称谓。
+   */
+  "relative",
 ]);
 
 /** 社会边：无亲属语义；遍历取反向时有配对（mentor↔disciple），对称 kind 取自身。 */

@@ -220,6 +220,7 @@ describe("R2.6 关系图谱内核 · 常量与判定", () => {
       "father",
       "husband",
       "mother",
+      "relative",
       "son",
       "wife",
       "younger-brother",

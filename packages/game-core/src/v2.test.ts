@@ -11,6 +11,12 @@ import { projectSnapshotV2 } from "./v2/projection.js";
 import { advanceTurnV2, battleActionV2, chooseOptionV2 } from "./v2/turn.js";
 import { createDefaultOpeningTemplate } from "./v2/opening.js";
 import { createActiveWorldV2, makeTestTemplate } from "./v2/test-utils.js";
+import {
+  buildRelationGraph,
+  isKinshipReachable,
+  kinshipTerm,
+  shortestPath,
+} from "./v2/relations.js";
 
 // ---------- JJk 模板经 Schema 校验可加载 ----------
 
@@ -754,5 +760,73 @@ describe("V2 引擎 · 咒术转盘开局链", () => {
     for (let i = 1; i <= wheelCount; i++) {
       expect(state.flags[`w${String(i).padStart(2, "0")}`]).toBeDefined();
     }
+  });
+});
+
+// ---------- R2.6 关系图谱模板接入（T-B6 验收） ----------
+
+describe("V2 引擎 · R2.6 关系图谱模板接入", () => {
+  function worldWithRelations() {
+    const template = loadJjkTemplate();
+    const lookup = createLookup(template);
+    const state = createActiveWorldV2(
+      { templateId: "jjk-2006", playerName: "测试者", seed: 7 },
+      template,
+      "w-relations",
+    );
+    return { template, lookup, state };
+  }
+
+  it("characters[].relations 在新建世界时落为实例边（source=template、known）", () => {
+    const { state } = worldWithRelations();
+    expect(state.relations.length).toBeGreaterThanOrEqual(10);
+    expect(state.relations.every((e) => e.source === "template")).toBe(true);
+    // 模板显式声明 known；未声明的默认 unknown 才有资格出现，此处应无 unknown
+    expect(state.relations.some((e) => e.visibility === "unknown")).toBe(false);
+    // 互识三元组：五条↔夏油、五条↔硝子、夏油↔硝子
+    const has = (from: string, to: string, kind: string) =>
+      state.relations.some((e) => e.from === from && e.to === to && e.kind === kind);
+    expect(has("npc-gojo", "npc-geto", "friend")).toBe(true);
+    expect(has("npc-geto", "npc-gojo", "friend")).toBe(true);
+    expect(has("npc-gojo", "npc-shoko", "colleague")).toBe(true);
+    expect(has("npc-shoko", "npc-geto", "colleague")).toBe(true);
+    expect(has("npc-yuta", "npc-gojo", "mentor")).toBe(true);
+  });
+
+  it("断代亲属（gap）端到端查询得确定性粗称谓，不猜代数", () => {
+    const { state } = worldWithRelations();
+    const edge = state.relations.find(
+      (e) => e.from === "npc-gojo" && e.to === "npc-yuta" && e.kind === "relative",
+    );
+    expect(edge?.gap).toBe(true);
+    const term = kinshipTerm(state.relations, "npc-gojo", "npc-yuta");
+    expect(term?.term).toBe("远亲");
+    expect(term?.exact).toBe(false);
+    // 确定性：重复查询同结果
+    expect(kinshipTerm(state.relations, "npc-gojo", "npc-yuta")).toEqual(term);
+  });
+
+  it("社会边构成可达图（师徒/同僚），且不产出亲属称谓", () => {
+    const { state } = worldWithRelations();
+    const graph = buildRelationGraph(state.relations);
+    // 乙骨 → 五条 → 硝子：两跳（社会边）
+    const path = shortestPath(graph, "npc-yuta", "npc-shoko", { kinshipOnly: false });
+    expect(path?.edges).toHaveLength(2);
+    expect(path?.tokens).toEqual(["mentor", "colleague"]);
+    // 亲属口径下不可达
+    expect(shortestPath(graph, "npc-yuta", "npc-shoko")).toBeNull();
+    expect(isKinshipReachable(state.relations, "npc-yuta", "npc-shoko")).toBe(false);
+  });
+
+  it("投影只含可见边且带称谓字段（不含 unknown/hidden）", () => {
+    const { template, lookup, state } = worldWithRelations();
+    const view = projectSnapshotV2(state, template, lookup);
+    const gojo = view.npcs.find((n) => n.id === "npc-gojo")!;
+    expect(gojo.relations.length).toBeGreaterThan(0);
+    expect(gojo.relations.every((r) => r.visibility === "known" || r.visibility === "inferred")).toBe(true);
+    // 五条 → 乙骨 的远亲边应带粗称谓
+    const kin = gojo.relations.find((r) => r.withId === "npc-yuta" && r.kind === "relative");
+    expect(kin?.kinshipTerm).toBe("远亲");
+    expect(JSON.stringify(view)).not.toContain("hidden");
   });
 });

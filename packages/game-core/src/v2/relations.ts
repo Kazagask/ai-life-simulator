@@ -27,6 +27,7 @@ export const KINSHIP_TOKEN: Record<KinshipKind, string> = {
   "younger-brother": "弟弟",
   "elder-sister": "姐姐",
   "younger-sister": "妹妹",
+  relative: "亲戚",
 };
 
 const KINSHIP_KINDS = new Set<string>(Object.keys(KINSHIP_TOKEN));

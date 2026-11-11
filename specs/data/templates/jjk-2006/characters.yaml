@@ -27,6 +27,12 @@ characters:
       secrets:
         - 知晓世界线偏差的存在，并暗中观察它的走向
     relationship: 0
+    relations:
+      - { to: npc-geto, kind: friend, visibility: known, value: 70 }
+      - { to: npc-shoko, kind: colleague, visibility: known, value: 60 }
+      - { to: npc-yuta, kind: disciple, visibility: known, value: 80 }
+      # 原作：五条称乙骨为「远亲」（同出菅原道真一脉），代数不可考 ⇒ gap 只出粗称谓
+      - { to: npc-yuta, kind: relative, visibility: known, gap: true }
 
   - id: npc-geto
     isEnemy: false
@@ -50,6 +56,9 @@ characters:
       secrets:
         - 对"非术师"的失望正在悄悄积累
     relationship: 0
+    relations:
+      - { to: npc-gojo, kind: friend, visibility: known, value: 70 }
+      - { to: npc-shoko, kind: colleague, visibility: known, value: 60 }
 
   - id: npc-shoko
     isEnemy: false
@@ -70,6 +79,9 @@ characters:
       goals: [become-healer]
       traits: [lazy, caring]
     relationship: 0
+    relations:
+      - { to: npc-gojo, kind: colleague, visibility: known, value: 60 }
+      - { to: npc-geto, kind: colleague, visibility: known, value: 60 }
 
   - id: npc-riko
     isEnemy: false
@@ -90,6 +102,8 @@ characters:
       goals: [live-ordinary-life]
       traits: [cheerful, determined]
     relationship: 0
+    relations:
+      - { to: npc-gojo, kind: friend, visibility: known, value: 40 }
 
   - id: npc-yuta
     isEnemy: false
@@ -114,6 +128,8 @@ characters:
       combatHints:
         skillWeights: { sk-cursed-strike: 3, sk-reverse-heal: 1 }
     relationship: 0
+    relations:
+      - { to: npc-gojo, kind: mentor, visibility: known, value: 80 }
 
   # 敌人角色（供战斗事件引用；可 levelScale 缩放）
   - id: enemy-grade2-curse
