@@ -68,42 +68,52 @@ function issuesOf(input: Record<string, unknown>): string[] {
 }
 
 describe("R2.5 · 退役触发字段的诊断错误（R-EV-09）", () => {
+  // 主线事件链已删除，加载期契约用合成事件夹具（不再依赖 jjk 主线内容）
+  const schedEvent = (id: string): Record<string, unknown> =>
+    normalEvent(id, { source: "schedule", window: { start: { value: 1, unit: "day" } } });
+
   it("atTurn：拒绝且指明 window.start 替代写法", () => {
-    const raw = baseTemplate();
-    const events = structuredClone(raw.events) as Array<Record<string, unknown>>;
-    const briefing = events.find((e) => e.id === "ev-sp-briefing")!;
-    delete (briefing.trigger as Record<string, unknown>).window;
-    (briefing.trigger as Record<string, unknown>).atTurn = 1;
-    const msgs = issuesOf({ ...raw, events });
+    const raw = withEvents([schedEvent("ev-r25-at-turn")]);
+    const events = raw.events as Array<Record<string, unknown>>;
+    const hit = events.find((e) => e.id === "ev-r25-at-turn")!;
+    delete (hit.trigger as Record<string, unknown>).window;
+    (hit.trigger as Record<string, unknown>).atTurn = 1;
+    const msgs = issuesOf(raw);
     expect(msgs.some((m) => m.includes("atTurn") && m.includes("window.start"))).toBe(true);
   });
 
   it("atWorldTime：拒绝且指明 window.start 替代写法", () => {
-    const raw = baseTemplate();
-    const events = structuredClone(raw.events) as Array<Record<string, unknown>>;
-    const briefing = events.find((e) => e.id === "ev-sp-briefing")!;
-    delete (briefing.trigger as Record<string, unknown>).window;
-    (briefing.trigger as Record<string, unknown>).atWorldTime = { value: 1, unit: "day" };
-    const msgs = issuesOf({ ...raw, events });
+    const raw = withEvents([schedEvent("ev-r25-at-world-time")]);
+    const events = raw.events as Array<Record<string, unknown>>;
+    const hit = events.find((e) => e.id === "ev-r25-at-world-time")!;
+    delete (hit.trigger as Record<string, unknown>).window;
+    (hit.trigger as Record<string, unknown>).atWorldTime = { value: 1, unit: "day" };
+    const msgs = issuesOf(raw);
     expect(msgs.some((m) => m.includes("atWorldTime") && m.includes("window"))).toBe(true);
   });
 
   it("cooldownTurns：拒绝且指明 cooldown TimeSpec 替代写法", () => {
-    const raw = baseTemplate();
-    const events = structuredClone(raw.events) as Array<Record<string, unknown>>;
-    const sighting = events.find((e) => e.id === "ev-curse-sighting")!;
-    delete (sighting.trigger as Record<string, unknown>).cooldown;
-    (sighting.trigger as Record<string, unknown>).cooldownTurns = 4;
-    const msgs = issuesOf({ ...raw, events });
+    const raw = withEvents([
+      normalEvent("ev-r25-cd-turns", {
+        source: "pool",
+        probability: 1,
+        cooldown: { value: 4, unit: "day" },
+      }),
+    ]);
+    const events = raw.events as Array<Record<string, unknown>>;
+    const hit = events.find((e) => e.id === "ev-r25-cd-turns")!;
+    delete (hit.trigger as Record<string, unknown>).cooldown;
+    (hit.trigger as Record<string, unknown>).cooldownTurns = 4;
+    const msgs = issuesOf(raw);
     expect(msgs.some((m) => m.includes("cooldownTurns") && m.includes("cooldown"))).toBe(true);
   });
 
   it("schedule 缺 window.start 时给出明确提示", () => {
-    const raw = baseTemplate();
-    const events = structuredClone(raw.events) as Array<Record<string, unknown>>;
-    const briefing = events.find((e) => e.id === "ev-sp-briefing")!;
-    delete (briefing.trigger as Record<string, unknown>).window;
-    const msgs = issuesOf({ ...raw, events });
+    const raw = withEvents([schedEvent("ev-r25-no-window")]);
+    const events = raw.events as Array<Record<string, unknown>>;
+    const hit = events.find((e) => e.id === "ev-r25-no-window")!;
+    delete (hit.trigger as Record<string, unknown>).window;
+    const msgs = issuesOf(raw);
     expect(msgs.some((m) => m.includes("window.start"))).toBe(true);
   });
 });
@@ -175,13 +185,14 @@ describe("R2.5 · pool 与战斗解耦 / 新字段 strict（R-EV-13 / R-LM-05）
   });
 
   it("TimeSpec 非整数 value 被拒（整数分钟口径）", () => {
-    const raw = baseTemplate();
-    const events = structuredClone(raw.events) as Array<Record<string, unknown>>;
-    (events.find((e) => e.id === "ev-curse-sighting")!.trigger as Record<string, unknown>).cooldown = {
-      value: 1.5,
-      unit: "day",
-    };
-    const msgs = issuesOf({ ...raw, events });
+    const raw = withEvents([
+      normalEvent("ev-r25-cd-frac", {
+        source: "pool",
+        probability: 1,
+        cooldown: { value: 1.5, unit: "day" },
+      }),
+    ]);
+    const msgs = issuesOf(raw);
     expect(msgs.some((m) => m.includes("cooldown"))).toBe(true);
   });
 
@@ -242,7 +253,7 @@ describe("R2.5 · pool 与战斗解耦 / 新字段 strict（R-EV-13 / R-LM-05）
       normalEvent("ev-enqueue-target", { source: "schedule", window: { start: { value: 1, unit: "day" } } }),
     ]);
     const events = known.events as Array<Record<string, unknown>>;
-    const host = events.find((e) => e.id === "ev-curse-sighting")!;
+    const host = events.find((e) => e.id === "ev-w01")!;
     const options = (host.settle as { normal: { options: Array<Record<string, unknown>> } }).normal.options;
     options[0].effects = [{ type: "enqueueEvent", eventId: "ev-enqueue-target", delay: { value: 1, unit: "hour" } }];
     expect(WorldTemplateV2Schema.safeParse(known).success).toBe(true);

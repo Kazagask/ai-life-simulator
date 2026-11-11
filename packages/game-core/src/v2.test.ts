@@ -9,6 +9,7 @@ import { createBattle, finishBattle, performBattleAction } from "./v2/battle.js"
 import { applyEffectsV2, computeMax, playerEffectiveAttributes, type EffectContextV2 } from "./v2/engine.js";
 import { projectSnapshotV2 } from "./v2/projection.js";
 import { advanceTurnV2, battleActionV2, chooseOptionV2 } from "./v2/turn.js";
+import { createDefaultOpeningTemplate } from "./v2/opening.js";
 import { createActiveWorldV2 } from "./v2/test-utils.js";
 
 // ---------- JJk 模板经 Schema 校验可加载 ----------
@@ -34,105 +35,33 @@ describe("V2 引擎 · 模板加载", () => {
     expect(template.meta.id).toBe("jjk-2006");
     expect(template.events.length).toBeGreaterThan(5);
     expect(template.skills.some((s) => s.id === "sk-domain-void")).toBe(true);
-    expect(template.chains?.length).toBe(6);
+    expect(template.chains?.map((c) => c.id)).toEqual(["chain-wheel-creation"]);
   });
 
-  it("怀玉·玉折主线：schedule 绝对时间开场 + 事件链 + 分支结局", () => {
+  it("咒术转盘开局：入口事件 + 43 维链 + 全维度 chain 事件", () => {
     const template = loadJjkTemplate();
-    // 开场为绝对时间事件（到达指定日期自动触发）
-    const briefing = template.events.find((e) => e.id === "ev-sp-briefing");
-    expect(briefing?.trigger.source).toBe("schedule");
-    if (briefing?.trigger.source === "schedule") {
-      expect(briefing.trigger.window).toEqual({ start: { value: 1, unit: "day" } });
-      expect(briefing.trigger.once).toBe(true);
-    }
-    // 事件链存在，且起点为 source: chain 的 normal 事件
-    const chain = template.chains?.find((c) => c.id === "chain-star-plasma");
+    // 入口事件：chain 源 normal 事件，由 opening handoff 直推待决队列首
+    const entry = template.events.find((e) => e.id === "ev-opening-wheel");
+    expect(entry?.trigger.source).toBe("chain");
+    expect(entry?.kind).toBe("normal");
+    // 事件链存在，起点为 ev-w01
+    const chain = template.chains?.find((c) => c.id === "chain-wheel-creation");
     expect(chain).toBeDefined();
-    const start = template.events.find((e) => e.id === chain?.startEventId);
-    expect(start?.trigger.source).toBe("chain");
-    expect(start?.kind).toBe("normal");
-    // 四条结局事件均存在
-    for (const id of [
-      "ev-sp-ending-survival",
-      "ev-sp-ending-riko-lives",
-      "ev-sp-ending-canon",
-      "ev-sp-ending-gojo-dead",
-      "ev-sp-ending-decline",
-    ]) {
-      expect(template.events.some((e) => e.id === id)).toBe(true);
+    expect(chain?.startEventId).toBe("ev-w01");
+    expect(chain?.steps.length).toBe(43);
+    // 43 个维度事件均为 chain 源 normal 事件
+    const wheelEvents = template.events.filter((e) => /^ev-w\d{2}$/.test(e.id));
+    expect(wheelEvents.length).toBe(43);
+    for (const e of wheelEvents) {
+      expect(e.trigger.source).toBe("chain");
+      expect(e.kind).toBe("normal");
     }
-    // 星浆体 NPC 天内里子已加入角色表
+    // 世界观资产（角色/技能/物品/补正）保留
     expect(template.characters.some((c) => c.id === "npc-riko")).toBe(true);
   });
 });
 
-// ---------- 怀玉·玉折主线的链式分支链路（正常路径） ----------
-
-describe("V2 引擎 · 怀玉玉折主线链路", () => {
-  it("识破伏击 → 里子·甚尔存活结局", () => {
-    const template = loadJjkTemplate();
-    const lookup = createLookup(template);
-    const state = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 7 }, template, "w-sp");
-    // 直接注入开场事件（等价于 schedule 事件在绝对时间到达时被触发）
-    state.pendingEvents = [{ eventId: "ev-sp-briefing" }];
-    state.firedEvents["ev-sp-briefing"] = state.turnIndex;
-    consumeScheduleInstance(state, "ev-sp-briefing");
-
-    // 1. 加入护卫队 → startChain 把链起点 ev-sp-riko-meet 压入待决
-    let res = chooseOptionV2(state, { optionId: "opt-join-guard" }, template, lookup);
-    expect(res.snapshot.pendingEvent?.eventId).toBe("ev-sp-riko-meet");
-    expect(state.chains.some((c) => c.id === "chain-star-plasma" && c.status === "active")).toBe(true);
-
-    // 2. 制定护卫路线 → 进入同化前夜
-    res = chooseOptionV2(state, { optionId: "opt-plan-guard" }, template, lookup);
-    expect(res.snapshot.pendingEvent?.eventId).toBe("ev-sp-vigil");
-
-    // 3. 全程警惕（guardPlan 解锁）→ 进入伏击
-    res = chooseOptionV2(state, { optionId: "opt-watch" }, template, lookup);
-    expect(res.snapshot.pendingEvent?.eventId).toBe("ev-sp-ambush");
-    expect(state.flags.spAware).toBe(true);
-
-    // 4. 看穿伏击（spAware 解锁）→ 里子·甚尔存活结局
-    res = chooseOptionV2(state, { optionId: "opt-foresee" }, template, lookup);
-    expect(res.snapshot.pendingEvent?.eventId).toBe("ev-sp-ending-survival");
-    expect(state.flags.rikoAlive).toBe(true);
-    expect(state.flags.tojiAlive).toBe(true);
-    expect(state.flags.getoDarkened).toBe(false);
-    expect(state.flags.spEnding).toBe("survival");
-
-    // 5. 结局收束 → 事件链完成
-    res = chooseOptionV2(state, { optionId: "opt-ack-survival" }, template, lookup);
-    // #34：事件轮跑完整管线，结算末尾的 pool 门控会为下一槽位抽出世界事件，
-    // 故「结算后队列必为空」的旧断言不再成立；主线链本身必须已收束且无残留链事件。
-    expect(state.pendingEvents.some((p) => p.chainId === "chain-star-plasma")).toBe(false);
-    expect(state.chains.find((c) => c.id === "chain-star-plasma")?.status).toBe("completed");
-    expect(state.flags.canonDeviation).toBe(5);
-  });
-
-  it("迟疑 → 原作玉折结局；鲁莽 → 五条死亡结局", () => {
-    const template = loadJjkTemplate();
-    const lookup = createLookup(template);
-
-    const canon = createActiveWorldV2({ templateId: "jjk-2006", playerName: "甲", seed: 7 }, template, "w-canon");
-    canon.pendingEvents = [{ eventId: "ev-sp-ambush" }];
-    canon.firedEvents["ev-sp-ambush"] = canon.turnIndex;
-    const rc = chooseOptionV2(canon, { optionId: "opt-hesitate" }, template, lookup);
-    expect(rc.snapshot.pendingEvent?.eventId).toBe("ev-sp-ending-canon");
-    expect(canon.flags.getoDarkened).toBe(true);
-    expect(canon.flags.gojoAlive).toBe(true);
-
-    const dead = createActiveWorldV2({ templateId: "jjk-2006", playerName: "乙", seed: 7 }, template, "w-dead");
-    dead.pendingEvents = [{ eventId: "ev-sp-ambush" }];
-    dead.firedEvents["ev-sp-ambush"] = dead.turnIndex;
-    const rd = chooseOptionV2(dead, { optionId: "opt-reckless" }, template, lookup);
-    expect(rd.snapshot.pendingEvent?.eventId).toBe("ev-sp-ending-gojo-dead");
-    expect(dead.flags.gojoAlive).toBe(false);
-    expect(dead.flags.getoDarkened).toBe(true);
-  });
-});
-
-// ---------- 补正系统、advanceTime 与百鬼夜行 ----------
+// ---------- 补正系统、advanceTime 与转盘开局 ----------
 
 describe("V2 引擎 · 补正与六眼", () => {
   it("六眼补正 simulation.attributeModifiers 生效", () => {
@@ -199,29 +128,17 @@ describe("V2 引擎 · advanceTime 绝对/相对时间推进", () => {
     expect(ctx.timeAdvanced).toBe(true);
   });
 
-  it("玉折结局 → 时间跳跃至百鬼夜行并开启二选一", () => {
+  it("advanceTo 绝对推进：时间跳跃命中目标并同步年龄（公历闰日口径）", () => {
     const template = loadJjkTemplate();
     const lookup = createLookup(template);
-    const state = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 7 }, template, "w-night");
-    state.pendingEvents = [{ eventId: "ev-sp-ending-canon" }];
-    state.firedEvents["ev-sp-ending-canon"] = state.turnIndex;
-    // 模拟已走过的 schedule 开场事件，避免 advanceTo 后重复触发
-    state.firedEvents["ev-sp-briefing"] = state.turnIndex;
-    consumeScheduleInstance(state, "ev-sp-briefing");
-
-    const res = chooseOptionV2(state, { optionId: "opt-ack-canon" }, template, lookup);
-    // 时间跳跃 12 年（R2.6 gregorian：2006→2018 含 2008/2012/2016 三个闰日），年龄同步推进
+    const state = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 7 }, template, "w-jump");
+    const ageBefore = state.playerAgeAtStart;
+    const ctx: EffectContextV2 = { state, lookup, rng: () => 0.5, logs: [] };
+    // R2.6 gregorian：2006→2018 含 2008/2012/2016 三个闰日
+    applyEffectsV2(ctx, [{ type: "advanceTo", value: { value: 12, unit: "year" } }]);
     expect(state.worldTime).toBe((12 * 365 + 3) * 1440);
-    expect(state.player.age).toBe(state.playerAgeAtStart + 12);
-    // 开启百鬼夜行事件链，待决为「决战前夜」二选一
-    expect(state.chains.some((c) => c.id === "chain-night-parade" && c.status === "active")).toBe(true);
-    expect(res.snapshot.pendingEvent?.eventId).toBe("ev-night-parade-prologue");
-
-    // 选择随乙骨迎战夏油杰 → 进入高专战线战斗
-    const res2 = chooseOptionV2(state, { optionId: "opt-yuta-line" }, template, lookup);
-    expect(state.flags.nightLine).toBe("kyoto");
-    expect(state.battle).not.toBeNull();
-    expect(state.battle?.enemies[0].name).toBe("夏油杰");
+    expect(state.player.age).toBe(ageBefore + 12);
+    expect(ctx.timeAdvanced).toBe(true);
   });
 
   it("咒言术为战斗技能，主角初始拥有并附眩晕", () => {
@@ -239,93 +156,128 @@ describe("V2 引擎 · advanceTime 绝对/相对时间推进", () => {
 });
 
 describe("V2 引擎 · 事件链起点触发（回归）", () => {
-  it("上报高专 → startChain 随机起点事件即时结算，不再卡死", () => {
+  it("转动转盘 → startChain 把链起点事件压入待决，队列只含 normal，不卡死", () => {
     const template = loadJjkTemplate();
     const lookup = createLookup(template);
     const state = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 7 }, template, "w-report");
-    state.pendingEvents = [{ eventId: "ev-curse-sighting" }];
-    state.firedEvents["ev-curse-sighting"] = state.turnIndex;
+    state.pendingEvents = [{ eventId: "ev-opening-wheel" }];
+    state.firedEvents["ev-opening-wheel"] = state.turnIndex;
 
-    chooseOptionV2(state, { optionId: "opt-report" }, template, lookup);
+    chooseOptionV2(state, { optionId: "opt-begin" }, template, lookup);
     // 链注册为 active
-    expect(state.chains.some((c) => c.id === "chain-curse-investigation" && c.status === "active")).toBe(true);
-    // 随机起点事件 ev-curse-investigate 已即时结算，未被塞进待决队列
-    expect(state.pendingEvents.some((p) => p.eventId === "ev-curse-investigate")).toBe(false);
+    expect(state.chains.some((c) => c.id === "chain-wheel-creation" && c.status === "active")).toBe(true);
+    // 链起点 ev-w01 进入待决队列
+    expect(state.pendingEvents.some((p) => p.eventId === "ev-w01")).toBe(true);
     // 待决队列里只允许 normal 事件（否则 pendingEventView 返回 null 导致卡死）
     expect(state.pendingEvents.every((p) => lookup.event(p.eventId)?.kind === "normal")).toBe(true);
-    // 不处于卡死状态：要么已进入战斗（转盘命中讨伐战），要么有待决 normal 事件可结算
-    const hasBattle = state.battle !== null && !state.battle!.over;
-    expect(hasBattle || state.pendingEvents.length > 0).toBe(true);
+    // 不处于卡死状态：有待决 normal 事件可结算
+    expect(state.pendingEvents.length).toBeGreaterThan(0);
   });
 });
 
-// ---------- 组队战斗（友军单位） ----------
+// ---------- 组队战斗（友军单位，合成模板夹具） ----------
 
 describe("V2 引擎 · 组队战斗", () => {
-  const template = loadJjkTemplate();
-  const lookup = createLookup(template);
-
-  function teamBattle(eventId: string, worldId: string) {
-    const state = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 7 }, template, worldId);
-    const event = lookup.event(eventId);
-    if (!event || event.kind !== "combat") throw new Error(`not a combat event: ${eventId}`);
-    state.battle = createBattle(eventId, event.settle.combat, state, lookup);
-    return state;
+  /** 合成组队战斗夹具：友军角色 + 友军技能 + 带 allies 的战斗事件。 */
+  function teamFixture(worldId: string) {
+    const template = makeTestTemplate();
+    template.characters.push({
+      id: "ally-y",
+      isEnemy: false,
+      visibility: "public",
+      identity: { name: "测试友军", age: 16, gender: "f" },
+      mood: { value: 60 },
+      attributes: { cursedEnergy: 5, agility: 1, luck: 0 },
+      skills: ["sk-ally"],
+      public: { personality: "测试用友军" },
+      private: { combatHints: { skillWeights: { "sk-ally": 1 } } },
+      relationship: 50,
+    });
+    template.skills.push({
+      id: "sk-ally",
+      kind: "combat",
+      name: "友军斩",
+      cost: { mp: 0 },
+      target: "enemy",
+      damage: [{ preset: "fixed", value: 30 }],
+      cooldownTurns: 0,
+      usableInBattle: true,
+    });
+    template.events.push({
+      id: "ev-tb",
+      title: "组队战",
+      narrative: "测试用组队战斗。",
+      trigger: { source: "chain" },
+      kind: "combat",
+      settle: {
+        combat: {
+          enemies: [{ ref: "enemy-x", levelScale: 1 }],
+          allies: [{ ref: "ally-y", levelScale: 1 }],
+          canFlee: false,
+        },
+      },
+    });
+    const lookup = createLookup(template);
+    const state = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed: 7 }, template, worldId);
+    const event = lookup.event("ev-tb")!;
+    if (event.kind !== "combat") throw new Error("ev-tb 必须是 combat");
+    state.battle = createBattle("ev-tb", event.settle.combat, state, lookup);
+    return { template, lookup, state };
   }
 
   it("友军参战：按 levelScale 构建单位，与敌人分属两阵营，并进入战斗投影", () => {
-    const state = teamBattle("ev-fight-geto", "w-team-build");
+    const { template, lookup, state } = teamFixture("w-team-build");
     const b = state.battle!;
     // 友军单位独立于敌人列表，且来自模板 allies 引用
     expect(b.allies.length).toBe(1);
-    expect(b.allies[0].characterId).toBe("npc-yuta");
-    expect(b.allies[0].name).toBe("乙骨忧太");
+    expect(b.allies[0].characterId).toBe("ally-y");
+    expect(b.allies[0].name).toBe("测试友军");
     expect(b.allies[0].alive).toBe(true);
     expect(b.allies[0].hp).toBe(b.allies[0].maxHp);
-    expect(b.enemies[0].name).toBe("夏油杰");
+    expect(b.enemies[0].name).toBe("测试咒灵");
     expect(b.enemies).toHaveLength(1);
 
     // 投影对玩家暴露友军单位（不含隐藏字段）
     const view = projectSnapshotV2(state, template, lookup);
     expect(view.battle?.allies).toHaveLength(1);
-    expect(view.battle?.allies[0].name).toBe("乙骨忧太");
-    expect(view.battle?.enemies[0].name).toBe("夏油杰");
+    expect(view.battle?.allies[0].name).toBe("测试友军");
+    expect(view.battle?.enemies[0].name).toBe("测试咒灵");
   });
 
   it("友军 AI 在玩家行动后自动行动并攻击敌人", () => {
-    const state = teamBattle("ev-fight-geto", "w-team-ai");
+    const { lookup, state } = teamFixture("w-team-ai");
     const b = state.battle!;
     const enemy = b.enemies[0];
     enemy.hp = 100000;
     enemy.maxHp = 100000;
     enemy.skills = []; // 隔离敌人反击
     const ally = b.allies[0];
-    ally.skills = ["sk-cursed-strike"]; // 友军仅保留攻击技能
+    ally.skills = ["sk-ally"]; // 友军仅保留攻击技能
     const before = enemy.hp;
 
-    performBattleAction(state, { type: "skill", skillId: "sk-basic-strike" }, lookup, () => 0.5);
+    performBattleAction(state, { type: "skill", skillId: "sk-strike" }, lookup, () => 0.5);
 
-    // 友军「乙骨忧太」已施放技能（日志含其名），且敌人受到其伤害
-    expect(b.log.some((l) => l.includes("乙骨忧太") && l.includes("咒力斩击"))).toBe(true);
+    // 友军「测试友军」已施放技能（日志含其名），且敌人受到其伤害
+    expect(b.log.some((l) => l.includes("测试友军") && l.includes("友军斩"))).toBe(true);
     expect(enemy.hp).toBeLessThan(before);
   });
 
   it("组队胜利：玩家与友军合力击败敌人", () => {
-    const state = teamBattle("ev-fight-geto", "w-team-win");
+    const { lookup, state } = teamFixture("w-team-win");
     const b = state.battle!;
     const enemy = b.enemies[0];
     enemy.hp = 10;
     enemy.maxHp = 10;
     enemy.skills = [];
 
-    // 玩家体术命中（命中率 0.65）后敌人残血，友军补刀击杀
-    performBattleAction(state, { type: "skill", skillId: "sk-basic-strike" }, lookup, () => 0.5);
+    // 玩家固定 100 伤害直接击杀
+    performBattleAction(state, { type: "skill", skillId: "sk-strike" }, lookup, () => 0.5);
 
     expect(b.over).toBe("victory");
   });
 
   it("友军倒下不影响胜负判定，战斗继续", () => {
-    const state = teamBattle("ev-fight-geto", "w-team-ally-down");
+    const { lookup, state } = teamFixture("w-team-ally-down");
     const b = state.battle!;
     const enemy = b.enemies[0];
     enemy.hp = 100000;
@@ -337,7 +289,7 @@ describe("V2 引擎 · 组队战斗", () => {
     ally.hp = 0;
     ally.alive = false;
 
-    performBattleAction(state, { type: "skill", skillId: "sk-basic-strike" }, lookup, () => 0.5);
+    performBattleAction(state, { type: "skill", skillId: "sk-strike" }, lookup, () => 0.5);
 
     // 敌人仍在、玩家存活 → 战斗不因友军倒下而结束
     expect(b.over).toBeNull();
@@ -515,17 +467,6 @@ function makeState(seed = 42): { state: WorldStateV2; template: WorldTemplateV2 
   const lookup = createLookup(template);
   const state = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed }, template, "w1");
   return { state, template };
-}
-
-/**
- * R2.5：createWorldV2 会为全部 source: schedule 定义入队。测试手工把某事件标记为
- * 「已触发」时，须同步把对应 waiting 实例标 cancelled——once 是**入队门控**（用户裁决），
- * 出队判定不再重查 once，否则会与「模拟已发生」的夹具语义冲突。
- */
-function consumeScheduleInstance(state: WorldStateV2, eventId: string): void {
-  for (const inst of state.scheduledEvents) {
-    if (inst.definitionId === eventId && inst.status === "waiting") inst.status = "cancelled";
-  }
 }
 
 describe("V2 引擎 · 世界创建", () => {
@@ -920,14 +861,24 @@ describe("V2 引擎 · 事件轮次", () => {
 // ---------- 咒术转盘 · 开局角色创建链（事件链 + 获取技能/装备/补正/成长）----------
 
 describe("V2 引擎 · 咒术转盘开局链", () => {
-  it("开局转盘链跑通：逐轮获取技能/装备/补正 + 全量标记", () => {
+  it("开局 handoff 直挂转盘入口：逐轮获取技能/装备/补正 + 全量标记", () => {
     const template = loadJjkTemplate();
     const lookup = createLookup(template);
-    const state = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 7 }, template, "w-wheel");
+    // 与真实开局一致：opening handoff 直接把 ev-opening-wheel 推入待决队列首
+    const opening = {
+      ...createDefaultOpeningTemplate(),
+      openingId: "op-wheel-test",
+      handoff: { pendingEvents: ["ev-opening-wheel"], schedule: [] },
+    };
+    const state = createActiveWorldV2(
+      { templateId: "jjk-2006", playerName: "测试者", seed: 7 },
+      template,
+      "w-wheel",
+      opening,
+    );
 
-    // 开局时间由模板配置（meta.startYear=2006），转盘链由定时事件 ev-opening-wheel 触发
-    advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
-    expect(state.pendingEvents.some((p) => p.eventId === "ev-opening-wheel")).toBe(true);
+    // 创建世界即为转盘入口事件，无需先推进轮次
+    expect(state.pendingEvents[0]?.eventId).toBe("ev-opening-wheel");
 
     // 开始转盘链
     chooseOptionV2(state, { optionId: "opt-begin" }, template, lookup);

@@ -1,17 +1,14 @@
 # JJK-2006 开局分域（协议 V2.1 §16 · R-OP-01..06）
 #
-# 两个开局都引用 events.yaml 中**真实存在**的事件 id，否则首轮会被 event_not_normal /
-# pending_event_required 卡住：
-#   - ev-curse-sighting（kind: normal）→ 东京开局的首个待决事件
-#   - ev-exchange（kind: normal）      → 京都开局的首个待决事件
-#
-# 差异刻意做在「起始关系 + 起始 flag + 首个待决事件」三处，不新增世界状态结构。
-# R2.5：handoff.schedule 会真正入队为延时实例（origin=opening）；两处开局均留空，
-# 未来/条件事件统一由 events.yaml 的 source: schedule 定义在世界初始化时入队。
+# 2026-11-12 用户裁决：主线剧情事件链已删除，两个开局的 handoff 均直接挂载
+# 「咒术转盘」入口事件 ev-opening-wheel（chain 源、不属于任何链）。
+# 玩家创建世界后的首个待决事件即开局转盘，选「转动命数转盘」进入
+# chain-wheel-creation（43 维角色创建）。
+# 差异保留在「起始关系 + 起始 flag」两处，不新增世界状态结构。
 
 - openingId: op-2006-tokyo
   name: 2006 · 东京高专
-  description: 以东京咒术高专一年级新生的身份入学，从第一次出勤开始。
+  description: 以东京咒术高专一年级新生的身份入学，从命数转盘开始书写此身。
   entryConditions: []
   steps:
     - { id: step-enter-tokyo, kind: required }
@@ -38,12 +35,12 @@
   completionConditions:
     - { flag: openingDone, eq: true }
   handoff:
-    pendingEvents: [ev-curse-sighting]
+    pendingEvents: [ev-opening-wheel]
     schedule: []
 
 - openingId: op-2006-kyoto
   name: 2006 · 京都校交流
-  description: 以京都校交流生的身份来到东京，起点关系与首个待决事件都不同。
+  description: 以京都校交流生的身份来到东京，起点关系不同，同样从命数转盘开始。
   entryConditions: []
   steps:
     - { id: step-enter-kyoto, kind: required }
@@ -67,5 +64,5 @@
   completionConditions:
     - { flag: openingDone, eq: true }
   handoff:
-    pendingEvents: [ev-exchange]
+    pendingEvents: [ev-opening-wheel]
     schedule: []

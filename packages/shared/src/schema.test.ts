@@ -49,19 +49,14 @@ describe("世界模板协议 V2 Schema", () => {
     expect(world.genders.map((g) => g.id)).toContain("femboy");
     expect(world.mood.bands).toHaveLength(3);
     expect(world.statuses.map((s) => s.id)).toContain("curse-poison");
-    expect(world.events.map((e) => e.id)).toContain("ev-shrine-lottery");
-    const combatEvent = world.events.find((e) => e.id === "ev-curse-find");
-    expect(combatEvent?.kind).toBe("combat");
-    const wheel = world.events.find((e) => e.id === "ev-shrine-lottery");
-    expect(wheel?.kind).toBe("random");
-    if (wheel?.kind === "random") {
-      const greatLuck = wheel.settle.random.wheel.segments.find((s) => s.label === "大吉");
-      expect(greatLuck?.weightBy).toEqual({ luck: 0.4 });
-      const greatOmen = wheel.settle.random.wheel.segments.find((s) => s.label === "大凶");
-      expect(greatOmen?.weightBy).toEqual({ luck: -0.3, cursedEnergy: 0.1 });
-    }
+    // 主线剧情事件链已删除，模板现以咒术转盘开局链为核心内容
+    const wheelEntry = world.events.find((e) => e.id === "ev-opening-wheel");
+    expect(wheelEntry?.kind).toBe("normal");
+    expect(wheelEntry?.trigger.source).toBe("chain");
+    const wheelChain = world.chains?.find((c) => c.id === "chain-wheel-creation");
+    expect(wheelChain?.steps).toHaveLength(43);
+    expect(world.chains?.map((c) => c.id)).toEqual(["chain-wheel-creation"]);
     expect(world.attributes.order).toContain("luck");
-    expect(world.chains?.map((c) => c.id)).toContain("chain-curse-investigation");
 
     // 主角技能 kits 扩展
     const domainVoid = world.skills.find((s) => s.id === "sk-domain-void");
@@ -133,21 +128,21 @@ describe("世界模板协议 V2 Schema", () => {
 
   it("拒绝：probability 与 weight 并存", () => {
     const world = loadJjkTemplate();
-    const event = (world.events as Array<Record<string, unknown>>).find((e) => e.id === "ev-rumor");
-    (event as { trigger: Record<string, unknown> }).trigger.weight = 5;
+    const event = (world.events as Array<Record<string, unknown>>).find((e) => e.id === "ev-w01");
+    (event as { trigger: Record<string, unknown> }).trigger = { source: "pool", probability: 0.5, weight: 5 };
     expect(WorldTemplateV2Schema.safeParse(world).success).toBe(false);
   });
 
   it("拒绝：池事件缺少 probability 与 weight", () => {
     const world = loadJjkTemplate();
-    const event = (world.events as Array<Record<string, unknown>>).find((e) => e.id === "ev-rumor");
-    delete (event as { trigger: Record<string, unknown> }).trigger.probability;
+    const event = (world.events as Array<Record<string, unknown>>).find((e) => e.id === "ev-w01");
+    (event as { trigger: Record<string, unknown> }).trigger = { source: "pool" };
     expect(WorldTemplateV2Schema.safeParse(world).success).toBe(false);
   });
 
   it("拒绝：事件 nextEventId 指向不存在的事件", () => {
     const world = loadJjkTemplate();
-    const event = (world.events as Array<Record<string, unknown>>).find((e) => e.id === "ev-curse-sighting");
+    const event = (world.events as Array<Record<string, unknown>>).find((e) => e.id === "ev-w01");
     const options = (event as { settle: { normal: { options: unknown[] } } }).settle.normal.options;
     (options[0] as { nextEventId: string }).nextEventId = "ev-not-exist";
     expect(WorldTemplateV2Schema.safeParse(world).success).toBe(false);
@@ -155,9 +150,14 @@ describe("世界模板协议 V2 Schema", () => {
 
   it("拒绝：战斗事件敌人引用不存在的角色", () => {
     const world = loadJjkTemplate();
-    const event = (world.events as Array<Record<string, unknown>>).find((e) => e.id === "ev-curse-find");
-    ((event as { settle: { combat: { enemies: unknown[] } } }).settle.combat.enemies as Array<Record<string, unknown>>)[0].ref =
-      "enemy-who";
+    (world.events as unknown[]).push({
+      id: "ev-combat-test",
+      title: "测试战",
+      narrative: "引用完整性用合成战斗事件。",
+      trigger: { source: "chain" },
+      kind: "combat",
+      settle: { combat: { enemies: [{ ref: "enemy-who" }], canFlee: false } },
+    });
     expect(WorldTemplateV2Schema.safeParse(world).success).toBe(false);
   });
 
@@ -169,8 +169,10 @@ describe("世界模板协议 V2 Schema", () => {
 
   it("拒绝：链起点事件 trigger.source 不是 chain", () => {
     const world = loadJjkTemplate();
+    const nonChain = (world.events as Array<Record<string, unknown>>).find((e) => e.id === "ev-w05");
+    (nonChain as { trigger: Record<string, unknown> }).trigger = { source: "pool", probability: 0.5 };
     const chains = world.chains as Array<Record<string, unknown>>;
-    chains[0].startEventId = "ev-rumor";
+    chains[0].startEventId = "ev-w05";
     expect(WorldTemplateV2Schema.safeParse(world).success).toBe(false);
   });
 
@@ -218,9 +220,18 @@ describe("世界模板协议 V2 Schema", () => {
 
   it("拒绝：转盘 weightBy 引用未定义的属性", () => {
     const world = loadJjkTemplate();
-    const wheel = (world.events as Array<Record<string, unknown>>).find((e) => e.id === "ev-shrine-lottery");
-    const segments = (wheel as { settle: { random: { wheel: { segments: unknown[] } } } }).settle.random.wheel.segments;
-    (segments[0] as { weightBy: Record<string, number> }).weightBy = { fortune: 0.5 };
+    (world.events as unknown[]).push({
+      id: "ev-wheel-test",
+      title: "测试转盘",
+      narrative: "weightBy 引用完整性用合成转盘事件。",
+      trigger: { source: "pool", probability: 1 },
+      kind: "random",
+      settle: {
+        random: {
+          wheel: { segments: [{ weight: 1, label: "吉", weightBy: { fortune: 0.5 }, effects: [] }] },
+        },
+      },
+    });
     expect(WorldTemplateV2Schema.safeParse(world).success).toBe(false);
   });
 
@@ -238,7 +249,7 @@ describe("世界模板协议 V2 Schema", () => {
 
   it("拒绝：adjustAttribute 效果引用未定义的属性", () => {
     const world = loadJjkTemplate();
-    const event = (world.events as Array<Record<string, unknown>>).find((e) => e.id === "ev-rumor");
+    const event = (world.events as Array<Record<string, unknown>>).find((e) => e.id === "ev-w01");
     const options = (event as { settle: { normal: { options: Array<Record<string, unknown>> } } }).settle.normal.options;
     options[0].effects = [{ type: "adjustAttribute", attribute: "fortune", value: 1 }];
     expect(WorldTemplateV2Schema.safeParse(world).success).toBe(false);
@@ -246,7 +257,7 @@ describe("世界模板协议 V2 Schema", () => {
 
   it("接受：adjustAttribute 效果引用已定义属性", () => {
     const world = loadJjkTemplate();
-    const event = (world.events as Array<Record<string, unknown>>).find((e) => e.id === "ev-rumor");
+    const event = (world.events as Array<Record<string, unknown>>).find((e) => e.id === "ev-w01");
     const options = (event as { settle: { normal: { options: Array<Record<string, unknown>> } } }).settle.normal.options;
     options[0].effects = [{ type: "adjustAttribute", attribute: "cursedEnergy", value: 1 }];
     expect(WorldTemplateV2Schema.safeParse(world).success).toBe(true);

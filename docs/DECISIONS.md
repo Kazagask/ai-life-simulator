@@ -456,3 +456,18 @@ NPC 现无任何存活状态：死亡/失联的 NPC 照样被效用评分选中�
 - **确定性**：`relationship.js` 纯算法；图操作纯函数；无外部时间/随机；同输入 ⇒ 同输出。
 - **风险**：多跳称谓依赖库数据表覆盖度；罕见路径库无结果时回退粗称谓（`ancestorGaps`/kind 标签），不抛异常、不静默。
 - **验收/DoD**：见 `specs/iteration-2026-11-12-r26/tasks.md` T-B*。关联需求 R-NP-08、#25、R-OP-05、Q-R25-08。
+
+---
+
+## ADR-0015 jjk-2006 内容收敛：删除主线剧情事件链，咒术转盘成为开局核心
+
+- **状态**：**已执行（2026-11-12 用户指令）**。属模板内容治理，不改引擎规则；按 AGENTS.md §0 显式记录以免「静默更改游戏规则」。
+- **背景**：转盘在模板中的落地分两层——①`specs/data/templates/jjk-2006/咒术转盘☆第二版.wheel.json`（B 站 meme-auto-wheel 导出，untracked 参考物，加载器只读 `*.yaml`，永不进引擎）；②`events.yaml` 的 `ev-opening-wheel` + `ev-w01..ev-w43` + `chain-wheel-creation`。原 `ev-opening-wheel` 为 `source: schedule`（window +1 分钟、priority 100），而开局 `handoff.pendingEvents` 直塞以主线 `ev-curse-sighting` 为队首，UI 只渲染 `pendingEvents[0]` ⇒ 玩家开局看不到转盘，须先推进一轮且排在主线之后。
+- **决策**：
+  1. 删除全部非转盘主线事件链：`chain-curse-investigation` / `chain-finger-hunt` / `chain-star-plasma` / `chain-night-parade` / `chain-shibuya` 及其 28 个事件（含 `ev-curse-sighting`、`ev-exchange`、`ev-finger`、`ev-shrine-lottery`、`ev-sp-*`、`ev-night-*`、`ev-fight-*`、`ev-shibuya*`）。
+  2. `ev-opening-wheel` 触发改为 `source: chain`（不属于任何链）：不进 `schedule-init` 队列、不进随机池，待决排序按 chain 源置顶。
+  3. `opening.yaml` 两个开局的 `handoff.pendingEvents` 均改为 `[ev-opening-wheel]` ⇒ **创建世界后的首个待决事件即开局转盘**，与调度时序解耦。
+  4. 保留全部世界观资产（characters / skills / items / statuses / endings / world 配置）；`endings.yaml` 中仅以 flag 为条件的星浆体/涩谷结局成为不可达数据，属已知残留，后续内容治理决定去留。
+- **影响面**：`specs/data/templates/jjk-2006/{events.yaml, opening.yaml}`；测试夹具迁移（`v2.test.ts` / `opening.test.ts` / `schema.test.ts` / `r25-schema.test.ts` 改用剩余转盘内容或合成事件）；**模板指纹变化 ⇒ 旧存档一致拒载**（本机 `data/worlds/*.json` 旧档需重开）。
+- **验收**：`pnpm typecheck` 0 错误；game-core 287/287、shared 50/50；真实 API 验证：`POST /api/worlds`（op-2006-tokyo）返回 `pendingEvent = ev-opening-wheel`，选 `opt-begin` 后进入 `ev-w01`（出身地点）。
+- **已知缺口**：转盘创建链仍为 43 个普通选项事件（`kind: normal`），前端「命运之轮」旋转盘（`WheelResultView`）只用于 `kind: random` 事件，创建链不走旋转动画；如需 B 站式转盘观感，需引擎侧为 normal 事件产出 `wheelResult` 或在 web 侧新接转盘展示（另行立项）。

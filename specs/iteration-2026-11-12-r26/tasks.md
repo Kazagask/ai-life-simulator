@@ -77,7 +77,7 @@
 
 | 流 | 任务 | 状态 |
 |---|---|---|
-| WS-A 日历 | T-A1 → T-A2 → T-A3 → T-A4 → T-A5 | pending |
+| WS-A 日历 | T-A1 → T-A2 → T-A3 → T-A4 → T-A5 | ✅ done（f95f5ce / 24f9b39） |
 | WS-B 关系图 | T-B1 → T-B2 → T-B3 → T-B4 → T-B5 → T-B6 | pending |
 
 > 提交颗粒度：每个 `T-*` 一个 commit，信息注明任务 ID 与需求编号（R-CAL-*/R-REL-*）。

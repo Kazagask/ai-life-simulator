@@ -286,26 +286,26 @@ describe("T3-05 · handoff 与首轮推进（R-OP-07 / R-TM-02）", () => {
       worldSetup: {
         flags: { openingDone: true },
         effects: [
-          { type: "startChain", chainId: "chain-star-plasma" },
+          { type: "startChain", chainId: "chain-wheel-creation" },
           { type: "advanceTo", value: { value: 1, unit: "day" } },
         ],
       },
       handoff: {
         pendingEvents: [],
-        schedule: [{ eventId: "ev-sp-briefing", at: { value: 1, unit: "day" } }],
+        schedule: [{ eventId: "ev-opening-wheel", at: { value: 1, unit: "day" } }],
       },
     });
     const { state: opened, run } = runOpening(state, tpl, ctx);
     const final = handoff(opened, run);
     expect(final.openingCompleted).toBe(true);
-    expect(final.chains.some((c) => c.id === "chain-star-plasma" && c.status === "active")).toBe(true);
+    expect(final.chains.some((c) => c.id === "chain-wheel-creation" && c.status === "active")).toBe(true);
 
     const res = advanceTurnV2(final, { action: { type: "rest" } }, template, lookup);
     expect(res.state.openingCompleted).toBe(true);
     // schedule 实例在首轮时间推进后由 drainScheduledEvents 出队触发（统一事件系统）
-    expect(res.triggeredEvents.some((e) => e.id === "ev-sp-briefing")).toBe(true);
+    expect(res.triggeredEvents.some((e) => e.id === "ev-opening-wheel")).toBe(true);
     // 既有链状态保留并参与首轮管线
-    expect(res.state.chains.some((c) => c.id === "chain-star-plasma")).toBe(true);
+    expect(res.state.chains.some((c) => c.id === "chain-wheel-creation")).toBe(true);
   });
 
   it("最小默认开局（未提供 opening.yaml）直接完成交接", () => {
