@@ -307,7 +307,7 @@ R2.4 第一轮交付后用户补充两点：① 背包里装备和物品要**分
 
 ## ADR-0010 配置/实例/事实三层分离
 
-状态：**待评审**（2026-11-11，R2.5 起草；对应 `specs/iteration-2026-11-11-r25/design.md` §1/§2）
+状态：**已通过（2026-11-12 G1 评审）**（2026-11-11 R2.5 起草；对应 `specs/iteration-2026-11-11-r25/design.md` §1/§2；评审修订与第二批裁决已逐条并入正文，见文末「第二类裁决回填（2026-11-12 第二批）」）
 
 ### 背景
 
@@ -321,6 +321,8 @@ R2.4 第一轮交付后用户补充两点：① 背包里装备和物品要**分
    - **事实层** = 只追加记录（history、`eventFires: Array<{eventId, turnIndex, worldTime}>` 触发日志、`missedEvents`、`relationLog`）。**注意：现 `firedEvents`（按 eventId 覆盖写"最近一次"）不是合法的事实形态**——覆盖违反 R-LM-03「事实只追加、逐字段不变」；拆为两层：append-only 的 `eventFires[]` 日志 + **派生索引 `lastFiredIndex`（显式标注为可重建缓存、不是事实）**承接 once/冷却/结局 `eventOccurred`（`v2/ending.ts:134`）的按 id O(1) 查询；索引与日志不一致时以日志为准重建。事实的合法消费只有三种：条件求值的只读输入、投影展示、结局证据。**事实不得反向驱动调度**——触发只能来自玩家行动、效果 DSL、延时队列到期。
 2. **flags 拆分**：`flags` 定位收窄为「模板语义黑板」（setFlag/adjustFlag/clearFlag/FlagCondition 的专属域）；系统内部记录全部迁出——`npcAction:*` 迁 NPC 实例冷却记录（R2.6）、`infoVisibility:*` 迁 NPC 实例字段（R2.6）、`relationSource:*` 迁关系边 source（R2.6）、`openingScheduled:*` 被延时队列实例取代（R2.5 删除）、`turnsPlayed` 删除（≡ turnIndex）。
 3. **调度判定器纯函数化**：`evaluateDue(instance, worldTime, facts)` 输入全显式、无隐藏读取，保证确定性可测。
+4. **配置域只读字段与配置层边界（2026-11-12 G1 评审修订并入）**：六字段 `probability/weight/once/priority/conditions/onActionId` 经代码核查确认为**配置域只读**（`schema/event.ts:13-43` 定义、`turn.ts:329-383` 只读、从不写入状态/存档）；**事件实例不得复制它们**（原 `snapshot` 设计作废）。配置层 ≠「只能有 yaml 文件」，但**运行时不生成新的配置层模板定义**：刷新规则写 yaml（配置）→ 世界初始化把规则**实例化**为 `SpawnRuleInstance`（实例层、进存档）→ 事件效果 `spawnNpc(ruleId)` 依规则建 NPC 实例（`unspawned → alive`）并只追加 spawn 事实（R-LM-04）。**2026-11-12 第二批裁决 #46 关闭：用户明确「不做」**——运行时按 seed 生成**配置层模板定义**的能力不实现（更强形式「须确定性、不参与指纹、先写 ADR」的候选 B 作废）；常规路径保留并归 R2.6。
+5. **世界时间精度（2026-11-12 G1 评审修订 + 第二批 #45 裁决并入）**：世界时间为**整数分钟**（`number`）；无限期窗口用 `undefined` + 显式 `hasEnd` 标记，**删除 `MAX_SAFE_INTEGER` 数值哨兵**。**#45 裁决「保持现状、下期决策」：本轮不加 `MAX_WORLD_TIME = 2^52` 上界拒载、不加 `{epochIndex, minuteInEpoch}` 双字段/BigInt**，`worldTime` 维持现状（number 分钟）；`R-LM-05` 本轮验收口径收缩为「整数分钟 + `hasEnd` 无数值哨兵」，上界校验与年号/纪元 `CalendarAdapter.format` 渲染随 #39/#43 下一期（R2.6）首批一并验收。
 
 ### 被否决的备选
 
@@ -337,7 +339,7 @@ R2.4 第一轮交付后用户补充两点：① 背包里装备和物品要**分
 
 ## ADR-0011 事件触发收敛为立即/延时两类 + 时间窗口队列
 
-状态：**待评审**（2026-11-11，R2.5 起草；对应 design.md §3）
+状态：**已通过（2026-11-12 G1 评审）**（2026-11-11 R2.5 起草；对应 `design.md` §3；评审修订与第二批裁决已逐条并入正文，见文末「第二类裁决回填（2026-11-12 第二批）」）
 
 ### 背景
 
@@ -345,12 +347,12 @@ R2.4 第一轮交付后用户补充两点：① 背包里装备和物品要**分
 
 ### 决策
 
-1. **触发分类收敛**：立即触发 = `action_trigger`（`action-hook` 改名，过渡期 superRefine 双接受）+ `chain`（无 delay 的步骤）；延时触发 = `schedule`（世界初始化/效果入队）+ pool 抽中实例 + 声明 `delay` 的链步骤。`pool` 降格为抽取器：抽中一律入延时队列，不得立即呈现。
-2. **时间窗口队列**：`WorldStateV2` 新增 `scheduledEvents: ScheduledEventInstance[]`（instanceId/definitionId/origin/chainId?/window{start,end?}/enqueuedAt/enqueueSeq/status/snapshot?）与 `enqueueSeqCounter`。`TimeExpr = absolute（世界起点偏移）| relative（入队时刻 + N）`，**入队即换算固化**为分钟窗口（回拨/前拨不影响已固化窗口）。排序键严格 `start asc → end asc（undefined ≡ +∞）→ enqueueSeq asc`，`enqueueSeq` 全局唯一保证全序与排序稳定性（design.md §3.3 证明）。
-3. **drain 与判定**：三个 drain 入口（轮次推进后、效果推进时间后、入队即到期）；循环取队首，`start > now` 即停（有序队列）；过期 → `status=expired` + missedEvents 错失事实；判定顺序固定为 once（drop）→ conditions（hold 留队）→ 冷却（hold）→ probability（一次性掷骰，drop）。概率失败留队会造成每轮重掷、语义失真为"窗口内至少命中一次"，故丢弃。
-4. **退役**：`atTurn` 删除（现存模板零使用，但 v2.test.ts:737/768 夹具在用，需换形迁移）；`cooldownTurns` 改 `cooldown: TimeExpr`（时间维度，依赖 `firedEvents` 两层拆分：`eventFires[]` 日志 + `lastFiredIndex` 派生索引）。补正 `duration.turns` 与 NPC 行动冷却本轮不动（Q-R25-04）。
-5. **槽位唯一**：`pending_event_required` 守卫语义收窄为"槽位被占用时拒绝新自由行动"；立即事件的呈现排队沿用既有 `EVENT_SOURCE_PRIORITY`，不新增排序结构。
-6. **链组合**：`ChainStep.delay?: TimeExpr` 表达"3 天后触发"；链断链判定 `evaluateChain()` 纯函数——链 active 的充分条件之一是时间队列存在该链的未触发实例（修复 stepIndex 双写漂移的结构性风险）；`advanceWhen: nextTurn` 保留（"下一轮"是槽位语义，非 x 轮后，Q-R25-06）。
+1. **触发分类收敛**：立即触发 = `action-hook`（**保留旧名不改名**，Q-R25-01 关闭；未声明 `window/delay`）+ `chain`（无 `delay` 的步骤）；延时触发 = 声明了 `window/delay` 的 `action-hook`、`chain` 延时步、`schedule`（世界初始化/效果入队）、pool 抽中实例。**立即/延时的判据是「是否声明时间窗」，不是 `source` 取值**；`action-hook` 与 `chain` 延时步均可入队。`pool` 降格为抽取器：门控通过才入延时队列，不得立即呈现。
+2. **时间窗口队列**：`WorldStateV2` 新增 `scheduledEvents: ScheduledEventInstance[]`（instanceId/definitionId/origin/chainId?/window{start,end?}/enqueuedAt/enqueueSeq/status/**无 snapshot**）与 `enqueueSeqCounter`。**`TimeExpr` 二分支收敛为单一 `TimeSpec`**（默认相对**入队时刻**，兼容时间格式；删除 `absolute/relative` 二分支，OQ-#37 关闭）：**入队即换算固化**为分钟窗口（回拨/前拨不影响已固化窗口）。**#44 方向定 A、实现延期**：用户原话「符合事件+字面量」按「**复合时长 + 字面量**」解读（候选 A：`3d`/`2h30m` 复合时长 + 历法日期字符串字面量，文档须注明这是对原文的解读）；实现与 #39/#43 一并排下一期；**本轮 `TimeSpec` 只实现 `TimeAmount {value, unit}`，字符串语法只留 `CalendarAdapter.parseTimeSpec` seam、不做加载期解析**。排序键严格 `start asc → end asc（undefined ≡ +∞）→ enqueueSeq asc`，`enqueueSeq` 全局唯一保证全序与排序稳定性（design.md §3.3 证明）。
+3. **drain 与判定（评审修订 + #36 裁决并入）**：三个 drain 入口（轮次推进后、效果推进时间后、入队即到期）；循环取队首，`start > now` 即停（有序队列）。**入队门控前置**：六策略（`once`/`probability` + pool 的 `conditions`/`weight`/`priority`）在候选产生时决定是否入队，失败**不产生实例、不构成错失**。出队判定固定为 `missWhen`（drop，`miss_when`）→ `conditions` 终判（hold）→ `cooldown`（hold）→ fire；`MissReason` 收缩为 `window_expired | miss_when`（OQ-#42 按推荐 ① 通过）。**#36 关闭，采用候选②「留在队列」**：窗口内 `conditions`/`cooldown` 不满足一律 **hold 留队、每轮 drain 重估、不记错失**；仅当 `worldTime > window.end` 才出队并追加 `reason="window_expired"` 的错失事实；无 `window.end` 永不因时间过期，由显式 `missWhen` 兜底（R-EV-12/#42）；门控失败不构成错失。原「once→conditions→cooldown→probability 出队判定」与「概率失败丢弃」表述作废。
+4. **退役**：`atTurn` 删除（现存模板零使用，但 v2.test.ts:737/768 夹具在用，需换形迁移）；`cooldownTurns` 改 `cooldown: TimeSpec`（时间维度，依赖 `firedEvents` 两层拆分：`eventFires[]` 日志 + `lastFiredIndex` 派生索引）。补正 `duration.turns` 与 NPC 行动冷却本轮不动（Q-R25-04）。
+5. **槽位唯一 + #35 加载期强制（评审修订 + #35 裁决并入）**：`pending_event_required` 守卫语义收窄为"槽位被占用时拒绝新自由行动"；立即事件的呈现排队沿用既有 `EVENT_SOURCE_PRIORITY`，不新增排序结构。**事件结算推进轮次**（OQ-#34 关闭）：新增 `timeCost`（缺省 0）、战斗结束算结算轮、用物品暂不算、事件轮跑完整管线、同窗多事件逐轮各占一槽（R-EV-14），RNG 序列变更范围随之扩大。**#35 关闭：同一轮至多一个立即触发事件采用候选①「加载期静态拒绝」（`superRefine`）**，并显式豁免延时事件——只统计「未声明 `window`/`delay` 的立即 `action-hook`」并按 `onActionId` 分组，同组 ≥2 条才报错；声明了 `window`/`delay` 的 `action-hook`（延时）、`chain` 延时步、`schedule`、`pool` 全部不受约束（延时事件不占同一轮槽位）；错误信息须提示「可为后续 hook 声明 window/delay 转为延时」。
+6. **链组合**：`ChainStep.delay?: TimeSpec` 表达"3 天后触发"；链断链判定 `evaluateChain()` 纯函数——链 active 的充分条件之一是时间队列存在该链的未触发实例（修复 stepIndex 双写漂移的结构性风险）；`advanceWhen: nextTurn` 保留（"下一轮"是槽位语义，非 x 轮后，Q-R25-06）。
 
 ### 被否决的备选
 
@@ -361,13 +363,13 @@ R2.4 第一轮交付后用户补充两点：① 背包里装备和物品要**分
 
 ### 后果
 
-- 影响面：`schema/event.ts`、`schema/event-instance.ts`（统一实例 schema）、`schema/common.ts`（TimeExpr）、`v2/scheduler.ts`（新）、`v2/turn.ts`（删 resolveScheduleV2 全模板扫描、pool 改入队、onCooldown 改时间维度）、`v2/opening.ts`（handoff 真入队）、jjk-2006 events.yaml。
+- 影响面：`schema/event.ts`、`schema/event-instance.ts`（统一实例 schema）、`schema/common.ts`（`TimeSpec`，取代原 `TimeExpr` 二分支）、`v2/scheduler.ts`（新）、`v2/turn.ts`（删 resolveScheduleV2 全模板扫描、pool 改入队、onCooldown 改时间维度）、`v2/opening.ts`（handoff 真入队）、jjk-2006 events.yaml。
 - **确定性声明**：drain/pool 的 RNG 消耗顺序与 R2.4b 不同，**同 seed 事件序列与转盘结果会改变**——新行为完全可复现，但旧回放断言需重录、旧存档拒载（schemaVersion 2）。
 - 迁移成本：strict schema 下旧字段加载期即拒绝，模板随指纹一并升级；jjk-2006 迁移量小（1 schedule、5 pool、1 action-hook、~20 chain 全 onSettle、无 atTurn）。
 
 ## ADR-0012 NPC 生命周期与投影解耦 / 出生时间与年龄派生
 
-状态：**待评审**（2026-11-11，R2.6 起草；对应 design.md §4）
+状态：**已通过（2026-11-12 G1 评审）**（2026-11-11 R2.6 起草；对应 `design.md` §4；评审修订与第二批裁决已逐条并入正文；实施归下一期 R2.6，见文末「第二类裁决回填（2026-11-12 第二批）」）
 
 ### 背景
 
@@ -377,20 +379,39 @@ NPC 现无任何存活状态：死亡/失联的 NPC 照样被效用评分选中�
 
 1. **生命周期字段**：`V2Npc.lifecycle = { state: "alive" | "inactive" | "unspawned", reasonCode?, sinceTurn, sinceWorldTime }`。**引擎只判 `alive`**，`reasonCode` 是模板自由字符串（dead/missing/sealed…），**引擎不得对 reasonCode 分支**；"死人才能…"的业务语义由模板条件表达（新增 `{ npcState: { npcId, state } }` 条件，只匹配状态不匹配 reasonCode）。不引入 lifecycle.ts/阶段枚举（ADR-0004 禁令继续有效）——这是角色级三态字段，不是流程编排。
 2. **默认判活四处**（模板零书写）：NPC 自主行动循环过滤（npc.ts）、战斗参战 ref 解析时**跳过该场战斗整条触发并记一条事实**（沿用现 combat 冲突口径：不消耗 once/冷却、不写触发提示；`enemies` 与 `allies` 同规则——不在建场期硬报错，「分支里先死、之后再引用同一 NPC 的战斗」是合法剧情，事件条件层可用 `npcState` 另行把关；仅 `characterId` 在模板中不存在才加载期报错，属引用完整性）、关系/affinity 写入对 inactive 冻结、NPC 行动候选先于条件求值过滤。复活/死亡/spawn 走统一效果 `{ type: "setNpcLifecycle", npcId, state, reasonCode? }`，无特权通道。
-3. **投影与生命周期解耦**：`projectNpc(npc, state, template) → NpcView | null`。输入 = NPC public 字段 + 动态已知标记 `infoVisibility`（自 flags 迁入实例）+ 模板 `projection` 配置（`alwaysVisible`/`revealFields`/`showLifecycle`）；unknown 且非 alwaysVisible → 不上屏；inactive 照常上屏（age 冻结、状态标注由模板 label 映射 reasonCode）。`visibility: public|hidden` 保留为模板静态闸，与动态已知标记 AND 组合（Q-R25-07）。
-4. **出生时间与年龄**：`V2Npc.birthTime: number`（世界分钟，可为负）取代静态 age；`ageAt(birth, now)` 统一经 `CalendarAdapter`（新增 `toMinutes(amount, fromMinute)` / `ageAt(birth, now)` 方法与模板 `calendar.preset` 声明位）。三种时间模型 = ① 固定年长近似 / ② 真实公历 / ③ 自定义历/农历，**统一接口 + 模板声明切换，本轮只实现 ①**（Q-R25-05 待用户确认交付边界）；玩家与 NPC 统一 birthTime 派生（退役 `playerAgeAtStart + elapsedYears`，Q-R25-08）。
-5. **关系模型**：`affinity`（数值，现 relationship 改名）与类型化关系边分离；**只写单向事实**（`parents: string[]`、`masterId`），child/sibling/apprentice/同门反向推导（倒排索引 O(N+E)），辈分上溯 BFS/DFS，写入时环检测（上溯校验目标非自身后代/徒链）；`custom` 关系留类型位给用户后续的通用 yaml 模板机制；`relationLog` 为事实层只追加记录。**自研确定性算法（`v2/relations.ts`，约 150 行），不引入第三方依赖**。
+3. **投影与生命周期解耦（#41 合并裁决并入）**：`projectNpc(npc, state, template) → NpcView | null` 作为**单一判定入口**。**2026-11-12 第二批裁决 #41 关闭：采用候选①「合并」**——`visibility: public|hidden` 并入「NPC 投影原则」的该单一判定入口 `projectNpc()`，**不再与动态已知标记各设一套判定**（合并 ≠ 原「保留 visibility 静态闸并 AND 组合」两套并存，Q-R25-07 的 A 案据此改写）；历史条目可见性 `R-VS-03` / `isPlayerVisible()` 口径不变。输入 = NPC public 字段 + 动态已知标记 `infoVisibility`（自 flags 迁入实例）+ 模板 `projection` 配置（`alwaysVisible`/`revealFields`/`showLifecycle`）；unknown 且非 alwaysVisible → 不上屏；inactive 照常上屏（age 冻结、状态标注由模板 label 映射 reasonCode）。关联 R-NP-01、T2-03。
+4. **出生时间与年龄**：`V2Npc.birthTime: number`（世界分钟，可为负）取代静态 age；`ageAt(birth, now)` 统一经 `CalendarAdapter`（新增 `toMinutes(amount, fromMinute)` / `ageAt(birth, now)` 方法与模板 `calendar.preset` 声明位）。三种时间模型 = ① 固定年长近似 / ② 真实公历 / ③ 自定义历/年号/洪荒纪元，**统一接口 + 模板声明切换，本轮只实现 ①**。**2026-11-12 第二批裁决 #39/#43：继续延期，下一期（R2.6）首批解决**——本轮 R2.5 不实现 ②真实公历/③自定义历+年号，`CalendarAdapter` 接口形状保持预留；Q-R25-05 标注「下期首办」（原「待用户确认交付边界」作废）。玩家与 NPC 统一 birthTime 派生（退役 `playerAgeAtStart + elapsedYears`，Q-R25-08）。
+5. **关系模型**：`affinity`（数值，现 relationship 改名）与类型化关系边分离；**只写单向事实**（`parents: string[]`、`masterId`），child/sibling/apprentice/同门反向推导（倒排索引 O(N+E)），辈分上溯 BFS/DFS，写入时环检测（上溯校验目标非自身后代/徒链）；`custom` 关系留类型位给用户后续的通用 yaml 模板机制；`relationLog` 为事实层只追加记录。**分层复用（2026-11-12 G1 评审修订，原「不引入第三方依赖」作废）**：图遍历/环检测/断代/师承自研 `v2/relations.ts`（确定性、离线）；已知跳数亲属路径转成关系链记号交给 `relationship.js`（MIT/v1.2.9/零运行时依赖/纯查表确定性）出中文称谓；断代用显式 `ancestorGaps` + 粗称谓（不猜代数、不补节点）；师承称谓走模板 `titleRules`。OQ-#40 关闭、R-NP-08 新增；**引入 `game-core` 第三方依赖前须单独 ADR**。
 6. **NPC 行动与事件边界**：NPC 行动只能写事实/实例状态/白名单效果；需要排程时只能经 `enqueueEvent` 效果入延时队列，不得直接触发模板事件（现 startedChains 收集→路由触发的模式保留）。
 
 ### 被否决的备选
 
 - **给 NPC 加业务 status 枚举（dead/missing/sealed/fell… 作为引擎枚举）**：引擎必须对每个枚举值分支（死了不能行动、失联不能行动、封印不能行动…），每新增一种世界观语义就要改引擎——违反"世界观规则只进模板"。三态 + 自由 reasonCode 把语义留给模板、结构留给引擎。
 - **沿用 isEnemy/flags 表达存活（如 `flags["npcDead:<id>"]`）**：模板条件可读引擎内部记录（层级墙穿透，ADR-0010 否决过同型方案）；判活逻辑散落各消费点、模板需要自己写 alive 条件（违背"默认判活"诉求）。
-- **引入第三方族谱/称谓库（relationship.js）**：面向现实称谓文本查询，与引擎需要的确定性结构图不同构；单局 NPC 10¹~10² 量级自研图查询毫秒级完成，依赖治理成本 > 自研成本。借鉴其辈分路径思路即可。lunar-javascript 亦本轮不引（历法 ① 零需求），未来启用农历时再单独 ADR。
+- **引入第三方族谱/称谓库（relationship.js）——【2026-11-12 G1 评审作废】**：实查确认存在成熟库 `relationship.js`（npm，mumuy/relationship；MIT，v1.2.9，约 3.7k stars，`dependencies: {}`，纯 JS 数据表算法、Node 离线、确定性），支持 `type:'chain'`、`optimal` 最短关系、`setMode` 方言、多跳中文称谓。原「与确定性结构图不同构、依赖治理成本 > 自研成本」的判断作废，改为**分层复用**（见决策 5）：自研图内核（遍历/环检测/断代/师承）+ 该库承担「已知亲属链 → 中文称谓」的纯函数展示层；师承称谓走模板 `titleRules`；断代用显式 `ancestorGaps` + 粗称谓（不猜代数、不补节点）。OQ-#40 关闭、R-NP-08 新增。**引入 `game-core` 第三方依赖前须单独 ADR**；lunar-javascript 本轮不引（#39/#43 延期，②③ 实现排下一期）。
 - **age 保留为每轮 tick 更新的缓存字段**：多一个每轮写入口、漂移风险与 stepIndex 同型；派生计算（一次除法/历法差）成本可忽略，ageAt 即可。
 
 ### 后果
 
 - 影响面（R2.6）：`schema/character.ts`（lifecycle/birthTime/parents/masterId/projection）、`shared/src/v2.ts`（V2Npc/V2Player）、`v2/npc.ts`、`v2/battle.ts`（参战 ref 判活跳过 + 建场 age 快照）、`v2/engine.ts`（setNpcLifecycle/npcState/关系冻结）、`v2/projection.ts`（projectNpc；`player.age`/`npcs[].age` 形状不变、内部改 ageAt 现算）、`v2/time.ts`（CalendarAdapter 扩展）、`v2/relations.ts`（新）、jjk-2006 characters.yaml。前端 `apps/web` 的 age 消费点零改动（视图形状保持）。
 - 确定性：判活过滤改变 NPC 行动候选集与 RNG 消耗（同一 NPC 行动与否影响后续骰序），与 ADR-0011 一并随 schemaVersion 2 边界一次性生效。
-- 未决项：三种时间模型的交付边界（Q-R25-05）、visibility 闸与绕过判活开关（Q-R25-07）、玩家统一 birthTime（Q-R25-08）、inactive NPC 关系冻结（Q-R25-10）——均不阻塞 ADR 方向本身，实施前由用户裁决。
+- 裁决状态（2026-11-12 第二批）：**#41 已关闭（合并）**——`visibility` 并入 `projectNpc()` 单一判定入口，Q-R25-07 的 A 案据此改写；**#39/#43 继续延期、下一期（R2.6）首批解决**（Q-R25-05 标注「下期首办」），三种时间模型 ②③ 实现不在本轮、`CalendarAdapter` 接口形状保持预留；Q-R25-08（玩家统一 birthTime）、Q-R25-10（inactive 关系冻结）不阻塞 ADR 方向本身，按推荐口径（A）执行。
+
+---
+
+## 第二类裁决回填（2026-11-12 第二批）
+
+> 用户 2026-11-12 第二批裁决原文：「35 加载期静态拒绝 但是注意别误伤了延时事件 / 36 留在队列 / 39 43 继续延期 下一期马上解决 / 41 合并 / 44 符合事件+字面量，和39 43 下期排期解决 / 45 先保持现状 时间问题 下一期决策 / 46 不做 / 没问题就施工」。**G1 已过**（用户上一轮「其余默认通过」）、G2 已过，本轮进入实施，从 `T1-01` 起按 G3 单任务推进；范围是本批 **R2.5 事件模型（T1-01..T1-09）**，R2.6/NPC（`T2-*`）为下一期。ADR-0010/0011/0012 状态由「待评审」改为「**已通过（2026-11-12 G1 评审）**」。
+>
+> 原「评审修订补记（2026-11-12，G1 评审通过）」的 **ADR-0010/0011/0012** 要点（配置域只读 / 运行时不生成定义 / 删 `MAX_SAFE_INTEGER` 哨兵 / `action-hook` 不改名 / 入队门控前置 / `TimeSpec` 收敛 / 结算推进轮次 / `relationship.js` 分层复用 / 三时间模型枚举）**已逐条并入上述 ADR 正文**；以下 8 条为第二批裁决要点，**亦已并入正文（逐条注明「已并入正文」）**，权威修订总表见 `specs/iteration-2026-11-11-r25/design.md` §0.2 与 §0.3。
+
+1. **#35 关闭（已并入正文）**：候选①「加载期静态拒绝」（`superRefine`）+ 延时豁免——只按 `onActionId` 分组统计「未声明 `window`/`delay` 的立即 `action-hook`」，同组 ≥2 条报错；声明 `window`/`delay` 的 `action-hook`、chain 延时步、schedule、pool 不受约束；错误信息提示「可为后续 hook 声明 window/delay 转为延时」。**落点**：ADR-0011 决策 5、R-EV-03、T1-01/T1-07、`design.md` §0.3/#1、`OPEN_QUESTIONS.md` #35。
+2. **#36 关闭（已并入正文）**：候选②「留在队列」——窗口内 `conditions`/`cooldown` 不满足一律 hold 留队、每轮 drain 重估、不记错失；仅 `worldTime > window.end` 才出队并追加 `reason="window_expired"`；无 `window.end` 由显式 `missWhen` 兜底（R-EV-12/#42）；门控失败不构成错失。**落点**：ADR-0011 决策 3、R-EV-07、T1-03、`design.md` §3.4 判定表/§0.3/#2、`OPEN_QUESTIONS.md` #36。
+3. **#39 / #43 延期（已并入正文，不写成已关闭）**：「继续延期，下一期马上解决」——本轮 R2.5 不实现 ②真实公历/③自定义历+年号，`CalendarAdapter` 接口形状保持预留；下一期（R2.6）首批解决；保留原有候选与推荐描述。**落点**：ADR-0012 决策 4/后果、`design.md` §3.5/§4.4/§7（Q-R25-05 标注「下期首办」）、`requirements.md` R-NP-04、`OPEN_QUESTIONS.md` #39/#43、`design.md` §0.3/#3。
+4. **#41 关闭（已并入正文）**：候选①「合并」——`visibility: public|hidden` 并入 `projectNpc()` 单一判定入口，不再与动态已知标记各设一套判定；`R-VS-03`/`isPlayerVisible()` 口径不变；ADR-0012 决策 3 与 Q-R25-07 的 A 案按此改写（合并 ≠ 简单 AND 两套并存）。**落点**：ADR-0012 决策 3、R-NP-01、T2-03、`design.md` §4.3/§7、`design.md` §0.3/#4、`OPEN_QUESTIONS.md` #41。
+5. **#44 方向定 A、实现延期（已并入正文，不写成已关闭）**：「符合事件+字面量」按「**复合时长 + 字面量**」解读（候选 A：`3d`/`2h30m` + 历法日期字符串字面量，文档须注明这是对原文的解读）；实现与 #39/#43 一并排下一期；本轮 `TimeSpec` 只实现 `TimeAmount {value, unit}`，字符串语法只留 `CalendarAdapter.parseTimeSpec` seam、不做加载期解析。**落点**：ADR-0011 决策 2、`design.md` §3.1/§3.5、`test-design.md` 第 13 项、`design.md` §0.3/#5、`OPEN_QUESTIONS.md` #44。
+6. **#45 保持现状、下期决策（已并入正文，不写成已关闭）**：本轮不加 `MAX_WORLD_TIME = 2^52` 上界拒载、不加 `{epochIndex, minuteInEpoch}` 双字段/BigInt，`worldTime` 维持 number 分钟；`R-LM-05` 验收收缩为「整数分钟 + `hasEnd` 无数值哨兵」；上界校验与年号/纪元渲染随 #39/#43 下一期一并验收。**落点**：ADR-0010 决策 5、R-LM-05、T1-02 DoD（删「上界」）、`design.md` §3.5/§6、`test-design.md` 第 14 项、`design.md` §0.3/#6、`OPEN_QUESTIONS.md` #45。
+7. **#46 关闭（已并入正文）**：用户明确「不做」——运行时按 seed 生成配置层模板定义的能力不实现；R-LM-04 常规路径（规则写 yaml → 世界初始化实例化 `SpawnRuleInstance` → 效果 `spawnNpc(ruleId)` 建 NPC 实例）保留，归 R2.6。**落点**：ADR-0010 决策 4、`design.md` §2、`design.md` §0.3/#7、`OPEN_QUESTIONS.md` #46。
+8. **施工状态（已并入正文）**：G1 已过、G2 已过，本轮进入实施，从 `T1-01` 起按 G3 单任务推进；范围 R2.5 事件模型（T1-01..T1-09），R2.6/NPC（`T2-*`）为下一期；ADR-0010/0011/0012 状态「已通过（2026-11-12 G1 评审）」。**落点**：三篇 ADR 状态行、`PROJECT.md` §2、`tasks.md` 顶部、`README.md` 门禁状态、`design.md` §0.3/#8。
+
+> 与 `design.md` §0.2 冲突处，以 §0.3（第二批裁决）为准：`§0.2` 的「`worldTime` 加显式上界」「年号/纪元本轮渲染」「字符串加载期解析」等表述已被 #45 / #39 / #43 / #44 修订。
