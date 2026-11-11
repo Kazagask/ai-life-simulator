@@ -21,46 +21,29 @@ function elapsedText(elapsed: { value: number; unit: string }): string {
   return `${elapsed.value} ${UNIT_NAMES[elapsed.unit] ?? elapsed.unit}`;
 }
 
-// ---------- 装备：前向兼容读取 ----------
+// ---------- 装备 ----------
 
 /**
- * 装备投影尚未进入 V2Snapshot.player（内核 projection.ts 当前只投影技能与背包）。
- * 此处按协议 §19 预期形状做前向兼容读取：投影接入后自动生效，不需要再改前端。
- * 待投影落地后应删除此局部类型，改用 shared 导出的正式视图类型。
- *
- * 只声明展示所需字段：补正结果（dynamicModifier 求值）属内核现算状态，
- * 展示层既不读取也不缓存，避免任何内部状态进入前端。
+ * 装备投影已落地（协议 §19）：V2Snapshot.player.equipment 为可选字段
+ * （旧存档 / 未配置装备的模板缺省），元素类型直接从 shared 视图类型派生，
+ * 前端不再本地重复声明字段。展示层只读这 7 个展示字段，补正结果属内核现算状态，不接触。
  */
-interface EquipmentViewCompat {
-  instanceId: string;
-  itemId: string;
-  slot: string;
-  stacks?: number;
-  durability?: number;
-  /** 投影应下发的展示名；缺失时回退 itemId */
-  name?: string;
-  /** 投影应下发的槽位显示名；缺失时回退 slot */
-  slotLabel?: string;
-}
+type EquipmentView = NonNullable<V2Snapshot["player"]["equipment"]>[number];
 
-/** 投影接入后 player 会带 equipment；当前类型未声明，故按可选字段读取。 */
-type PlayerWithEquipment = V2Snapshot["player"] & { equipment?: EquipmentViewCompat[] };
-
-function equipmentOf(player: V2Snapshot["player"]): EquipmentViewCompat[] {
-  const forward: PlayerWithEquipment = player;
-  return forward.equipment ?? [];
+function equipmentOf(player: V2Snapshot["player"]): EquipmentView[] {
+  return player.equipment ?? [];
 }
 
 interface EquipmentGroup {
   slot: string;
   label: string;
-  items: EquipmentViewCompat[];
+  items: EquipmentView[];
 }
 
 /** 按 slot 分组；保持投影下发顺序（槽位顺序由模板驱动，前端不自行排序）。 */
-function groupEquipmentBySlot(items: EquipmentViewCompat[]): EquipmentGroup[] {
+function groupEquipmentBySlot(items: EquipmentView[]): EquipmentGroup[] {
   const order: string[] = [];
-  const buckets = new Map<string, EquipmentViewCompat[]>();
+  const buckets = new Map<string, EquipmentView[]>();
   for (const item of items) {
     const bucket = buckets.get(item.slot);
     if (bucket) {
@@ -865,7 +848,11 @@ const PERSONAL_SUBTABS: Array<{ key: PersonalSubTab; label: string }> = [
   { key: "panel", label: "面板" },
 ];
 
-/** 无装备时的中性空槽数量：槽位定义由模板下发，投影未接入前不猜测槽位名。 */
+/**
+ * 无装备时的中性空槽占位数量。
+ * 槽位全集需由模板 equipment.yaml 的 slots 经投影下发才能恒定可见；
+ * 当前投影只下发「已装备实例」，拿不到空槽定义，故按数量占位且不猜槽位名。
+ */
 const EMPTY_SLOT_PLACEHOLDERS = 2;
 
 function PersonalTab({
@@ -936,7 +923,7 @@ function PersonalTab({
 }
 
 /** 层数 / 耐久只在投影确实下发时展示，缺失即不渲染（不推算默认值）。 */
-function EquipMeta({ equipment }: { equipment: EquipmentViewCompat }) {
+function EquipMeta({ equipment }: { equipment: EquipmentView }) {
   const stacks = equipment.stacks;
   const durability = equipment.durability;
   const hasStacks = typeof stacks === "number" && stacks > 1;
@@ -950,7 +937,7 @@ function EquipMeta({ equipment }: { equipment: EquipmentViewCompat }) {
   );
 }
 
-function EquipmentDetail({ equipment }: { equipment: EquipmentViewCompat[] }) {
+function EquipmentDetail({ equipment }: { equipment: EquipmentView[] }) {
   if (equipment.length === 0) {
     return (
       <section className="card">
