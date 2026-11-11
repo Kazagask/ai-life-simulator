@@ -1,0 +1,51 @@
+# 战斗 AI 分域样例（协议 V2.1 §20）。可经 WorldTemplateV2Schema 的 combatAi 字段校验。
+# 本文件放在 specs/data/examples/（不在 templates/ 下），不参与 apps/server 的模板目录
+# 遍历，仅作为协议样例与测试夹具；jjk-2006 有自己的 combat-ai.yaml。
+#
+# ⚠️ 挂载警告：scoreWeights / conditions[].prefer 的键（sk-aggressive-slash 等）均为
+# 协议示意 id，挂到真实世界时必须改成该世界 skills.yaml 中已定义的战斗技能 id，
+# assignments 的键必须改成该世界 characters.yaml 中已定义的角色 id——否则加载期
+# 「未知行动/技能」「未知角色」直接拒绝。
+#
+# 硬约束提醒（R-CA-02/06）：风格 id（aggressive / cautious / counter）只是模板数据，
+# 引擎按 scoreWeights / candidateFilters / conditions 解析，不按风格名分支；
+# when 只允许公有字段，注入 hidden / combatHints / knownGoals / secrets 会被
+# 加载期拒绝并给出字段路径。
+
+combatAi:
+  styles:
+    - styleId: aggressive
+      candidateFilters:
+        - includeTargets: [enemy, all_enemies]
+      scoreWeights:
+        sk-aggressive-slash: 3
+        sk-heavy-blow: 2
+      conditions: []
+
+    - styleId: cautious
+      candidateFilters:
+        - excludeTargets: [all_enemies]
+      scoreWeights:
+        sk-guard: 2
+        sk-self-heal: 1.5
+        sk-aggressive-slash: 1
+      conditions:
+        - when: { actorHpRatio: { lte: 0.3 } }   # 自身低血 → 优先治疗
+          prefer: [sk-self-heal]
+        - when: { actorMpRatio: { lt: 0.2 } }    # 自身低魔 → 保留零耗行动
+          prefer: [sk-guard]
+
+    - styleId: counter
+      candidateFilters:
+        - excludeActionIds: [sk-domain-collapse]  # 防御反击流不动大招
+      scoreWeights:
+        sk-guard: 2.5
+        sk-parry-strike: 2
+      conditions:
+        - when: { publicAliveFoes: { lte: 1 }, round: { gte: 3 } }
+          prefer: [sk-parry-strike]
+
+  assignments:
+    char-brute: aggressive
+    char-tactician: counter
+    # 未映射的角色（如 char-minion）保持既有 combatHints.skillWeights 加权路径

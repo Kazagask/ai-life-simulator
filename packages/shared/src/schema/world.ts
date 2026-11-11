@@ -7,6 +7,7 @@ import { StatusEffectSchema } from "./status-effect.js";
 import { NpcActionSchema } from "./npc-action.js";
 import { ChainSchema, EventV2Schema } from "./event.js";
 import { EquipmentConfigSchema, checkDynamicModifierSpec, type EquipmentSlot } from "./equipment.js";
+import { CombatAiConfigSchema } from "./combat-ai.js";
 
 /**
  * WorldTemplateV2 顶层聚合 Schema。
@@ -165,6 +166,8 @@ export const WorldTemplateV2Schema = z
     items: z.array(ItemSchema),
     /** 装备分域（协议 V2.1 §19，可选；equipment.yaml，未提供时引擎行为不变） */
     equipment: EquipmentConfigSchema.optional(),
+    /** 战斗 AI 分域（协议 V2.1 §20，可选；combat-ai.yaml，未映射的敌人保持既有简单权重路径） */
+    combatAi: CombatAiConfigSchema.optional(),
     statuses: z.array(StatusEffectSchema),
     events: z.array(EventV2Schema),
     chains: z.array(ChainSchema).optional(),
@@ -444,6 +447,28 @@ export const WorldTemplateV2Schema = z
         if (item.slot && !slotById.has(item.slot)) {
           add(["equipment", "initialEquipment", i], `初始装备引用了未声明槽位的装备：${init.itemId}`);
         }
+      });
+    }
+
+    // 战斗 AI 分域引用完整性（协议 V2.1 §20 / R-CA-01..06）
+    const ai = w.combatAi;
+    if (ai) {
+      const styleIds = new Set<string>();
+      ai.styles.forEach((s, i) => {
+        if (styleIds.has(s.styleId)) add(["combatAi", "styles", i, "styleId"], `重复风格 id：${s.styleId}`);
+        styleIds.add(s.styleId);
+        Object.keys(s.scoreWeights).forEach((actionId, j) => {
+          if (!skillIds.has(actionId)) add(["combatAi", "styles", i, "scoreWeights", j], `未知行动/技能：${actionId}`);
+        });
+        (s.conditions ?? []).forEach((c, j) => {
+          c.prefer.forEach((actionId, k) => {
+            if (!skillIds.has(actionId)) add(["combatAi", "styles", i, "conditions", j, "prefer", k], `未知行动/技能：${actionId}`);
+          });
+        });
+      });
+      Object.entries(ai.assignments).forEach(([characterId, styleId], i) => {
+        if (!characterIds.has(characterId)) add(["combatAi", "assignments", i], `未知角色：${characterId}`);
+        if (!styleIds.has(styleId)) add(["combatAi", "assignments", i], `未知风格：${styleId}`);
       });
     }
 

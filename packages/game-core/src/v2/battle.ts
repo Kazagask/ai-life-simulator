@@ -12,6 +12,7 @@ import type {
 } from "@life-sim/shared";
 import { pickWeighted, type Rng } from "../rng.js";
 import { computeMax, effectiveAttributes, maxHp, maxMp, moodBand, rollFormula, applyStatusToPlayer, checkCondition, zeroRng } from "./engine.js";
+import { buildPublicConditionContext, decide } from "./combat-ai.js";
 import type { ModifierConditionGate } from "./equipment.js";
 import { createTimeAdapter } from "./time.js";
 import type { TemplateLookup } from "./lookup.js";
@@ -188,6 +189,7 @@ function buildUnits(
       hp: maxHpValue,
       maxHp: maxHpValue,
       mp: maxMpValue,
+      maxMp: maxMpValue,
       attributes,
       statuses: (def.statuses ?? []).map((id) => ({ statusId: id, stacks: 1, appliedTurn: state.turnIndex })),
       skillCooldowns: {},
@@ -389,6 +391,40 @@ function aiTurn(
     battle.log.push(cannotAttack ? `${unit.name}无法攻击，跳过了回合。` : `${unit.name}蓄势待发。`);
     return;
   }
+
+  // 风格映射（协议 §20）：combatAi.assignments[characterId] → 风格画像。
+  // 未提供 combat-ai.yaml 或该角色未映射时，保持既有 skillWeights 加权路径（逐字段兼容）。
+  const combatAi = lookup.template.combatAi;
+  const profile = combatAi ? combatAi.styles.find((s) => s.styleId === combatAi.assignments[unit.characterId]) : undefined;
+  if (profile) {
+    const pub = buildPublicConditionContext({
+      actor: {
+        hp: Math.max(0, c.hp),
+        maxHp: unit.maxHp,
+        mp: Math.max(0, c.mp),
+        maxMp: unit.maxMp ?? Math.max(1, c.mp),
+      },
+      player: {
+        hp: Math.max(0, battle.player.hp),
+        maxHp: maxHp(state.player, lookup.template),
+        mp: Math.max(0, battle.player.mp),
+        maxMp: maxMp(state.player, lookup.template),
+      },
+      round: battle.round,
+      aliveAllies: team === "enemy" ? battle.enemies.filter((e) => e.alive).length : battle.allies.filter((a) => a.alive).length + 1,
+      aliveFoes: team === "enemy" ? battle.allies.filter((a) => a.alive).length + 1 : battle.enemies.filter((e) => e.alive).length,
+    });
+    // 决策只依赖战斗镜像与公有字段；结果交回既有 executeSkill 结算（AI 不写状态）
+    const decision = decide({ candidates: usable.map((s) => ({ actionId: s.id, skill: s })), profile, pub });
+    const chosen = decision.actionId ? usable.find((s) => s.id === decision.actionId) : undefined;
+    if (chosen) {
+      executeSkill(battle, state, c, chosen, undefined, lookup, rng);
+      return;
+    }
+    battle.log.push(`${unit.name}蓄势待发。`);
+    return;
+  }
+
   const chosen = pickWeighted(usable, (s) => unit.skillWeights[s.id] ?? 1, rng);
   if (!chosen) return;
   executeSkill(battle, state, c, chosen, undefined, lookup, rng);

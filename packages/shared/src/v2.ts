@@ -92,6 +92,8 @@ export interface BattleEnemy {
   hp: number;
   maxHp: number;
   mp: number;
+  /** MP 上限（战斗 AI 公有比例用；可选以兼容旧存档，缺省回退当前 mp） */
+  maxMp?: number;
   attributes: Record<string, number>;
   statuses: StatusInstance[];
   skillCooldowns: Record<string, number>;

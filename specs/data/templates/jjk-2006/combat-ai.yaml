@@ -1,0 +1,46 @@
+# JJK Demo 世界模板 · combat-ai.yaml
+# 战斗 AI 分域（协议 V2.1 §20）：风格画像 + 敌人映射。
+# 本文件可缺省：未提供或角色未映射时，AI 走既有 combatHints.skillWeights 加权路径，
+# 逐字段行为与历史基线一致（向后兼容）。
+#
+# 硬约束（R-CA-06）：conditions[].when 只允许 PublicConditionContext 公有字段
+# （actorHpRatio / actorMpRatio / publicPlayerHpRatio / publicPlayerMpRatio / round /
+# publicAliveAllies / publicAliveFoes）；引用 hidden / secrets / combatHints /
+# knownGoals 等非公有字段在加载期被拒绝。
+combatAi:
+  styles:
+    # 激进：优先高强度攻击，不再自我治疗（挂给 npc-gojo）
+    - styleId: aggressive
+      candidateFilters:
+        - includeTargets: [enemy]
+      scoreWeights:
+        sk-gojo-blue: 3
+        sk-gojo-red: 2.5
+        sk-domain-void: 2
+      conditions: []
+
+    # 防御反击：血量健康时进攻，自身低血优先反转治疗（挂给 npc-yuta）
+    - styleId: defensive-counter
+      candidateFilters:
+        - excludeTargets: [all_enemies]
+      scoreWeights:
+        sk-cursed-strike: 3
+        sk-reverse-heal: 1
+      conditions:
+        - when: { actorHpRatio: { lte: 0.4 } }
+          prefer: [sk-reverse-heal]
+
+    # 保守：保留给后续敌人映射的第三风格（未映射不影响现网行为）
+    - styleId: cautious
+      candidateFilters:
+        - excludeTargets: [all_enemies]
+      scoreWeights:
+        sk-reverse-heal: 2.5
+        sk-cursed-strike: 1
+      conditions:
+        - when: { actorMpRatio: { gte: 0.5 } }
+          prefer: [sk-reverse-heal]
+
+  assignments:
+    npc-gojo: aggressive
+    npc-yuta: defensive-counter
