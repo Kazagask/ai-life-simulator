@@ -213,3 +213,35 @@ R2 原方案（补充方案 §2/§6）拟引入六阶段 Lifecycle 状态机（`
 - **玩家可见行为不变**：jjk-2006 唯一 hidden 结局（end-sp-aware）的 unlockConditions 门控与掩码文案随模板迁移，投影输出逐字段一致。
 - **影响面**：`shared/src/schema/ending.ts`、`game-core/src/v2/ending.ts` / `projection.ts`、`specs/data/templates/jjk-2006/endings.yaml`、`TEMPLATE_PROTOCOL_V2.md`（§21 结局字段表与示例）、相关测试；R2.3 规格中"按结局 `visibility` 继承"的措辞改为"按结局叙事掩码继承"。
 - **ADR 编号**：本 ADR 占用 0006；R2.3 计划中的持久化 / 时间跨度 ADR 顺延为 **ADR-0007 / ADR-0008**。
+
+## ADR-0007 存档持久化：JSON 文件原子写，仓库根可挂载数据目录
+
+状态：**已接受**（2026-11-11，T1-01）
+
+### 背景
+
+`apps/server/src/store.ts:15-16` 的 `worlds` 是纯内存 Map，重启即清空；前端已把 `worldId` 存 localStorage 并启动续玩（`main.tsx:1149-1169`），缺的是服务端持久层。R-PS-01..07 要求落盘，且用户裁决：**数据目录不得在 `apps/server` 下，必须可挂载**。
+
+### 决策
+
+1. **存储介质：JSON 文件 + tmp→rename 原子写**。零新增 npm 依赖（DoD 第 6 条）；可读、可手改、便于调试取证。
+2. **数据目录**：默认 `<仓库根>/data/worlds/`，由 server 模块位置上溯解析，**不依赖进程 cwd**；环境变量 `LIFE_SIM_DATA_DIR` 可覆盖为任意绝对路径（Docker volume / NAS 挂载点）；`.gitignore` 追加 `/data/`。
+3. **信封结构**：`{ schemaVersion: 1, savedAt, templateId, templateFingerprint, state }`，单局一文件 `<worldId>.json`。`schemaVersion` 现为 1，格式不兼容变更时递增。
+4. **模板指纹**：模板目录内全部 YAML 按文件名排序拼接 `name + "\0" + content` 后 sha256，加载时缓存。**指纹不匹配 → 拒绝加载**（记录 error 并跳过该档，不阻断启动）——模板是权威语义的一部分，"悄悄加载出行为漂移的存档"比"旧档作废"更危险；被否决的备选是"警告并加载"。
+5. **加载校验四道关**：JSON.parse → `schemaVersion === 1` → 指纹一致 → `WorldStateV2Schema.safeParse`（新建于 `packages/shared/src/v2-state.ts`，与 TS 接口双向类型断言防漂移）。任一不过 log.error 跳过。
+6. **写入口收口**：落盘在 `worldStore.save()` 与 `seal()` 内实现（`save()` 已被全部写入口调用）；失败删 tmp 并抛错，不吞异常。
+7. **归档只读**：加载后的 archived 世界仍走既有 `save()` 归档门禁（R-PS-06），`seal()` 是唯一例外通道。
+8. 列表 `GET /api/worlds`（savedAt 倒序）与 `DELETE /api/worlds/:id`（删文件 + 删 Map）由 server 提供；删除确认由前端负责。
+
+### 被否决的备选
+
+- **`node:sqlite`（Node 22 内置）**：实验性 API（22.5+ 需 flag），跨 Node 版本不稳。
+- **`better-sqlite3` / `pg`**：新增 npm 包，破 DoD 第 6 条。
+- **只存 seed + 命令日志回放**：模板一改回放即不一致；启动即重算，加载变慢。
+
+### 后果
+
+- 新增约 200 行 `WorldStateV2Schema` + 一条往返一致性测试（R-PS-07）——加载磁盘文件本质是处理不可信输入，这步不能省。
+- 全量重写（无增量/事务），当前规模 10² KB 量级，Node 单线程同步写无撕裂。
+- 迭代期每次改模板 YAML，旧档作废（指纹拒绝）——接受该代价，模板稳定后可引入迁移机制。
+- 与 `R-AR-03` 的关系：R-AR-03 说"首版沿用现有存档机制"，本轮把该机制从内存补成落盘，不是新增独立存档子系统。

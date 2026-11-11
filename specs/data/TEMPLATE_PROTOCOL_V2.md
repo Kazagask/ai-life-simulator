@@ -702,3 +702,43 @@ slots:
 - 本轮**不交付**：时间穿越章节、`WorldLineRecord`、`jumpTo()`、隐秘未来事件、ADR-0005、Steins;Gate 穿越剧本，以及六阶段 Lifecycle 状态机 / `lifecycle.ts` / `PhaseTransitionLog`。
 - §16–§20 是**协议层约定**：Zod Schema 草案由 T1-03 定义、实现由阶段 3–6 落地；5 个新分域文件可选，未提供的世界不受影响。
 - 世界时间仍经 `TimeAdapter`（ADR-0002）；§16–§20 **不得写死「时间单调 / 未来事件不可撤销」假设**。`EventInstance` 的 `instanceId / definitionId` 分离、时间适配器不写死单调假设、投影按 `visibility` 过滤——三个 R3 接口预留点保持不变。
+
+## 21. 历史可见性与存档契约（V2.2 新增，R2.3）
+
+### 21.1 历史可见性
+
+**三类可见性**：`"public" | "hidden" | "unknown"`，承载于 `HistoryEntryV2.visibility?`。
+
+- **缺省语义**：字段缺省视为 `"public"`——这是 R2.2 及以前旧存档的**兼容策略**，不是语义主张；写入侧由 `pushHistory()` 签名强制提供，新数据一定带值。
+- **唯一判定入口**：`isPlayerVisible(entry)`（`shared/v2.ts`）；读取侧不得各自写 `=== "public"`。
+- **写入侧来源决定可见性**：
+  - 事件来源（schedule / pool / chain / action-hook 触发产生的条目）**一律 `"public"`**——事件没有隐藏语义，进轮次调度即必须对玩家可见（OPEN_QUESTIONS #33 已裁决，`EventV2Schema` 不加 visibility 字段）；
+  - 玩家行动来源一律 `"public"`；
+  - 战斗来源一律 `"public"`；
+  - `npc_action` 属公开世界动态，不分级（NPC 秘密在 `def.secrets`，不进 summary；OPEN_QUESTIONS #32 登记）；
+  - **结局来源**按结局叙事掩码继承：命中 `narrativeConfig.masked` 的结局（隐藏结局，ADR-0006）写入的条目为 `"hidden"`，其余 `"public"`。
+- **三个玩家端出口**（全部必须过滤，`hidden`/`unknown` 不进）：
+  1. `V2TurnResult.playerVisibleHistory`——**先过滤再 `slice(-20)`**；
+  2. `GET /api/worlds/:id/history`；
+  3. 归档响应——public 记录 + `hiddenHistoryCount` 计数（完整历史只留在服务端存档文件）。
+- **`ArchiveRecord.history`（服务端存档事实）不受过滤约束**：存档文件保留全量。
+
+### 21.2 存档契约
+
+**信封结构**（单局一文件 `<worldId>.json`，位于数据目录）：
+
+```jsonc
+{
+  "schemaVersion": 1,
+  "savedAt": "2026-11-11T13:40:00.000Z",
+  "templateId": "jjk-2006",
+  "templateFingerprint": "sha256:…",
+  "state": { /* WorldStateV2 全字段 */ }
+}
+```
+
+**数据目录**（ADR-0007）：默认 `<仓库根>/data/worlds/`（按 server 模块位置解析，不依赖 cwd）；环境变量 `LIFE_SIM_DATA_DIR` 可覆盖为任意绝对路径以支持挂载；不得落在 `apps/server` 下。
+
+**模板指纹算法**：模板目录内全部 YAML 文件按文件名排序，拼接 `文件名 + "\0" + 内容`，sha256。指纹不匹配的存档**拒绝加载**（log.error 跳过，不阻断启动）。
+
+**加载拒绝条件**（四道关任一不过即拒绝该档）：`JSON.parse` 失败；`schemaVersion !== 1`；指纹不匹配；`WorldStateV2Schema.safeParse` 不通过。加载是处理不可信输入，一律 Zod 校验。

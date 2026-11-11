@@ -2,7 +2,7 @@
 
 **版本：2026-11-11（R2.3 立项）｜上游：`README.md`、`requirements.md`｜下游：`tasks.md`**
 
-本文件回答「怎么做、边界在哪、哪里会冲突」。所有 `file:line` 基于 **2026-11-11 13:40 的 HEAD**；实施前若漂移，先报告再动手。
+本文件回答「怎么做、边界在哪、哪里会冲突」。所有 `file:line` 基于 **2026-11-11 15:47 的 HEAD**（T0-01 复核后更新，语义零漂移）；实施前若漂移，先报告再动手。
 
 ------------------------------------------------------------------------
 
@@ -14,10 +14,10 @@
 |---|---|
 | `HistoryEntryV2` 无可见性字段（`id / turnIndex / worldTime / formattedTime / type / summary / detail?`） | `packages/shared/src/v2.ts:146-155` |
 | 回合结果里 `playerVisibleHistory: state.history.slice(-20)` —— 取末 20 条，**不过滤** | `packages/game-core/src/v2/turn.ts:584` |
-| `GET /api/worlds/:id/history` 直接 `return { history: world.history }` —— **全量** | `apps/server/src/index.ts:257-262` |
-| 前端「日志」Tab 调该接口并逐条渲染 `summary` | `apps/web/src/main.tsx:1122-1141` |
+| `GET /api/worlds/:id/history` 直接 `return { history: world.history }` —— **全量** | `apps/server/src/index.ts:261` |
+| 前端「日志」Tab 调该接口并逐条渲染 `summary` | `apps/web/src/main.tsx:1117-1131` |
 | 归档记录 `history: archived.history.map(...)` —— **全量**，随 `POST /archive` 返回 | `packages/game-core/src/v2/archive.ts` |
-| 历史写入点共 **7 处**：`battle.ts:616`（battle）、`ending.ts:368`（event）、`npc.ts:63`（npc_action）、`turn.ts:220`/`653`（event）、`turn.ts:532`/`785`（player_action） | 见左 |
+| 历史写入点共 **7 处**：`battle.ts:611`（battle）、`ending.ts:363`（event）、`npc.ts:59`（npc_action）、`turn.ts:218`/`651`（event）、`turn.ts:530`/`783`（player_action） | 见左 |
 | `EventV2Schema` 没有 `visibility` 字段 —— **经用户裁决（OPEN_QUESTIONS #33）不加**：事件无隐藏语义，进轮次即公开 | `packages/shared/src/schema/event.ts` |
 | `EndingTemplateSchema` 无 `visibility` 字段（ADR-0006 删除）；隐藏结局 = `narrativeConfig.masked` 存在，`unlockConditions` 对任意结局统一门控 | `packages/shared/src/schema/ending.ts` |
 | `NpcAction` 无可见性字段 | `packages/shared/src/schema/character.ts`（行为段） |
@@ -28,7 +28,7 @@
 
 | 事实 | 位置 |
 |---|---|
-| `const worlds = new Map<string, WorldStateV2>()`，注释「内存仓储：P0 阶段不持久化，重启即清空」 | `apps/server/src/store.ts:13` |
+| `const worlds = new Map<string, WorldStateV2>()`，注释「内存仓储：P0 阶段不持久化，重启即清空」 | `apps/server/src/store.ts:15-16` |
 | 前端已把 `worldId` 存 `localStorage`，启动即尝试续玩 | `apps/web/src/main.tsx:1146` 起 |
 | 服务端**没有** `WorldStateV2` 的 Zod schema（只有 TS 类型） | `packages/shared/src/` 全局 grep 无命中 |
 | `worldStore.save()` 已带归档门禁；`seal()` 是其唯一例外通道 | `apps/server/src/store.ts` |
@@ -39,7 +39,7 @@
 
 | 事实 | 位置 |
 |---|---|
-| 每轮时长 = 行动 `duration`（2–8 小时），无行动时用阶段步长 | `v2/turn.ts:519`、`time.ts:98-102` |
+| 每轮时长 = 行动 `duration`（2–8 小时），无行动时用阶段步长 | `v2/turn.ts:517`、`time.ts:98-102` |
 | 阶段步长：childhood 1 天 / youth 4 小时 / adulthood 6 小时 / elderhood 1 天 | `specs/data/templates/jjk-2006/world.yaml:11-16` |
 | 16 → 60 岁 ≈ 44 年 ≈ **6.4 万轮**（按 6 小时/轮），寿终条件为 44 年 | `endings.yaml`、`world.yaml` |
 | `mode?: "single" \| "fast"` 已声明，**全仓无读取点** | `v2/turn.ts:492` |
@@ -57,7 +57,7 @@
 | `equipItem(input, itemId, lookup)` / `unequipItem(input, instanceId, lookup)` 纯函数，返回新数组 + 7 种错误码 | `v2/equipment.ts:92,122` |
 | 输入只需 `{ equipment, inventory }`（`EquipmentOwnerInput`） | `v2/equipment.ts:73-78` |
 | 服务端无端点；前端装备栏只读 | `apps/server/src/index.ts`（无 equipment 路由） |
-| 背包投影字段：`itemId / name / description / count / usableOutsideBattle / usableInBattle` —— **缺 `type` / `slot`** | `packages/shared/src/v2.ts:303` |
+| 背包投影字段：`itemId / name / description / count / usableOutsideBattle / usableInBattle` —— **缺 `type` / `slot`** | `packages/shared/src/v2.ts:304` |
 
 **结论**：引擎侧齐备，缺的是"编排函数 + 端点 + 投影字段 + 交互"。必须走 `game-core` 编排，不能由 server 直接改状态。
 
