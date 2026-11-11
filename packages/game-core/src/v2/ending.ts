@@ -10,6 +10,7 @@ import type {
   WorldStateV2,
 } from "@life-sim/shared";
 import { checkAllConditions, checkCondition, type ConditionContext } from "./engine.js";
+import { recordFire } from "./scheduler.js";
 import { createTimeAdapter } from "./time.js";
 import { resolveEndingNarrative, type NarrativeAdapter } from "./narrative.js";
 
@@ -361,7 +362,8 @@ export function applyDeathRoute(
   let deathEntry: HistoryEntryV2 | null = null;
   if (outcome.kind === "event") {
     const id = outcome.deathEventId;
-    next.firedEvents[id] = next.turnIndex;
+    // R-LM-03：触发事实只经 recordFire 一处写齐（firedEvents / lastFiredIndex / eventFires）。
+    recordFire(next, id);
     deathEntry = {
       id: `t${next.turnIndex}-death-${id}`,
       turnIndex: next.turnIndex,

@@ -43,7 +43,7 @@ describe("V2 引擎 · 模板加载", () => {
     const briefing = template.events.find((e) => e.id === "ev-sp-briefing");
     expect(briefing?.trigger.source).toBe("schedule");
     if (briefing?.trigger.source === "schedule") {
-      expect(briefing.trigger.atWorldTime).toEqual({ value: 1, unit: "day" });
+      expect(briefing.trigger.window).toEqual({ start: { value: 1, unit: "day" } });
       expect(briefing.trigger.once).toBe(true);
     }
     // 事件链存在，且起点为 source: chain 的 normal 事件
@@ -77,6 +77,7 @@ describe("V2 引擎 · 怀玉玉折主线链路", () => {
     // 直接注入开场事件（等价于 schedule 事件在绝对时间到达时被触发）
     state.pendingEvents = [{ eventId: "ev-sp-briefing" }];
     state.firedEvents["ev-sp-briefing"] = state.turnIndex;
+    consumeScheduleInstance(state, "ev-sp-briefing");
 
     // 1. 加入护卫队 → startChain 把链起点 ev-sp-riko-meet 压入待决
     let res = chooseOptionV2(state, { optionId: "opt-join-guard" }, template, lookup);
@@ -102,7 +103,9 @@ describe("V2 引擎 · 怀玉玉折主线链路", () => {
 
     // 5. 结局收束 → 事件链完成
     res = chooseOptionV2(state, { optionId: "opt-ack-survival" }, template, lookup);
-    expect(res.snapshot.pendingEvent).toBeNull();
+    // #34：事件轮跑完整管线，结算末尾的 pool 门控会为下一槽位抽出世界事件，
+    // 故「结算后队列必为空」的旧断言不再成立；主线链本身必须已收束且无残留链事件。
+    expect(state.pendingEvents.some((p) => p.chainId === "chain-star-plasma")).toBe(false);
     expect(state.chains.find((c) => c.id === "chain-star-plasma")?.status).toBe("completed");
     expect(state.flags.canonDeviation).toBe(5);
   });
@@ -204,6 +207,7 @@ describe("V2 引擎 · advanceTime 绝对/相对时间推进", () => {
     state.firedEvents["ev-sp-ending-canon"] = state.turnIndex;
     // 模拟已走过的 schedule 开场事件，避免 advanceTo 后重复触发
     state.firedEvents["ev-sp-briefing"] = state.turnIndex;
+    consumeScheduleInstance(state, "ev-sp-briefing");
 
     const res = chooseOptionV2(state, { optionId: "opt-ack-canon" }, template, lookup);
     // 时间跳跃约 12 年，年龄同步推进
@@ -474,7 +478,8 @@ function makeTestTemplate(): WorldTemplateV2 {
         id: "ev-wheel",
         title: "抽签",
         narrative: "命运转盘。",
-        trigger: { source: "pool", probability: 1, cooldownTurns: 99 },
+        // R2.5：事件触发冷却改为时间维度（天）；技能/NPC 行动的 cooldownTurns 保持不变
+        trigger: { source: "pool", probability: 1, cooldown: { value: 99, unit: "day" } },
         kind: "random",
         settle: {
           random: {
@@ -510,6 +515,17 @@ function makeState(seed = 42): { state: WorldStateV2; template: WorldTemplateV2 
   const lookup = createLookup(template);
   const state = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed }, template, "w1");
   return { state, template };
+}
+
+/**
+ * R2.5：createWorldV2 会为全部 source: schedule 定义入队。测试手工把某事件标记为
+ * 「已触发」时，须同步把对应 waiting 实例标 cancelled——once 是**入队门控**（用户裁决），
+ * 出队判定不再重查 once，否则会与「模拟已发生」的夹具语义冲突。
+ */
+function consumeScheduleInstance(state: WorldStateV2, eventId: string): void {
+  for (const inst of state.scheduledEvents) {
+    if (inst.definitionId === eventId && inst.status === "waiting") inst.status = "cancelled";
+  }
 }
 
 describe("V2 引擎 · 世界创建", () => {
@@ -584,13 +600,16 @@ describe("V2 引擎 · 事件轮次", () => {
     );
   });
 
-  it("选择选项生效并清空待决", () => {
+  it("选择选项生效：结算推进一轮，尾管线为下一槽位补入池事件", () => {
     const { state, template } = makeState();
     const lookup = createLookup(template);
     advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
+    const turnBefore = state.turnIndex;
     const res = chooseOptionV2(state, { optionId: "opt-plain" }, template, lookup);
     expect(state.flags.chosePlain).toBe(true);
-    expect(res.snapshot.pendingEvent).toBeNull();
+    // #34 结算轮：turnIndex +1；事件轮跑完整管线，pool 门控立刻为下一槽位重新抽取事件。
+    expect(state.turnIndex).toBe(turnBefore + 1);
+    expect(res.snapshot.pendingEvent?.eventId).toBe("ev-normal");
   });
 
   it("转盘事件自动结算，weightBy 随有效属性加权", () => {
@@ -729,12 +748,12 @@ describe("V2 引擎 · 事件轮次", () => {
 
   it("combat 并发优先级：时间触发 > 行动触发", () => {
     const template = makeTestTemplate();
-    // 追加 schedule 战斗事件，atTurn 匹配首轮（advanceTurn 后 turnIndex = 1）
+    // 追加 schedule 战斗事件；窗口起点 1 小时 = 首轮默认步长，故首轮即到期
     template.events.push({
       id: "ev-schedule-combat",
       title: "剧情战斗",
       narrative: "剧情节点。",
-      trigger: { source: "schedule", atTurn: 1 },
+      trigger: { source: "schedule", window: { start: { value: 1, unit: "hour" } } },
       kind: "combat",
       settle: { combat: { enemies: [{ ref: "enemy-x", levelScale: 1 }] } },
     });
@@ -765,7 +784,7 @@ describe("V2 引擎 · 事件轮次", () => {
         id: "ev-sched-normal",
         title: "时间事件",
         narrative: "剧情节点。",
-        trigger: { source: "schedule", atTurn: 1 },
+        trigger: { source: "schedule", window: { start: { value: 1, unit: "hour" } } },
         kind: "normal",
         settle: { normal: { options: [{ id: "opt-ok", text: "继续" }] } },
       },
@@ -837,10 +856,12 @@ describe("V2 引擎 · 事件轮次", () => {
     );
 
     const res = chooseOptionV2(state, { optionId: "opt-plain" }, template, lookup);
-    // 队首被消费；结算中新触发的链事件插到最前，剩余 pool 事件仍按原 FIFO 顺序
+    // 队首被消费；结算中新触发的链事件插到最前，剩余 pool 事件仍按原 FIFO 顺序；
+    // #34：结算轮尾管线又抽中 ev-normal（probability=1、无冷却），为下一槽位追加一条。
     expect(state.pendingEvents.map((p) => p.eventId)).toEqual([
       "ev-chain-normal",
       "ev-pool-normal-2",
+      "ev-normal",
       "ev-normal",
     ]);
     expect(res.snapshot.pendingEvent?.eventId).toBe("ev-chain-normal");

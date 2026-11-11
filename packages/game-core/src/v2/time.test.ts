@@ -131,7 +131,7 @@ describe("时间系统集成 · 推进模式与条件", () => {
     expect(state.pendingEvents[0]?.eventId).toBe("ev-gate");
   });
 
-  it("schedule 事件的 atWorldTime 用 TimeAmount 相对世界起始触发", () => {
+  it("schedule 事件的 window.start 用 TimeSpec 相对世界起始（now=0 入队）触发", () => {
     const template = makeTemplate({
       actions: [{ id: "rest", label: "休息", duration: { value: 1, unit: "day" } }],
       events: [
@@ -139,7 +139,7 @@ describe("时间系统集成 · 推进模式与条件", () => {
           id: "ev-sched",
           title: "定时事件",
           narrative: "到了第二天。",
-          trigger: { source: "schedule", atWorldTime: { value: 1, unit: "day" } },
+          trigger: { source: "schedule", window: { start: { value: 1, unit: "day" } } },
           kind: "normal",
           settle: { normal: { options: [{ id: "opt-a", text: "继续" }] } },
         },
