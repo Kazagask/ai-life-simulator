@@ -11,10 +11,19 @@ export const TimeUnitSchema = z.enum(["minute", "hour", "day", "week", "month", 
 
 export const TimeAmountSchema = z
   .object({
-    value: z.number().positive(),
+    /** 整数分钟标量：value × UNIT_MINUTES[unit] 必须为整数（R-LM-05） */
+    value: z.number().int().positive(),
     unit: TimeUnitSchema,
   })
   .strict();
+
+/**
+ * TimeSpec（R2.5 / ADR-0011）：所有延时字段（window.start/end、delay、cooldown、timeCost、
+ * ChainStep.delay、enqueueEvent.delay）共用的单一时间写法，**默认相对入队时刻**（OQ-#37 裁决）。
+ * 本轮只开放 `TimeAmount` 对象形态；字符串字面量语法（复合时长 / 历法日期）按 OQ-#44 与
+ * #39/#43 一并排到下一期，`resolveTimeSpec` 已预留 CalendarAdapter.toMinutes seam。
+ */
+export const TimeSpecSchema = TimeAmountSchema;
 
 // ---------- 人生阶段（模板可配置，替代引擎硬编码阈值） ----------
 
@@ -173,6 +182,14 @@ export const EffectSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("startChain"), chainId: z.string().min(1) }).strict(),
   z.object({ type: z.literal("advanceChain"), chainId: z.string().min(1) }).strict(),
   z.object({ type: z.literal("cancelChain"), chainId: z.string().min(1) }).strict(),
+  /** 延时入队的唯一声明式通道（R-EV-08）；delay 缺省 = 相对入队时刻 0 分钟 */
+  z
+    .object({
+      type: z.literal("enqueueEvent"),
+      eventId: z.string().min(1),
+      delay: TimeSpecSchema.optional(),
+    })
+    .strict(),
   z.object({ type: z.literal("log"), text: z.string().min(1), visibility: z.enum(["public", "hidden"]) }).strict(),
 ]);
 
@@ -180,3 +197,5 @@ export type Condition = z.infer<typeof ConditionSchema>;
 export type Effect = z.infer<typeof EffectSchema>;
 export type Formula = z.infer<typeof FormulaSchema>;
 export type TimeAmount = z.infer<typeof TimeAmountSchema>;
+/** 本轮 TimeSpec 与 TimeAmount 同形（字符串字面量按 OQ-#44 排到下一期） */
+export type TimeSpec = z.infer<typeof TimeSpecSchema>;

@@ -10,7 +10,7 @@ events:
     trigger:
       source: pool
       probability: 0.3
-      cooldownTurns: 4
+      cooldown: { value: 4, unit: day }
       priority: 10
     kind: normal
     settle:
@@ -61,7 +61,7 @@ events:
     trigger:
       source: pool
       probability: 0.2
-      cooldownTurns: 6
+      cooldown: { value: 6, unit: day }
       priority: 3
     kind: normal
     settle:
@@ -89,7 +89,8 @@ events:
       once: true
       priority: 8
       conditions:
-        - { flag: turnsPlayed, gte: 5 }
+        # 原 flag: turnsPlayed >= 5（每轮默认 4h ≈ 20h）→ 时间维度等价表达；flags 不再承载系统轮次
+        - { time: { gte: { value: 20, unit: hour } } }
     kind: normal
     settle:
       normal:
@@ -113,7 +114,7 @@ events:
     trigger:
       source: pool
       probability: 0.15
-      cooldownTurns: 5
+      cooldown: { value: 5, unit: day }
       priority: 2
     kind: random
     settle:
@@ -151,7 +152,7 @@ events:
       source: action-hook
       onActionId: patrol
       probability: 0.35
-      cooldownTurns: 3
+      cooldown: { value: 3, unit: day }
     kind: combat
     settle:
       combat:
@@ -266,7 +267,8 @@ events:
     narrative: 高层下达紧急任务：天元大人的同化之日将至，星浆体「天内里子」须在近日护送至仪式场。五条悟与夏油杰被指名护卫，而你也被询问是否同行。
     trigger:
       source: schedule
-      atWorldTime: { value: 1, unit: day }
+      window:
+        start: { value: 1, unit: day }
       once: true
       priority: 12
     kind: normal

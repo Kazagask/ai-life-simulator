@@ -335,6 +335,37 @@ export const WorldTemplateV2Schema = z
       }
     });
 
+    // R2.5 / R-EV-13：战斗事件不得作为 pool 来源入池（加载期拒绝，抽取期另有防御）。
+    // 战斗会话占槽直至结束，与「抽中→入队→延时触发」叠一层会话状态会污染权重语义。
+    w.events.forEach((e, i) => {
+      if (e.trigger.source === "pool" && e.kind === "combat") {
+        add(
+          ["events", i, "trigger", "source"],
+          "source: pool 不允许 kind: combat；请改用通常事件/转盘事件入池，再由该事件的 chain 立即步或 nextEventId 触发战斗",
+        );
+      }
+    });
+
+    // R2.5 / #35：同一 onActionId 至多一条「立即」action-hook。
+    // 只统计未声明 window / delay 的 hook：延时 hook 不占同一轮槽位，显式豁免；
+    // chain / schedule / pool 完全不受约束。
+    const immediateHooks = new Map<string, number[]>();
+    w.events.forEach((e, i) => {
+      const t = e.trigger;
+      if (t.source !== "action-hook" || t.onActionId === undefined) return;
+      if (t.window !== undefined || t.delay !== undefined) return;
+      const group = immediateHooks.get(t.onActionId) ?? [];
+      group.push(i);
+      immediateHooks.set(t.onActionId, group);
+    });
+    for (const [onActionId, indexes] of immediateHooks) {
+      if (indexes.length < 2) continue;
+      add(
+        ["events", indexes[1], "trigger", "source"],
+        `同一 onActionId「${onActionId}」存在 ${indexes.length} 条立即 action-hook，违反单轮槽位唯一（events[${indexes.join(",")}]）；可为后续 hook 声明 window/delay 转为延时`,
+      );
+    }
+
     // 事件/链互引
     const optionIds = new Set<string>();
     w.events.forEach((e) => {
@@ -381,13 +412,20 @@ export const WorldTemplateV2Schema = z
         }
       }
       // 通用效果里的 chain / attribute 引用
-      const walkEffects = (effects: { type: string; chainId?: string; attribute?: string }[] | undefined, path: (string | number)[]) => {
+      const walkEffects = (
+        effects: { type: string; chainId?: string; attribute?: string; eventId?: string }[] | undefined,
+        path: (string | number)[],
+      ) => {
         (effects ?? []).forEach((eff, j) => {
           if ((eff.type === "startChain" || eff.type === "advanceChain" || eff.type === "cancelChain") && eff.chainId && !chainIds.has(eff.chainId)) {
             add([...path, j], `未知事件链：${eff.chainId}`);
           }
           if (eff.type === "adjustAttribute" && eff.attribute && !attributeIds.has(eff.attribute)) {
             add([...path, j], `未知属性：${eff.attribute}`);
+          }
+          // R2.5：enqueueEvent 是延时入队的唯一声明式通道，目标事件必须存在
+          if (eff.type === "enqueueEvent" && eff.eventId && !eventIds.has(eff.eventId)) {
+            add([...path, j], `未知事件：${eff.eventId}（enqueueEvent 目标）`);
           }
         });
       };
@@ -493,6 +531,9 @@ export const WorldTemplateV2Schema = z
         }
         if (eff.type === "adjustRelation" && eff.npcId !== "__self__" && !characterIds.has(eff.npcId)) {
           add(path, `未知角色：${eff.npcId}`);
+        }
+        if (eff.type === "enqueueEvent" && !eventIds.has(eff.eventId)) {
+          add(path, `未知事件：${eff.eventId}（enqueueEvent 目标）`);
         }
       });
     });
