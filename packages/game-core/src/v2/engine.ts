@@ -380,6 +380,7 @@ export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefin
       case "enqueueEvent": {
         // R-EV-08：延时入队的唯一声明式通道。门控（once/probability）在候选产生时求值，
         // 门控失败不产生实例、不记错失；delay 缺省由 enqueueCandidate 取相对 0 分钟。
+        // R2.6（ADR-0013）：delay 换算经历法适配器（字符串字面量 / year-month 量）。
         const def = lookup.event(effect.eventId);
         if (!def) {
           throw new Error(`enqueueEvent 引用未知事件：${effect.eventId}（模板加载期应已拦截）`);
@@ -390,6 +391,7 @@ export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefin
           origin: { kind: "effect", id: effect.eventId },
           lookup,
           rng,
+          calendar: createTimeAdapter(lookup.template),
           ...(effect.delay !== undefined ? { delay: effect.delay } : {}),
         });
         (ctx.enqueued ??= []).push(effect.eventId);

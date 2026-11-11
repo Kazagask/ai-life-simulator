@@ -10,6 +10,7 @@ import {
 import { createRng } from "../rng.js";
 import { createLookup } from "./lookup.js";
 import { createWorldV2 } from "./turn.js";
+import { createTimeAdapter } from "./time.js";
 import {
   alignChainStep,
   drainScheduledEvents,
@@ -448,3 +449,58 @@ export function expectNoConfigSnapshot(instances: readonly ScheduledEventInstanc
     for (const key of forbidden) expect(Object.keys(inst)).not.toContain(key);
   }
 }
+
+describe("R2.6 · TimeSpec 字面量与历法换算（ADR-0013）", () => {
+  it("字符串字面量无适配器抛错；有适配器时复合时长按入队时刻顺延", () => {
+    expect(() => resolveTimeSpec("2h30m", 100)).toThrow(/历法适配器/);
+    const approx = createTimeAdapter(makeTemplate([]));
+    expect(resolveTimeSpec("2h30m", 100, approx)).toBe(250);
+    expect(resolveTimeSpec("3d", 1000, approx)).toBe(1000 + 4320);
+  });
+
+  it("year/month 经适配器换算：gregorian 1 月 = 31 天 ≠ approx 30 天兜底", () => {
+    const tpl = makeTemplate([]);
+    tpl.time = { ...tpl.time, calendar: { preset: "gregorian" } };
+    const greg = createTimeAdapter(tpl);
+    expect(resolveTimeSpec({ value: 1, unit: "month" }, 0, greg)).toBe(31 * 1440);
+    expect(resolveTimeSpec({ value: 1, unit: "month" }, 0)).toBe(30 * 1440); // 无适配器 = approx
+    // 日历无关单位不经过月长
+    expect(resolveTimeSpec({ value: 1, unit: "day" }, 100, greg)).toBe(100 + 1440);
+  });
+
+  it("历法日期字面量解析为绝对世界分钟，与 now 无关；越界日期抛错", () => {
+    const tpl = makeTemplate([]);
+    tpl.time = { ...tpl.time, calendar: { preset: "gregorian" } };
+    const greg = createTimeAdapter(tpl);
+    expect(resolveTimeSpec("2000-01-02", 999999, greg)).toBe(1440);
+    expect(resolveTimeSpec("2000-03-02", 0, greg)).toBe(61 * 1440); // 31+29+1
+    expect(() => resolveTimeSpec("2000-13-01", 0, greg)).toThrow(/越界/);
+  });
+
+  it("specToMinutes / enqueueScheduled 支持字符串 spec（冷却、延时、窗口）", () => {
+    const approx = createTimeAdapter(makeTemplate([]));
+    expect(specToMinutes("1d", approx)).toBe(1440);
+    expect(specToMinutes("90m", approx)).toBe(90);
+    const state = makeState(makeTemplate([]));
+    const inst = enqueueScheduled({
+      state,
+      definitionId: "e-lit",
+      origin,
+      start: "3d",
+      end: "1w",
+      calendar: approx,
+    });
+    expect(inst.window).toEqual({ start: 3 * 1440, end: 10080 });
+    expect(inst.hasEnd).toBe(true);
+  });
+
+  it("onCooldown 支持字符串冷却字面量（经适配器换算）", () => {
+    const approx = createTimeAdapter(makeTemplate([]));
+    const state = makeState(makeTemplate([]));
+    recordFire(state, "ev-cd");
+    state.eventFires[0].worldTime = state.worldTime;
+    expect(onCooldown(state, "ev-cd", "2d", approx)).toBe(true); // 刚触发过
+    state.worldTime = 2 * 1440 + 1;
+    expect(onCooldown(state, "ev-cd", "2d", approx)).toBe(false); // 冷却已过
+  });
+});

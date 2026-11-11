@@ -18,12 +18,15 @@ export const TimeAmountSchema = z
   .strict();
 
 /**
- * TimeSpec（R2.5 / ADR-0011）：所有延时字段（window.start/end、delay、cooldown、timeCost、
- * ChainStep.delay、enqueueEvent.delay）共用的单一时间写法，**默认相对入队时刻**（OQ-#37 裁决）。
- * 本轮只开放 `TimeAmount` 对象形态；字符串字面量语法（复合时长 / 历法日期）按 OQ-#44 与
- * #39/#43 一并排到下一期，`resolveTimeSpec` 已预留 CalendarAdapter.toMinutes seam。
+ * TimeSpec（R2.5 / ADR-0011 / ADR-0013）：所有延时字段（window.start/end、delay、cooldown、
+ * timeCost、ChainStep.delay、enqueueEvent.delay）共用的单一时间写法，**默认相对入队时刻**（OQ-#37 裁决）。
+ * R2.6 起开放字符串字面量（#44/#39/#43）：
+ * - 复合时长：`3d` / `2h30m` / `1y2mo`（y=年 mo=月 w=周 d=日 h=时 m=分，可串联，依次累加）；
+ * - 历法日期字面量：`2006-12-24`（**绝对世界分钟**，语义与「相对入队」不同，适合 window.start）。
+ * 字符串字面量由 CalendarAdapter.parseTimeSpec 在**入队时**解析并固化成绝对分钟（R-CAL-04）；
+ * approx 历法只支持复合时长（日期字面量在运行期抛错——加载期无法校验历法语义）。
  */
-export const TimeSpecSchema = TimeAmountSchema;
+export const TimeSpecSchema = z.union([TimeAmountSchema, z.string().min(1).max(64)]);
 
 // ---------- 人生阶段（模板可配置，替代引擎硬编码阈值） ----------
 
@@ -197,5 +200,5 @@ export type Condition = z.infer<typeof ConditionSchema>;
 export type Effect = z.infer<typeof EffectSchema>;
 export type Formula = z.infer<typeof FormulaSchema>;
 export type TimeAmount = z.infer<typeof TimeAmountSchema>;
-/** 本轮 TimeSpec 与 TimeAmount 同形（字符串字面量按 OQ-#44 排到下一期） */
+/** R2.6 起 TimeSpec = TimeAmount 对象 | 字符串字面量（复合时长 / 历法日期，ADR-0013） */
 export type TimeSpec = z.infer<typeof TimeSpecSchema>;

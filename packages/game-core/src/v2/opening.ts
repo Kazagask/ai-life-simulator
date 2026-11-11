@@ -12,8 +12,8 @@ import { createRng, pickWeighted, type Rng } from "../rng.js";
 import type { RunnerContext } from "./runner-context.js";
 import type { TemplateLookup } from "./lookup.js";
 import { applyEffectsV2, checkAllConditions, type ConditionContext } from "./engine.js";
-import { amountToMinutes } from "./time.js";
-import { enqueueScheduled } from "./scheduler.js";
+import { createTimeAdapter } from "./time.js";
+import { enqueueScheduled, resolveTimeSpec } from "./scheduler.js";
 
 /**
  * 阶段 3 · Opening 开局（design §4 / §6、R-OP-*）。
@@ -266,13 +266,15 @@ export function handoff(state: WorldStateV2, run: OpeningRun, lookup?: TemplateL
     }
     // s.at / 定义 window.start 都是「相对世界起始」的偏移（世界初始化 now=0 入队等价表达），
     // 而 TimeSpec 默认相对入队时刻（#37）；交接可能发生在 advanceTo 之后，故按绝对量固化。
+    // R2.6（ADR-0013）：字符串字面量 / year-month 量经适配器换算；基准 0 = 相对世界起始。
     const startSpec = s.at ?? lookup?.event(s.eventId)?.trigger.window?.start;
+    const handoffCalendar = lookup ? createTimeAdapter(lookup.template) : undefined;
     enqueueScheduled({
       state: next,
       definitionId: s.eventId,
       origin: { kind: "opening", id: run.openingId },
       ...(startSpec !== undefined
-        ? { absoluteStart: amountToMinutes(startSpec) }
+        ? { absoluteStart: resolveTimeSpec(startSpec, 0, handoffCalendar) }
         : { start: { value: 0, unit: "minute" } }),
     });
   }

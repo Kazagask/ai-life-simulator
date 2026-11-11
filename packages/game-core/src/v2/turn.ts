@@ -166,6 +166,8 @@ export function createWorldV2(
   }
   // R-EV-08：全部 source: schedule 事件在**世界初始化**（now=0）即入队，
   // 不再每轮扫描 template.events。window 在入队时一次性换算成绝对分钟固化。
+  // R2.6（ADR-0013）：TimeSpec 换算经历法适配器（字符串字面量 / year-month 量）。
+  const initCalendar = createTimeAdapter(template);
   for (const event of template.events) {
     if (event.trigger.source !== "schedule") continue;
     enqueueScheduled({
@@ -174,6 +176,7 @@ export function createWorldV2(
       origin: { kind: "schedule-init", id: event.id },
       start: event.trigger.window?.start ?? { value: 0, unit: "minute" },
       ...(event.trigger.window?.end !== undefined ? { end: event.trigger.window.end } : {}),
+      calendar: initCalendar,
     });
   }
   return state;
@@ -207,11 +210,18 @@ function drainDue(
   rng: Rng,
   result: TriggerResult,
 ): void {
+  const calendar = createTimeAdapter(lookup.template);
   for (let pass = 0; pass < MAX_DRAIN_PASSES; pass++) {
     result.drainRequested = false;
-    drainScheduledEvents(state, lookup, rng, (inst, def) => {
-      triggerEventV2(state, def, lookup, rng, 0, result, inst.chainId);
-    });
+    drainScheduledEvents(
+      state,
+      lookup,
+      rng,
+      (inst, def) => {
+        triggerEventV2(state, def, lookup, rng, 0, result, inst.chainId);
+      },
+      calendar,
+    );
     if (!result.drainRequested) break;
     // 没有「已到期且仍 waiting」的实例时立即收敛，避免空转（同 seed 行为恒定）。
     if (!state.scheduledEvents.some((i) => i.status === "waiting" && i.window.start <= state.worldTime)) break;
@@ -392,6 +402,7 @@ function advanceChainOnSettle(
       chainId: chainState.id,
       start: delayed,
       ...(next.trigger.window?.end !== undefined ? { end: next.trigger.window.end } : {}),
+      calendar: createTimeAdapter(lookup.template),
     });
     return;
   }
@@ -425,11 +436,12 @@ function triggerChainStarts(
  */
 function resolvePoolV2(state: WorldStateV2, template: WorldTemplateV2, lookup: TemplateLookup, rng: Rng): void {
   const ctx: ConditionContext = { state, lookup, rng };
+  const calendar = createTimeAdapter(template);
   const pool = template.events
     .filter((e) => e.trigger.source === "pool")
     .filter((e) => e.kind !== "combat") // 加载期已拒，抽取期防御
     .filter((e) => !(e.trigger.once && hasFired(state, e.id)))
-    .filter((e) => !onCooldown(state, e.id, e.trigger.cooldown))
+    .filter((e) => !onCooldown(state, e.id, e.trigger.cooldown, calendar))
     .filter((e) => checkAllConditions(e.trigger.conditions, ctx))
     .sort((a, b) => (b.trigger.priority ?? 0) - (a.trigger.priority ?? 0));
 
@@ -442,6 +454,7 @@ function resolvePoolV2(state: WorldStateV2, template: WorldTemplateV2, lookup: T
       origin: { kind: "pool", id: event.id },
       lookup,
       rng,
+      calendar,
       preGated: true, // 六策略已在上面消费，门控不得重复扣减 once / probability / conditions
     });
   };
@@ -470,11 +483,12 @@ function resolveHooksV2(
   result: TriggerResult,
 ): void {
   const ctx: ConditionContext = { state, lookup, rng };
+  const calendar = createTimeAdapter(template);
   for (const event of template.events) {
     const t = event.trigger;
     if (t.source !== "action-hook" || t.onActionId !== actionId) continue;
     if (t.once && hasFired(state, event.id)) continue;
-    if (onCooldown(state, event.id, t.cooldown)) continue;
+    if (onCooldown(state, event.id, t.cooldown, calendar)) continue;
     if (!checkAllConditions(t.conditions, ctx)) continue;
     if (t.probability !== undefined && rng() >= t.probability) continue;
     if (t.window !== undefined || t.delay !== undefined) {
@@ -484,6 +498,7 @@ function resolveHooksV2(
         origin: { kind: "effect", id: actionId },
         lookup,
         rng,
+        calendar,
         preGated: true,
       });
     } else {
@@ -524,6 +539,7 @@ function advanceNextTurnChains(state: WorldStateV2, lookup: TemplateLookup, rng:
         origin: { kind: "effect", id: chainState.id },
         chainId: chainState.id,
         start: nextStep.delay,
+        calendar: createTimeAdapter(lookup.template),
       });
       continue;
     }
@@ -793,12 +809,14 @@ export function chooseOptionV2(
   // ---- #34 结算轮：事件结算推进 turnIndex（占槽），并按事件级 timeCost 推进世界时间 ----
   // 触发事实已在 triggerEventV2 内经 recordFire 三处索引一次写齐；结算不是「再次触发」，
   // 故此处不再散写 firedEvents / 追加 eventFires（避免重复事实）。
-  const costMinutes = event.trigger.timeCost === undefined ? 0 : specToMinutes(event.trigger.timeCost);
+  // R2.6（ADR-0013）：timeCost 换算经历法适配器（字符串字面量 / year-month 量）。
+  const settleAdapter = createTimeAdapter(template);
+  const costMinutes = event.trigger.timeCost === undefined ? 0 : specToMinutes(event.trigger.timeCost, settleAdapter);
   state.turnIndex += 1;
   state.worldTime += costMinutes;
   const elapsed: TimeAmount = minutesToAmount(costMinutes);
   if (costMinutes > 0) {
-    state.player.age = state.playerAgeAtStart + createTimeAdapter(template).elapsedYears(state.worldTime);
+    state.player.age = state.playerAgeAtStart + settleAdapter.elapsedYears(state.worldTime);
   }
 
   pushHistory(state, template, {

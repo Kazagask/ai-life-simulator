@@ -87,6 +87,37 @@ const PlayerTemplateSchema = z
   })
   .strict();
 
+/**
+ * R2.6 历法配置（ADR-0013）：三种时间模型切换。
+ * - approx：固定分钟近似（1 月 = 30 天、1 年 = 365 天），= R2.5 现状，零迁移。
+ * - gregorian：真实公历（月长 28–31、闰年）。
+ * - custom：模板声明 months[]/leapRule/era（年号/纪元）。
+ * 缺省视为 approx。
+ */
+export const CalendarConfigSchema = z
+  .object({
+    preset: z.enum(["approx", "gregorian", "custom"]),
+    /** 自定义历/年号：显示用纪元名与纪元起点（世界分钟，可为负 = 世界开始前） */
+    era: z.object({ name: z.string().min(1), epochStartMinute: z.number().int() }).optional(),
+    /** 自定义历月定义（custom 必填） */
+    months: z.array(z.object({ name: z.string().min(1), days: z.number().int().positive() })).optional(),
+    leapRule: z.enum(["gregorian", "none"]).optional(),
+  })
+  .superRefine((c, ctx) => {
+    if (c.preset === "custom") {
+      if (!c.months || c.months.length === 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["months"], message: "custom 历法必须声明 months" });
+      }
+    }
+    if (c.preset === "gregorian" && c.months && c.months.length > 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["months"], message: "gregorian 不应声明 months（走真实公历）" });
+    }
+    if (c.months) {
+      const total = c.months.reduce((s, m) => s + m.days, 0);
+      if (total <= 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["months"], message: "月份天数合计必须为正" });
+    }
+  });
+
 export const WorldTemplateV2Schema = z
   .object({
     meta: z
@@ -104,6 +135,8 @@ export const WorldTemplateV2Schema = z
         lifeStageSteps: z.record(z.string(), TimeAmountSchema).optional(),
         /** 人生阶段阈值（按 maxAge 升序；最后一档可省略 maxAge 表示无上界）。缺省时引擎回退到旧固定阈值。 */
         lifeStages: z.array(LifeStageSchema).optional(),
+        /** R2.6 历法配置（ADR-0013）：缺省 approx（= 现状固定分钟近似），零迁移。 */
+        calendar: CalendarConfigSchema.optional(),
       })
       .strict()
       .superRefine((t, ctx) => {

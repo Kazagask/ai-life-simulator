@@ -33,19 +33,28 @@ import type { TemplateLookup } from "./lookup.js";
  * 本模块**不 import turn.ts**（避免循环依赖）：事件触发通过 drain 的 onFire 回调注入。
  */
 
-/** 本轮 TimeSpec 只有 TimeAmount 形态；历法与字符串字面量解析留 R2.6 seam。 */
+/** 历法适配器子集（R2.6 已接线）：字符串字面量与 year/month 量换算经此注入。 */
 export type TimeSpecCalendar = Pick<CalendarAdapter, "parseTimeSpec" | "toMinutes">;
 
 const ZERO_SPEC: TimeSpec = { value: 0, unit: "minute" };
 
 /**
  * TimeSpec → 绝对世界分钟。**默认相对入队时刻**（OQ-#37）：now + amount。
- * 字符串字面量按 #44 顺延下一期；若未来启用，只能经 CalendarAdapter.parseTimeSpec 解析，
- * 且仍在入队时换算成绝对量固化进实例，不在 drain 时重算。
+ * R2.6（ADR-0013）：
+ * - 字符串字面量（复合时长 / 历法日期）必须经 CalendarAdapter.parseTimeSpec 解析；
+ *   无适配器注入时抛错（approx 适配器只支持复合时长，日期字面量在运行期抛错）。
+ * - year/month 量经 CalendarAdapter.toMinutes 换算（gregorian/custom 按真实月长推进，
+ *   如 1 月从 1-31 起是 1-31→2-28 的日历增量）；其余单位与时历结构无关。
+ * 一切换算仍在**入队时**一次性固化成绝对量存实例，drain 时不再重算（R3 时间回拨 seam）。
  */
 export function resolveTimeSpec(spec: TimeSpec, now: number, calendar?: TimeSpecCalendar): number {
-  void calendar; // seam 保持：本轮不读历法
-  // R2.6 seam: typeof spec === "string" → calendar?.parseTimeSpec(spec, now)（本轮 Zod 已拒绝字符串）
+  if (typeof spec === "string") {
+    if (!calendar) {
+      throw new Error(`TimeSpec 字符串字面量「${spec}」需要历法适配器（time.calendar）`);
+    }
+    return calendar.parseTimeSpec(spec, now);
+  }
+  if (calendar) return now + calendar.toMinutes(spec, now);
   return now + amountToMinutes(spec);
 }
 
