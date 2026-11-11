@@ -70,7 +70,7 @@
 
 ### 2.1 可见性收口（`R-VS`）
 
-> 现状：`HistoryEntryV2` 无可见性字段（`packages/shared/src/v2.ts:146`）；`playerVisibleHistory` 直接 `slice(-20)`（`v2/turn.ts:584`）；`GET /api/worlds/:id/history` 返回 `world.history` 全量（`apps/server/src/index.ts:257`）；前端「日志」Tab 原样渲染（`apps/web/src/main.tsx:1122`）。`hidden` 事件与 `hidden` 结局的标题因此对玩家可见 —— `R-NFR-04` 现状不成立（`GAP §6.5`）。
+> 现状：`HistoryEntryV2` 无可见性字段（`packages/shared/src/v2.ts:146`）；`playerVisibleHistory` 直接 `slice(-20)`（`v2/turn.ts:584`）；`GET /api/worlds/:id/history` 返回 `world.history` 全量（`apps/server/src/index.ts:257`）；前端「日志」Tab 原样渲染（`apps/web/src/main.tsx:1122`）。`hidden` 结局触发写入的历史条目因此对玩家可见 —— `R-NFR-04` 现状不成立（`GAP §6.5`）。**注（2026-11-11 用户裁决，OPEN_QUESTIONS #33）**：事件不设隐藏语义，`EventV2Schema` 不加 `visibility` 字段；隐藏能力只由结局表达。
 
 **R-VS-01（普遍）** 系统应当为每一条历史记录携带可见性标记，取值 `public` / `hidden` / `unknown`，且**写入侧不得省略**。
 
@@ -82,9 +82,9 @@
 - 验收：Given 一条 `visibility: "hidden"` 的历史，When 请求上述三个出口，Then 响应中均不含该条 `id`；Given 一条 `public` 记录，Then 三个出口均包含。
 - 追溯：`design.md §2.3`｜任务 `T2-02`
 
-**R-VS-03（事件驱动）** 当触发一个自身 `visibility` 非 `public` 的事件或结局时，系统应当由其产生的历史记录继承该可见性（`hidden` / `unknown` 一律归一为 `hidden`）。
+**R-VS-03（事件驱动）** 历史记录的可见性应当只由来源语义决定：事件来源的历史条目一律 `public`（事件没有隐藏语义，OPEN_QUESTIONS #33 已裁决）；由 `visibility: "hidden"` 的**结局**触发写入的历史条目（结局揭示）应当为 `hidden`。
 
-- 验收：Given 模板中 `visibility: "hidden"` 的事件，When 该事件被触发并写入历史，Then 该历史条目 `visibility === "hidden"`；Given `visibility: "public"` 的事件，Then `public`。
+- 验收：Given 任意事件被触发并写入历史，Then 该条目 `visibility === "public"`；Given 模板中 `visibility: "hidden"` 的结局命中并写入历史，Then 该条目 `visibility === "hidden"`。
 - 追溯：`design.md §2.2`｜任务 `T2-01`
 
 **R-VS-04（普遍）** 归档响应应当只向玩家端下发 public 历史，并给出被隐藏条目的计数（`hiddenHistoryCount`），完整历史仅保留在服务端存档中。
@@ -94,7 +94,7 @@
 
 **R-VS-05（非期望行为）** 如果任一次投影或接口响应中出现可见性非 `public` 的历史条目（含嵌套 `detail` 文本命中），系统应当由自动化测试判定失败。
 
-- 验收：Given 一个故意写入 hidden 事件与 hidden 结局的世界，When 遍历 `snapshot`、`turnResult`、`/history`、`/archive` 四个出口递归扫描，Then 断言无命中；该用例作为常驻渗透测试保留。
+- 验收：Given 一个故意触发 `hidden` 结局（其揭示条目为 `hidden`）的世界，When 遍历 `snapshot`、`turnResult`、`/history`、`/archive` 四个出口递归扫描，Then 断言无命中；该用例作为常驻渗透测试保留。
 - 追溯：`design.md §2.5`｜任务 `T2-03`
 
 ### 2.2 存档持久化（`R-PS`）

@@ -18,11 +18,11 @@
 | 前端「日志」Tab 调该接口并逐条渲染 `summary` | `apps/web/src/main.tsx:1122-1141` |
 | 归档记录 `history: archived.history.map(...)` —— **全量**，随 `POST /archive` 返回 | `packages/game-core/src/v2/archive.ts` |
 | 历史写入点共 **7 处**：`battle.ts:616`（battle）、`ending.ts:368`（event）、`npc.ts:63`（npc_action）、`turn.ts:220`/`653`（event）、`turn.ts:532`/`785`（player_action） | 见左 |
-| `EventV2Schema` **没有** `visibility` 字段 | `packages/shared/src/schema/event.ts`（grep 无命中） |
+| `EventV2Schema` 没有 `visibility` 字段 —— **经用户裁决（OPEN_QUESTIONS #33）不加**：事件无隐藏语义，进轮次即公开 | `packages/shared/src/schema/event.ts` |
 | `EndingTemplateSchema.visibility` 已存在，默认 `public` | `packages/shared/src/schema/ending.ts:124` |
 | `NpcAction` 无可见性字段 | `packages/shared/src/schema/character.ts`（行为段） |
 
-**结论**：今天的泄漏源是**事件**与**结局**——两者都有"不该让玩家看到"的语义（`hidden` 结局已有掩码），却没有一条进入历史的记录带可见性，而历史接口是全量的。`npc_action` 的 `summary` 由模板撰写、内容是"可见行为"（NPC 秘密在 `def.secrets`，不进 summary），本轮判定其属于公开世界动态，**不分级**（登记 `OPEN_QUESTIONS` #32）。
+**结论**：今天的泄漏源是**结局**——`hidden` 结局有"不该让玩家看到"的语义（已有掩码投影），但它触发写入的历史条目不带可见性，而历史接口是全量。事件按用户裁决（OPEN_QUESTIONS #33）无隐藏语义，不是泄漏源。`npc_action` 的 `summary` 由模板撰写、内容是"可见行为"（NPC 秘密在 `def.secrets`，不进 summary），本轮判定其属于公开世界动态，**不分级**（登记 `OPEN_QUESTIONS` #32）。
 
 ### 1.2 持久化
 
@@ -108,19 +108,12 @@ function pushHistory(
 | `battle.ts:616` | `battle` | `"public"` |
 | `ending.ts:368` | `event` | 结局 `visibility`（`hidden` → `"hidden"`） |
 | `npc.ts:63` | `npc_action` | `"public"`（本轮不分级，见 2.6） |
-| `turn.ts:220` | `event` | 事件定义 `visibility`（新增可选字段，缺省 `"public"`） |
+| `turn.ts:220` | `event` | `"public"`（事件无隐藏语义，OPEN_QUESTIONS #33） |
 | `turn.ts:532` | `player_action` | `"public"` |
-| `turn.ts:653` | `event` | 事件定义 `visibility` |
+| `turn.ts:653` | `event` | `"public"`（同上） |
 | `turn.ts:785` | `player_action` | `"public"` |
 
-**事件定义需新增可选字段**（`EventV2Schema` 目前没有）：
-
-```ts
-// packages/shared/src/schema/event.ts
-visibility: z.enum(["public", "hidden"]).default("public"),
-```
-
-理由：`hidden` 事件今天会被写进历史并被玩家读到；没有这个字段就只能靠 `kind` 猜，不可维护。这是协议 §8 的**向后兼容扩展**（缺省 `public`，既有模板零改动），需在阶段 1 的协议修订里记一笔。
+**事件不加可见性字段**（2026-11-11 用户裁决，OPEN_QUESTIONS #33）：事件只要进轮次调度就必须对玩家可见，`EventV2Schema` 保持现状；"不该让玩家看到"的能力只由结局表达——`ending.ts:368` 一处按结局 `visibility` 继承即可。协议 §8 不新增事件可见性条款。
 
 ### 2.3 读取侧（三个出口，一个判定）
 
@@ -149,7 +142,7 @@ export function projectArchiveForPlayer(record: ArchiveRecord): ArchiveRecord & 
 
 ### 2.5 渗透测试（`R-VS-05`）
 
-构造一局故意含 `hidden` 事件 + `hidden` 结局的世界，对四个出口做**递归扫描**：
+构造一局故意触发 `hidden` 结局（其揭示条目为 `hidden`）的世界，对四个出口做**递归扫描**：
 
 ```
 遍历 JSON 的每个字符串值 → 命中 hidden 条目的 id / summary 片段 ⇒ 失败
@@ -421,7 +414,7 @@ inventory: Array<{ itemId, name, description, count, usableOutsideBattle, usable
 | P2 | 终止后拒绝一切行动 | `R-PS-06` + 新增两个穿脱入口 |
 | P3 | 归档只读 | `R-PS-06` |
 | P5 | 事件/链顺序稳定 | 跨度内 `turnIndex` 递增保证冷却与排序语义不变 |
-| P6 | 模板不可变 | 跨度参数、事件可见性全部来自模板 |
+| P6 | 模板不可变 | 跨度参数全部来自模板；历史可见性由写入侧来源决定（事件恒 public，结局按模板 `visibility`） |
 | P7 | `hidden` 不进投影 | `R-VS-02`、`R-VS-05` |
 | P8 | 装备补正不写回基础属性 | `R-EQ-10` |
 | P9 | HP 不作为死亡判据 | 不受本轮影响；跨度只在边界判定，不读 HP |
@@ -481,7 +474,6 @@ inventory: Array<{ itemId, name, description, count, usableOutsideBattle, usable
 |---|---|
 | `packages/shared/src/v2.ts` | `HistoryVisibility`、`HistoryEntryV2.visibility`、`isPlayerVisible`、背包投影字段 |
 | `packages/shared/src/v2-state.ts`（新） | `WorldStateV2Schema` |
-| `packages/shared/src/schema/event.ts` | 事件 `visibility`（可选，缺省 public） |
 | `packages/shared/src/schema/world.ts` | `time.spanSteps` 配置段与校验 |
 | `packages/game-core/src/v2/turn.ts` | `pushHistory` 提取导出；跨度分支；历史过滤 |
 | `packages/game-core/src/v2/equipment-turn.ts`（新） | `equipV2` / `unequipV2` |

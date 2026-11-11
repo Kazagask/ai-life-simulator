@@ -46,13 +46,13 @@
   完成定义：状态「已接受」；明确写出"跨度不改变 `R-EN-02` 的判定点"。
 
 - [ ] **T1-03** 依赖：T1-01、T1-02｜需求：`R-VS-01/03`、`R-TS-01/02`、`R-PS-02`｜产出：`specs/data/TEMPLATE_PROTOCOL_V2.md` 修订
-  新增/扩展四处：① §8 `items/events` 段为事件定义加可选 `visibility`（缺省 `public`）；② 新增「时间跨度」章节（`time.spanSteps` 字段表、跨度命令形状、分片语义、限流与抽样参数）；③ 新增「存档契约」章节（信封字段、`schemaVersion`、模板指纹算法、加载拒绝条件）；④ 新增「历史可见性」约定（三类可见性、缺省语义、三个玩家端出口）。
+  新增/扩展三处：① 新增「时间跨度」章节（`time.spanSteps` 字段表、跨度命令形状、分片语义、限流与抽样参数）；② 新增「存档契约」章节（信封字段、`schemaVersion`、模板指纹算法、加载拒绝条件）；③ 新增「历史可见性」约定（三类可见性、缺省语义、三个玩家端出口；**事件无隐藏语义，OPEN_QUESTIONS #33 已裁决，不新增事件可见性条款**）。
   完成定义：每条新增约定都能映射到 Zod schema；不出现与 ADR-0001/0002 冲突的语义；不修改 R2.2 已验收章节的既有措辞。
 
 ## 3. 阶段 2 — 可见性收口
 
-- [ ] **T2-01** 依赖：T1-03｜需求：`R-VS-01`、`R-VS-03`｜产出：`packages/shared/src/v2.ts`、`packages/shared/src/schema/event.ts`、`packages/game-core/src/v2/turn.ts`、`battle.ts`、`npc.ts`、`ending.ts`
-  加 `HistoryVisibility` 与 `HistoryEntryV2.visibility?`；`isPlayerVisible()` 唯一判定；`pushHistory()` 的 `visibility` 改必填并补齐 7 个写入点（`npc.ts:63` 那处不走 `pushHistory`，需单独赋值）；`EventV2Schema` 增可选 `visibility`（缺省 `public`）。
+- [ ] **T2-01** 依赖：T1-03｜需求：`R-VS-01`、`R-VS-03`｜产出：`packages/shared/src/v2.ts`、`packages/game-core/src/v2/turn.ts`、`battle.ts`、`npc.ts`、`ending.ts`
+  加 `HistoryVisibility` 与 `HistoryEntryV2.visibility?`；`isPlayerVisible()` 唯一判定；`pushHistory()` 的 `visibility` 改必填并补齐 7 个写入点（`npc.ts:63` 那处不走 `pushHistory`，需单独赋值）；事件来源写入点一律传 `"public"`（OPEN_QUESTIONS #33：事件无隐藏语义，`EventV2Schema` 不加字段），仅 `ending.ts:368` 按结局 `visibility` 继承。
   完成定义：typecheck 0；缺失可见性的调用点应报类型错误（用一次临时删除自证后还原）；既有测试全绿（老数据缺字段视为 public）。
 
 - [ ] **T2-02** 依赖：T2-01｜需求：`R-VS-02`、`R-VS-04`｜产出：`packages/game-core/src/v2/history.ts`（新）、`projection.ts`、`archive.ts`、`apps/server/src/index.ts`
