@@ -55,6 +55,8 @@ attributes:
   order: [cursedEnergy, intellect, physique, agility, luck, reputation]
   defaults: { cursedEnergy: 5, intellect: 6, physique: 5, agility: 5, luck: 5, reputation: 0 }
   caps: { cursedEnergy: 200 }
+  # 显示名由模板声明：引擎/投影/前端一律读这里，不在代码里写死世界观用词
+  labels: { cursedEnergy: 咒力, intellect: 智力, physique: 体术, agility: 敏捷, luck: 幸运, reputation: 声望 }
 
 # HP/MP 为共享资源池：战斗与模拟读写同一池子（见规格 10.3）
 # 上限 = base + perLevel × growthLevel + Σ perAttribute[attr] × 基础属性值

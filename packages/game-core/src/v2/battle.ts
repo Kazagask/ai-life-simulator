@@ -4,6 +4,7 @@ import type {
   BattleState,
   CombatSkill,
   CombatSettle,
+  Effect,
   Formula,
   StatusInstance,
   V2Player,
@@ -15,6 +16,12 @@ import { createTimeAdapter } from "./time.js";
 import type { TemplateLookup } from "./lookup.js";
 
 // ---------- 战斗内施法者抽象（玩家镜像与敌人统一结算） ----------
+
+/**
+ * 战斗内可结算的物品效果白名单（协议 §12 的子集）。
+ * 未列出的效果类型必须可诊断地拒绝——不允许静默忽略（AGENTS.md §2）。
+ */
+const BATTLE_ITEM_EFFECTS = new Set<Effect["type"]>(["adjustResource", "cureStatus", "adjustMood", "applyStatus"]);
 
 interface Combatant {
   /** 玩家为 "player"，敌人/友军为其 instanceId */
@@ -91,6 +98,11 @@ function controlOf(statuses: StatusInstance[], semantic: string, lookup: Templat
     const control = lookup.status(inst.statusId)?.combat?.control;
     return control?.includes(semantic as never) ?? false;
   });
+}
+
+/** 攻击性技能：以敌方为目标或带伤害公式；cannot_attack 只拦这一类，不拦增益/治疗。 */
+function isAttackSkill(skill: CombatSkill): boolean {
+  return skill.target === "enemy" || skill.target === "all_enemies" || (skill.damage?.length ?? 0) > 0;
 }
 
 function multiplierOf(statuses: StatusInstance[], key: "damageDealt" | "damageTaken" | "hitChance", lookup: TemplateLookup): number {
@@ -193,8 +205,13 @@ function resolveTargets(
   state: WorldStateV2,
   caster: Combatant,
   skill: CombatSkill,
-  targetInstanceId?: string,
+  targetInstanceId: string | undefined,
+  lookup: TemplateLookup,
 ): SkillTargets {
+  // forced_target_self（协议 §6.3）：行动目标强制为自身，覆盖技能的声明目标
+  if (controlOf(caster.statuses, "forced_target_self", lookup)) {
+    return { caster, targets: [caster] };
+  }
   const allyUnits: Combatant[] = [
     playerCombatant(state, battle),
     ...battle.allies.filter((a) => a.alive).map(allyCombatant),
@@ -235,7 +252,7 @@ function executeSkill(
   caster.mp = Math.max(0, caster.mp - skill.cost.mp);
   caster.skillCooldowns[skill.id] = skill.cooldownTurns;
 
-  const { targets } = resolveTargets(battle, state, caster, skill, targetInstanceId);
+  const { targets } = resolveTargets(battle, state, caster, skill, targetInstanceId, lookup);
 
   for (const target of targets) {
     // 命中判定（省略 hitCheck = 必中）
@@ -258,7 +275,7 @@ function executeSkill(
     if (skill.heal?.length) {
       const amount = Math.max(0, Math.round(rollFormula(skill.heal, effC, caster.statuses, rng)));
       target.hp += amount;
-      log(`${caster.name}的「${skill.name}」为${target.isPlayer ? "你" : target.name}回复 ${amount} 点生命。`);
+      log(`${caster.name}的「${skill.name}」为${target.isPlayer ? "你" : target.name}回复 ${amount} 点${lookup.resourceLabel("hp")}。`);
     }
 
     // 施加补正（onSelf → 施放者）
@@ -275,7 +292,11 @@ function executeSkill(
   if (consume) {
     const stacks = caster.statuses.find((s) => s.statusId === consume.status)?.stacks ?? 0;
     caster.statuses = caster.statuses.filter((s) => s.statusId !== consume.status);
-    if (stacks > 0) log(`${caster.name}献祭了 ${stacks} 只咒灵。`);
+    if (stacks > 0) {
+      // 文案只引用模板里的补正名，不写死具体召唤物/世界观名词
+      const statusName = lookup.status(consume.status)?.name ?? consume.status;
+      log(`${caster.name}消耗了 ${stacks} 层「${statusName}」。`);
+    }
   }
 
   writeBack(battle, caster);
@@ -283,12 +304,12 @@ function executeSkill(
   markDeaths(battle);
 }
 
-/** 标记 hp≤0 的单位阵亡（敌人溃散 / 友军倒下），并写日志。 */
+/** 标记 hp≤0 的单位阵亡（敌人 / 友军），并写日志。 */
 function markDeaths(battle: BattleState): void {
   for (const enemy of battle.enemies) {
     if (enemy.alive && enemy.hp <= 0) {
       enemy.alive = false;
-      battle.log.push(`${enemy.name}溃散成黑的雾气，消散了。`);
+      battle.log.push(`${enemy.name}失去了战斗能力。`);
     }
   }
   for (const ally of battle.allies) {
@@ -336,12 +357,15 @@ function aiTurn(
     battle.log.push(`${unit.name}无法行动。`);
     return;
   }
+  const cannotAttack = controlOf(c.statuses, "cannot_attack", lookup);
   const usable = unit.skills
     .map((id) => lookup.skill(id))
     .filter((s): s is CombatSkill => s?.kind === "combat")
-    .filter((s) => c.mp >= s.cost.mp && (c.skillCooldowns[s.id] ?? 0) <= 0);
+    .filter((s) => c.mp >= s.cost.mp && (c.skillCooldowns[s.id] ?? 0) <= 0)
+    // cannot_attack（协议 §6.3）：攻击性技能不可用，增益/治疗类仍可施放
+    .filter((s) => !cannotAttack || !isAttackSkill(s));
   if (usable.length === 0) {
-    battle.log.push(`${unit.name}蓄势待发。`);
+    battle.log.push(cannotAttack ? `${unit.name}无法攻击，跳过了回合。` : `${unit.name}蓄势待发。`);
     return;
   }
   const chosen = pickWeighted(usable, (s) => unit.skillWeights[s.id] ?? 1, rng);
@@ -429,6 +453,8 @@ export function performBattleAction(
     const skill = lookup.skill(command.skillId);
     if (!skill || skill.kind !== "combat") throw new Error("skill_not_found");
     if (!state.player.skills.includes(skill.id)) throw new Error("skill_not_owned");
+    // cannot_attack（协议 §6.3）：只拦攻击性技能，增益/治疗仍可施放
+    if (isAttackSkill(skill) && controlOf(pc.statuses, "cannot_attack", lookup)) throw new Error("cannot_attack");
     if (pc.mp < skill.cost.mp) throw new Error("not_enough_mp");
     if ((pc.skillCooldowns[skill.id] ?? 0) > 0) throw new Error("skill_on_cooldown");
     battle.log.push(`${prefix} 你施放「${skill.name}」。`);
@@ -438,6 +464,12 @@ export function performBattleAction(
     const item = lookup.item(command.itemId);
     if (!item || !item.usableInBattle) throw new Error("item_not_usable_in_battle");
     if ((state.player.inventory[item.id] ?? 0) <= 0) throw new Error("item_not_owned");
+    // 先校验效果可结算再扣库存：避免「物品已消耗但效果被静默丢弃」
+    for (const effect of item.use ?? []) {
+      if (!BATTLE_ITEM_EFFECTS.has(effect.type)) {
+        throw new Error(`item_effect_unsupported_in_battle: ${item.id}/${effect.type}`);
+      }
+    }
     state.player.inventory[item.id] -= 1;
     if (state.player.inventory[item.id] <= 0) delete state.player.inventory[item.id];
     // 战斗内物品效果仅结算资源/补正（作用于玩家镜像）
@@ -445,10 +477,10 @@ export function performBattleAction(
       if (effect.type === "adjustResource") {
         if (effect.resource === "hp") {
           pc.hp = Math.min(maxHp(state.player, lookup.template), pc.hp + effect.value);
-          battle.log.push(`${prefix} 你使用了「${item.name}」，回复 ${effect.value} 点生命。`);
+          battle.log.push(`${prefix} 你使用了「${item.name}」，回复 ${effect.value} 点${lookup.resourceLabel("hp")}。`);
         } else {
           pc.mp = Math.min(maxMp(state.player, lookup.template), pc.mp + effect.value);
-          battle.log.push(`${prefix} 你使用了「${item.name}」，回复 ${effect.value} 点咒力。`);
+          battle.log.push(`${prefix} 你使用了「${item.name}」，回复 ${effect.value} 点${lookup.resourceLabel("mp")}。`);
         }
       } else if (effect.type === "cureStatus") {
         pc.statuses = pc.statuses.filter((s) => s.statusId !== effect.status);

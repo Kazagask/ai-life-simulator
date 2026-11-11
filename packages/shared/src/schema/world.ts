@@ -126,6 +126,11 @@ export const WorldTemplateV2Schema = z
         order: z.array(z.string().min(1)).min(1),
         defaults: z.record(z.string(), z.number()),
         caps: z.record(z.string(), z.number()).optional(),
+        /**
+         * 属性显示名（玩家可见，如 cursedEnergy → "咒力"）。
+         * 引擎与前端一律经此取显示名，不得在代码里硬编码世界观专名；缺省回退属性 id。
+         */
+        labels: z.record(z.string(), z.string().min(1)).optional(),
       })
       .strict(),
     resources: z
@@ -219,6 +224,32 @@ export const WorldTemplateV2Schema = z
       });
     });
 
+    // 属性显示名引用（键必须是 attributes.order 中声明的属性）
+    Object.keys(w.attributes.labels ?? {}).forEach((attr) => {
+      if (!attributeIds.has(attr)) add(["attributes", "labels"], `未知属性：${attr}`);
+    });
+
+    // 判定默认值（协议 §4.6）的攻防槽位同样必须指向已声明属性
+    if (w.checks.opposedDefault) {
+      if (!attributeIds.has(w.checks.opposedDefault.attacker)) add(["checks", "opposedDefault", "attacker"], `未知属性：${w.checks.opposedDefault.attacker}`);
+      if (!attributeIds.has(w.checks.opposedDefault.defender)) add(["checks", "opposedDefault", "defender"], `未知属性：${w.checks.opposedDefault.defender}`);
+    }
+
+    // 状态栏数据源引用（source=resource 的 key 只能是 hp/mp；source=attribute 的 keys 必须已声明）
+    w.statusBar.forEach((section, i) => {
+      if (section.source === "resource") {
+        if (!section.key) add(["statusBar", i, "key"], "source 为 resource 时必须声明 key");
+        else if (section.key !== "hp" && section.key !== "mp") add(["statusBar", i, "key"], `未知资源：${section.key}`);
+      }
+      if (section.source === "attribute") {
+        const keys = section.keys ?? (section.key ? [section.key] : []);
+        if (keys.length === 0) add(["statusBar", i, "keys"], "source 为 attribute 时必须声明 keys");
+        keys.forEach((k) => {
+          if (!attributeIds.has(k)) add(["statusBar", i, "keys"], `未知属性：${k}`);
+        });
+      }
+    });
+
     // 性别引用
     w.characters.forEach((c, i) => {
       if (!genderIds.has(c.identity.gender)) add(["characters", i, "identity", "gender"], `未知性别：${c.identity.gender}`);
@@ -235,9 +266,14 @@ export const WorldTemplateV2Schema = z
       });
     }
 
-    // 属性引用（战斗技能 scaleBy / 角色属性 / mood 档位修正）
+    // 属性引用（战斗技能 hitCheck / scaleBy / 角色属性 / mood 档位修正）
     w.skills.forEach((s, i) => {
       if (s.kind === "combat") {
+        // 命中判定的攻防槽位同样是属性 id 引用；写错会静默取 0，必须在加载期拒绝
+        if (s.hitCheck) {
+          if (!attributeIds.has(s.hitCheck.attacker)) add(["skills", i, "hitCheck", "attacker"], `未知属性：${s.hitCheck.attacker}`);
+          if (!attributeIds.has(s.hitCheck.defender)) add(["skills", i, "hitCheck", "defender"], `未知属性：${s.hitCheck.defender}`);
+        }
         const formulas = [...(s.damage ?? []), ...(s.heal ?? [])];
         formulas.forEach((f, j) => {
           if (f.preset === "scaled" && !attributeIds.has(f.scaleBy)) {
@@ -348,6 +384,10 @@ export const WorldTemplateV2Schema = z
         checkNext(c.onFlee?.nextEventId, ["events", i, "settle", "combat", "onFlee"]);
         if (c.canFlee && !c.fleeCheck) {
           add(["events", i, "settle", "combat"], "canFlee 为 true 时需要 fleeCheck");
+        }
+        if (c.fleeCheck) {
+          if (!attributeIds.has(c.fleeCheck.attacker)) add(["events", i, "settle", "combat", "fleeCheck", "attacker"], `未知属性：${c.fleeCheck.attacker}`);
+          if (!attributeIds.has(c.fleeCheck.defender)) add(["events", i, "settle", "combat", "fleeCheck", "defender"], `未知属性：${c.fleeCheck.defender}`);
         }
       }
       // 通用效果里的 chain / attribute 引用

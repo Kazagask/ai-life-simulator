@@ -19,6 +19,11 @@ function collectTs(dir: string): string[] {
   return out;
 }
 
+/** 递归收集运行时源码（排除测试夹具与检查文件自身）：专名扫描只针对生产代码。 */
+function collectRuntimeTs(dir: string): string[] {
+  return collectTs(dir).filter((f) => !f.endsWith(".test.ts"));
+}
+
 interface Forbidden {
   label: string;
   re: RegExp;
@@ -48,6 +53,19 @@ const PHASE_SEQUENCE_FORBIDDEN: Forbidden[] = [
   { label: "assertPhase()", re: /\bassertPhase\s*\(/ },
   { label: "transition()", re: /\btransition\s*\(/ },
   { label: ".phase 访问", re: /\.phase\b/ },
+];
+
+/**
+ * R-NFR-06 / R-NFR-05（协议 §1、§14）：game-core 不得把世界观专名写进引擎，
+ * 显示名一律来自模板（statusBar / attributes.labels）。新增模板时按需扩充此表。
+ */
+const WORLD_NOUN_FORBIDDEN: Forbidden[] = [
+  { label: "咒灵", re: /咒灵/ },
+  { label: "咒力", re: /咒力/ },
+  { label: "咒术", re: /咒术/ },
+  { label: "五条", re: /五条/ },
+  { label: "夏油", re: /夏油/ },
+  { label: "高专", re: /高专/ },
 ];
 
 function scan(files: string[], patterns: Forbidden[]): string[] {
@@ -91,5 +109,12 @@ describe("T2-03 · 静态边界检查（R-TM-03 / R-EN-07 / R-NFR-01）", () => 
     }
     const hits = scan([fixture, baseline], PHASE_SEQUENCE_FORBIDDEN);
     expect(hits, `回放断言引用了阶段序列标识：\n${hits.join("\n")}`).toEqual([]);
+  });
+
+  it("⑤ game-core 运行时源码不含世界观专名（显示名必须来自模板）", () => {
+    const files = collectRuntimeTs(SRC_ROOT);
+    expect(files.length, `未收集到运行时源码（根目录 ${SRC_ROOT}）`).toBeGreaterThan(0);
+    const hits = scan(files, WORLD_NOUN_FORBIDDEN);
+    expect(hits, `发现硬编码世界观专名，请改为读取模板 statusBar / attributes.labels：\n${hits.join("\n")}`).toEqual([]);
   });
 });

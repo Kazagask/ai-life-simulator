@@ -241,6 +241,18 @@ export interface V2Snapshot {
   lifeStage: string;
   lifeStageLabel: string;
   startYear: number;
+  /**
+   * 模板驱动的展示名（statusBar 与 attributes.labels 的解析结果）。
+   * 前端渲染资源条/属性名一律读这里，不得再硬编码世界观用词。
+   */
+  labels: {
+    /** 资源键（hp/mp）→ 显示名 */
+    resources: Record<string, string>;
+    /** 属性 id → 显示名（顺序即 attributes.order） */
+    attributes: Record<string, string>;
+    /** 心情显示名 */
+    mood: string;
+  };
   player: {
     id: string;
     name: string;

@@ -71,6 +71,11 @@ export function projectSnapshotV2(
     lifeStage,
     lifeStageLabel: adapter.lifeStageLabel(lifeStage),
     startYear: template.meta.startYear,
+    labels: {
+      resources: { hp: lookup.resourceLabel("hp"), mp: lookup.resourceLabel("mp") },
+      attributes: lookup.attributeLabels(),
+      mood: lookup.moodLabel(),
+    },
     player: {
       id: player.id,
       name: player.name,
@@ -193,9 +198,10 @@ function evaluateSummaryV2(state: WorldStateV2, template: WorldTemplateV2): stri
   const relationAvg = relations.length > 0 ? relations.reduce((a, b) => a + b, 0) / relations.length : 0;
   const overall = Math.min(100, growth * 4 + milestones * 10 + (relationAvg + 100) / 10);
   void template;
+  // 过渡实现：评价文案不得含世界观专名（R-NFR-05）；正式评价由 v2/life-evaluation.ts 接管（T4-04）
   return overall >= 70
-    ? "你的咒力与心性都在急速成长，命运的轨迹已被你搅动。"
+    ? "你的能力与心性都在急速成长，命运的轨迹已被你搅动。"
     : overall >= 40
-      ? "你在高专的日子平稳推进，机会与危险都还在前方。"
-      : "你还只是个初出茅庐的咒术师，前路漫长而未知。";
+      ? "你的日子平稳推进，机会与危险都还在前方。"
+      : "你还只是个初出茅庐的新人，前路漫长而未知。";
 }

@@ -114,6 +114,7 @@ attributes:
   order: [cursedEnergy, intellect, physique, agility]   # 世界自定义属性
   defaults: { cursedEnergy: 5, intellect: 6, physique: 5, agility: 5 }
   caps: { cursedEnergy: 999 }                            # 可选上限，缺省 999
+  labels: { cursedEnergy: 咒力, intellect: 智力, physique: 体术, agility: 敏捷 }  # 显示名（可选，缺省回退属性 id）
 resources:
   hp: { base: 100, perLevel: 10, perAttribute: { physique: 5 } }   # 上限 = base + perLevel*growthLevel + Σ perAttribute[attr]*基础属性值
   mp: { base: 50, perLevel: 5, perAttribute: { cursedEnergy: 2 } } # perAttribute 键必须是 attributes.order 中声明的属性（加载期校验）
@@ -127,6 +128,7 @@ regen:                                    # B3：回复节奏跟模拟轮次
 - 等级成长来源由世界决定（熟练度、年龄、事件效果均可），V0.1 不内置"等级"概念，`perLevel` 中的 level 指角色 `growthLevel`（效果 DSL `adjustGrowth` 推进）。
 - `perAttribute` 属性贡献使用**基础属性值**（不含补正/心情档位修正）：上限随临时状态波动会破坏回血 clamp 语义。敌人的资源池按其自身属性计算后整体乘 `levelScale`。
 - 属性模型维持纯自定义（ADR-0002 附带确认）：引擎不引入 HP/ATK/DEF/SPD/HIT/EVA/CRIT/CRIT_DMG/RES 等通用基础属性语义，也不内置伤害/命中/暴击默认公式；世界观对公式的差异化诉求以扩展 preset 参数满足，不开放自由表达式 DSL。
+- **显示名只来自模板**：属性名取 `attributes.labels`，资源名与心情名取 `statusBar`（§4.5）。引擎日志、投影与前端一律经此取名，不得在 `game-core` 硬编码世界观用词（R-NFR-05/06）；未声明时回退属性 id / 资源键，不得猜测。
 
 ### 4.5 状态栏（模板化）
 
@@ -146,6 +148,8 @@ statusBar:
 
 - `source` 枚举：`identity | attribute | resource | mood | status | custom`。
 - 每个区块可带 `visibleWhen` 条件（第 12 节），投影阶段过滤。
+- **显示名的唯一来源**：投影在 `snapshot.labels` 下发 `resources`（`statusBar` 中 `source: resource` 的 label）、`attributes`（`attributes.labels`，按 `order` 排序）与 `mood`（`source: mood` 的 label）；引擎生成的战斗日志同样经此取名。区块缺失时回退资源键/属性 id。
+- 加载期校验：`source: resource` 必须声明 `key` 且只能为 `hp|mp`；`source: attribute` 必须声明 `keys`，且每个键都在 `attributes.order` 中（避免「写了错 key 但界面静默空掉」）。
 
 ### 4.6 判定默认值
 
@@ -265,6 +269,7 @@ checks:
 - `scaleBy` 引用角色属性 id（含补正修正后的有效值）；`stack-scaled` 的 `status` 引用补正 id，读取施放者当前层数（`base + stacks * perStack`）。
 - 结算次序（实现阶段遵循）：消耗 → 命中判定 → 伤害/治疗 → 施加补正 → 最后 `consumeStatus`（献祭发生在输出结算之后，漩涡先按层数出伤再失去咒灵）。
 - `target: all_enemies` 时伤害/补正作用于对方全体（命中判定逐个结算）。
+- `hitCheck.attacker` / `hitCheck.defender`（`fleeCheck`、`checks.opposedDefault` 同）都是属性 id 引用，必须在 `attributes.order` 中声明：加载期校验并拒绝，避免写错属性名后被静默当作 0 参与判定。
 
 ### 7.2 通用技能
 
@@ -502,6 +507,7 @@ Schema 层（加载即校验）：
 
 - genders / attributes / resources / skills / items / statuses / events / chains / characters 的 id 全库唯一。
 - 技能 `applyStatus[].status`、物品 `use[].cureStatus`、条件 `status`/`inventory`/`requiresSkill`、战斗 `enemies[].ref`、事件 `nextEventId`/`chainId`/`startEventId` 均须指向已定义实体。
+- 属性槽位引用：技能 `hitCheck.attacker/defender`、战斗 `fleeCheck.attacker/defender`、`checks.opposedDefault.attacker/defender`、`attributes.labels` 的键、`statusBar` 的 `key`（resource）与 `keys`（attribute），均须指向 `attributes.order` 已声明的属性或已定义资源。
 - 事件链 `startEventId` 的 `trigger.source` 必须为 `chain`。
 
 ### V2.1 新增校验（加载即拒绝，错误信息须含字段路径）
@@ -518,6 +524,7 @@ Schema 层（加载即校验）：
 - JJK 示例模板六个 YAML 通过 `WorldTemplateV2Schema` 校验。
 - 非法样例被拒绝：双面均缺失的补正；未知 control 语义；未知字段；引用断裂（技能指向不存在的补正、事件指向不存在的链）；mood 区间重叠；probability 与 weight 并存。
 - 加载器引用完整性测试与 Schema 测试同套件（实现阶段补引擎测试：进战斗带入/带出转换、control OR 合并、HP 持久化、转盘 seed 复现）。
+- 显示名与判定引用：`snapshot.labels` 与模板 `statusBar`/`attributes.labels` 一致且缺失时回退 id；`hitCheck`/`fleeCheck`/`checks.opposedDefault` 指向未声明属性被拒；`cannot_attack` 与 `forced_target_self` 在玩家侧与 AI 侧各有一条用例；战斗内物品含非白名单效果时拒绝且不扣库存。
 
 ### V2.1 新增测试（按需求编号）
 

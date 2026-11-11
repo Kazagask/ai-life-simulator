@@ -15,15 +15,7 @@ const UNIT_NAMES: Record<string, string> = {
   year: "年",
 };
 
-const ATTR_NAMES: Record<string, string> = {
-  cursedEnergy: "咒力",
-  intellect: "智力",
-  physique: "体术",
-  agility: "敏捷",
-  luck: "幸运",
-  reputation: "声望",
-  strength: "力量",
-};
+// 显示名一律由模板下发（snapshot.labels），前端不维护世界观词表。
 
 function elapsedText(elapsed: { value: number; unit: string }): string {
   return `${elapsed.value} ${UNIT_NAMES[elapsed.unit] ?? elapsed.unit}`;
@@ -280,7 +272,15 @@ function SetupScreen({
 
 function PlayerCard({ snapshot }: { snapshot: V2Snapshot }) {
   const p = snapshot.player;
-  const attrEntries = Object.entries(p.attributes).filter(([key]) => ATTR_NAMES[key] !== undefined || !key.startsWith("proficiency"));
+  const labels = snapshot.labels;
+  const labelOrder = Object.keys(labels.attributes);
+  const rankOf = (key: string) => {
+    const idx = labelOrder.indexOf(key);
+    return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
+  };
+  const attrEntries = Object.entries(p.attributes)
+    .filter(([key]) => !key.startsWith("proficiency"))
+    .sort(([a], [b]) => rankOf(a) - rankOf(b));
   return (
     <section className="card player-card">
       <div className="row">
@@ -288,14 +288,14 @@ function PlayerCard({ snapshot }: { snapshot: V2Snapshot }) {
         <span className="tag">{p.age} 岁 · {p.genderLabel}</span>
       </div>
       <div className="attrs">
-        <ResourceBar label="生命" value={p.hp} max={p.maxHp} cls="hp" />
-        <ResourceBar label="咒力" value={p.mp} max={p.maxMp} cls="mp" />
-        <ResourceBar label={`心情 · ${p.moodBandLabel}`} value={p.mood} max={100} cls="mood" />
+        <ResourceBar label={labels.resources.hp ?? "hp"} value={p.hp} max={p.maxHp} cls="hp" />
+        <ResourceBar label={labels.resources.mp ?? "mp"} value={p.mp} max={p.maxMp} cls="mp" />
+        <ResourceBar label={`${labels.mood} · ${p.moodBandLabel}`} value={p.mood} max={100} cls="mood" />
       </div>
       <div className="attrs">
         {attrEntries.map(([key, value]) => (
           <div key={key} className="attr">
-            <span className="attr-name">{ATTR_NAMES[key] ?? key}</span>
+            <span className="attr-name">{labels.attributes[key] ?? key}</span>
             <div className="bar">
               <div className="bar-fill" style={{ width: `${Math.min(100, Math.max(4, Number(value)))}%` }} />
             </div>
@@ -500,6 +500,7 @@ function BattlePanel({
   onContinue: () => void;
 }) {
   const b = snapshot.battle!;
+  const labels = snapshot.labels;
   const [target, setTarget] = useState<string>("");
   const aliveEnemies = b.enemies.filter((e) => e.alive);
   const effectiveTarget = target && aliveEnemies.some((e) => e.instanceId === target) ? target : aliveEnemies[0]?.instanceId;
@@ -518,14 +519,14 @@ function BattlePanel({
       {/* 我方资源：战斗内以战斗镜像为准，消耗实时可见 */}
       <div className="battle-self">
         <div className="attr">
-          <span className="attr-name">生命</span>
+          <span className="attr-name">{labels.resources.hp ?? "hp"}</span>
           <div className="bar">
             <div className="bar-fill hp" style={{ width: `${(b.player.hp / Math.max(1, b.player.maxHp)) * 100}%` }} />
           </div>
           <span className="attr-value">{b.player.hp}/{b.player.maxHp}</span>
         </div>
         <div className="attr">
-          <span className="attr-name">咒力</span>
+          <span className="attr-name">{labels.resources.mp ?? "mp"}</span>
           <div className="bar">
             <div className="bar-fill mp" style={{ width: `${(b.player.mp / Math.max(1, b.player.maxMp)) * 100}%` }} />
           </div>
@@ -583,7 +584,7 @@ function BattlePanel({
               >
                 <strong>{skill.name}</strong>
                 <span>
-                  {skill.costMp > 0 ? `咒力 ${skill.costMp}` : "无消耗"}
+                  {skill.costMp > 0 ? `${labels.resources.mp ?? "mp"} ${skill.costMp}` : "无消耗"}
                   {skill.cooldownLeft > 0 ? ` · 冷却 ${skill.cooldownLeft}` : ""}
                 </span>
               </button>
