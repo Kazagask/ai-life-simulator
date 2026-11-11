@@ -4,6 +4,7 @@ import type {
   EndingConfig,
   EndingRecord,
   EndingTemplate,
+  HistoryEntryV2,
   TerminationRecord,
   TerminationSource,
   WorldStateV2,
@@ -357,21 +358,30 @@ export function applyDeathRoute(
     return { state, ending: null, termination: state.termination, outcome };
   }
   const next = structuredClone(state);
+  let deathEntry: HistoryEntryV2 | null = null;
   if (outcome.kind === "event") {
     const id = outcome.deathEventId;
     next.firedEvents[id] = next.turnIndex;
-    next.history.push({
+    deathEntry = {
       id: `t${next.turnIndex}-death-${id}`,
       turnIndex: next.turnIndex,
       worldTime: next.worldTime,
       formattedTime: createTimeAdapter(ctx.lookup.template).format(next.worldTime),
       type: "event",
       summary: `死亡结局事件：${id}`,
-    });
+      // 先按事件来源公开入史（需进 evidenceIds）；结局决胜后按掩码回填（协议 §21.1）
+      visibility: "public",
+    };
+    next.history.push(deathEntry);
     // 复用既有待决队列 / 事件链结算路径，不新增事件来源枚举
     next.pendingEvents.push({ eventId: id });
   }
   const ending = resolveEnding(next, templates, ctx, options);
+  if (deathEntry) {
+    const chosen = templates.find((t) => t.endingId === ending.endingId);
+    // 隐藏结局（narrativeConfig.masked，ADR-0006）触发的死亡事件条目继承 hidden
+    deathEntry.visibility = chosen?.narrativeConfig.masked ? "hidden" : "public";
+  }
   const rec: TerminationRecord = {
     reason: outcome.kind === "event" ? "战败死亡事件结算后触发结局" : "战败直接触发结局",
     worldTime: next.worldTime,

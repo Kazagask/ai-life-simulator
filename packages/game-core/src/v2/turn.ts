@@ -7,6 +7,7 @@ import type {
   EvaluationConfig,
   EventV2,
   HistoryEntryV2,
+  HistoryVisibility,
   PendingEventView,
   TimeAmount,
   UseItemCommand,
@@ -219,6 +220,8 @@ function triggerEventV2(
     id: `t${state.turnIndex}-e-${event.id}`,
     type: "event",
     summary: `${event.title}：${event.narrative}`,
+    // 事件无隐藏语义（OPEN_QUESTIONS #33）：进轮次调度即公开
+    visibility: "public",
   });
 
   if (event.kind === "normal") {
@@ -531,6 +534,7 @@ export function advanceTurnV2(
     id: `t${state.turnIndex}-p`,
     type: "player_action",
     summary: action ? `${action.label}：${command.action.description || action.description || ""}` : command.action.description || "自由行动",
+    visibility: "public",
   });
 
   // 2. 事件链（chain）——最高优先级，先抢占战斗槽位，保证主线不被随机遭遇挤掉
@@ -613,7 +617,10 @@ function tickSimulationStatuses(state: WorldStateV2, lookup: TemplateLookup, isR
 function pushHistory(
   state: WorldStateV2,
   template: WorldTemplateV2,
-  entry: Omit<HistoryEntryV2, "turnIndex" | "worldTime" | "formattedTime">,
+  entry: Omit<HistoryEntryV2, "turnIndex" | "worldTime" | "formattedTime"> & {
+    /** 写入侧强制提供（协议 §21.1）；缺省编译报错 */
+    visibility: HistoryVisibility;
+  },
 ): void {
   state.history.push({
     ...entry,
@@ -652,6 +659,7 @@ export function chooseOptionV2(
     id: `t${state.turnIndex}-c-${event.id}-${option.id}`,
     type: "event",
     summary: `${event.title}：你选择了「${option.text}」`,
+    visibility: "public",
   });
 
   const result: TriggerResult = { triggered: [], wheelResult: null };
@@ -784,6 +792,7 @@ export function useItemV2(
     id: `t${state.turnIndex}-i-${item.id}`,
     type: "player_action",
     summary: `使用了「${item.name}」${logs.length > 0 ? `：${logs.join("；")}` : ""}`,
+    visibility: "public",
   });
 
   // 物品效果结算完成 → 终止边界（部分物品会推进时间）

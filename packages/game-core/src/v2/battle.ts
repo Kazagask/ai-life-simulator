@@ -616,5 +616,6 @@ export function finishBattle(state: WorldStateV2, lookup: TemplateLookup): void 
     type: "battle",
     summary: `${battle.eventId} 的战斗以${battle.over === "victory" ? "胜利" : battle.over === "defeat" ? "败北" : "撤离"}告终。`,
     detail: battle.log.join("\n"),
+    visibility: "public",
   });
 }

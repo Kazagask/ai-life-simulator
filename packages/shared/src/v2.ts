@@ -143,6 +143,9 @@ export interface ChainStateV2 {
   startedTurn: number;
 }
 
+/** 历史条目可见性：只有 public 进玩家端；hidden/unknown 一律不进（R-VS-01）。 */
+export type HistoryVisibility = "public" | "hidden" | "unknown";
+
 export interface HistoryEntryV2 {
   id: string;
   turnIndex: number;
@@ -152,6 +155,18 @@ export interface HistoryEntryV2 {
   type: "player_action" | "npc_action" | "event" | "battle" | "milestone";
   summary: string;
   detail?: string;
+  /**
+   * 可选是为了兼容 R2.2 及以前的存档（缺省视为 public——兼容策略而非语义主张）；
+   * 写入侧由 pushHistory 签名强制提供，新数据一定带值。协议 §21.1。
+   */
+  visibility?: HistoryVisibility;
+}
+
+/**
+ * 玩家可见性唯一判定入口（R-VS-01）：读取侧不得各自写 `=== "public"`。
+ */
+export function isPlayerVisible(entry: HistoryEntryV2): boolean {
+  return (entry.visibility ?? "public") === "public";
 }
 
 export interface WorldStateV2 {

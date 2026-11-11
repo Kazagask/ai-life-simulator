@@ -63,6 +63,8 @@ export function runNpcActionsV2(state: WorldStateV2, lookup: TemplateLookup, rng
       formattedTime: createTimeAdapter(lookup.template).format(state.worldTime),
       type: "npc_action",
       summary,
+      // npc_action 属公开世界动态，不分级（NPC 秘密在 def.secrets，不进 summary；#32）
+      visibility: "public",
     });
   }
 
