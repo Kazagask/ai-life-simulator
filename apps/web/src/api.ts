@@ -18,8 +18,14 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     let detail = `${res.status}`;
     try {
-      const body = (await res.json()) as { error?: string };
-      if (body.error) detail = body.error;
+      // Fastify 的错误体是 { statusCode, code, error, message }。
+      // error 只是一句通用短语（如 "Unsupported Media Type"），真正能定位问题的是
+      // message（带具体 Content-Type）与 code（FST_ERR_CTP_*），三者一起展示。
+      const body = (await res.json()) as { error?: string; message?: string; code?: string };
+      const parts = [body.error ?? `${res.status}`];
+      if (body.message && body.message !== body.error) parts.push(body.message);
+      if (body.code) parts.push(body.code);
+      detail = parts.join(" ｜ ");
     } catch {
       /* 忽略解析失败 */
     }

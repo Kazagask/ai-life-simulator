@@ -23,6 +23,31 @@ import { worldStore } from "./store.js";
 
 const app = Fastify({ logger: true });
 
+/**
+ * 兜底内容类型解析（防 415）。
+ *
+ * Fastify 默认只认识 application/json 与 text/plain，其余类型（application/octet-stream、
+ * x-www-form-urlencoded、text/html…）会在路由之前直接回 415 FST_ERR_CTP_INVALID_MEDIA_TYPE。
+ * 但客户端实际链路不可控：内置预览面板、反向代理、表单式提交都可能塞进别的 Content-Type，
+ * 甚至对一个不读请求体的端点（如 POST /api/worlds/:id/archive）。
+ *
+ * 因此注册 catch-all：未知类型一律收下；内容像 JSON 就按 JSON 解析（代理/面板可能
+ * 把 JSON body 连同错误的 Content-Type 一起转发过来），其余按字符串原样交给 Zod 判定。
+ * 精确匹配的 application/json / text/plain 解析器优先级更高，既有端点行为不变。
+ */
+app.addContentTypeParser("*", { parseAs: "string" }, (_request, body, done) => {
+  const text = typeof body === "string" ? body.trim() : "";
+  if (text === "") return done(null, undefined);
+  if (text.startsWith("{") || text.startsWith("[")) {
+    try {
+      return done(null, JSON.parse(text) as unknown);
+    } catch {
+      /* 不是合法 JSON，退回字符串，由路由的 Zod 校验给出明确报错 */
+    }
+  }
+  done(null, text);
+});
+
 // ---------- 模板注册（启动期加载 YAML，校验失败拒绝启动） ----------
 
 const templates = loadTemplates();
