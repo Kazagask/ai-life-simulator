@@ -34,7 +34,7 @@ describe("V2 引擎 · 模板加载", () => {
     expect(template.meta.id).toBe("jjk-2006");
     expect(template.events.length).toBeGreaterThan(5);
     expect(template.skills.some((s) => s.id === "sk-domain-void")).toBe(true);
-    expect(template.chains?.length).toBe(5);
+    expect(template.chains?.length).toBe(6);
   });
 
   it("怀玉·玉折主线：schedule 绝对时间开场 + 事件链 + 分支结局", () => {
@@ -914,5 +914,58 @@ describe("V2 引擎 · 事件轮次", () => {
     state.pendingEvents = [];
     advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
     expect(state.player.statuses.some((s) => s.statusId === "inj")).toBe(false);
+  });
+});
+
+// ---------- 咒术转盘 · 开局角色创建链（事件链 + 获取技能/装备/补正/成长）----------
+
+describe("V2 引擎 · 咒术转盘开局链", () => {
+  it("开局转盘链跑通：逐轮获取技能/装备/补正 + 全量标记", () => {
+    const template = loadJjkTemplate();
+    const lookup = createLookup(template);
+    const state = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 7 }, template, "w-wheel");
+
+    // 开局时间由模板配置（meta.startYear=2006），转盘链由定时事件 ev-opening-wheel 触发
+    advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
+    expect(state.pendingEvents.some((p) => p.eventId === "ev-opening-wheel")).toBe(true);
+
+    // 开始转盘链
+    chooseOptionV2(state, { optionId: "opt-begin" }, template, lookup);
+    expect(state.chains.some((c) => c.id === "chain-wheel-creation" && c.status === "active")).toBe(true);
+
+    // 逐轮推进转盘链；按轮次获取技能/装备/补正
+    let guard = 0;
+    while (guard++ < 90) {
+      const pend = state.pendingEvents[0];
+      if (!pend || !/^ev-w\d{2}$/.test(pend.eventId)) break;
+      const ev = template.events.find((e) => e.id === pend.eventId);
+      if (!ev || ev.kind !== "normal") break;
+      let optId = ev.settle.normal.options[0].id;
+      if (ev.title === "生得术式") {
+        const o = ev.settle.normal.options.find((x) => x.text.includes("影法术"));
+        if (o) optId = o.id;
+      } else if (ev.title === "咒具") {
+        const o = ev.settle.normal.options.find((x) => x.text.includes("天逆"));
+        if (o) optId = o.id;
+      } else if (ev.title === "天与咒缚") {
+        const o = ev.settle.normal.options.find((x) => !/无|未|不|没/.test(x.text));
+        if (o) optId = o.id;
+      }
+      chooseOptionV2(state, { optionId: optId }, template, lookup);
+    }
+
+    // 链收束
+    expect(state.chains.find((c) => c.id === "chain-wheel-creation")?.status).toBe("completed");
+    // 获取技能（生得术式 → 十种影法术）
+    expect(state.player.skills).toContain("sk-ten-shadow");
+    // 获取装备（咒具 → 天逆鉾）
+    expect((state.player.inventory["eq-ten-spear"] ?? 0) > 0).toBe(true);
+    // 获取补正（天与咒缚 → heavenly-restriction）
+    expect(state.player.statuses.some((s) => s.statusId === "heavenly-restriction")).toBe(true);
+    // 全量标记覆盖（开局转盘链全部维度：出身地点..神人语录）
+    const wheelCount = template.events.filter((e) => /^ev-w\d{2}$/.test(e.id)).length;
+    for (let i = 1; i <= wheelCount; i++) {
+      expect(state.flags[`w${String(i).padStart(2, "0")}`]).toBeDefined();
+    }
   });
 });

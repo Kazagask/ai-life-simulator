@@ -686,6 +686,4249 @@ events:
 
 # ---------- 事件链定义 ----------
 
+  # ---------- 咒术转盘 · 开局角色创建链（由 wheel.json 生成，事件链 + 获取技能/装备/补正/成长）----------
+  - id: ev-opening-wheel
+    title: 命数转盘 · 开局
+    narrative: 2006 年，东京咒术高专。命运的转盘在你面前停下——这一生的形貌，由此落定。
+    trigger:
+      source: schedule
+      window:
+        start:
+          value: 1
+          unit: minute
+      once: true
+      priority: 100
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-begin
+          text: 转动命数转盘，书写此身
+          effects:
+          - type: startChain
+            chainId: chain-wheel-creation
+  - id: ev-w01
+    title: 出身地点
+    narrative: 角色的出身地点
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 东京都·市区
+          effects:
+          - type: setFlag
+            id: w01
+            value: 东京都·市区
+          nextEventId: ev-w02
+        - id: opt-02
+          text: 东京都·郊区
+          effects:
+          - type: setFlag
+            id: w01
+            value: 东京都·郊区
+          nextEventId: ev-w02
+        - id: opt-03
+          text: 京都府
+          effects:
+          - type: setFlag
+            id: w01
+            value: 京都府
+          nextEventId: ev-w02
+        - id: opt-04
+          text: 大阪府
+          effects:
+          - type: setFlag
+            id: w01
+            value: 大阪府
+          nextEventId: ev-w02
+        - id: opt-05
+          text: 北海道
+          effects:
+          - type: setFlag
+            id: w01
+            value: 北海道
+          nextEventId: ev-w02
+        - id: opt-06
+          text: 九州地区
+          effects:
+          - type: setFlag
+            id: w01
+            value: 九州地区
+          nextEventId: ev-w02
+        - id: opt-07
+          text: 东北地方乡村
+          effects:
+          - type: setFlag
+            id: w01
+            value: 东北地方乡村
+          nextEventId: ev-w02
+        - id: opt-08
+          text: 中国·四国地区
+          effects:
+          - type: setFlag
+            id: w01
+            value: 中国·四国地区
+          nextEventId: ev-w02
+        - id: opt-09
+          text: 冲绳
+          effects:
+          - type: setFlag
+            id: w01
+            value: 冲绳
+          nextEventId: ev-w02
+        - id: opt-10
+          text: 海外·亚洲其他地区
+          effects:
+          - type: setFlag
+            id: w01
+            value: 海外·亚洲其他地区
+          nextEventId: ev-w02
+        - id: opt-11
+          text: 海外·欧美
+          effects:
+          - type: setFlag
+            id: w01
+            value: 海外·欧美
+          nextEventId: ev-w02
+        - id: opt-12
+          text: 海外·非洲
+          effects:
+          - type: setFlag
+            id: w01
+            value: 海外·非洲
+          nextEventId: ev-w02
+        - id: opt-13
+          text: 出生地不明（弃婴/孤儿）
+          effects:
+          - type: setFlag
+            id: w01
+            value: 出生地不明（弃婴/孤儿）
+          nextEventId: ev-w02
+  - id: ev-w02
+    title: 年龄
+    narrative: 入场时的年龄
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 6-12岁（小学生）
+          effects:
+          - type: setFlag
+            id: w02
+            value: 6-12岁（小学生）
+          nextEventId: ev-w03
+        - id: opt-02
+          text: 13-15岁（中学生）
+          effects:
+          - type: setFlag
+            id: w02
+            value: 13-15岁（中学生）
+          nextEventId: ev-w03
+        - id: opt-03
+          text: 16岁（高专一年级）
+          effects:
+          - type: setFlag
+            id: w02
+            value: 16岁（高专一年级）
+          nextEventId: ev-w03
+        - id: opt-04
+          text: 17岁（高专二年级）
+          effects:
+          - type: setFlag
+            id: w02
+            value: 17岁（高专二年级）
+          nextEventId: ev-w03
+        - id: opt-05
+          text: 18岁（高专三年级）
+          effects:
+          - type: setFlag
+            id: w02
+            value: 18岁（高专三年级）
+          nextEventId: ev-w03
+        - id: opt-06
+          text: 19-22岁（新晋术师）
+          effects:
+          - type: setFlag
+            id: w02
+            value: 19-22岁（新晋术师）
+          nextEventId: ev-w03
+        - id: opt-07
+          text: 23-30岁（成熟术师）
+          effects:
+          - type: setFlag
+            id: w02
+            value: 23-30岁（成熟术师）
+          nextEventId: ev-w03
+        - id: opt-08
+          text: 31-45岁（资深术师）
+          effects:
+          - type: setFlag
+            id: w02
+            value: 31-45岁（资深术师）
+          nextEventId: ev-w03
+        - id: opt-09
+          text: 46-60岁（老一辈）
+          effects:
+          - type: setFlag
+            id: w02
+            value: 46-60岁（老一辈）
+          nextEventId: ev-w03
+        - id: opt-10
+          text: 60岁以上
+          effects:
+          - type: setFlag
+            id: w02
+            value: 60岁以上
+          nextEventId: ev-w03
+        - id: opt-11
+          text: 年龄异常（跳转年龄异常判定）
+          effects:
+          - type: setFlag
+            id: w02
+            value: 年龄异常（跳转年龄异常判定）
+          nextEventId: ev-w03
+  - id: ev-w03
+    title: 性别
+    narrative: 生理性别
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 女
+          effects:
+          - type: setFlag
+            id: w03
+            value: 女
+          nextEventId: ev-w04
+        - id: opt-02
+          text: 男
+          effects:
+          - type: setFlag
+            id: w03
+            value: 男
+          nextEventId: ev-w04
+        - id: opt-03
+          text: 无性别（咒灵/式神/人造生命）
+          effects:
+          - type: setFlag
+            id: w03
+            value: 无性别（咒灵/式神/人造生命）
+          nextEventId: ev-w04
+        - id: opt-04
+          text: 生理性别模糊
+          effects:
+          - type: setFlag
+            id: w03
+            value: 生理性别模糊
+          nextEventId: ev-w04
+        - id: opt-05
+          text: 可变性（咒灵特性）
+          effects:
+          - type: setFlag
+            id: w03
+            value: 可变性（咒灵特性）
+          nextEventId: ev-w04
+  - id: ev-w04
+    title: 基础身份
+    narrative: 角色的基础身份定位
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 东京咒术高专学生
+          effects:
+          - type: setFlag
+            id: w04
+            value: 东京咒术高专学生
+          nextEventId: ev-w05
+        - id: opt-02
+          text: 京都咒术高专学生
+          effects:
+          - type: setFlag
+            id: w04
+            value: 京都咒术高专学生
+          nextEventId: ev-w05
+        - id: opt-03
+          text: 在职咒术师（高专所属）
+          effects:
+          - type: setFlag
+            id: w04
+            value: 在职咒术师（高专所属）
+          nextEventId: ev-w05
+        - id: opt-04
+          text: 御三家家族成员
+          effects:
+          - type: setFlag
+            id: w04
+            value: 御三家家族成员
+          nextEventId: ev-w05
+        - id: opt-05
+          text: 民间无登记术师
+          effects:
+          - type: setFlag
+            id: w04
+            value: 民间无登记术师
+          nextEventId: ev-w05
+        - id: opt-06
+          text: 诅咒师
+          effects:
+          - type: setFlag
+            id: w04
+            value: 诅咒师
+          nextEventId: ev-w05
+        - id: opt-07
+          text: 咒灵
+          effects:
+          - type: setFlag
+            id: w04
+            value: 咒灵
+          nextEventId: ev-w05
+        - id: opt-08
+          text: 普通人（术师家属）
+          effects:
+          - type: setFlag
+            id: w04
+            value: 普通人（术师家属）
+          nextEventId: ev-w05
+        - id: opt-09
+          text: 普通人（完全无关）
+          effects:
+          - type: setFlag
+            id: w04
+            value: 普通人（完全无关）
+          nextEventId: ev-w05
+        - id: opt-10
+          text: 咒物/受肉体
+          effects:
+          - type: setFlag
+            id: w04
+            value: 咒物/受肉体
+          nextEventId: ev-w05
+        - id: opt-11
+          text: 式神获得自我意识
+          effects:
+          - type: setFlag
+            id: w04
+            value: 式神获得自我意识
+          nextEventId: ev-w05
+        - id: opt-12
+          text: 死灭回游改造人
+          effects:
+          - type: setFlag
+            id: w04
+            value: 死灭回游改造人
+          nextEventId: ev-w05
+        - id: opt-13
+          text: 咒术高层
+          effects:
+          - type: setFlag
+            id: w04
+            value: 咒术高层
+          nextEventId: ev-w05
+        - id: opt-14
+          text: 御三家私兵
+          effects:
+          - type: setFlag
+            id: w04
+            value: 御三家私兵
+          nextEventId: ev-w05
+  - id: ev-w05
+    title: 阵营倾向
+    narrative: 角色的阵营立场
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 坚定守护人类（高专方）
+          effects:
+          - type: setFlag
+            id: w05
+            value: 坚定守护人类（高专方）
+          nextEventId: ev-w06
+        - id: opt-02
+          text: 认同高专但质疑高层
+          effects:
+          - type: setFlag
+            id: w05
+            value: 认同高专但质疑高层
+          nextEventId: ev-w06
+        - id: opt-03
+          text: 中立理性（只遵从自我）
+          effects:
+          - type: setFlag
+            id: w05
+            value: 中立理性（只遵从自我）
+          nextEventId: ev-w06
+        - id: opt-04
+          text: 厌恶体制但不作恶
+          effects:
+          - type: setFlag
+            id: w05
+            value: 厌恶体制但不作恶
+          nextEventId: ev-w06
+        - id: opt-05
+          text: 咒灵方
+          effects:
+          - type: setFlag
+            id: w05
+            value: 咒灵方
+          nextEventId: ev-w06
+        - id: opt-06
+          text: 诅咒师方（夏油杰派）
+          effects:
+          - type: setFlag
+            id: w05
+            value: 诅咒师方（夏油杰派）
+          nextEventId: ev-w06
+        - id: opt-07
+          text: 诅咒师方（羂索派）
+          effects:
+          - type: setFlag
+            id: w05
+            value: 诅咒师方（羂索派）
+          nextEventId: ev-w06
+        - id: opt-08
+          text: 咒术高层保守派
+          effects:
+          - type: setFlag
+            id: w05
+            value: 咒术高层保守派
+          nextEventId: ev-w06
+        - id: opt-09
+          text: 死灭回游泳者（为生存而战）
+          effects:
+          - type: setFlag
+            id: w05
+            value: 死灭回游泳者（为生存而战）
+          nextEventId: ev-w06
+        - id: opt-10
+          text: 纯粹混乱利己
+          effects:
+          - type: setFlag
+            id: w05
+            value: 纯粹混乱利己
+          nextEventId: ev-w06
+  - id: ev-w06
+    title: 出身家族
+    narrative: 家族背景
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 普通无咒术血脉家庭
+          effects:
+          - type: setFlag
+            id: w06
+            value: 普通无咒术血脉家庭
+          nextEventId: ev-w07
+        - id: opt-02
+          text: 小型地方咒术世家
+          effects:
+          - type: setFlag
+            id: w06
+            value: 小型地方咒术世家
+          nextEventId: ev-w07
+        - id: opt-03
+          text: 家族出过特级术师（已死亡）
+          effects:
+          - type: setFlag
+            id: w06
+            value: 家族出过特级术师（已死亡）
+          nextEventId: ev-w07
+        - id: opt-04
+          text: 家族多人死于咒灵灾害
+          effects:
+          - type: setFlag
+            id: w06
+            value: 家族多人死于咒灵灾害
+          nextEventId: ev-w07
+        - id: opt-05
+          text: 双亲皆是在职术师
+          effects:
+          - type: setFlag
+            id: w06
+            value: 双亲皆是在职术师
+          nextEventId: ev-w07
+        - id: opt-06
+          text: 孤儿（无家族亲人）
+          effects:
+          - type: setFlag
+            id: w06
+            value: 孤儿（无家族亲人）
+          nextEventId: ev-w07
+        - id: opt-07
+          text: 诅咒师世家
+          effects:
+          - type: setFlag
+            id: w06
+            value: 诅咒师世家
+          nextEventId: ev-w07
+        - id: opt-08
+          text: 海外咒术组织家族
+          effects:
+          - type: setFlag
+            id: w06
+            value: 海外咒术组织家族
+          nextEventId: ev-w07
+        - id: opt-09
+          text: 单亲家庭
+          effects:
+          - type: setFlag
+            id: w06
+            value: 单亲家庭
+          nextEventId: ev-w07
+  - id: ev-w07
+    title: 主性格
+    narrative: 主要性格特质
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 冷静理性克制
+          effects:
+          - type: setFlag
+            id: w07
+            value: 冷静理性克制
+          nextEventId: ev-w08
+        - id: opt-02
+          text: 热血直权重情义
+          effects:
+          - type: setFlag
+            id: w07
+            value: 热血直权重情义
+          nextEventId: ev-w08
+        - id: opt-03
+          text: 玩世不恭内里沉重
+          effects:
+          - type: setFlag
+            id: w07
+            value: 玩世不恭内里沉重
+          nextEventId: ev-w08
+        - id: opt-04
+          text: 内向寡言行动派
+          effects:
+          - type: setFlag
+            id: w07
+            value: 内向寡言行动派
+          nextEventId: ev-w08
+        - id: opt-05
+          text: 高傲自尊心极强
+          effects:
+          - type: setFlag
+            id: w07
+            value: 高傲自尊心极强
+          nextEventId: ev-w08
+        - id: opt-06
+          text: 温柔悲悯共情力强
+          effects:
+          - type: setFlag
+            id: w07
+            value: 温柔悲悯共情力强
+          nextEventId: ev-w08
+        - id: opt-07
+          text: 偏执执拗不择手段
+          effects:
+          - type: setFlag
+            id: w07
+            value: 偏执执拗不择手段
+          nextEventId: ev-w08
+        - id: opt-08
+          text: 圆滑世故擅长周旋
+          effects:
+          - type: setFlag
+            id: w07
+            value: 圆滑世故擅长周旋
+          nextEventId: ev-w08
+        - id: opt-09
+          text: 天真纯粹无防备
+          effects:
+          - type: setFlag
+            id: w07
+            value: 天真纯粹无防备
+          nextEventId: ev-w08
+        - id: opt-10
+          text: 悲观虚无厌倦世界
+          effects:
+          - type: setFlag
+            id: w07
+            value: 悲观虚无厌倦世界
+          nextEventId: ev-w08
+        - id: opt-11
+          text: 多疑戒备难信任人
+          effects:
+          - type: setFlag
+            id: w07
+            value: 多疑戒备难信任人
+          nextEventId: ev-w08
+        - id: opt-12
+          text: 认真古板责任感强
+          effects:
+          - type: setFlag
+            id: w07
+            value: 认真古板责任感强
+          nextEventId: ev-w08
+        - id: opt-13
+          text: 佛系懒散随遇而安
+          effects:
+          - type: setFlag
+            id: w07
+            value: 佛系懒散随遇而安
+          nextEventId: ev-w08
+        - id: opt-14
+          text: 疯狂偏执享受战斗
+          effects:
+          - type: setFlag
+            id: w07
+            value: 疯狂偏执享受战斗
+          nextEventId: ev-w08
+        - id: opt-15
+          text: 腹黑算计深谋远虑
+          effects:
+          - type: setFlag
+            id: w07
+            value: 腹黑算计深谋远虑
+          nextEventId: ev-w08
+  - id: ev-w08
+    title: 副性格A
+    narrative: 次要性格特质A
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 责任感极强习惯扛一切
+          effects:
+          - type: setFlag
+            id: w08
+            value: 责任感极强习惯扛一切
+          nextEventId: ev-w09
+        - id: opt-02
+          text: 习惯性逃避冲突
+          effects:
+          - type: setFlag
+            id: w08
+            value: 习惯性逃避冲突
+          nextEventId: ev-w09
+        - id: opt-03
+          text: 占有欲强重视的人绝不放手
+          effects:
+          - type: setFlag
+            id: w08
+            value: 占有欲强重视的人绝不放手
+          nextEventId: ev-w09
+        - id: opt-04
+          text: 轻微毒舌嘴硬心软
+          effects:
+          - type: setFlag
+            id: w08
+            value: 轻微毒舌嘴硬心软
+          nextEventId: ev-w09
+        - id: opt-05
+          text: 极度护短同伴做错也袒护
+          effects:
+          - type: setFlag
+            id: w08
+            value: 极度护短同伴做错也袒护
+          nextEventId: ev-w09
+        - id: opt-06
+          text: 完美主义无法接受失败
+          effects:
+          - type: setFlag
+            id: w08
+            value: 完美主义无法接受失败
+          nextEventId: ev-w09
+        - id: opt-07
+          text: 念旧困于过去回忆
+          effects:
+          - type: setFlag
+            id: w08
+            value: 念旧困于过去回忆
+          nextEventId: ev-w09
+        - id: opt-08
+          text: 乐于自嘲拿苦难开玩笑
+          effects:
+          - type: setFlag
+            id: w08
+            value: 乐于自嘲拿苦难开玩笑
+          nextEventId: ev-w09
+        - id: opt-09
+          text: 心软容易被恳求打动
+          effects:
+          - type: setFlag
+            id: w08
+            value: 心软容易被恳求打动
+          nextEventId: ev-w09
+        - id: opt-10
+          text: 好胜心强不服输
+          effects:
+          - type: setFlag
+            id: w08
+            value: 好胜心强不服输
+          nextEventId: ev-w09
+        - id: opt-11
+          text: 社交恐惧不喜人群
+          effects:
+          - type: setFlag
+            id: w08
+            value: 社交恐惧不喜人群
+          nextEventId: ev-w09
+        - id: opt-12
+          text: 乐天派总能看到希望
+          effects:
+          - type: setFlag
+            id: w08
+            value: 乐天派总能看到希望
+          nextEventId: ev-w09
+  - id: ev-w09
+    title: 副性格B
+    narrative: 次要性格特质B
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 害怕亲密关系推开靠近的人
+          effects:
+          - type: setFlag
+            id: w09
+            value: 害怕亲密关系推开靠近的人
+          nextEventId: ev-w10
+        - id: opt-02
+          text: 压抑痛苦情绪向内消化
+          effects:
+          - type: setFlag
+            id: w09
+            value: 压抑痛苦情绪向内消化
+          nextEventId: ev-w10
+        - id: opt-03
+          text: 叛逆越被命令越要反抗
+          effects:
+          - type: setFlag
+            id: w09
+            value: 叛逆越被命令越要反抗
+          nextEventId: ev-w10
+        - id: opt-04
+          text: 温和包容对他人过错容忍度高
+          effects:
+          - type: setFlag
+            id: w09
+            value: 温和包容对他人过错容忍度高
+          nextEventId: ev-w10
+        - id: opt-05
+          text: 胜负欲极强痴迷变强
+          effects:
+          - type: setFlag
+            id: w09
+            value: 胜负欲极强痴迷变强
+          nextEventId: ev-w10
+        - id: opt-06
+          text: 厌恶暴力不到绝境不动手
+          effects:
+          - type: setFlag
+            id: w09
+            value: 厌恶暴力不到绝境不动手
+          nextEventId: ev-w10
+        - id: opt-07
+          text: 自尊脆弱害怕被否定
+          effects:
+          - type: setFlag
+            id: w09
+            value: 自尊脆弱害怕被否定
+          nextEventId: ev-w10
+        - id: opt-08
+          text: 不在乎外界评价只忠于自我
+          effects:
+          - type: setFlag
+            id: w09
+            value: 不在乎外界评价只忠于自我
+          nextEventId: ev-w10
+        - id: opt-09
+          text: 好奇心强喜欢研究术式
+          effects:
+          - type: setFlag
+            id: w09
+            value: 好奇心强喜欢研究术式
+          nextEventId: ev-w10
+        - id: opt-10
+          text: 守诺重承诺绝不食言
+          effects:
+          - type: setFlag
+            id: w09
+            value: 守诺重承诺绝不食言
+          nextEventId: ev-w10
+        - id: opt-11
+          text: 对食物有执念
+          effects:
+          - type: setFlag
+            id: w09
+            value: 对食物有执念
+          nextEventId: ev-w10
+        - id: opt-12
+          text: 喜欢小孩子/小动物
+          effects:
+          - type: setFlag
+            id: w09
+            value: 喜欢小孩子/小动物
+          nextEventId: ev-w10
+  - id: ev-w10
+    title: 精神创伤
+    narrative: 原生精神创伤来源
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 无重大创伤心理稳定
+          effects:
+          - type: setFlag
+            id: w10
+            value: 无重大创伤心理稳定
+          - type: adjustMood
+            value: -3
+          nextEventId: ev-w11
+        - id: opt-02
+          text: 亲眼目睹亲人被咒灵杀害
+          effects:
+          - type: setFlag
+            id: w10
+            value: 亲眼目睹亲人被咒灵杀害
+          nextEventId: ev-w11
+        - id: opt-03
+          text: 被信任之人背叛出卖
+          effects:
+          - type: setFlag
+            id: w10
+            value: 被信任之人背叛出卖
+          nextEventId: ev-w11
+        - id: opt-04
+          text: 被迫亲手杀死友人/同伴
+          effects:
+          - type: setFlag
+            id: w10
+            value: 被迫亲手杀死友人/同伴
+          nextEventId: ev-w11
+        - id: opt-05
+          text: 长期家族精神打压PUA
+          effects:
+          - type: setFlag
+            id: w10
+            value: 长期家族精神打压PUA
+          nextEventId: ev-w11
+        - id: opt-06
+          text: 战场无数次目睹同伴战死
+          effects:
+          - type: setFlag
+            id: w10
+            value: 战场无数次目睹同伴战死
+          - type: adjustMood
+            value: -3
+          nextEventId: ev-w11
+        - id: opt-07
+          text: 被当作实验体/工具对待
+          effects:
+          - type: setFlag
+            id: w10
+            value: 被当作实验体/工具对待
+          nextEventId: ev-w11
+        - id: opt-08
+          text: 涩谷事变亲历惨剧
+          effects:
+          - type: setFlag
+            id: w10
+            value: 涩谷事变亲历惨剧
+          nextEventId: ev-w11
+        - id: opt-09
+          text: 被高层诬陷迫害
+          effects:
+          - type: setFlag
+            id: w10
+            value: 被高层诬陷迫害
+          nextEventId: ev-w11
+  - id: ev-w11
+    title: 恐惧弱点
+    narrative: 内心最深的恐惧或弱点
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 害怕重要的人因自己而死
+          effects:
+          - type: setFlag
+            id: w11
+            value: 害怕重要的人因自己而死
+          nextEventId: ev-w12
+        - id: opt-02
+          text: 害怕变得和憎恨的人一样
+          effects:
+          - type: setFlag
+            id: w11
+            value: 害怕变得和憎恨的人一样
+          nextEventId: ev-w12
+        - id: opt-03
+          text: 害怕被抛弃孤独一人
+          effects:
+          - type: setFlag
+            id: w11
+            value: 害怕被抛弃孤独一人
+          nextEventId: ev-w12
+        - id: opt-04
+          text: 害怕失去力量变得无用
+          effects:
+          - type: setFlag
+            id: w11
+            value: 害怕失去力量变得无用
+          - type: adjustMood
+            value: -3
+          nextEventId: ev-w12
+        - id: opt-05
+          text: 害怕死亡
+          effects:
+          - type: setFlag
+            id: w11
+            value: 害怕死亡
+          nextEventId: ev-w12
+        - id: opt-06
+          text: 害怕自己的术式伤害到无辜者
+          effects:
+          - type: setFlag
+            id: w11
+            value: 害怕自己的术式伤害到无辜者
+          - type: adjustMood
+            value: -3
+          nextEventId: ev-w12
+        - id: opt-07
+          text: 害怕被看穿真实的自己
+          effects:
+          - type: setFlag
+            id: w11
+            value: 害怕被看穿真实的自己
+          nextEventId: ev-w12
+        - id: opt-08
+          text: 害怕封闭空间/黑暗
+          effects:
+          - type: setFlag
+            id: w11
+            value: 害怕封闭空间/黑暗
+          nextEventId: ev-w12
+        - id: opt-09
+          text: 害怕特定类型的咒灵
+          effects:
+          - type: setFlag
+            id: w11
+            value: 害怕特定类型的咒灵
+          nextEventId: ev-w12
+        - id: opt-10
+          text: 没有明显恐惧（已麻木）
+          effects:
+          - type: setFlag
+            id: w11
+            value: 没有明显恐惧（已麻木）
+          - type: adjustMood
+            value: -3
+          nextEventId: ev-w12
+        - id: opt-11
+          text: 害怕下雨天/特定天气
+          effects:
+          - type: setFlag
+            id: w11
+            value: 害怕下雨天/特定天气
+          nextEventId: ev-w12
+        - id: opt-12
+          text: 害怕自己无法保护任何人
+          effects:
+          - type: setFlag
+            id: w11
+            value: 害怕自己无法保护任何人
+          - type: adjustMood
+            value: -3
+          nextEventId: ev-w12
+  - id: ev-w12
+    title: 执念目标
+    narrative: 角色的核心执念或人生目标
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 变强保护重要的人
+          effects:
+          - type: setFlag
+            id: w12
+            value: 变强保护重要的人
+          nextEventId: ev-w13
+        - id: opt-02
+          text: 向害死亲人的存在复仇
+          effects:
+          - type: setFlag
+            id: w12
+            value: 向害死亲人的存在复仇
+          nextEventId: ev-w13
+        - id: opt-03
+          text: 证明自己的价值
+          effects:
+          - type: setFlag
+            id: w12
+            value: 证明自己的价值
+          nextEventId: ev-w13
+        - id: opt-04
+          text: 推翻腐朽的咒术界高层
+          effects:
+          - type: setFlag
+            id: w12
+            value: 推翻腐朽的咒术界高层
+          nextEventId: ev-w13
+        - id: opt-05
+          text: 找到失踪的亲人/友人
+          effects:
+          - type: setFlag
+            id: w12
+            value: 找到失踪的亲人/友人
+          nextEventId: ev-w13
+        - id: opt-06
+          text: 追求最强的力量
+          effects:
+          - type: setFlag
+            id: w12
+            value: 追求最强的力量
+          nextEventId: ev-w13
+        - id: opt-07
+          text: 守护普通人的平凡生活
+          effects:
+          - type: setFlag
+            id: w12
+            value: 守护普通人的平凡生活
+          nextEventId: ev-w13
+        - id: opt-08
+          text: 复活死去的重要之人
+          effects:
+          - type: setFlag
+            id: w12
+            value: 复活死去的重要之人
+          nextEventId: ev-w13
+        - id: opt-09
+          text: 解开自身术式的秘密
+          effects:
+          - type: setFlag
+            id: w12
+            value: 解开自身术式的秘密
+          nextEventId: ev-w13
+        - id: opt-10
+          text: 过上平静的普通人生活
+          effects:
+          - type: setFlag
+            id: w12
+            value: 过上平静的普通人生活
+          nextEventId: ev-w13
+        - id: opt-11
+          text: 消灭所有咒灵/诅咒
+          effects:
+          - type: setFlag
+            id: w12
+            value: 消灭所有咒灵/诅咒
+          nextEventId: ev-w13
+        - id: opt-12
+          text: 没有明确目标随波逐流
+          effects:
+          - type: setFlag
+            id: w12
+            value: 没有明确目标随波逐流
+          nextEventId: ev-w13
+  - id: ev-w13
+    title: 生得术式
+    narrative: 核心生得术式
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 无生得术式（跳转天与咒缚）
+          effects:
+          - type: setFlag
+            id: w13
+            value: 无生得术式（跳转天与咒缚）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-02
+          text: 无下限咒术
+          effects:
+          - type: setFlag
+            id: w13
+            value: 无下限咒术
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-03
+          text: 十种影法术
+          effects:
+          - type: setFlag
+            id: w13
+            value: 十种影法术
+          - type: unlockSkill
+            skillId: sk-ten-shadow
+          nextEventId: ev-w14
+        - id: opt-04
+          text: 赤血操术
+          effects:
+          - type: setFlag
+            id: w13
+            value: 赤血操术
+          - type: unlockSkill
+            skillId: sk-red-blood
+          nextEventId: ev-w14
+        - id: opt-05
+          text: 咒灵操术
+          effects:
+          - type: setFlag
+            id: w13
+            value: 咒灵操术
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-06
+          text: 无为转变
+          effects:
+          - type: setFlag
+            id: w13
+            value: 无为转变
+          - type: unlockSkill
+            skillId: sk-impurity
+          nextEventId: ev-w14
+        - id: opt-07
+          text: 十划咒法
+          effects:
+          - type: setFlag
+            id: w13
+            value: 十划咒法
+          - type: unlockSkill
+            skillId: sk-7-3
+          nextEventId: ev-w14
+        - id: opt-08
+          text: 刍灵咒法
+          effects:
+          - type: setFlag
+            id: w13
+            value: 刍灵咒法
+          - type: unlockSkill
+            skillId: sk-doll-curse
+          nextEventId: ev-w14
+        - id: opt-09
+          text: 咒言
+          effects:
+          - type: setFlag
+            id: w13
+            value: 咒言
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-10
+          text: 不义游戏
+          effects:
+          - type: setFlag
+            id: w13
+            value: 不义游戏
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-11
+          text: 黑鸟操术
+          effects:
+          - type: setFlag
+            id: w13
+            value: 黑鸟操术
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-12
+          text: 投射咒法
+          effects:
+          - type: setFlag
+            id: w13
+            value: 投射咒法
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-13
+          text: 坐杀博徒
+          effects:
+          - type: setFlag
+            id: w13
+            value: 坐杀博徒
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-14
+          text: 术式没收
+          effects:
+          - type: setFlag
+            id: w13
+            value: 术式没收
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-15
+          text: 雷电术式
+          effects:
+          - type: setFlag
+            id: w13
+            value: 雷电术式
+          - type: unlockSkill
+            skillId: sk-thunder
+          nextEventId: ev-w14
+        - id: opt-16
+          text: 御厨子
+          effects:
+          - type: setFlag
+            id: w13
+            value: 御厨子
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-17
+          text: 火焰术式
+          effects:
+          - type: setFlag
+            id: w13
+            value: 火焰术式
+          - type: unlockSkill
+            skillId: sk-flame
+          nextEventId: ev-w14
+        - id: opt-18
+          text: 植物术式
+          effects:
+          - type: setFlag
+            id: w13
+            value: 植物术式
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-19
+          text: 海洋术式
+          effects:
+          - type: setFlag
+            id: w13
+            value: 海洋术式
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-20
+          text: 淀月
+          effects:
+          - type: setFlag
+            id: w13
+            value: 淀月
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-21
+          text: 空间系原创术式
+          effects:
+          - type: setFlag
+            id: w13
+            value: 空间系原创术式
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-22
+          text: 精神幻术系原创术式
+          effects:
+          - type: setFlag
+            id: w13
+            value: 精神幻术系原创术式
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-23
+          text: 肉体操控系原创术式
+          effects:
+          - type: setFlag
+            id: w13
+            value: 肉体操控系原创术式
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-24
+          text: 重力力场系原创术式
+          effects:
+          - type: setFlag
+            id: w13
+            value: 重力力场系原创术式
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-25
+          text: 影子系原创术式
+          effects:
+          - type: setFlag
+            id: w13
+            value: 影子系原创术式
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-26
+          text: 声波振动系原创术式
+          effects:
+          - type: setFlag
+            id: w13
+            value: 声波振动系原创术式
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-27
+          text: 毒素腐蚀系原创术式
+          effects:
+          - type: setFlag
+            id: w13
+            value: 毒素腐蚀系原创术式
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-28
+          text: 物质转化系原创术式
+          effects:
+          - type: setFlag
+            id: w13
+            value: 物质转化系原创术式
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-29
+          text: 契约规则系原创术式
+          effects:
+          - type: setFlag
+            id: w13
+            value: 契约规则系原创术式
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-30
+          text: 运势因果系原创术式
+          effects:
+          - type: setFlag
+            id: w13
+            value: 运势因果系原创术式
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-31
+          text: 时间系原创术式
+          effects:
+          - type: setFlag
+            id: w13
+            value: 时间系原创术式
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+        - id: opt-32
+          text: 未觉醒术式（危机中可能觉醒）
+          effects:
+          - type: setFlag
+            id: w13
+            value: 未觉醒术式（危机中可能觉醒）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w14
+  - id: ev-w14
+    title: 术式开发度
+    narrative: 术式的开发和掌握程度
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 术式运用生疏（仅基础效果）
+          effects:
+          - type: setFlag
+            id: w14
+            value: 术式运用生疏（仅基础效果）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w15
+        - id: opt-02
+          text: 基础熟练可稳定释放
+          effects:
+          - type: setFlag
+            id: w14
+            value: 基础熟练可稳定释放
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w15
+        - id: opt-03
+          text: 熟练运用有自创衍生技
+          effects:
+          - type: setFlag
+            id: w14
+            value: 熟练运用有自创衍生技
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w15
+        - id: opt-04
+          text: 极之番（术式顺转最大）
+          effects:
+          - type: setFlag
+            id: w14
+            value: 极之番（术式顺转最大）
+          - type: adjustGrowth
+            value: 5
+          nextEventId: ev-w15
+        - id: opt-05
+          text: 术式反转
+          effects:
+          - type: setFlag
+            id: w14
+            value: 术式反转
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w15
+        - id: opt-06
+          text: 领域展开（跳转领域展开）
+          effects:
+          - type: setFlag
+            id: w14
+            value: 领域展开（跳转领域展开）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w15
+        - id: opt-07
+          text: 术式开发完成（理论极限）
+          effects:
+          - type: setFlag
+            id: w14
+            value: 术式开发完成（理论极限）
+          - type: adjustGrowth
+            value: 5
+          nextEventId: ev-w15
+        - id: opt-08
+          text: 术式残缺不稳定（有严重反噬）
+          effects:
+          - type: setFlag
+            id: w14
+            value: 术式残缺不稳定（有严重反噬）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w15
+  - id: ev-w15
+    title: 咒力量
+    narrative: 咒力总量等级
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 极低（四级术师级）
+          effects:
+          - type: setFlag
+            id: w15
+            value: 极低（四级术师级）
+          - type: adjustAttribute
+            attribute: cursedEnergy
+            value: 5
+          nextEventId: ev-w16
+        - id: opt-02
+          text: 低（三级术师级）
+          effects:
+          - type: setFlag
+            id: w15
+            value: 低（三级术师级）
+          nextEventId: ev-w16
+        - id: opt-03
+          text: 中（二级术师级）
+          effects:
+          - type: setFlag
+            id: w15
+            value: 中（二级术师级）
+          - type: adjustAttribute
+            attribute: cursedEnergy
+            value: 1
+          nextEventId: ev-w16
+        - id: opt-04
+          text: 高（一级术师级）
+          effects:
+          - type: setFlag
+            id: w15
+            value: 高（一级术师级）
+          - type: adjustAttribute
+            attribute: cursedEnergy
+            value: 3
+          nextEventId: ev-w16
+        - id: opt-05
+          text: 极高（特级术师级）
+          effects:
+          - type: setFlag
+            id: w15
+            value: 极高（特级术师级）
+          - type: adjustAttribute
+            attribute: cursedEnergy
+            value: 5
+          nextEventId: ev-w16
+        - id: opt-06
+          text: 异常庞大（宿傩级）
+          effects:
+          - type: setFlag
+            id: w15
+            value: 异常庞大（宿傩级）
+          - type: adjustAttribute
+            attribute: cursedEnergy
+            value: 1
+          nextEventId: ev-w16
+        - id: opt-07
+          text: 咒力为零（天与咒缚体质）
+          effects:
+          - type: setFlag
+            id: w15
+            value: 咒力为零（天与咒缚体质）
+          - type: adjustAttribute
+            attribute: cursedEnergy
+            value: 1
+          nextEventId: ev-w16
+        - id: opt-08
+          text: 咒力带污染腐蚀性
+          effects:
+          - type: setFlag
+            id: w15
+            value: 咒力带污染腐蚀性
+          - type: adjustAttribute
+            attribute: cursedEnergy
+            value: 1
+          nextEventId: ev-w16
+        - id: opt-09
+          text: 咒力性质特殊（正向能量）
+          effects:
+          - type: setFlag
+            id: w15
+            value: 咒力性质特殊（正向能量）
+          - type: adjustAttribute
+            attribute: cursedEnergy
+            value: 1
+          nextEventId: ev-w16
+        - id: opt-10
+          text: 咒力输出不稳定（时强时弱）
+          effects:
+          - type: setFlag
+            id: w15
+            value: 咒力输出不稳定（时强时弱）
+          - type: adjustAttribute
+            attribute: cursedEnergy
+            value: 1
+          nextEventId: ev-w16
+  - id: ev-w16
+    title: 体术水平
+    narrative: 近战体术能力
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 完全不会（纯远程型）
+          effects:
+          - type: setFlag
+            id: w16
+            value: 完全不会（纯远程型）
+          - type: adjustAttribute
+            attribute: physique
+            value: 1
+          nextEventId: ev-w17
+        - id: opt-02
+          text: 基础防身训练
+          effects:
+          - type: setFlag
+            id: w16
+            value: 基础防身训练
+          - type: adjustAttribute
+            attribute: physique
+            value: 1
+          nextEventId: ev-w17
+        - id: opt-03
+          text: 普通近战能力
+          effects:
+          - type: setFlag
+            id: w16
+            value: 普通近战能力
+          - type: adjustAttribute
+            attribute: physique
+            value: 1
+          nextEventId: ev-w17
+        - id: opt-04
+          text: 精通近战格斗
+          effects:
+          - type: setFlag
+            id: w16
+            value: 精通近战格斗
+          - type: adjustAttribute
+            attribute: physique
+            value: 1
+          nextEventId: ev-w17
+        - id: opt-05
+          text: 顶级近战（七海/东堂级）
+          effects:
+          - type: setFlag
+            id: w16
+            value: 顶级近战（七海/东堂级）
+          - type: adjustAttribute
+            attribute: physique
+            value: 1
+          nextEventId: ev-w17
+        - id: opt-06
+          text: 体术怪物（甚尔/宿傩级）
+          effects:
+          - type: setFlag
+            id: w16
+            value: 体术怪物（甚尔/宿傩级）
+          - type: adjustAttribute
+            attribute: physique
+            value: 1
+          nextEventId: ev-w17
+        - id: opt-07
+          text: 擅长武器格斗
+          effects:
+          - type: setFlag
+            id: w16
+            value: 擅长武器格斗
+          - type: adjustAttribute
+            attribute: physique
+            value: 1
+          nextEventId: ev-w17
+        - id: opt-08
+          text: 擅长暗器/远程投掷
+          effects:
+          - type: setFlag
+            id: w16
+            value: 擅长暗器/远程投掷
+          - type: adjustAttribute
+            attribute: physique
+            value: 1
+          nextEventId: ev-w17
+  - id: ev-w17
+    title: 天与咒缚
+    narrative: 天与咒缚类型
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 无天与咒缚
+          effects:
+          - type: setFlag
+            id: w17
+            value: 无天与咒缚
+          nextEventId: ev-w18
+        - id: opt-02
+          text: 完全天与暴君（咒力换肉体）
+          effects:
+          - type: setFlag
+            id: w17
+            value: 完全天与暴君（咒力换肉体）
+          - type: applyStatus
+            status: heavenly-restriction
+          nextEventId: ev-w18
+        - id: opt-03
+          text: 不完全天与咒缚（肉体强化）
+          effects:
+          - type: setFlag
+            id: w17
+            value: 不完全天与咒缚（肉体强化）
+          nextEventId: ev-w18
+        - id: opt-04
+          text: 天与咒缚（五感缺陷换咒力增幅）
+          effects:
+          - type: setFlag
+            id: w17
+            value: 天与咒缚（五感缺陷换咒力增幅）
+          - type: applyStatus
+            status: heavenly-restriction
+          nextEventId: ev-w18
+        - id: opt-05
+          text: 天与咒缚（感官换能力）
+          effects:
+          - type: setFlag
+            id: w17
+            value: 天与咒缚（感官换能力）
+          - type: applyStatus
+            status: heavenly-restriction
+          nextEventId: ev-w18
+        - id: opt-06
+          text: 天与咒缚（寿命换力量）
+          effects:
+          - type: setFlag
+            id: w17
+            value: 天与咒缚（寿命换力量）
+          - type: applyStatus
+            status: heavenly-restriction
+          nextEventId: ev-w18
+  - id: ev-w18
+    title: 特殊体质
+    narrative: 特殊体质或能力
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 无特殊体质
+          effects:
+          - type: setFlag
+            id: w18
+            value: 无特殊体质
+          nextEventId: ev-w19
+        - id: opt-02
+          text: 六眼
+          effects:
+          - type: setFlag
+            id: w18
+            value: 六眼
+          - type: applyStatus
+            status: special-physique
+          nextEventId: ev-w19
+        - id: opt-03
+          text: 受肉体（宿傩容器）
+          effects:
+          - type: setFlag
+            id: w18
+            value: 受肉体（宿傩容器）
+          - type: applyStatus
+            status: special-physique
+          nextEventId: ev-w19
+        - id: opt-04
+          text: 反转术式天赋（超强自愈）
+          effects:
+          - type: setFlag
+            id: w18
+            value: 反转术式天赋（超强自愈）
+          - type: applyStatus
+            status: special-physique
+          nextEventId: ev-w19
+        - id: opt-05
+          text: 咒毒抗性极强
+          effects:
+          - type: setFlag
+            id: w18
+            value: 咒毒抗性极强
+          - type: applyStatus
+            status: special-physique
+          nextEventId: ev-w19
+        - id: opt-06
+          text: 魔虚罗适配体质
+          effects:
+          - type: setFlag
+            id: w18
+            value: 魔虚罗适配体质
+          - type: applyStatus
+            status: special-physique
+          nextEventId: ev-w19
+        - id: opt-07
+          text: 记忆操作抗性
+          effects:
+          - type: setFlag
+            id: w18
+            value: 记忆操作抗性
+          - type: applyStatus
+            status: special-physique
+          nextEventId: ev-w19
+        - id: opt-08
+          text: 术式束缚（自缚强化）
+          effects:
+          - type: setFlag
+            id: w18
+            value: 术式束缚（自缚强化）
+          - type: applyStatus
+            status: special-physique
+          nextEventId: ev-w19
+        - id: opt-09
+          text: 多重人格/灵魂
+          effects:
+          - type: setFlag
+            id: w18
+            value: 多重人格/灵魂
+          - type: applyStatus
+            status: special-physique
+          nextEventId: ev-w19
+        - id: opt-10
+          text: 咒力感知范围极广
+          effects:
+          - type: setFlag
+            id: w18
+            value: 咒力感知范围极广
+          - type: applyStatus
+            status: special-physique
+          nextEventId: ev-w19
+  - id: ev-w19
+    title: 反转术式
+    narrative: 反转术式掌握程度
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 不会反转术式
+          effects:
+          - type: setFlag
+            id: w19
+            value: 不会反转术式
+          nextEventId: ev-w20
+        - id: opt-02
+          text: 只会自我治疗（小伤口）
+          effects:
+          - type: setFlag
+            id: w19
+            value: 只会自我治疗（小伤口）
+          - type: applyStatus
+            status: reverse-mastered
+          - type: unlockSkill
+            skillId: sk-reverse-attack
+          nextEventId: ev-w20
+        - id: opt-03
+          text: 能自我治疗（重伤）
+          effects:
+          - type: setFlag
+            id: w19
+            value: 能自我治疗（重伤）
+          - type: applyStatus
+            status: reverse-mastered
+          - type: unlockSkill
+            skillId: sk-reverse-attack
+          nextEventId: ev-w20
+        - id: opt-04
+          text: 能治疗他人
+          effects:
+          - type: setFlag
+            id: w19
+            value: 能治疗他人
+          - type: applyStatus
+            status: reverse-mastered
+          - type: unlockSkill
+            skillId: sk-reverse-attack
+          nextEventId: ev-w20
+        - id: opt-05
+          text: 反转术式精通（可攻击）
+          effects:
+          - type: setFlag
+            id: w19
+            value: 反转术式精通（可攻击）
+          - type: applyStatus
+            status: reverse-mastered
+          - type: unlockSkill
+            skillId: sk-reverse-attack
+          nextEventId: ev-w20
+        - id: opt-06
+          text: 反转术式大师（永续治疗）
+          effects:
+          - type: setFlag
+            id: w19
+            value: 反转术式大师（永续治疗）
+          - type: applyStatus
+            status: reverse-mastered
+          - type: unlockSkill
+            skillId: sk-reverse-attack
+          nextEventId: ev-w20
+  - id: ev-w20
+    title: 黑闪
+    narrative: 黑闪掌握程度（打出黑闪后将经历一场战斗并判定成长）
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 从未打出过黑闪
+          effects:
+          - type: setFlag
+            id: w20
+            value: 从未打出过黑闪
+          nextEventId: ev-w21
+        - id: opt-02
+          text: 偶然打出（1-2次）
+          effects:
+          - type: setFlag
+            id: w20
+            value: 偶然打出（1-2次）
+          - type: applyStatus
+            status: black-flash
+          - type: unlockSkill
+            skillId: sk-black-flash
+          nextEventId: ev-w21
+        - id: opt-03
+          text: 能稳定打出
+          effects:
+          - type: setFlag
+            id: w20
+            value: 能稳定打出
+          - type: applyStatus
+            status: black-flash
+          - type: unlockSkill
+            skillId: sk-black-flash
+          nextEventId: ev-w21
+        - id: opt-04
+          text: 黑闪连续记录（4次+）
+          effects:
+          - type: setFlag
+            id: w20
+            value: 黑闪连续记录（4次+）
+          - type: applyStatus
+            status: black-flash
+          - type: unlockSkill
+            skillId: sk-black-flash
+          nextEventId: ev-w21
+        - id: opt-05
+          text: 黑闪大师（随心所欲）
+          effects:
+          - type: setFlag
+            id: w20
+            value: 黑闪大师（随心所欲）
+          - type: applyStatus
+            status: black-flash
+          - type: unlockSkill
+            skillId: sk-black-flash
+          nextEventId: ev-w21
+  - id: ev-w21
+    title: 黑闪战斗
+    narrative: 打出黑闪时经历的那场战斗的对手与情境
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 对战特级咒灵（真人/漏瑚级）
+          effects:
+          - type: setFlag
+            id: w21
+            value: 对战特级咒灵（真人/漏瑚级）
+          nextEventId: ev-w22
+        - id: opt-02
+          text: 对战一级咒灵
+          effects:
+          - type: setFlag
+            id: w21
+            value: 对战一级咒灵
+          nextEventId: ev-w22
+        - id: opt-03
+          text: 对战诅咒师（夏油杰派）
+          effects:
+          - type: setFlag
+            id: w21
+            value: 对战诅咒师（夏油杰派）
+          nextEventId: ev-w22
+        - id: opt-04
+          text: 对战御三家术师
+          effects:
+          - type: setFlag
+            id: w21
+            value: 对战御三家术师
+          nextEventId: ev-w22
+        - id: opt-05
+          text: 对战死灭回游泳者
+          effects:
+          - type: setFlag
+            id: w21
+            value: 对战死灭回游泳者
+          nextEventId: ev-w22
+        - id: opt-06
+          text: 对战两面宿傩的手指/分身
+          effects:
+          - type: setFlag
+            id: w21
+            value: 对战两面宿傩的手指/分身
+          nextEventId: ev-w22
+        - id: opt-07
+          text: 对战量产咒灵群（消耗战）
+          effects:
+          - type: setFlag
+            id: w21
+            value: 对战量产咒灵群（消耗战）
+          nextEventId: ev-w22
+        - id: opt-08
+          text: 对战昔日同伴/友人（黑化）
+          effects:
+          - type: setFlag
+            id: w21
+            value: 对战昔日同伴/友人（黑化）
+          nextEventId: ev-w22
+        - id: opt-09
+          text: 对战未知强敌（情报不足）
+          effects:
+          - type: setFlag
+            id: w21
+            value: 对战未知强敌（情报不足）
+          nextEventId: ev-w22
+        - id: opt-10
+          text: 对战特级术师（五条/乙骨级）
+          effects:
+          - type: setFlag
+            id: w21
+            value: 对战特级术师（五条/乙骨级）
+          nextEventId: ev-w22
+        - id: opt-11
+          text: 对战羂索/夏油杰
+          effects:
+          - type: setFlag
+            id: w21
+            value: 对战羂索/夏油杰
+          nextEventId: ev-w22
+        - id: opt-12
+          text: 对战两面宿傩本体
+          effects:
+          - type: setFlag
+            id: w21
+            value: 对战两面宿傩本体
+          nextEventId: ev-w22
+        - id: opt-13
+          text: 1v多围殴战
+          effects:
+          - type: setFlag
+            id: w21
+            value: 1v多围殴战
+          nextEventId: ev-w22
+        - id: opt-14
+          text: 保护人质的限制战
+          effects:
+          - type: setFlag
+            id: w21
+            value: 保护人质的限制战
+          nextEventId: ev-w22
+  - id: ev-w22
+    title: 战斗成长判定
+    narrative: 黑闪战斗后是否获得成长突破
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 战斗后突破成长（进入成长方向）
+          effects:
+          - type: setFlag
+            id: w22
+            value: 战斗后突破成长（进入成长方向）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w23
+        - id: opt-02
+          text: 战斗后无明显成长
+          effects:
+          - type: setFlag
+            id: w22
+            value: 战斗后无明显成长
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w23
+        - id: opt-03
+          text: 战斗后受伤但积累了经验
+          effects:
+          - type: setFlag
+            id: w22
+            value: 战斗后受伤但积累了经验
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w23
+        - id: opt-04
+          text: 战斗后领悟新技巧（进入成长方向）
+          effects:
+          - type: setFlag
+            id: w22
+            value: 战斗后领悟新技巧（进入成长方向）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w23
+        - id: opt-05
+          text: 战斗后术式进化（进入成长方向）
+          effects:
+          - type: setFlag
+            id: w22
+            value: 战斗后术式进化（进入成长方向）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w23
+        - id: opt-06
+          text: 战斗后精神蜕变（进入成长方向）
+          effects:
+          - type: setFlag
+            id: w22
+            value: 战斗后精神蜕变（进入成长方向）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w23
+  - id: ev-w23
+    title: 成长方向
+    narrative: 黑闪战斗后获得的具体成长方向
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 术式开发度提升（学会新衍生技）
+          effects:
+          - type: setFlag
+            id: w23
+            value: 术式开发度提升（学会新衍生技）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w24
+        - id: opt-02
+          text: 咒力量大幅增长（总量+输出）
+          effects:
+          - type: setFlag
+            id: w23
+            value: 咒力量大幅增长（总量+输出）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w24
+        - id: opt-03
+          text: 体术/近战能力突破
+          effects:
+          - type: setFlag
+            id: w23
+            value: 体术/近战能力突破
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w24
+        - id: opt-04
+          text: 领悟反转术式/治疗能力
+          effects:
+          - type: setFlag
+            id: w23
+            value: 领悟反转术式/治疗能力
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w24
+        - id: opt-05
+          text: 领域展开觉醒/领域强化
+          effects:
+          - type: setFlag
+            id: w23
+            value: 领域展开觉醒/领域强化
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w24
+        - id: opt-06
+          text: 获得新咒具/新式神
+          effects:
+          - type: setFlag
+            id: w23
+            value: 获得新咒具/新式神
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w24
+        - id: opt-07
+          text: 精神力/意志突破（黑闪更稳定）
+          effects:
+          - type: setFlag
+            id: w23
+            value: 精神力/意志突破（黑闪更稳定）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w24
+  - id: ev-w24
+    title: 领域展开
+    narrative: 领域展开能力
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 不会领域展开
+          effects:
+          - type: setFlag
+            id: w24
+            value: 不会领域展开
+          nextEventId: ev-w25
+        - id: opt-02
+          text: 半成品领域（需借助外物）
+          effects:
+          - type: setFlag
+            id: w24
+            value: 半成品领域（需借助外物）
+          - type: unlockSkill
+            skillId: sk-domain-expansion
+          nextEventId: ev-w25
+        - id: opt-03
+          text: 完整领域展开（必中效果）
+          effects:
+          - type: setFlag
+            id: w24
+            value: 完整领域展开（必中效果）
+          - type: unlockSkill
+            skillId: sk-domain-expansion
+          nextEventId: ev-w25
+        - id: opt-04
+          text: 开放式领域（无结界）
+          effects:
+          - type: setFlag
+            id: w24
+            value: 开放式领域（无结界）
+          nextEventId: ev-w25
+        - id: opt-05
+          text: 领域展延（partial使用）
+          effects:
+          - type: setFlag
+            id: w24
+            value: 领域展延（partial使用）
+          - type: unlockSkill
+            skillId: sk-domain-expansion
+          nextEventId: ev-w25
+  - id: ev-w25
+    title: 简易领域
+    narrative: 简易领域掌握
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 不会简易领域
+          effects:
+          - type: setFlag
+            id: w25
+            value: 不会简易领域
+          nextEventId: ev-w26
+        - id: opt-02
+          text: 新阴流·简易领域
+          effects:
+          - type: setFlag
+            id: w25
+            value: 新阴流·简易领域
+          nextEventId: ev-w26
+        - id: opt-03
+          text: 其他流派简易领域
+          effects:
+          - type: setFlag
+            id: w25
+            value: 其他流派简易领域
+          nextEventId: ev-w26
+        - id: opt-04
+          text: 能领域对轰
+          effects:
+          - type: setFlag
+            id: w25
+            value: 能领域对轰
+          nextEventId: ev-w26
+  - id: ev-w26
+    title: 咒具
+    narrative: 持有的咒具
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 无咒具（纯术式）
+          effects:
+          - type: setFlag
+            id: w26
+            value: 无咒具（纯术式）
+          nextEventId: ev-w27
+        - id: opt-02
+          text: 四级咒具（普通武器）
+          effects:
+          - type: setFlag
+            id: w26
+            value: 四级咒具（普通武器）
+          nextEventId: ev-w27
+        - id: opt-03
+          text: 三级咒具
+          effects:
+          - type: setFlag
+            id: w26
+            value: 三级咒具
+          nextEventId: ev-w27
+        - id: opt-04
+          text: 二级咒具
+          effects:
+          - type: setFlag
+            id: w26
+            value: 二级咒具
+          nextEventId: ev-w27
+        - id: opt-05
+          text: 一级咒具
+          effects:
+          - type: setFlag
+            id: w26
+            value: 一级咒具
+          nextEventId: ev-w27
+        - id: opt-06
+          text: 特级咒具·天逆鉾
+          effects:
+          - type: setFlag
+            id: w26
+            value: 特级咒具·天逆鉾
+          - type: grantItem
+            itemId: eq-ten-spear
+            count: 1
+          nextEventId: ev-w27
+        - id: opt-07
+          text: 特级咒具·游云
+          effects:
+          - type: setFlag
+            id: w26
+            value: 特级咒具·游云
+          nextEventId: ev-w27
+        - id: opt-08
+          text: 特级咒具·万里锁
+          effects:
+          - type: setFlag
+            id: w26
+            value: 特级咒具·万里锁
+          - type: grantItem
+            itemId: eq-bancho
+            count: 1
+          nextEventId: ev-w27
+        - id: opt-09
+          text: 特级咒具·释魂刀
+          effects:
+          - type: setFlag
+            id: w26
+            value: 特级咒具·释魂刀
+          - type: grantItem
+            itemId: eq-shakujin
+            count: 1
+          nextEventId: ev-w27
+        - id: opt-10
+          text: 特级咒具·退魔之剑
+          effects:
+          - type: setFlag
+            id: w26
+            value: 特级咒具·退魔之剑
+          - type: grantItem
+            itemId: eq-takatsuki
+            count: 1
+          nextEventId: ev-w27
+        - id: opt-11
+          text: 特级相当·黑绳
+          effects:
+          - type: setFlag
+            id: w26
+            value: 特级相当·黑绳
+          - type: grantItem
+            itemId: eq-kurobuna
+            count: 1
+          nextEventId: ev-w27
+        - id: opt-12
+          text: 特级相当·屠坐魔
+          effects:
+          - type: setFlag
+            id: w26
+            value: 特级相当·屠坐魔
+          nextEventId: ev-w27
+        - id: opt-13
+          text: 原创咒具（自定义效果）
+          effects:
+          - type: setFlag
+            id: w26
+            value: 原创咒具（自定义效果）
+          nextEventId: ev-w27
+        - id: opt-14
+          text: 诅咒道具（持续付出代价）
+          effects:
+          - type: setFlag
+            id: w26
+            value: 诅咒道具（持续付出代价）
+          nextEventId: ev-w27
+  - id: ev-w27
+    title: 战斗经验
+    narrative: 实战经验丰富程度
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 无实战经验（新人）
+          effects:
+          - type: setFlag
+            id: w27
+            value: 无实战经验（新人）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w28
+        - id: opt-02
+          text: 少量任务经验
+          effects:
+          - type: setFlag
+            id: w27
+            value: 少量任务经验
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w28
+        - id: opt-03
+          text: 普通实战经验
+          effects:
+          - type: setFlag
+            id: w27
+            value: 普通实战经验
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w28
+        - id: opt-04
+          text: 丰富实战经验
+          effects:
+          - type: setFlag
+            id: w27
+            value: 丰富实战经验
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w28
+        - id: opt-05
+          text: 身经百战
+          effects:
+          - type: setFlag
+            id: w27
+            value: 身经百战
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w28
+        - id: opt-06
+          text: 千年战斗经验
+          effects:
+          - type: setFlag
+            id: w27
+            value: 千年战斗经验
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w28
+        - id: opt-07
+          text: 仅训练无实战
+          effects:
+          - type: setFlag
+            id: w27
+            value: 仅训练无实战
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w28
+        - id: opt-08
+          text: 死灭回游杀出来的
+          effects:
+          - type: setFlag
+            id: w27
+            value: 死灭回游杀出来的
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w28
+  - id: ev-w28
+    title: 天赋等级
+    narrative: 术式天赋和学习能力
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 毫无天赋
+          effects:
+          - type: setFlag
+            id: w28
+            value: 毫无天赋
+          - type: adjustAttribute
+            attribute: intellect
+            value: 1
+          nextEventId: ev-w29
+        - id: opt-02
+          text: 普通天赋
+          effects:
+          - type: setFlag
+            id: w28
+            value: 普通天赋
+          - type: adjustAttribute
+            attribute: intellect
+            value: 1
+          nextEventId: ev-w29
+        - id: opt-03
+          text: 优秀天赋
+          effects:
+          - type: setFlag
+            id: w28
+            value: 优秀天赋
+          - type: adjustAttribute
+            attribute: intellect
+            value: 1
+          nextEventId: ev-w29
+        - id: opt-04
+          text: 天才级天赋
+          effects:
+          - type: setFlag
+            id: w28
+            value: 天才级天赋
+          - type: adjustAttribute
+            attribute: intellect
+            value: 1
+          nextEventId: ev-w29
+        - id: opt-05
+          text: 特级苗子
+          effects:
+          - type: setFlag
+            id: w28
+            value: 特级苗子
+          - type: adjustAttribute
+            attribute: intellect
+            value: 1
+          nextEventId: ev-w29
+        - id: opt-06
+          text: 异形天赋（无法衡量）
+          effects:
+          - type: setFlag
+            id: w28
+            value: 异形天赋（无法衡量）
+          - type: adjustAttribute
+            attribute: intellect
+            value: 1
+          nextEventId: ev-w29
+        - id: opt-07
+          text: 努力型天才（后天觉醒）
+          effects:
+          - type: setFlag
+            id: w28
+            value: 努力型天才（后天觉醒）
+          - type: adjustAttribute
+            attribute: intellect
+            value: 1
+          nextEventId: ev-w29
+        - id: opt-08
+          text: 天赋不稳定（爆发型）
+          effects:
+          - type: setFlag
+            id: w28
+            value: 天赋不稳定（爆发型）
+          - type: adjustAttribute
+            attribute: intellect
+            value: 1
+          nextEventId: ev-w29
+  - id: ev-w29
+    title: 努力程度
+    narrative: 训练和努力程度
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 完全不努力（躺平）
+          effects:
+          - type: setFlag
+            id: w29
+            value: 完全不努力（躺平）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w30
+        - id: opt-02
+          text: 被动训练（被推着走）
+          effects:
+          - type: setFlag
+            id: w29
+            value: 被动训练（被推着走）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w30
+        - id: opt-03
+          text: 普通努力
+          effects:
+          - type: setFlag
+            id: w29
+            value: 普通努力
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w30
+        - id: opt-04
+          text: 努力型
+          effects:
+          - type: setFlag
+            id: w29
+            value: 努力型
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w30
+        - id: opt-05
+          text: 疯狂努力（极限训练）
+          effects:
+          - type: setFlag
+            id: w29
+            value: 疯狂努力（极限训练）
+          - type: adjustGrowth
+            value: 5
+          nextEventId: ev-w30
+        - id: opt-06
+          text: 努力到扭曲（自我毁灭式）
+          effects:
+          - type: setFlag
+            id: w29
+            value: 努力到扭曲（自我毁灭式）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w30
+        - id: opt-07
+          text: 聪明努力（效率型）
+          effects:
+          - type: setFlag
+            id: w29
+            value: 聪明努力（效率型）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w30
+  - id: ev-w30
+    title: 初始等级
+    narrative: 入场时的咒术师等级
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 四级术师
+          effects:
+          - type: setFlag
+            id: w30
+            value: 四级术师
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w31
+        - id: opt-02
+          text: 三级术师
+          effects:
+          - type: setFlag
+            id: w30
+            value: 三级术师
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w31
+        - id: opt-03
+          text: 二级术师
+          effects:
+          - type: setFlag
+            id: w30
+            value: 二级术师
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w31
+        - id: opt-04
+          text: 一级术师
+          effects:
+          - type: setFlag
+            id: w30
+            value: 一级术师
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w31
+        - id: opt-05
+          text: 特级术师
+          effects:
+          - type: setFlag
+            id: w30
+            value: 特级术师
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w31
+        - id: opt-06
+          text: 无等级（自由术师）
+          effects:
+          - type: setFlag
+            id: w30
+            value: 无等级（自由术师）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w31
+        - id: opt-07
+          text: 一级咒灵
+          effects:
+          - type: setFlag
+            id: w30
+            value: 一级咒灵
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w31
+        - id: opt-08
+          text: 特级咒灵
+          effects:
+          - type: setFlag
+            id: w30
+            value: 特级咒灵
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w31
+        - id: opt-09
+          text: 灾害级咒灵
+          effects:
+          - type: setFlag
+            id: w30
+            value: 灾害级咒灵
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w31
+        - id: opt-10
+          text: 诅咒师（无官方等级）
+          effects:
+          - type: setFlag
+            id: w30
+            value: 诅咒师（无官方等级）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w31
+  - id: ev-w31
+    title: 战斗风格
+    narrative: 战斗中的风格倾向
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 正面硬刚型
+          effects:
+          - type: setFlag
+            id: w31
+            value: 正面硬刚型
+          - type: adjustAttribute
+            attribute: agility
+            value: 1
+          nextEventId: ev-w32
+        - id: opt-02
+          text: 暗杀偷袭型
+          effects:
+          - type: setFlag
+            id: w31
+            value: 暗杀偷袭型
+          - type: adjustAttribute
+            attribute: agility
+            value: 1
+          nextEventId: ev-w32
+        - id: opt-03
+          text: 远程消耗型
+          effects:
+          - type: setFlag
+            id: w31
+            value: 远程消耗型
+          - type: adjustAttribute
+            attribute: agility
+            value: 1
+          nextEventId: ev-w32
+        - id: opt-04
+          text: 控场辅助型
+          effects:
+          - type: setFlag
+            id: w31
+            value: 控场辅助型
+          - type: adjustAttribute
+            attribute: agility
+            value: 1
+          nextEventId: ev-w32
+        - id: opt-05
+          text: 陷阱算计型
+          effects:
+          - type: setFlag
+            id: w31
+            value: 陷阱算计型
+          - type: adjustAttribute
+            attribute: agility
+            value: 1
+          nextEventId: ev-w32
+        - id: opt-06
+          text: 狂暴碾压型
+          effects:
+          - type: setFlag
+            id: w31
+            value: 狂暴碾压型
+          - type: adjustAttribute
+            attribute: agility
+            value: 1
+          nextEventId: ev-w32
+        - id: opt-07
+          text: 灵活游击型
+          effects:
+          - type: setFlag
+            id: w31
+            value: 灵活游击型
+          - type: adjustAttribute
+            attribute: agility
+            value: 1
+          nextEventId: ev-w32
+        - id: opt-08
+          text: 防御反击型
+          effects:
+          - type: setFlag
+            id: w31
+            value: 防御反击型
+          - type: adjustAttribute
+            attribute: agility
+            value: 1
+          nextEventId: ev-w32
+        - id: opt-09
+          text: 领域一开就结束型
+          effects:
+          - type: setFlag
+            id: w31
+            value: 领域一开就结束型
+          - type: adjustAttribute
+            attribute: agility
+            value: 1
+          nextEventId: ev-w32
+        - id: opt-10
+          text: 治疗支援型
+          effects:
+          - type: setFlag
+            id: w31
+            value: 治疗支援型
+          - type: adjustAttribute
+            attribute: agility
+            value: 1
+          nextEventId: ev-w32
+        - id: opt-11
+          text: 不择手段型
+          effects:
+          - type: setFlag
+            id: w31
+            value: 不择手段型
+          - type: adjustAttribute
+            attribute: agility
+            value: 1
+          nextEventId: ev-w32
+  - id: ev-w32
+    title: 重要关系
+    narrative: 与原作重要角色的关系
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 无固定重要关系
+          effects:
+          - type: setFlag
+            id: w32
+            value: 无固定重要关系
+          nextEventId: ev-w33
+        - id: opt-02
+          text: 五条悟的弟子
+          effects:
+          - type: setFlag
+            id: w32
+            value: 五条悟的弟子
+          - type: adjustRelation
+            npcId: npc-gojo
+            value: 3
+          nextEventId: ev-w33
+        - id: opt-03
+          text: 五条悟的同期/友人
+          effects:
+          - type: setFlag
+            id: w32
+            value: 五条悟的同期/友人
+          - type: adjustRelation
+            npcId: npc-gojo
+            value: 3
+          nextEventId: ev-w33
+        - id: opt-04
+          text: 与五条悟理念冲突
+          effects:
+          - type: setFlag
+            id: w32
+            value: 与五条悟理念冲突
+          - type: adjustRelation
+            npcId: npc-gojo
+            value: 3
+          nextEventId: ev-w33
+        - id: opt-05
+          text: 虎杖悠仁的同伴
+          effects:
+          - type: setFlag
+            id: w32
+            value: 虎杖悠仁的同伴
+          nextEventId: ev-w33
+        - id: opt-06
+          text: 伏黑惠的同伴/亲属
+          effects:
+          - type: setFlag
+            id: w32
+            value: 伏黑惠的同伴/亲属
+          nextEventId: ev-w33
+        - id: opt-07
+          text: 钉崎野蔷薇的好友
+          effects:
+          - type: setFlag
+            id: w32
+            value: 钉崎野蔷薇的好友
+          nextEventId: ev-w33
+        - id: opt-08
+          text: 夏油杰的追随者
+          effects:
+          - type: setFlag
+            id: w32
+            value: 夏油杰的追随者
+          - type: adjustRelation
+            npcId: npc-geto
+            value: 3
+          nextEventId: ev-w33
+        - id: opt-09
+          text: 与两面宿傩有宿命因缘
+          effects:
+          - type: setFlag
+            id: w32
+            value: 与两面宿傩有宿命因缘
+          nextEventId: ev-w33
+        - id: opt-10
+          text: 羂索的棋子/实验体
+          effects:
+          - type: setFlag
+            id: w32
+            value: 羂索的棋子/实验体
+          nextEventId: ev-w33
+        - id: opt-11
+          text: 七海建人的后辈/同事
+          effects:
+          - type: setFlag
+            id: w32
+            value: 七海建人的后辈/同事
+          nextEventId: ev-w33
+        - id: opt-12
+          text: 乙骨忧太的关系者
+          effects:
+          - type: setFlag
+            id: w32
+            value: 乙骨忧太的关系者
+          nextEventId: ev-w33
+        - id: opt-13
+          text: 禅院真希的亲友/家族冲突
+          effects:
+          - type: setFlag
+            id: w32
+            value: 禅院真希的亲友/家族冲突
+          nextEventId: ev-w33
+        - id: opt-14
+          text: 狗卷棘的信任战友
+          effects:
+          - type: setFlag
+            id: w32
+            value: 狗卷棘的信任战友
+          nextEventId: ev-w33
+        - id: opt-15
+          text: 咒灵集团核心成员
+          effects:
+          - type: setFlag
+            id: w32
+            value: 咒灵集团核心成员
+          nextEventId: ev-w33
+        - id: opt-16
+          text: 死灭回游关键泳者
+          effects:
+          - type: setFlag
+            id: w32
+            value: 死灭回游关键泳者
+          nextEventId: ev-w33
+        - id: opt-17
+          text: 家入硝子的医疗救助关系
+          effects:
+          - type: setFlag
+            id: w32
+            value: 家入硝子的医疗救助关系
+          - type: adjustRelation
+            npcId: npc-shoko
+            value: 3
+          nextEventId: ev-w33
+        - id: opt-18
+          text: 夜蛾正道的导师关系
+          effects:
+          - type: setFlag
+            id: w32
+            value: 夜蛾正道的导师关系
+          nextEventId: ev-w33
+  - id: ev-w33
+    title: 家庭关系
+    narrative: 与原生家庭的关系状态
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 家庭和睦亲人支持
+          effects:
+          - type: setFlag
+            id: w33
+            value: 家庭和睦亲人支持
+          nextEventId: ev-w34
+        - id: opt-02
+          text: 家人不理解咒术世界有隔阂
+          effects:
+          - type: setFlag
+            id: w33
+            value: 家人不理解咒术世界有隔阂
+          nextEventId: ev-w34
+        - id: opt-03
+          text: 被家人当工具只看重才能
+          effects:
+          - type: setFlag
+            id: w33
+            value: 被家人当工具只看重才能
+          nextEventId: ev-w34
+        - id: opt-04
+          text: 与家人激烈决裂断绝来往
+          effects:
+          - type: setFlag
+            id: w33
+            value: 与家人激烈决裂断绝来往
+          nextEventId: ev-w34
+        - id: opt-05
+          text: 所有亲人全部死亡只剩自己
+          effects:
+          - type: setFlag
+            id: w33
+            value: 所有亲人全部死亡只剩自己
+          nextEventId: ev-w34
+        - id: opt-06
+          text: 被家人抛弃送入高专
+          effects:
+          - type: setFlag
+            id: w33
+            value: 被家人抛弃送入高专
+          nextEventId: ev-w34
+        - id: opt-07
+          text: 家族内部权力斗争受害者
+          effects:
+          - type: setFlag
+            id: w33
+            value: 家族内部权力斗争受害者
+          nextEventId: ev-w34
+        - id: opt-08
+          text: 有需要保护的年幼弟妹
+          effects:
+          - type: setFlag
+            id: w33
+            value: 有需要保护的年幼弟妹
+          nextEventId: ev-w34
+  - id: ev-w34
+    title: 师徒关系
+    narrative: 师徒关系状态
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 无正式师父自学成才
+          effects:
+          - type: setFlag
+            id: w34
+            value: 无正式师父自学成才
+          nextEventId: ev-w35
+        - id: opt-02
+          text: 师父是五条悟
+          effects:
+          - type: setFlag
+            id: w34
+            value: 师父是五条悟
+          - type: adjustRelation
+            npcId: npc-gojo
+            value: 3
+          nextEventId: ev-w35
+        - id: opt-03
+          text: 师父是七海建人
+          effects:
+          - type: setFlag
+            id: w34
+            value: 师父是七海建人
+          nextEventId: ev-w35
+        - id: opt-04
+          text: 师父是夜蛾正道
+          effects:
+          - type: setFlag
+            id: w34
+            value: 师父是夜蛾正道
+          nextEventId: ev-w35
+        - id: opt-05
+          text: 师父已战死（继承遗志）
+          effects:
+          - type: setFlag
+            id: w34
+            value: 师父已战死（继承遗志）
+          nextEventId: ev-w35
+        - id: opt-06
+          text: 师父背叛了自己
+          effects:
+          - type: setFlag
+            id: w34
+            value: 师父背叛了自己
+          nextEventId: ev-w35
+        - id: opt-07
+          text: 与师父亦敌亦友
+          effects:
+          - type: setFlag
+            id: w34
+            value: 与师父亦敌亦友
+          nextEventId: ev-w35
+        - id: opt-08
+          text: 自己是别人的师父
+          effects:
+          - type: setFlag
+            id: w34
+            value: 自己是别人的师父
+          nextEventId: ev-w35
+        - id: opt-09
+          text: 师父是御三家长辈
+          effects:
+          - type: setFlag
+            id: w34
+            value: 师父是御三家长辈
+          nextEventId: ev-w35
+        - id: opt-10
+          text: 师父是诅咒师（走上歧途）
+          effects:
+          - type: setFlag
+            id: w34
+            value: 师父是诅咒师（走上歧途）
+          nextEventId: ev-w35
+        - id: opt-11
+          text: 与师父关系冷淡仅交易
+          effects:
+          - type: setFlag
+            id: w34
+            value: 与师父关系冷淡仅交易
+          nextEventId: ev-w35
+  - id: ev-w35
+    title: 关键事件1
+    narrative: 人生第一个关键事件
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 亲眼目睹亲人被咒灵杀害
+          effects:
+          - type: setFlag
+            id: w35
+            value: 亲眼目睹亲人被咒灵杀害
+          nextEventId: ev-w36
+        - id: opt-02
+          text: 重要师长战死在面前
+          effects:
+          - type: setFlag
+            id: w35
+            value: 重要师长战死在面前
+          nextEventId: ev-w36
+        - id: opt-03
+          text: 被迫亲手杀死友人
+          effects:
+          - type: setFlag
+            id: w35
+            value: 被迫亲手杀死友人
+          nextEventId: ev-w36
+        - id: opt-04
+          text: 被高层诬陷迫害
+          effects:
+          - type: setFlag
+            id: w35
+            value: 被高层诬陷迫害
+          nextEventId: ev-w36
+        - id: opt-05
+          text: 绝境中觉醒术式
+          effects:
+          - type: setFlag
+            id: w35
+            value: 绝境中觉醒术式
+          nextEventId: ev-w36
+        - id: opt-06
+          text: 与强大诅咒交易付出代价
+          effects:
+          - type: setFlag
+            id: w35
+            value: 与强大诅咒交易付出代价
+          nextEventId: ev-w36
+        - id: opt-07
+          text: 涩谷事变亲历惨剧
+          effects:
+          - type: setFlag
+            id: w35
+            value: 涩谷事变亲历惨剧
+          nextEventId: ev-w36
+        - id: opt-08
+          text: 死灭回游被迫入场
+          effects:
+          - type: setFlag
+            id: w35
+            value: 死灭回游被迫入场
+          nextEventId: ev-w36
+        - id: opt-09
+          text: 亲手拯救大量普通人获得声望
+          effects:
+          - type: setFlag
+            id: w35
+            value: 亲手拯救大量普通人获得声望
+          nextEventId: ev-w36
+        - id: opt-10
+          text: 被同伴背叛险些丧命
+          effects:
+          - type: setFlag
+            id: w35
+            value: 被同伴背叛险些丧命
+          nextEventId: ev-w36
+        - id: opt-11
+          text: 发现自己身世的惊天秘密
+          effects:
+          - type: setFlag
+            id: w35
+            value: 发现自己身世的惊天秘密
+          nextEventId: ev-w36
+  - id: ev-w36
+    title: 关键事件2
+    narrative: 人生第二个关键事件
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 无第二重大事件
+          effects:
+          - type: setFlag
+            id: w36
+            value: 无第二重大事件
+          nextEventId: ev-w37
+        - id: opt-02
+          text: 领域展开首次成功
+          effects:
+          - type: setFlag
+            id: w36
+            value: 领域展开首次成功
+          nextEventId: ev-w37
+        - id: opt-03
+          text: 打出第一次黑闪
+          effects:
+          - type: setFlag
+            id: w36
+            value: 打出第一次黑闪
+          nextEventId: ev-w37
+        - id: opt-04
+          text: 学会反转术式
+          effects:
+          - type: setFlag
+            id: w36
+            value: 学会反转术式
+          nextEventId: ev-w37
+        - id: opt-05
+          text: 获得特级咒具
+          effects:
+          - type: setFlag
+            id: w36
+            value: 获得特级咒具
+          nextEventId: ev-w37
+        - id: opt-06
+          text: 击败特级咒灵一战成名
+          effects:
+          - type: setFlag
+            id: w36
+            value: 击败特级咒灵一战成名
+          nextEventId: ev-w37
+        - id: opt-07
+          text: 被宿傩关注/认可
+          effects:
+          - type: setFlag
+            id: w36
+            value: 被宿傩关注/认可
+          nextEventId: ev-w37
+        - id: opt-08
+          text: 被羂索盯上成为棋子
+          effects:
+          - type: setFlag
+            id: w36
+            value: 被羂索盯上成为棋子
+          nextEventId: ev-w37
+        - id: opt-09
+          text: 与重要角色建立深刻羁绊
+          effects:
+          - type: setFlag
+            id: w36
+            value: 与重要角色建立深刻羁绊
+          nextEventId: ev-w37
+        - id: opt-10
+          text: 犯下无法挽回的错误
+          effects:
+          - type: setFlag
+            id: w36
+            value: 犯下无法挽回的错误
+          nextEventId: ev-w37
+        - id: opt-11
+          text: 拯救了本应死去的角色
+          effects:
+          - type: setFlag
+            id: w36
+            value: 拯救了本应死去的角色
+          nextEventId: ev-w37
+  - id: ev-w37
+    title: 成长突破
+    narrative: 剧情中的成长突破类型
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 无明显成长
+          effects:
+          - type: setFlag
+            id: w37
+            value: 无明显成长
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w38
+        - id: opt-02
+          text: 术式觉醒
+          effects:
+          - type: setFlag
+            id: w37
+            value: 术式觉醒
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w38
+        - id: opt-03
+          text: 领域展开觉醒
+          effects:
+          - type: setFlag
+            id: w37
+            value: 领域展开觉醒
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w38
+        - id: opt-04
+          text: 反转术式掌握
+          effects:
+          - type: setFlag
+            id: w37
+            value: 反转术式掌握
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w38
+        - id: opt-05
+          text: 黑闪顿悟
+          effects:
+          - type: setFlag
+            id: w37
+            value: 黑闪顿悟
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w38
+        - id: opt-06
+          text: 体术突破
+          effects:
+          - type: setFlag
+            id: w37
+            value: 体术突破
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w38
+        - id: opt-07
+          text: 天赋突破（理解壁垒）
+          effects:
+          - type: setFlag
+            id: w37
+            value: 天赋突破（理解壁垒）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w38
+        - id: opt-08
+          text: 特殊觉醒（肉体/精神质变）
+          effects:
+          - type: setFlag
+            id: w37
+            value: 特殊觉醒（肉体/精神质变）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w38
+        - id: opt-09
+          text: 束缚达成（自缚获力）
+          effects:
+          - type: setFlag
+            id: w37
+            value: 束缚达成（自缚获力）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w38
+        - id: opt-10
+          text: 多重突破（主角级成长）
+          effects:
+          - type: setFlag
+            id: w37
+            value: 多重突破（主角级成长）
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w38
+        - id: opt-11
+          text: 术式反转开发
+          effects:
+          - type: setFlag
+            id: w37
+            value: 术式反转开发
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w38
+        - id: opt-12
+          text: 获得新咒具/式神
+          effects:
+          - type: setFlag
+            id: w37
+            value: 获得新咒具/式神
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w38
+  - id: ev-w38
+    title: 突破契机
+    narrative: 成长突破的契机
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 至亲死亡带来精神蜕变
+          effects:
+          - type: setFlag
+            id: w38
+            value: 至亲死亡带来精神蜕变
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w39
+        - id: opt-02
+          text: 生死濒死战斗中突破极限
+          effects:
+          - type: setFlag
+            id: w38
+            value: 生死濒死战斗中突破极限
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w39
+        - id: opt-03
+          text: 长时间苦修量变产生质变
+          effects:
+          - type: setFlag
+            id: w38
+            value: 长时间苦修量变产生质变
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w39
+        - id: opt-04
+          text: 敌人压迫逼迫自己进化
+          effects:
+          - type: setFlag
+            id: w38
+            value: 敌人压迫逼迫自己进化
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w39
+        - id: opt-05
+          text: 理解自我术式内核瞬间顿悟
+          effects:
+          - type: setFlag
+            id: w38
+            value: 理解自我术式内核瞬间顿悟
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w39
+        - id: opt-06
+          text: 重要之人的鼓励/托付
+          effects:
+          - type: setFlag
+            id: w38
+            value: 重要之人的鼓励/托付
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w39
+        - id: opt-07
+          text: 吞噬/吸收了特殊咒物
+          effects:
+          - type: setFlag
+            id: w38
+            value: 吞噬/吸收了特殊咒物
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w39
+        - id: opt-08
+          text: 被他人牺牲所拯救激发潜能
+          effects:
+          - type: setFlag
+            id: w38
+            value: 被他人牺牲所拯救激发潜能
+          - type: adjustGrowth
+            value: 1
+          nextEventId: ev-w39
+  - id: ev-w39
+    title: 外貌特征
+    narrative: 外貌标志性特征
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 普通外貌无明显特征
+          effects:
+          - type: setFlag
+            id: w39
+            value: 普通外貌无明显特征
+          nextEventId: ev-w40
+        - id: opt-02
+          text: 异色瞳
+          effects:
+          - type: setFlag
+            id: w39
+            value: 异色瞳
+          nextEventId: ev-w40
+        - id: opt-03
+          text: 白发/银发
+          effects:
+          - type: setFlag
+            id: w39
+            value: 白发/银发
+          nextEventId: ev-w40
+        - id: opt-04
+          text: 黑色长发
+          effects:
+          - type: setFlag
+            id: w39
+            value: 黑色长发
+          nextEventId: ev-w40
+        - id: opt-05
+          text: 短发利落
+          effects:
+          - type: setFlag
+            id: w39
+            value: 短发利落
+          nextEventId: ev-w40
+        - id: opt-06
+          text: 身上有大面积伤疤
+          effects:
+          - type: setFlag
+            id: w39
+            value: 身上有大面积伤疤
+          nextEventId: ev-w40
+        - id: opt-07
+          text: 纹身/咒纹
+          effects:
+          - type: setFlag
+            id: w39
+            value: 纹身/咒纹
+          nextEventId: ev-w40
+        - id: opt-08
+          text: 戴眼镜/眼罩/面罩
+          effects:
+          - type: setFlag
+            id: w39
+            value: 戴眼镜/眼罩/面罩
+          nextEventId: ev-w40
+        - id: opt-09
+          text: 身材异常高大/娇小
+          effects:
+          - type: setFlag
+            id: w39
+            value: 身材异常高大/娇小
+          nextEventId: ev-w40
+        - id: opt-10
+          text: 咒灵特征（非人类外貌）
+          effects:
+          - type: setFlag
+            id: w39
+            value: 咒灵特征（非人类外貌）
+          nextEventId: ev-w40
+        - id: opt-11
+          text: 标志性发型/发饰
+          effects:
+          - type: setFlag
+            id: w39
+            value: 标志性发型/发饰
+          nextEventId: ev-w40
+  - id: ev-w40
+    title: 服装风格
+    narrative: 日常/战斗服装风格
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 高专制服
+          effects:
+          - type: setFlag
+            id: w40
+            value: 高专制服
+          nextEventId: ev-w41
+        - id: opt-02
+          text: 自定义改良制服
+          effects:
+          - type: setFlag
+            id: w40
+            value: 自定义改良制服
+          nextEventId: ev-w41
+        - id: opt-03
+          text: 黑色高领战斗服
+          effects:
+          - type: setFlag
+            id: w40
+            value: 黑色高领战斗服
+          nextEventId: ev-w41
+        - id: opt-04
+          text: 日式和服/羽织
+          effects:
+          - type: setFlag
+            id: w40
+            value: 日式和服/羽织
+          nextEventId: ev-w41
+        - id: opt-05
+          text: 休闲街头风
+          effects:
+          - type: setFlag
+            id: w40
+            value: 休闲街头风
+          nextEventId: ev-w41
+        - id: opt-06
+          text: 西装/正装
+          effects:
+          - type: setFlag
+            id: w40
+            value: 西装/正装
+          nextEventId: ev-w41
+        - id: opt-07
+          text: 咒灵风格（怪异服装）
+          effects:
+          - type: setFlag
+            id: w40
+            value: 咒灵风格（怪异服装）
+          nextEventId: ev-w41
+        - id: opt-08
+          text: 御三家家纹服饰
+          effects:
+          - type: setFlag
+            id: w40
+            value: 御三家家纹服饰
+          nextEventId: ev-w41
+        - id: opt-09
+          text: 邋遢随意不讲究
+          effects:
+          - type: setFlag
+            id: w40
+            value: 邋遢随意不讲究
+          nextEventId: ev-w41
+  - id: ev-w41
+    title: 兴趣爱好
+    narrative: 个人兴趣爱好
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 吃甜食/零食
+          effects:
+          - type: setFlag
+            id: w41
+            value: 吃甜食/零食
+          nextEventId: ev-w42
+        - id: opt-02
+          text: 读书/研究术式
+          effects:
+          - type: setFlag
+            id: w41
+            value: 读书/研究术式
+          nextEventId: ev-w42
+        - id: opt-03
+          text: 运动/健身
+          effects:
+          - type: setFlag
+            id: w41
+            value: 运动/健身
+          nextEventId: ev-w42
+        - id: opt-04
+          text: 睡觉/摸鱼
+          effects:
+          - type: setFlag
+            id: w41
+            value: 睡觉/摸鱼
+          nextEventId: ev-w42
+        - id: opt-05
+          text: 喝酒
+          effects:
+          - type: setFlag
+            id: w41
+            value: 喝酒
+          nextEventId: ev-w42
+        - id: opt-06
+          text: 赌博/游戏
+          effects:
+          - type: setFlag
+            id: w41
+            value: 赌博/游戏
+          nextEventId: ev-w42
+        - id: opt-07
+          text: 购物/时尚
+          effects:
+          - type: setFlag
+            id: w41
+            value: 购物/时尚
+          nextEventId: ev-w42
+        - id: opt-08
+          text: 做饭/做家务
+          effects:
+          - type: setFlag
+            id: w41
+            value: 做饭/做家务
+          nextEventId: ev-w42
+        - id: opt-09
+          text: 养小动物/植物
+          effects:
+          - type: setFlag
+            id: w41
+            value: 养小动物/植物
+          nextEventId: ev-w42
+        - id: opt-10
+          text: 听音乐
+          effects:
+          - type: setFlag
+            id: w41
+            value: 听音乐
+          nextEventId: ev-w42
+        - id: opt-11
+          text: 没有爱好只有任务
+          effects:
+          - type: setFlag
+            id: w41
+            value: 没有爱好只有任务
+          nextEventId: ev-w42
+        - id: opt-12
+          text: 收集咒具/咒物
+          effects:
+          - type: setFlag
+            id: w41
+            value: 收集咒具/咒物
+          nextEventId: ev-w42
+  - id: ev-w42
+    title: 口头禅
+    narrative: 标志性口癖、语调和自称习惯
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 无明显口癖
+          effects:
+          - type: setFlag
+            id: w42
+            value: 无明显口癖
+          nextEventId: ev-w43
+        - id: opt-02
+          text: 句尾加「だぜ/だよ」热血口调
+          effects:
+          - type: setFlag
+            id: w42
+            value: 句尾加「だぜ/だよ」热血口调
+          nextEventId: ev-w43
+        - id: opt-03
+          text: 句尾加「なのだ」笃定口调
+          effects:
+          - type: setFlag
+            id: w42
+            value: 句尾加「なのだ」笃定口调
+          nextEventId: ev-w43
+        - id: opt-04
+          text: 句尾加「じゃ」老者/武士口调
+          effects:
+          - type: setFlag
+            id: w42
+            value: 句尾加「じゃ」老者/武士口调
+          nextEventId: ev-w43
+        - id: opt-05
+          text: 句尾加「ですわ」大小姐口调
+          effects:
+          - type: setFlag
+            id: w42
+            value: 句尾加「ですわ」大小姐口调
+          nextEventId: ev-w43
+        - id: opt-06
+          text: 句尾加「ござる」武士口调
+          effects:
+          - type: setFlag
+            id: w42
+            value: 句尾加「ござる」武士口调
+          nextEventId: ev-w43
+        - id: opt-07
+          text: 关西腔/关西方言
+          effects:
+          - type: setFlag
+            id: w42
+            value: 关西腔/关西方言
+          nextEventId: ev-w43
+        - id: opt-08
+          text: 自称「俺」（粗鲁男性）
+          effects:
+          - type: setFlag
+            id: w42
+            value: 自称「俺」（粗鲁男性）
+          nextEventId: ev-w43
+        - id: opt-09
+          text: 自称「僕」（斯文男性）
+          effects:
+          - type: setFlag
+            id: w42
+            value: 自称「僕」（斯文男性）
+          nextEventId: ev-w43
+        - id: opt-10
+          text: 自称「私」（正式/女性）
+          effects:
+          - type: setFlag
+            id: w42
+            value: 自称「私」（正式/女性）
+          nextEventId: ev-w43
+        - id: opt-11
+          text: 自称「わし」（老者）
+          effects:
+          - type: setFlag
+            id: w42
+            value: 自称「わし」（老者）
+          nextEventId: ev-w43
+        - id: opt-12
+          text: 自称「うち」（关西女性）
+          effects:
+          - type: setFlag
+            id: w42
+            value: 自称「うち」（关西女性）
+          nextEventId: ev-w43
+        - id: opt-13
+          text: 称呼别人「てめえ/贵样」
+          effects:
+          - type: setFlag
+            id: w42
+            value: 称呼别人「てめえ/贵样」
+          nextEventId: ev-w43
+        - id: opt-14
+          text: 称呼别人「お前」
+          effects:
+          - type: setFlag
+            id: w42
+            value: 称呼别人「お前」
+          nextEventId: ev-w43
+        - id: opt-15
+          text: 称呼别人「君」
+          effects:
+          - type: setFlag
+            id: w42
+            value: 称呼别人「君」
+          nextEventId: ev-w43
+        - id: opt-16
+          text: 战斗时必喊招式名
+          effects:
+          - type: setFlag
+            id: w42
+            value: 战斗时必喊招式名
+          nextEventId: ev-w43
+        - id: opt-17
+          text: 叹气「はあ」/「まったく」
+          effects:
+          - type: setFlag
+            id: w42
+            value: 叹气「はあ」/「まったく」
+          nextEventId: ev-w43
+        - id: opt-18
+          text: 笑声「ククク」（腹黑）
+          effects:
+          - type: setFlag
+            id: w42
+            value: 笑声「ククク」（腹黑）
+          nextEventId: ev-w43
+        - id: opt-19
+          text: 笑声「ワハハ」（豪爽）
+          effects:
+          - type: setFlag
+            id: w42
+            value: 笑声「ワハハ」（豪爽）
+          nextEventId: ev-w43
+        - id: opt-20
+          text: 笑声「フフフ」（优雅）
+          effects:
+          - type: setFlag
+            id: w42
+            value: 笑声「フフフ」（优雅）
+          nextEventId: ev-w43
+        - id: opt-21
+          text: 口癖「なの」/「なのよ」
+          effects:
+          - type: setFlag
+            id: w42
+            value: 口癖「なの」/「なのよ」
+          nextEventId: ev-w43
+        - id: opt-22
+          text: 口癖「だと！？」（惊讶）
+          effects:
+          - type: setFlag
+            id: w42
+            value: 口癖「だと！？」（惊讶）
+          nextEventId: ev-w43
+        - id: opt-23
+          text: 口癖「なんてこった」
+          effects:
+          - type: setFlag
+            id: w42
+            value: 口癖「なんてこった」
+          nextEventId: ev-w43
+        - id: opt-24
+          text: 口癖「真没办法」
+          effects:
+          - type: setFlag
+            id: w42
+            value: 口癖「真没办法」
+          nextEventId: ev-w43
+        - id: opt-25
+          text: 说话喜欢引用名言/诗句
+          effects:
+          - type: setFlag
+            id: w42
+            value: 说话喜欢引用名言/诗句
+          nextEventId: ev-w43
+        - id: opt-26
+          text: 说话简短如命令
+          effects:
+          - type: setFlag
+            id: w42
+            value: 说话简短如命令
+          nextEventId: ev-w43
+        - id: opt-27
+          text: 说话带「～かも」不确定语气
+          effects:
+          - type: setFlag
+            id: w42
+            value: 说话带「～かも」不确定语气
+          nextEventId: ev-w43
+        - id: opt-28
+          text: 说话喜欢加「超」「绝」等强调词
+          effects:
+          - type: setFlag
+            id: w42
+            value: 说话喜欢加「超」「绝」等强调词
+          nextEventId: ev-w43
+        - id: opt-29
+          text: 语尾上挑（疑问语气）
+          effects:
+          - type: setFlag
+            id: w42
+            value: 语尾上挑（疑问语气）
+          nextEventId: ev-w43
+        - id: opt-30
+          text: 沉默寡言只用单词回答
+          effects:
+          - type: setFlag
+            id: w42
+            value: 沉默寡言只用单词回答
+          nextEventId: ev-w43
+  - id: ev-w43
+    title: 神人语录
+    narrative: 角色的标志性名台词、战斗宣言或中二语录
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+        - id: opt-01
+          text: 「天上天下，唯我独尊」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「天上天下，唯我独尊」
+        - id: opt-02
+          text: 「我可是最强的」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「我可是最强的」
+        - id: opt-03
+          text: 「劳动是狗屎」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「劳动是狗屎」
+        - id: opt-04
+          text: 「一起上吧」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「一起上吧」
+        - id: opt-05
+          text: 「你很弱啊」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「你很弱啊」
+        - id: opt-06
+          text: 「这就是领域展开」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「这就是领域展开」
+        - id: opt-07
+          text: 「我要把你揍飞」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「我要把你揍飞」
+        - id: opt-08
+          text: 「咒力用量是常人的几倍」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「咒力用量是常人的几倍」
+        - id: opt-09
+          text: 「你说什么？我听不见」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「你说什么？我听不见」
+        - id: opt-10
+          text: 「真是无聊」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「真是无聊」
+        - id: opt-11
+          text: 「这就是...黑闪！」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「这就是...黑闪！」
+        - id: opt-12
+          text: 「不要小看人类啊」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「不要小看人类啊」
+        - id: opt-13
+          text: 「我可是两面宿傩」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「我可是两面宿傩」
+        - id: opt-14
+          text: 「伏魔御厨子」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「伏魔御厨子」
+        - id: opt-15
+          text: 「无量空处」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「无量空处」
+        - id: opt-16
+          text: 「八握剑异戒神将魔虚罗」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「八握剑异戒神将魔虚罗」
+        - id: opt-17
+          text: 「坐杀博徒」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「坐杀博徒」
+        - id: opt-18
+          text: 「术式顺转，最大输出」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「术式顺转，最大输出」
+        - id: opt-19
+          text: 「反转术式」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「反转术式」
+        - id: opt-20
+          text: 「领域展延」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「领域展延」
+        - id: opt-21
+          text: 「嵌合暗翳庭」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「嵌合暗翳庭」
+        - id: opt-22
+          text: 「自閉圓裹縛」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「自閉圓裹縛」
+        - id: opt-23
+          text: 「等等，先让我说完」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「等等，先让我说完」
+        - id: opt-24
+          text: 「我会把你变成我的东西」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「我会把你变成我的东西」
+        - id: opt-25
+          text: 「你已经死了」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「你已经死了」
+        - id: opt-26
+          text: 「这就是我的术式」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「这就是我的术式」
+        - id: opt-27
+          text: 「不要逃避」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「不要逃避」
+        - id: opt-28
+          text: 「我要变得更强」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「我要变得更强」
+        - id: opt-29
+          text: 「为了守护重要的人」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「为了守护重要的人」
+        - id: opt-30
+          text: 「这就是...觉悟！」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「这就是...觉悟！」
+        - id: opt-31
+          text: 「你很有趣，让我更兴奋一点」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「你很有趣，让我更兴奋一点」
+        - id: opt-32
+          text: 「我要把你从这个世界上抹除」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「我要把你从这个世界上抹除」
+        - id: opt-33
+          text: 「这就是...人类的可能性！」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「这就是...人类的可能性！」
+        - id: opt-34
+          text: 「我不会让你过去的」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「我不会让你过去的」
+        - id: opt-35
+          text: 「就算死也要拉你垫背」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「就算死也要拉你垫背」
+        - id: opt-36
+          text: 「接下来就是我的回合了」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「接下来就是我的回合了」
+        - id: opt-37
+          text: 「你以为你在和谁说话」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「你以为你在和谁说话」
+        - id: opt-38
+          text: 「我对弱者没有兴趣」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「我对弱者没有兴趣」
+        - id: opt-39
+          text: 「让我看看你的觉悟吧」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「让我看看你的觉悟吧」
+        - id: opt-40
+          text: 「这一击，赌上一切」
+          effects:
+          - type: setFlag
+            id: w43
+            value: 「这一击，赌上一切」
 chains:
   - id: chain-curse-investigation
     startEventId: ev-curse-investigate
@@ -729,3 +4972,94 @@ chains:
     steps:
       - { eventId: ev-shibuya-inside, advanceWhen: onSettle }
       - { eventId: ev-shibuya-resolve, advanceWhen: onSettle }
+
+  - id: chain-wheel-creation
+    startEventId: ev-w01
+    pauseWhenHidden: false
+    steps:
+    - eventId: ev-w01
+      advanceWhen: onSettle
+    - eventId: ev-w02
+      advanceWhen: onSettle
+    - eventId: ev-w03
+      advanceWhen: onSettle
+    - eventId: ev-w04
+      advanceWhen: onSettle
+    - eventId: ev-w05
+      advanceWhen: onSettle
+    - eventId: ev-w06
+      advanceWhen: onSettle
+    - eventId: ev-w07
+      advanceWhen: onSettle
+    - eventId: ev-w08
+      advanceWhen: onSettle
+    - eventId: ev-w09
+      advanceWhen: onSettle
+    - eventId: ev-w10
+      advanceWhen: onSettle
+    - eventId: ev-w11
+      advanceWhen: onSettle
+    - eventId: ev-w12
+      advanceWhen: onSettle
+    - eventId: ev-w13
+      advanceWhen: onSettle
+    - eventId: ev-w14
+      advanceWhen: onSettle
+    - eventId: ev-w15
+      advanceWhen: onSettle
+    - eventId: ev-w16
+      advanceWhen: onSettle
+    - eventId: ev-w17
+      advanceWhen: onSettle
+    - eventId: ev-w18
+      advanceWhen: onSettle
+    - eventId: ev-w19
+      advanceWhen: onSettle
+    - eventId: ev-w20
+      advanceWhen: onSettle
+    - eventId: ev-w21
+      advanceWhen: onSettle
+    - eventId: ev-w22
+      advanceWhen: onSettle
+    - eventId: ev-w23
+      advanceWhen: onSettle
+    - eventId: ev-w24
+      advanceWhen: onSettle
+    - eventId: ev-w25
+      advanceWhen: onSettle
+    - eventId: ev-w26
+      advanceWhen: onSettle
+    - eventId: ev-w27
+      advanceWhen: onSettle
+    - eventId: ev-w28
+      advanceWhen: onSettle
+    - eventId: ev-w29
+      advanceWhen: onSettle
+    - eventId: ev-w30
+      advanceWhen: onSettle
+    - eventId: ev-w31
+      advanceWhen: onSettle
+    - eventId: ev-w32
+      advanceWhen: onSettle
+    - eventId: ev-w33
+      advanceWhen: onSettle
+    - eventId: ev-w34
+      advanceWhen: onSettle
+    - eventId: ev-w35
+      advanceWhen: onSettle
+    - eventId: ev-w36
+      advanceWhen: onSettle
+    - eventId: ev-w37
+      advanceWhen: onSettle
+    - eventId: ev-w38
+      advanceWhen: onSettle
+    - eventId: ev-w39
+      advanceWhen: onSettle
+    - eventId: ev-w40
+      advanceWhen: onSettle
+    - eventId: ev-w41
+      advanceWhen: onSettle
+    - eventId: ev-w42
+      advanceWhen: onSettle
+    - eventId: ev-w43
+      advanceWhen: onSettle
