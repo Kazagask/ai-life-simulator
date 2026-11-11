@@ -86,11 +86,14 @@ function clampAttr(template: WorldTemplateV2, key: string, value: number): numbe
 
 // ---------- 公式求值 ----------
 
+/**
+ * 公式求值（协议 §10.4）：fixed / scaled / stack-scaled 三种预设，结果即最终值。
+ * 不叠加任何随机浮动——判定随机只发生在命中判定与转盘，保证同 seed 逐字段可复现。
+ */
 export function rollFormula(
   formulas: Formula[],
   effAttrs: Record<string, number>,
   casterStatuses: StatusInstance[],
-  rng: Rng,
 ): number {
   let total = 0;
   for (const f of formulas) {
@@ -108,7 +111,7 @@ export function rollFormula(
       }
     }
   }
-  return total + Math.floor(rng() * 3) - 1; // ±1 轻微浮动，保持 seed 确定性
+  return total;
 }
 
 // ---------- 补正施加（模拟域；战斗域由 battle.ts 处理） ----------

@@ -151,16 +151,10 @@ statusBar:
 - **显示名的唯一来源**：投影在 `snapshot.labels` 下发 `resources`（`statusBar` 中 `source: resource` 的 label）、`attributes`（`attributes.labels`，按 `order` 排序）与 `mood`（`source: mood` 的 label）；引擎生成的战斗日志同样经此取名。区块缺失时回退资源键/属性 id。
 - 加载期校验：`source: resource` 必须声明 `key` 且只能为 `hp|mp`；`source: attribute` 必须声明 `keys`，且每个键都在 `attributes.order` 中（避免「写了错 key 但界面静默空掉」）。
 
-### 4.6 判定默认值
+### 4.6 判定参数的声明位置
 
-```yaml
-checks:
-  opposedDefault: { attacker: agility, defender: agility, baseChance: 0.5 }
-  fixedDefault: { value: 1 }
-  scaledDefault: { multiplier: 1.0 }
-```
-
-- 判定 preset 见 10.4；此处为各 preset 缺省参数，技能/战斗内可覆盖。
+- 判定参数不做「全局缺省」：每个技能在自己的 `hitCheck` / `damage` / `heal` 中就声明（见 7.1、10.4），逃跑判定写在事件 `settle.combat.fleeCheck`，缺省值即引擎内置默认（命中 `0.6`、clamp `0.05..0.95`）。
+- 历史模板里的 `world.checks`（`opposedDefault` / `fixedDefault` / `scaledDefault`）从未被引擎读取，属死配置，已从 Schema 与协议移除（2026-11-11）。模板再写该字段会在加载期按未知字段拒绝，而不是静默忽略。
 
 ## 5. characters.yaml：角色
 
@@ -269,7 +263,7 @@ checks:
 - `scaleBy` 引用角色属性 id（含补正修正后的有效值）；`stack-scaled` 的 `status` 引用补正 id，读取施放者当前层数（`base + stacks * perStack`）。
 - 结算次序（实现阶段遵循）：消耗 → 命中判定 → 伤害/治疗 → 施加补正 → 最后 `consumeStatus`（献祭发生在输出结算之后，漩涡先按层数出伤再失去咒灵）。
 - `target: all_enemies` 时伤害/补正作用于对方全体（命中判定逐个结算）。
-- `hitCheck.attacker` / `hitCheck.defender`（`fleeCheck`、`checks.opposedDefault` 同）都是属性 id 引用，必须在 `attributes.order` 中声明：加载期校验并拒绝，避免写错属性名后被静默当作 0 参与判定。
+- `hitCheck.attacker` / `hitCheck.defender`（`fleeCheck` 同）都是属性 id 引用，必须在 `attributes.order` 中声明：加载期校验并拒绝，避免写错属性名后被静默当作 0 参与判定。
 
 ### 7.2 通用技能
 
@@ -456,7 +450,8 @@ scaled  : { base, scaleBy, multiplier }        base + 属性值 * multiplier
 stack-scaled : { base, perStack, status }      base + 施放者指定补正层数 * perStack
 ```
 
-- 全部随机取自战斗专用 RNG（由轮次 seed 派生），保证复现。
+- 公式结果即最终值，**不做随机浮动**（`fixed: 10` 恒为 10）。随机只发生在命中判定、转盘与补正施加概率上，且全部取自战斗专用 RNG（由轮次 seed 派生），保证复现。
+- 治疗（技能 `heal`、补正 `onRoundEnd.heal`、物品 `adjustResource`）一律截断到目标 HP 上限；伤害下限 0。
 - 自由表达式 DSL 列入 OPEN_QUESTIONS（安全考量，V0.1 不做）。
 
 ## 11. 随机与转盘
@@ -507,7 +502,7 @@ Schema 层（加载即校验）：
 
 - genders / attributes / resources / skills / items / statuses / events / chains / characters 的 id 全库唯一。
 - 技能 `applyStatus[].status`、物品 `use[].cureStatus`、条件 `status`/`inventory`/`requiresSkill`、战斗 `enemies[].ref`、事件 `nextEventId`/`chainId`/`startEventId` 均须指向已定义实体。
-- 属性槽位引用：技能 `hitCheck.attacker/defender`、战斗 `fleeCheck.attacker/defender`、`checks.opposedDefault.attacker/defender`、`attributes.labels` 的键、`statusBar` 的 `key`（resource）与 `keys`（attribute），均须指向 `attributes.order` 已声明的属性或已定义资源。
+- 属性槽位引用：技能 `hitCheck.attacker/defender`、战斗 `fleeCheck.attacker/defender`、`attributes.labels` 的键、`statusBar` 的 `key`（resource）与 `keys`（attribute），均须指向 `attributes.order` 已声明的属性或已定义资源。
 - 事件链 `startEventId` 的 `trigger.source` 必须为 `chain`。
 
 ### V2.1 新增校验（加载即拒绝，错误信息须含字段路径）
@@ -524,7 +519,7 @@ Schema 层（加载即校验）：
 - JJK 示例模板六个 YAML 通过 `WorldTemplateV2Schema` 校验。
 - 非法样例被拒绝：双面均缺失的补正；未知 control 语义；未知字段；引用断裂（技能指向不存在的补正、事件指向不存在的链）；mood 区间重叠；probability 与 weight 并存。
 - 加载器引用完整性测试与 Schema 测试同套件（实现阶段补引擎测试：进战斗带入/带出转换、control OR 合并、HP 持久化、转盘 seed 复现）。
-- 显示名与判定引用：`snapshot.labels` 与模板 `statusBar`/`attributes.labels` 一致且缺失时回退 id；`hitCheck`/`fleeCheck`/`checks.opposedDefault` 指向未声明属性被拒；`cannot_attack` 与 `forced_target_self` 在玩家侧与 AI 侧各有一条用例；战斗内物品含非白名单效果时拒绝且不扣库存。
+- 显示名与判定引用：`snapshot.labels` 与模板 `statusBar`/`attributes.labels` 一致且缺失时回退 id；`hitCheck`/`fleeCheck` 指向未声明属性被拒、模板写 `world.checks` 被按未知字段拒绝；`cannot_attack` 与 `forced_target_self` 在玩家侧与 AI 侧各有一条用例；战斗内物品含非白名单效果时拒绝且不扣库存；`fixed` 公式不再有浮动（`fixed: 10` 恒为 10）；技能治疗与物品治疗一样 clamp 到 HP 上限。
 
 ### V2.1 新增测试（按需求编号）
 

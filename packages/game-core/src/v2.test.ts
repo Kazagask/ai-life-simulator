@@ -367,7 +367,6 @@ function makeTestTemplate(): WorldTemplateV2 {
       mp: { base: 50, perLevel: 0, perAttribute: { cursedEnergy: 2 } },
     },
     regen: { perTurn: { hp: 2, mp: 1 } },
-    checks: {},
     characters: [
       {
         id: "enemy-x",

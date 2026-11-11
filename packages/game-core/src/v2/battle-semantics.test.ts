@@ -3,6 +3,7 @@ import { WorldTemplateV2Schema, type WorldTemplateV2 } from "@life-sim/shared";
 import { createLookup } from "./lookup.js";
 import { createActiveWorldV2 } from "./test-utils.js";
 import { createBattle, performBattleAction } from "./battle.js";
+import { maxHp } from "./engine.js";
 import { projectSnapshotV2 } from "./projection.js";
 import { createRng } from "../rng.js";
 
@@ -10,7 +11,7 @@ import { createRng } from "../rng.js";
  * 战斗展示层与控制语义的契约测试（协议 §4.5 / §6.3 / §10.4）：
  * 1) 资源/属性显示名必须来自模板，引擎与投影不得写死世界观用词；
  * 2) cannot_attack / forced_target_self 必须真正生效（此前仅声明未消费）；
- * 3) 记录「技能省略 hitCheck」与「fixed 公式 ±1 浮动」的当前行为，供规格裁决。
+ * 3) 钉住命中/伤害/治疗的缺省行为：省略 hitCheck = 必中、公式值不含浮动、治疗 clamp 到上限。
  */
 
 const RAW_TEMPLATE: Record<string, unknown> = {
@@ -32,7 +33,6 @@ const RAW_TEMPLATE: Record<string, unknown> = {
   attributes: { order: ["power"], defaults: { power: 10 }, labels: { power: "战力" } },
   resources: { hp: { base: 100, perLevel: 0 }, mp: { base: 50, perLevel: 0 } },
   regen: { perTurn: { hp: 0, mp: 0 } },
-  checks: {},
   characters: [
     {
       id: "mob",
@@ -184,7 +184,7 @@ describe("YAML 命中/伤害缺省行为（协议 §10.4）", () => {
     }
   });
 
-  it("记录现状：fixed=10 实际打出 9..11 点，引擎额外叠加 ±1 浮动（规格未定义）", () => {
+  it("fixed=10 恒为 10：公式结果不再叠加随机浮动（协议 §10.4）", () => {
     const dealt: number[] = [];
     for (let seed = 1; seed <= 20; seed++) {
       const { lookup, state } = setup(seed);
@@ -192,10 +192,18 @@ describe("YAML 命中/伤害缺省行为（协议 §10.4）", () => {
       performBattleAction(state, { type: "skill", skillId: "sk-strike" }, lookup, createRng(seed));
       dealt.push(before - state.battle!.enemies[0].hp);
     }
-    expect(Math.min(...dealt)).toBeGreaterThanOrEqual(9);
-    expect(Math.max(...dealt)).toBeLessThanOrEqual(11);
-    // 若某天按 §10.4 去掉浮动，这里会收窄为全 10，届时同步改断言
-    expect(new Set(dealt).size).toBeGreaterThan(1);
+    expect(new Set(dealt)).toEqual(new Set([10]));
+  });
+
+  it("技能治疗 clamp 到 HP 上限：不会把血治到超过 maxHp", () => {
+    const { template, lookup, state } = setup();
+    const cap = maxHp(state.player, template);
+    state.player.hp = cap - 2;
+    state.battle!.player.hp = cap - 2;
+    performBattleAction(state, { type: "skill", skillId: "sk-mend" }, lookup, createRng(1));
+    // heal=5 而缺口只有 2：日志只能报 2，且血量不得越过上限（随后敌方回合的伤害照常结算）
+    expect(state.battle!.log.join("\n")).toContain("回复 2 点");
+    expect(state.battle!.player.hp).toBeLessThanOrEqual(cap);
   });
 });
 
@@ -230,11 +238,7 @@ describe("Schema 校验 · 显示名与状态栏引用完整性", () => {
     expect(() => WorldTemplateV2Schema.parse(raw)).toThrow(/未知属性：agility/);
   });
 
-  it("fleeCheck 与 checks.opposedDefault 的属性引用同样在加载期校验", () => {
-    const raw = structuredClone(RAW_TEMPLATE) as Record<string, unknown>;
-    raw.checks = { opposedDefault: { attacker: "ghost", defender: "power", baseChance: 0.5 } };
-    expect(() => WorldTemplateV2Schema.parse(raw)).toThrow(/未知属性：ghost/);
-
+  it("fleeCheck 的属性引用同样在加载期校验", () => {
     const withFlee = structuredClone(RAW_TEMPLATE) as Record<string, unknown>;
     withFlee.events = [
       {

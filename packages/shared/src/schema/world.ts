@@ -142,16 +142,6 @@ export const WorldTemplateV2Schema = z
         actions: z.record(z.string(), z.object({ hp: z.number().nonnegative(), mp: z.number().nonnegative() }).strict()).optional(),
       })
       .strict(),
-    checks: z
-      .object({
-        opposedDefault: z
-          .object({ attacker: z.string().min(1), defender: z.string().min(1), baseChance: z.number().min(0).max(1) })
-          .strict()
-          .optional(),
-        fixedDefault: z.object({ value: z.number() }).strict().optional(),
-        scaledDefault: z.object({ multiplier: z.number() }).strict().optional(),
-      })
-      .strict(),
     characters: z.array(CharacterSchema),
     playerTemplate: PlayerTemplateSchema.optional(),
     /** 玩家行动定义（action-hook 事件的 onActionId 引用此处） */
@@ -228,12 +218,6 @@ export const WorldTemplateV2Schema = z
     Object.keys(w.attributes.labels ?? {}).forEach((attr) => {
       if (!attributeIds.has(attr)) add(["attributes", "labels"], `未知属性：${attr}`);
     });
-
-    // 判定默认值（协议 §4.6）的攻防槽位同样必须指向已声明属性
-    if (w.checks.opposedDefault) {
-      if (!attributeIds.has(w.checks.opposedDefault.attacker)) add(["checks", "opposedDefault", "attacker"], `未知属性：${w.checks.opposedDefault.attacker}`);
-      if (!attributeIds.has(w.checks.opposedDefault.defender)) add(["checks", "opposedDefault", "defender"], `未知属性：${w.checks.opposedDefault.defender}`);
-    }
 
     // 状态栏数据源引用（source=resource 的 key 只能是 hp/mp；source=attribute 的 keys 必须已声明）
     w.statusBar.forEach((section, i) => {

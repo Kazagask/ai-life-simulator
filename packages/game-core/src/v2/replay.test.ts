@@ -30,7 +30,6 @@ function makeReplayTemplate(): WorldTemplateV2 {
       mp: { base: 50, perLevel: 0 },
     },
     regen: { perTurn: { hp: 0, mp: 0 } },
-    checks: {},
     characters: [],
     skills: [],
     items: [],

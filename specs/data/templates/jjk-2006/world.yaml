@@ -71,10 +71,6 @@ regen:
   actions:
     rest: { hp: 20, mp: 10 }
 
-checks:
-  opposedDefault: { attacker: agility, defender: agility, baseChance: 0.5 }
-  scaledDefault: { multiplier: 1.0 }
-
 # 玩家行动（action-hook 事件引用此处 id；rest 同时享受 regen.actions.rest 额外回复）
 actions:
   - id: train

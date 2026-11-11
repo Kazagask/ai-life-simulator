@@ -93,6 +93,16 @@ function writeBack(battle: BattleState, c: Combatant): void {
 
 // ---------- 控制/补正辅助 ----------
 
+/**
+ * 目标 HP 上限：玩家按模板资源公式计算，敌人/友军取战斗实例的 maxHp。
+ * 用于治疗 clamp——超出上限的血量会被 finishBattle 持久化，下一轮 regen 再裁掉，属静默数据污染。
+ */
+function maxHpOf(target: Combatant, state: WorldStateV2, battle: BattleState, lookup: TemplateLookup): number {
+  if (target.isPlayer) return maxHp(state.player, lookup.template);
+  const unit = [...battle.enemies, ...battle.allies].find((u) => u.instanceId === target.id);
+  return unit?.maxHp ?? target.hp;
+}
+
 function controlOf(statuses: StatusInstance[], semantic: string, lookup: TemplateLookup): boolean {
   return statuses.some((inst) => {
     const control = lookup.status(inst.statusId)?.combat?.control;
@@ -264,18 +274,21 @@ function executeSkill(
 
     // 伤害
     if (skill.damage?.length) {
-      const raw = rollFormula(skill.damage, effC, caster.statuses, rng);
+      const raw = rollFormula(skill.damage, effC, caster.statuses);
       const takenBonus = multiplierOf(target.statuses, "damageTaken", lookup);
       const final = Math.max(0, Math.round(raw * (1 + dealtBonus) * (1 + takenBonus)));
       target.hp -= final;
       log(`${caster.name}的「${skill.name}」命中${target.isPlayer ? "你" : target.name}，造成 ${final} 点伤害。`);
     }
 
-    // 治疗
+    // 治疗：不得超过目标 HP 上限（物品治疗同样 clamp，避免 overheal 被持久化）
     if (skill.heal?.length) {
-      const amount = Math.max(0, Math.round(rollFormula(skill.heal, effC, caster.statuses, rng)));
-      target.hp += amount;
-      log(`${caster.name}的「${skill.name}」为${target.isPlayer ? "你" : target.name}回复 ${amount} 点${lookup.resourceLabel("hp")}。`);
+      const amount = Math.max(0, Math.round(rollFormula(skill.heal, effC, caster.statuses)));
+      const cap = maxHpOf(target, state, battle, lookup);
+      const before = target.hp;
+      target.hp = Math.min(cap, target.hp + amount);
+      const healed = target.hp - before;
+      log(`${caster.name}的「${skill.name}」为${target.isPlayer ? "你" : target.name}回复 ${healed} 点${lookup.resourceLabel("hp")}。`);
     }
 
     // 施加补正（onSelf → 施放者）
@@ -387,13 +400,13 @@ function roundEnd(battle: BattleState, state: WorldStateV2, lookup: TemplateLook
       for (const effect of facet?.onRoundEnd ?? []) {
         const eff = effectiveAttrsOf(c, lookup);
         if (effect.damage) {
-          const dmg = Math.max(0, Math.round(rollFormula([effect.damage], eff, c.statuses, rng)));
+          const dmg = Math.max(0, Math.round(rollFormula([effect.damage], eff, c.statuses)));
           c.hp -= dmg;
           battle.log.push(`${c.isPlayer ? "你" : c.name}受到「${lookup.status(inst.statusId)?.name}」的 ${dmg} 点持续伤害。`);
         }
         if (effect.heal) {
-          const heal = Math.max(0, Math.round(rollFormula([effect.heal], eff, c.statuses, rng)));
-          c.hp += heal;
+          const heal = Math.max(0, Math.round(rollFormula([effect.heal], eff, c.statuses)));
+          c.hp = Math.min(maxHpOf(c, state, battle, lookup), c.hp + heal);
         }
         for (const app of effect.applyStatus ?? []) {
           applyStatusCombat(c, app.status, app.stacks ?? 1, state, lookup, (t) => battle.log.push(t));
