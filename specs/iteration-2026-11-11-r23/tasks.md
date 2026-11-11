@@ -48,15 +48,15 @@
 
 ## 3. 阶段 2 — 可见性收口
 
-- [ ] **T2-01** 依赖：T1-03｜需求：`R-VS-01`、`R-VS-03`｜产出：`packages/shared/src/v2.ts`、`packages/game-core/src/v2/turn.ts`、`battle.ts`、`npc.ts`、`ending.ts`
+- [x] **T2-01** 依赖：T1-03｜需求：`R-VS-01`、`R-VS-03`｜产出：`packages/shared/src/v2.ts`、`packages/game-core/src/v2/turn.ts`、`battle.ts`、`npc.ts`、`ending.ts`
   加 `HistoryVisibility` 与 `HistoryEntryV2.visibility?`；`isPlayerVisible()` 唯一判定；`pushHistory()` 的 `visibility` 改必填并补齐 7 个写入点（`npc.ts:63` 那处不走 `pushHistory`，需单独赋值）；事件来源写入点一律传 `"public"`（OPEN_QUESTIONS #33：事件无隐藏语义，`EventV2Schema` 不加字段），仅 `ending.ts:368` 按结局叙事掩码（`narrativeConfig.masked`，ADR-0006）继承。
   完成定义：typecheck 0；缺失可见性的调用点应报类型错误（用一次临时删除自证后还原）；既有测试全绿（老数据缺字段视为 public）。
 
-- [ ] **T2-02** 依赖：T2-01｜需求：`R-VS-02`、`R-VS-04`｜产出：`packages/game-core/src/v2/history.ts`（新）、`projection.ts`、`archive.ts`、`apps/server/src/index.ts`
+- [x] **T2-02** 依赖：T2-01｜需求：`R-VS-02`、`R-VS-04`｜产出：`packages/game-core/src/v2/history.ts`（新）、`projection.ts`、`archive.ts`、`apps/server/src/index.ts`
   新增 `playerVisibleEntries()` / `playerVisibleHistory()` 两个纯函数；三个出口统一走它：`V2TurnResult.playerVisibleHistory`（**先过滤再 `slice(-20)`**）、`GET /history`、归档响应；新增 `projectArchiveForPlayer()` 返回过滤后记录 + `hiddenHistoryCount`。
   完成定义：三出口行为一致；`assembleArchive()` 产出的 `ArchiveRecord` 仍保留全量（存档事实不受影响）。
 
-- [ ] **T2-03** 依赖：T2-02｜需求：`R-VS-05`｜产出：`packages/game-core/src/v2/history-visibility.test.ts`
+- [x] **T2-03** 依赖：T2-02｜需求：`R-VS-05`｜产出：`packages/game-core/src/v2/history-visibility.test.ts`
   构造含 `hidden` 事件 + `hidden` 结局的世界，对 `snapshot` / `turnResult` / `/history` / `/archive` 四个出口做递归扫描（命中 hidden 条目的 id 或 summary 片段即失败）；另测"全是 hidden 时玩家端为空列表"与"先过滤再截断"。
   完成定义：≥6 项用例；去掉过滤实现时该测试必须失败（反向自证）。
 

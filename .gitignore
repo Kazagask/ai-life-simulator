@@ -4,6 +4,9 @@ dist
 .env.*
 !.env.example
 coverage
+
+# 存档数据目录（ADR-0007）：默认仓库根 data/worlds/，LIFE_SIM_DATA_DIR 可挂载
+/data/
 .DS_Store
 
 # Agent scratch / local experiment artifacts (not part of the repo)

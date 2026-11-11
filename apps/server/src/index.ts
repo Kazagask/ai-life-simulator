@@ -11,6 +11,7 @@ import {
   createDefaultEndingConfig,
   createLookup,
   createRunnerContext,
+  createTimeAdapter,
   evaluateLifeV2,
   playerVisibleEntries,
   projectArchiveForPlayer,
@@ -20,8 +21,8 @@ import {
   type TurnPipelineConfig,
 } from "@life-sim/game-core";
 import type { WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
-import { getEndingConfig, getEvaluationConfig, getOpeningTemplates, loadTemplates } from "./templates.js";
-import { worldStore } from "./store.js";
+import { getEndingConfig, getEvaluationConfig, getOpeningTemplates, getTemplateFingerprint, loadTemplates } from "./templates.js";
+import { dataDir, hydrate, loadPersistedWorlds, worldStore } from "./store.js";
 
 const app = Fastify({ logger: true });
 
@@ -54,6 +55,17 @@ app.addContentTypeParser("*", { parseAs: "string" }, (_request, body, done) => {
 
 const templates = loadTemplates();
 const lookups = new Map([...templates.entries()].map(([id, t]) => [id, createLookup(t)]));
+
+// ---------- 存档加载（R-PS-05 / ADR-0007）：四道校验关，坏档 error 跳过不阻断 ----------
+
+const persisted = loadPersistedWorlds(
+  new Map([...templates.entries()].map(([id, t]) => [id, getTemplateFingerprint(t.meta.id) ?? "sha256:unknown"])),
+);
+hydrate(persisted.loaded);
+if (persisted.errors.length > 0) {
+  for (const e of persisted.errors) app.log.error({ dataDir: dataDir(), file: e.file, reason: e.reason }, "save_skipped");
+}
+app.log.info({ dataDir: dataDir(), loaded: persisted.loaded.length, skipped: persisted.errors.length }, "worlds_loaded");
 
 /** 模板的可选分域配置（endings.yaml / evaluation.yaml）；缺失时用引擎默认配置。 */
 function pipelineOf(templateId: string): TurnPipelineConfig {
@@ -254,6 +266,63 @@ app.post("/api/worlds/:id/items/use", async (request, reply) => {
   } catch (error) {
     return handleEngineError(request, reply, error);
   }
+});
+
+/**
+ * 世界列表（R-PS-04 / design §3.5）：按 savedAt 倒序；空目录返回空数组不报 404。
+ * status 由 archived / termination 推导；endingTitle 取结局模板的公开标题。
+ */
+app.get("/api/worlds", async () => {
+  const worlds = worldStore
+    .all()
+    .map((w) => {
+      const template = templates.get(w.templateId);
+      const lookup = lookups.get(w.templateId);
+      const cfg = pipelineOf(w.templateId);
+      const status: "running" | "terminated" | "archived" =
+        w.archived === true ? "archived" : w.termination !== null ? "terminated" : "running";
+      // endingTitle：已终止时按结局模板决胜（同输入 ⇒ 同结果）；隐藏结局显示掩码标题
+      let endingTitle: string | undefined;
+      if (w.termination !== null && lookup) {
+        const cfgEnding = cfg.endingConfig ?? createDefaultEndingConfig();
+        const ctx = { state: w, lookup, rng: createRunnerContext(w.seed).rng };
+        const ending = resolveEnding(
+          w,
+          cfgEnding.endings,
+          ctx,
+          cfgEnding.fallback !== undefined ? { fallbackId: cfgEnding.fallback } : {},
+        );
+        const tpl = cfgEnding.endings.find((e) => e.endingId === ending.endingId);
+        endingTitle = tpl?.narrativeConfig.masked
+          ? (tpl.narrativeConfig.masked.title ?? "未公开的结局")
+          : (tpl?.narrativeConfig.title ?? tpl?.name);
+      }
+      return {
+        id: w.id,
+        templateId: w.templateId,
+        templateName: template?.meta.name ?? w.templateId,
+        playerName: w.player.name,
+        turnIndex: w.turnIndex,
+        worldTime: w.worldTime,
+        formattedTime: template && lookup ? createTimeAdapter(template).format(w.worldTime) : String(w.worldTime),
+        status,
+        endingTitle,
+        savedAt: worldStore.savedAt(w.id) ?? "",
+      };
+    })
+    .sort((a, b) => (a.savedAt < b.savedAt ? 1 : a.savedAt > b.savedAt ? -1 : 0));
+  return { worlds };
+});
+
+/** 删除世界（R-PS-04）：删文件 + 删内存条目；删除确认由前端负责。 */
+app.delete("/api/worlds/:id", async (request, reply) => {
+  const { id } = request.params as { id: string };
+  try {
+    worldStore.delete(id);
+  } catch {
+    return reply.code(404).send({ error: "world_not_found" });
+  }
+  return { deleted: id };
 });
 
 app.get("/api/worlds/:id/history", async (request, reply) => {

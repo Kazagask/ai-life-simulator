@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -37,6 +38,8 @@ const openingTemplates = new Map<string, OpeningTemplate[]>();
 /** 结局 / 评价同为可选分域（协议 §17 / §18）：未提供时引擎走最小默认配置。 */
 const endingConfigs = new Map<string, EndingConfig>();
 const evaluationConfigs = new Map<string, EvaluationConfig>();
+/** 模板指纹（ADR-0007 / 协议 §21.2）：目录内全部 YAML 排序拼接后 sha256，加载时计算缓存。 */
+const fingerprints = new Map<string, string>();
 
 function templatesDir(): string {
   if (process.env.TEMPLATES_DIR) return path.resolve(process.env.TEMPLATES_DIR);
@@ -90,17 +93,37 @@ function loadOptionalConfig<T>(
   return schema.parse(doc);
 }
 
+/**
+ * 模板指纹（协议 §21.2 / ADR-0007）：模板目录内全部 .yaml 文件按文件名排序，
+ * 拼接 `文件名 + "\0" + 内容` 后 sha256。指纹不匹配的存档拒绝加载——模板是权威
+ * 语义的一部分，措辞/数值/技能表改动后旧档语义已漂移。
+ */
+function computeFingerprint(dir: string): string {
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith(".yaml"))
+    .sort();
+  const hash = createHash("sha256");
+  for (const file of files) {
+    hash.update(file);
+    hash.update("\0");
+    hash.update(readFileSync(path.join(dir, file), "utf8"));
+  }
+  return `sha256:${hash.digest("hex")}`;
+}
+
 export function loadTemplates(): Map<string, WorldTemplateV2> {
   const dir = templatesDir();
   if (!existsSync(dir)) throw new Error(`templates_dir_missing: ${dir}`);
   const templates = new Map<string, WorldTemplateV2>();
   endingConfigs.clear();
   evaluationConfigs.clear();
+  fingerprints.clear();
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const worldDir = path.join(dir, entry.name);
     const template = loadTemplate(worldDir);
     templates.set(template.meta.id, template);
+    fingerprints.set(template.meta.id, computeFingerprint(worldDir));
     const openings = loadOpenings(worldDir);
     if (openings.length > 0) openingTemplates.set(template.meta.id, openings);
     const endings = loadOptionalConfig(worldDir, "endings.yaml", EndingConfigSchema);
@@ -110,6 +133,11 @@ export function loadTemplates(): Map<string, WorldTemplateV2> {
   }
   if (templates.size === 0) throw new Error(`no_templates_found_in: ${dir}`);
   return templates;
+}
+
+/** 存档信封用的模板指纹；loadTemplates 之后可用。 */
+export function getTemplateFingerprint(templateId: string): string | undefined {
+  return fingerprints.get(templateId);
 }
 
 /** 供 store.create 接线开局；未提供 opening.yaml 的世界返回空数组（走最小默认开局）。 */
