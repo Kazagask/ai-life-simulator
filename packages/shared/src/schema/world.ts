@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { EffectSchema, LifeStageSchema, TimeAmountSchema } from "./common.js";
 import { CharacterSchema, GenderDefSchema } from "./character.js";
+import { PLAYER_ID } from "./relation.js";
 import { SkillSchema } from "./skill.js";
 import { ItemSchema } from "./item.js";
 import { StatusEffectSchema } from "./status-effect.js";
@@ -276,6 +277,14 @@ export const WorldTemplateV2Schema = z
     // 性别引用
     w.characters.forEach((c, i) => {
       if (!genderIds.has(c.identity.gender)) add(["characters", i, "identity", "gender"], `未知性别：${c.identity.gender}`);
+    });
+    // R2.6 / ADR-0014：初始关系边声明 -> 角色引用（to 只能是已声明角色或 PLAYER_ID）
+    w.characters.forEach((c, i) => {
+      (c.relations ?? []).forEach((r, j) => {
+        if (r.to !== PLAYER_ID && !characterIds.has(r.to)) {
+          add(["characters", i, "relations", j, "to"], `未知关系目标：${r.to}`);
+        }
+      });
     });
     if (w.playerTemplate && !genderIds.has(w.playerTemplate.identity.gender)) {
       add(["playerTemplate", "identity", "gender"], `未知性别：${w.playerTemplate.identity.gender}`);

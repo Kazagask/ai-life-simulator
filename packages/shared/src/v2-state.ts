@@ -4,6 +4,7 @@ import { EndingConfigSchema } from "./schema/ending.js";
 import { EquipmentInstanceSchema } from "./schema/equipment.js";
 import { ScheduledEventInstanceSchema } from "./schema/event-instance.js";
 import { TerminationRecordSchema } from "./schema/ending.js";
+import { RelationEdgeSchema } from "./schema/relation.js";
 import type { BattleState, HistoryEntryV2, WorldStateV2 } from "./v2.js";
 
 /**
@@ -181,6 +182,8 @@ export const WorldStateV2Schema = z
     playerAgeAtStart: z.number(),
     player: V2PlayerSchema,
     npcs: z.array(V2NpcSchema),
+    /** R2.6 / ADR-0014：关系图边（实例层，NPC↔NPC 与 NPC↔玩家同构；配置域不复制） */
+    relations: z.array(RelationEdgeSchema),
     flags: z.record(z.string(), FlagsValueSchema),
     /** 过渡兼容索引：与 lastFiredIndex / eventFires 由 recordFire 一处写入 */
     firedEvents: z.record(z.string(), z.number().int().nonnegative()),

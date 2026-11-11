@@ -6,6 +6,7 @@
 
 export * from "./common.js";
 export * from "./character.js";
+export * from "./relation.js";
 export * from "./skill.js";
 export * from "./item.js";
 export * from "./equipment.js";

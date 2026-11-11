@@ -8,6 +8,7 @@ import type {
   EventOption,
   EventV2,
   Item,
+  RelationEdge,
   ScheduledEventInstance,
   Skill,
   StatusEffect,
@@ -216,6 +217,11 @@ export interface WorldStateV2 {
   playerAgeAtStart: number;
   player: V2Player;
   npcs: V2Npc[];
+  /**
+   * R2.6 / ADR-0014：关系图边（实例层）。kind 语义 = from→to（`{from:A,to:B,kind:"father"}` =
+   * B 是 A 的父亲）；默认 visibility=unknown（R-OP-05），known/inferred 才进玩家投影。
+   */
+  relations: RelationEdge[];
   /** 模板可读写的语义黑板；引擎内部记录不得写入（R-LM-02） */
   flags: Record<string, boolean | number | string>;
   /**

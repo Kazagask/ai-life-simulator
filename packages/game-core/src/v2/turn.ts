@@ -137,6 +137,20 @@ export function createWorldV2(
         lastActedAtTurn: 0,
         isEnemy: false,
       })),
+    // R2.6 / ADR-0014：初始关系边由 characters[].relations 声明（from=该角色）。
+    // visibility 缺省 unknown（R-OP-05 默认不认识）；npc.relationship 标量保留独立
+    // 兼容字段，不自动生成 known 边。
+    relations: template.characters.flatMap((c) =>
+      (c.relations ?? []).map((r) => ({
+        from: c.id,
+        to: r.to,
+        kind: r.kind,
+        source: "template" as const,
+        visibility: r.visibility ?? ("unknown" as const),
+        ...(r.value !== undefined ? { value: r.value } : {}),
+        ...(r.gap !== undefined ? { gap: r.gap } : {}),
+      })),
+    ),
     flags: {},
     firedEvents: {},
     // R2.5 实例层 / 事实层：全部由 createWorldV2 显式初始化，存档 strict 校验逐字段要求存在。

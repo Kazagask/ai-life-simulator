@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RelationDeclSchema } from "./relation.js";
 
 /**
  * 角色 Schema：玩家初始模板 / NPC / 敌人角色共用。
@@ -54,6 +55,12 @@ export const CharacterSchema = z
       })
       .strict(),
     relationship: z.number().min(-100).max(100),
+    /**
+     * R2.6 / ADR-0014：初始关系边声明（可选；from 隐含为该角色自身）。
+     * relationship 标量保留为「NPC→玩家」便捷投影，新代码优先读关系边。
+     * visibility 缺省 unknown（R-OP-05：默认不认识）。
+     */
+    relations: z.array(RelationDeclSchema).optional(),
   })
   .strict();
 
