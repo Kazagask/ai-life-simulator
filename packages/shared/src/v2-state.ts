@@ -53,6 +53,7 @@ const V2NpcSchema = CombatantBaseSchema.extend({
   knownGoals: z.array(z.string()),
   skills: z.array(z.string().min(1)),
   isEnemy: z.boolean(),
+  inventory: z.record(z.string(), z.number().int().nonnegative()),
   goals: z.array(z.string()),
   traits: z.array(z.string()),
   knowledge: z.array(z.string()),

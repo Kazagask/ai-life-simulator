@@ -70,6 +70,8 @@ export interface V2Npc extends V2CombatantBase {
   knownGoals: string[];
   skills: string[];
   isEnemy: boolean;
+  /** NPC 背包（createWorldV2 初始化为空对象；本轮不做 NPC 物品逻辑） */
+  inventory: Record<string, number>;
   /** 私有目标标签（效用评分 goalMatch，不进投影） */
   goals: string[];
   /** 私有性格标签（效用评分 traitAffinity，不进投影） */
