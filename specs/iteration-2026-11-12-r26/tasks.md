@@ -13,15 +13,15 @@
 
 ### T-A2 CalendarAdapter：gregorian 实现
 - **输入**：`packages/game-core/src/v2/time.ts`。
-- **产出**：`createTimeAdapter` 按 `preset` 分发；`format`/`ageAt`/`elapsedYears` 走自研公历（闰年/月长表，`Date`-free）；`toMinutes` gregorian 分支。
+- **产出**：`createTimeAdapter` 按 `preset` 分发；`format`/`elapsedYears` 走自研公历（闰年/月长表，`Date`-free）；`toMinutes` gregorian 分支。
 - **依赖**：T-A1。
-- **DoD**：2006 起算闰年/月长正确；生日未到不加岁；`pnpm` 测试新增 gregorian 正常/边界用例通过。
+- **DoD**：2006 起算闰年/月长正确；年龄按**日历年边界**推进（不精确到生日，ADR-0013 修订 R1 / OQ #47）；`pnpm` 测试新增 gregorian 正常/边界用例通过。
 
 ### T-A3 CalendarAdapter：custom 年号/纪元
 - **输入**：`time.ts`。
-- **产出**：`custom` 走 `months[]`/`leapRule`；`format` 渲染 `era.name` + 年内偏移；`toMinutes`/`ageAt` 按自定义月长。
+- **产出**：`custom` 走 `months[]`/`leapRule`；`format` 渲染 `era.name` + 年内偏移；`toMinutes`/`elapsedYears` 按自定义月长。
 - **依赖**：T-A2。
-- **DoD**：年号渲染正确；自定义月长累加无误；异常配置加载期拒载。
+- **DoD**：年号渲染正确；自定义月长累加无误；异常配置加载期拒载（**须有自动化用例**：`custom` 无 `months` → `ZodError path:['time','calendar','months']`，见 QA D-03）。
 
 ### T-A4 parseTimeSpec + 引擎换算路由
 - **输入**：`time.ts`（`parseTimeSpec`）、`engine.ts`（所有 `TimeSpec→minutes` 改走 `toMinutes`）。
@@ -81,3 +81,14 @@
 | WS-B 关系图 | T-B1 → T-B2 → T-B3 → T-B4 → T-B5 → T-B6 | ✅ done（eb2946d / 8ee3998 / ec4eef6 / c938f2a / ccf57b6 / 本轮末提交） |
 
 > 提交颗粒度：每个 `T-*` 一个 commit，信息注明任务 ID 与需求编号（R-CAL-*/R-REL-*）。
+
+## QA 验收补强（`R26-ACCEPTANCE.md` D-03/D-04/D-07/D-09）
+
+> 来源：`tasks/reports/R26-ACCEPTANCE.md`。判定均为「实现已有、缺自动化护栏」或「文档欠说明」，不改产品行为。
+
+| 项 | 内容 | 状态 |
+|---|---|---|
+| T-V1 | `custom` 历法未声明 `months` 须加载期拒载的**自动化用例**（D-03；实现已在 `world.ts` 的 calendar `superRefine`，QA 已手工实测 `ZodError`） | done |
+| T-V2 | `characters[].relations[].to` 引用未知角色须拒载的**自动化用例**（D-04；实现已在 `world.ts:283-287`） | done |
+| T-V3 | `v2/relations.ts` 从包入口导出（D-07；R-REL-01「查询 API」对外可见） | done |
+| T-V4 | 转盘 43 维 `timeCost` 全为 0 ⇒ 走完 44 轮世界时间仍停在开局时刻；**属预期**（转盘＝开局瞬时仪式），已在本文档记明，不再当缺陷（D-09） | done |

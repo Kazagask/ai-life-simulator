@@ -435,6 +435,17 @@ NPC 现无任何存活状态：死亡/失联的 NPC 照样被效用评分选中�
 - **确定性**：历法计算全部纯函数，零 `Date`/`Math.random`/种子依赖；`startYear`/`era` 为模板常量。
 - **验收/DoD**：见 `specs/iteration-2026-11-12-r26/tasks.md` T-A*。关联需求 R-NP-04、#39/#43/#44/#45。
 
+### ADR-0013 修订 R1（2026-11-12，QA 验收 D-02 触发 · 用户裁决「改规格」）
+
+- **问题**：原文决策 2 与 R-CAL-01/03 承诺 `ageAt(minute)`「生日未到不加岁」，但代码只实现 `elapsedYears`（语义 = **日历年边界跳岁**，`time.test.ts:197` 断言 `elapsedYears(366*1440) === 1` 即跨 2001-01-01 即 +1 岁）。全仓 `grep -rn "ageAt"` 在 `packages/`、`apps/` **零命中**，状态层亦**无生日字段**（`V2Player`/`V2Npc` 只有 `age` 与 `playerAgeAtStart`）。
+- **根因**：生日精度需要「出生月日」作为数据源，但模板 `identity` 无 `birthday`，角色创建（咒术转盘 43 维）也不采集生日。承诺了一个**无数据支撑**的语义，属规格过述，不是实现缺陷。
+- **裁决**（用户 2026-11-12 选定候选①）：**规格让一步**，把口径正式改写为「**年龄按日历年边界推进**」：
+  - `CalendarAdapter` 对外方法名为 `elapsedYears(minute): number`，**不新增 `ageAt`**；`player.age = playerAgeAtStart + elapsedYears(worldTime)`（`engine.ts`、`turn.ts` 现有写法即为正确实现）。
+  - `approx` 下 `elapsedYears = floor(minutes / 525600)`；`gregorian`/`custom` 下按历法「年」字段差值计算（跨年界即 +1，与生日无关）。
+  - 「生日未到不加岁」的精度承诺**撤回**，改登记 `OPEN_QUESTIONS #47`（若将来需要，须先给 `identity` 加 `birthday`，属核心数据模型变更，另立 ADR）。
+- **影响面**：`requirements.md` R-CAL-01/R-CAL-03 措辞、`tasks.md` T-A2/T-A3 的 DoD、`PROJECT.md` 的自评表述；**代码零改动**（现状即为修订后口径）。
+- **验收**：`time.test.ts` 现有 `elapsedYears` 用例即为修订后口径的护栏；新增断言「`ageAt` 不存在」不必要，改为文档一致即可。
+
 ---
 
 ## ADR-0014 关系图谱：NPC↔NPC 图 + 多跳中文称谓（relationship.js 分层复用）

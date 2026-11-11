@@ -5,9 +5,9 @@
 ## WS-A 时间适配器落地（#39 / #43 / #44 / #45）
 
 ### R-CAL-01 真实公历渲染
-- **When** 模板 `time.calendar.preset` 为 `"gregorian"`，**The system shall** 用真实公历月长（28–31）与闰年规则渲染 `CalendarAdapter.format(minute)` 与 `ageAt(minute)`，并以 `meta.startYear` 为纪元起始年。
-- **验收**：`worldTime` 跨 2 月/闰年时 `format` 与真实公历一致；2006 年起算的年龄在生日未到时不加岁。
-- **追溯**：#39（②③）、#43（候选 B）、ADR-0013 决策 2–3。
+- **When** 模板 `time.calendar.preset` 为 `"gregorian"`，**The system shall** 用真实公历月长（28–31）与闰年规则渲染 `CalendarAdapter.format(minute)` 与 `elapsedYears(minute)`，并以 `meta.startYear` 为纪元起始年。
+- **验收**：`worldTime` 跨 2 月/闰年时 `format` 与真实公历一致；年龄按**日历年边界**推进（跨年界 +1 岁，不精确到生日——生日精度见 `OQ #47`，ADR-0013 修订 R1）。
+- **追溯**：#39（②③）、#43（候选 B）、ADR-0013 决策 2–3 / 修订 R1。
 
 ### R-CAL-02 自定义历/年号/纪元渲染
 - **When** `preset` 为 `"custom"`，**The system shall** 按模板声明的 `months[]`/`leapRule`/`era` 渲染月份与年号（如「洪荒 3 亿年」「开元十二年」）。
@@ -15,9 +15,9 @@
 - **追溯**：#39（③）、#43（候选 C）、ADR-0013 决策 2/5。
 
 ### R-CAL-03 年龄按历法计算
-- **When** 任意 `preset`，**The system shall** 经 `CalendarAdapter.ageAt(minute)` 计算经过年数（生日未达不加岁，限 gregororian/custom），供 `player.age` 派生。
-- **验收**：`createTimeAdapter(template).elapsedYears(worldTime)` 与 `ageAt` 在 gregorian 下与公历生日规则一致；`approx` 下等同 `floor(minutes/525600)`。
-- **追溯**：ADR-0002、ADR-0012、R-NP-04。
+- **When** 任意 `preset`，**The system shall** 经 `CalendarAdapter.elapsedYears(minute)` 计算经过年数（按**日历年边界**推进，不精确到生日），供 `player.age` 派生。
+- **验收**：`createTimeAdapter(template).elapsedYears(worldTime)` 在 `gregorian`/`custom` 下按历法「年」字段差值计算（跨年界 +1），`approx` 下等同 `floor(minutes/525600)`；不要求生日精度（见 `OQ #47`）。
+- **追溯**：ADR-0002、ADR-0012、ADR-0013 修订 R1、R-NP-04。
 
 ### R-CAL-04 字符串 TimeSpec 字面量解析
 - **When** 输入为复合时长（`3d`/`2h30m`/`1y2m`）或历法日期字面量（`2006-12-24`、年号纪元串），**The system shall** 由 `CalendarAdapter.parseTimeSpec(spec, from)` 解析为内部分钟标量。

@@ -16,6 +16,8 @@ export * from "./v2/life-evaluation.js";
 export * from "./v2/archive.js";
 export * from "./v2/history.js";
 export * from "./v2/equipment-turn.js";
+// R2.6 关系图谱（ADR-0014）：R-REL-01 的查询 API 对外可见（建图/最短路径/称谓/投影）
+export * from "./v2/relations.js";
 
 // ---------- 确定性随机源（V2 引擎共用，非 V1 遗留） ----------
 export * from "./rng.js";
