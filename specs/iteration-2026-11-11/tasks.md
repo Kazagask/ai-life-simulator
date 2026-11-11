@@ -1,6 +1,6 @@
 # 迭代 R2 任务清单（Tasks）
 
-**版本：2026-11-11（R2.2 决策修订）｜状态：阶段 0/1/2/3 已完成（T2-01..04、T3-01..05 全部验收）；下一任务阶段 4 `T4-01`｜上游：`requirements.md`、`design.md`**
+**版本：2026-11-11（R2.2 决策修订）｜状态：阶段 0/1/2/3/4 已完成（T2-01..04、T3-01..05、T4-01..06 已勾选；阶段 4 遗留 4 项登记于 OPEN_QUESTIONS #28..#31）；下一任务阶段 5 `T5-01`｜上游：`requirements.md`、`design.md`**
 
 > **R2.1：时间穿越延期。** 阶段 7（`T7-01`～`T7-06`）与 `T1-02`（ADR-0005）整体 `DEFERRED`，编号与原文保留在文末「附录 A」，供 R3 恢复。本轮执行 34 个 ACTIVE 任务，验收 45 条 ACTIVE 需求。
 >
@@ -104,27 +104,27 @@
 
 ## 5. 阶段 4 — Ending / Evaluation / Archive
 
-- [ ] **T4-01** 依赖：T1-03、T2-01｜需求：R-EN-01、R-EN-02、R-EN-03、R-EN-07｜产出：`schema/ending.ts`、`v2/ending.ts` 条件检查
+- [x] **T4-01** 依赖：T1-03、T2-01｜需求：R-EN-01、R-EN-02、R-EN-03、R-EN-07｜产出：`schema/ending.ts`、`v2/ending.ts` 条件检查
   七类终止条件（含 `battleDefeat`）+ AND/OR + `immediate/afterSettle`；仅在模拟边界检查；**HP 不得作为终止判据**，静态检查 `ending.ts` 不读取 HP 判死。
   完成定义：结算中途临时满足不误触发；立即终止与结算后终止各有测试且无半更新状态；任意战斗/事件结算后 `state.player.hp >= 1`（P9）。
 
-- [ ] **T4-02** 依赖：T4-01｜需求：R-EN-04、R-EN-05、R-EN-08｜产出：结局筛选与决胜、`EndingRecord` 固化、`DeathRoute` 两路径
+- [x] **T4-02** 依赖：T4-01｜需求：R-EN-04、R-EN-05、R-EN-08｜产出：结局筛选与决胜、`EndingRecord` 固化、`DeathRoute` 两路径
   优先级 / 专属条件 / 互斥组 / fallback / 隐藏结局可见性；战败且死亡条件满足时按 `deathMode: event`（生成死亡事件走既有 chains）或 `direct`（直接触发结局）结束，并统一走 `markTerminated()`；战败但条件不满足时继续模拟。
   完成定义：三结局同满足时结果稳定；无专属命中走兜底；隐藏结局未解锁不进候选集；两条死亡路径各有测试且均不改写 HP。
 
-- [ ] **T4-03** 依赖：T4-02｜需求：R-EN-06、R-NFR-03｜产出：结局叙事 adapter + Zod 校验 + 模板回退
+- [x] **T4-03** 依赖：T4-02｜需求：R-EN-06、R-NFR-03｜产出：结局叙事 adapter + Zod 校验 + 模板回退
   三种叙事实来源；LLM 输出含虚构事实或校验失败时回退。
   完成定义：注入非法输出后最终状态逐字段不变，文案为模板回退版本。
 
-- [ ] **T4-04** 依赖：T1-01｜需求：R-EV-01、R-EV-02、R-EV-03、R-NFR-05｜产出：`schema/evaluation.ts`、`v2/life-evaluation.ts`
+- [x] **T4-04** 依赖：T1-01｜需求：R-EV-01、R-EV-02、R-EV-03、R-NFR-05｜产出：`schema/evaluation.ts`、`v2/life-evaluation.ts`
   六通用维度 + 模板增删改名调权；基于过程记录的确定性评分；结局类型仅作背景。
   完成定义：同结局不同过程得分不同；同过程不同结局得分可相近；`projectSnapshotV2` 内现算评价已移除，新模块为唯一事实来源。
 
-- [ ] **T4-05** 依赖：T4-04｜需求：R-EV-04、R-EV-05、R-EV-06｜产出：证据引用与总结编排
+- [x] **T4-05** 依赖：T4-04｜需求：R-EV-04、R-EV-05、R-EV-06｜产出：证据引用与总结编排
   每维度输出 `evidenceIds[]`；LLM 只组织语言；归档后只读。
   完成定义：每条证据 ID 可在本局历史中解析（P6）；篡改分数的 LLM 输出被拒；`ARCHIVED` 写操作被拒。
 
-- [ ] **T4-06** 依赖：T4-02、T4-05｜需求：R-AR-01、R-AR-02、R-AR-03｜产出：`v2/archive.ts`
+- [x] **T4-06** 依赖：T4-02、T4-05｜需求：R-AR-01、R-AR-02、R-AR-03｜产出：`v2/archive.ts`
   组装最终快照 / 事件历史 / 结局 / 评价 / `TerminationRecord` 并置 `archived = true`；沿用现有存档机制（不建阶段状态机）。
   完成定义：五类数据齐全且可回顾；无新增独立存档子系统。
 
