@@ -9,6 +9,10 @@ meta:
 
 time:
   defaultStep: { value: 4, unit: hour }
+  # R2.6 / ADR-0013：真实公历（月长 28–31、闰年）；缺省 approx（1 月=30 天）。
+  # TimeSpec 字符串字面量（如 "2006-12-24"、"3d2h"）自此按真实日历解析。
+  calendar:
+    preset: gregorian
   lifeStageSteps:
     childhood: { value: 1, unit: day }
     youth: { value: 4, unit: hour }

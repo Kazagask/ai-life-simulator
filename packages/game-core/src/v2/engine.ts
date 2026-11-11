@@ -356,16 +356,22 @@ export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefin
       case "adjustGrowth":
         state.player.growthLevel += effect.value;
         break;
-      case "advanceTo":
-        state.worldTime = Math.max(state.worldTime, amountToMinutes(effect.value));
-        state.player.age = state.playerAgeAtStart + createTimeAdapter(lookup.template).elapsedYears(state.worldTime);
+      case "advanceTo": {
+        // R2.6（ADR-0013）：目标量经历法适配器换算（基准 0 = 相对世界起始，绝不倒退）。
+        const cal = createTimeAdapter(lookup.template);
+        state.worldTime = Math.max(state.worldTime, cal.toMinutes(effect.value, 0));
+        state.player.age = state.playerAgeAtStart + cal.elapsedYears(state.worldTime);
         ctx.timeAdvanced = true;
         break;
-      case "advanceBy":
-        state.worldTime += amountToMinutes(effect.value);
-        state.player.age = state.playerAgeAtStart + createTimeAdapter(lookup.template).elapsedYears(state.worldTime);
+      }
+      case "advanceBy": {
+        // R2.6（ADR-0013）：相对量经历法适配器换算（gregorian 12 年含闰日）。
+        const cal = createTimeAdapter(lookup.template);
+        state.worldTime += cal.toMinutes(effect.value, state.worldTime);
+        state.player.age = state.playerAgeAtStart + cal.elapsedYears(state.worldTime);
         ctx.timeAdvanced = true;
         break;
+      }
       case "startChain": {
         if (startChain(state, effect.chainId, lookup)) {
           (ctx.startedChains ??= []).push(effect.chainId);

@@ -210,8 +210,8 @@ describe("V2 引擎 · advanceTime 绝对/相对时间推进", () => {
     consumeScheduleInstance(state, "ev-sp-briefing");
 
     const res = chooseOptionV2(state, { optionId: "opt-ack-canon" }, template, lookup);
-    // 时间跳跃约 12 年，年龄同步推进
-    expect(state.worldTime).toBe(12 * 525600);
+    // 时间跳跃 12 年（R2.6 gregorian：2006→2018 含 2008/2012/2016 三个闰日），年龄同步推进
+    expect(state.worldTime).toBe((12 * 365 + 3) * 1440);
     expect(state.player.age).toBe(state.playerAgeAtStart + 12);
     // 开启百鬼夜行事件链，待决为「决战前夜」二选一
     expect(state.chains.some((c) => c.id === "chain-night-parade" && c.status === "active")).toBe(true);
