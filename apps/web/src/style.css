@@ -10,6 +10,9 @@
   --accent: #7c8cff;
   --accent-2: #4fd1c5;
   --danger: #ff7a7a;
+  /* 转盘专用：咒术式朱红 + 描金（仅事件区转盘使用，不影响既有配色） */
+  --crimson: #c0392b;
+  --gold: #d8b177;
   --radius: 14px;
   --tabbar-h: 60px;
 }
@@ -499,10 +502,6 @@ button {
 .status-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .status-chip { border-color: var(--accent-2); color: var(--accent-2); font-size: 12px; }
 
-.event-active {
-  border: 1px solid var(--accent);
-  box-shadow: 0 0 18px rgba(124, 140, 255, 0.15);
-}
 .option-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 .option {
   text-align: left;
@@ -517,24 +516,156 @@ button {
 .option:disabled { opacity: 0.5; }
 .option:active { border-color: var(--accent); }
 
-.wheel-card {
-  border: 1px solid var(--accent-2);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-  margin-bottom: 10px;
-}
-.wheel-card strong { font-size: 18px; color: var(--accent-2); }
-.wheel-segments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.wheel-seg {
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 999px;
+/* ---------- 槽位区（事件区）：一轮只呈现一个占位者 ---------- */
+
+/*
+ * 用户裁决（2026-11-11）：三种事件（正常 / 随机 / 战斗）与自由行动共用一个区域，
+ * 这个区域就是「轮次槽位」的可视化。外框恒定，内里按占位者切换，玩家永远只面对一件事。
+ */
+.slot-area {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
   border: 1px solid var(--border);
+}
+
+.slot-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.slot-label {
+  font-size: 11px;
+  letter-spacing: 0.18em;
   color: var(--muted);
 }
-.wheel-seg.hit { border-color: var(--accent-2); color: var(--accent-2); font-weight: 700; }
 
-.battle { border-color: var(--danger); }
+.slot-badge {
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  letter-spacing: 0.04em;
+}
+
+.badge-wheel { color: var(--gold); }
+.badge-battle { color: var(--danger); }
+.badge-event { color: var(--accent); }
+.badge-action { color: var(--accent-2); }
+
+.slot-elapsed {
+  margin: 0;
+  padding: 8px 14px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.slot-body { padding: 12px 14px 14px; }
+.slot-body h2 { margin: 0 0 6px; font-size: 18px; }
+.slot-body h3 { margin: 0; }
+
+/* 槽位边框随占位者变色：战斗红、待决事件蓝、转盘金 */
+.slot-battle { border-color: color-mix(in srgb, var(--danger) 55%, var(--border)); }
+.slot-event { border-color: var(--accent); box-shadow: 0 0 18px rgba(124, 140, 255, 0.15); }
+.slot-wheel { border-color: color-mix(in srgb, var(--gold) 55%, var(--border)); }
+
+/* ---------- 随机事件转盘（咒术式：朱金外环 + 深墨扇区 + 顶部指针） ---------- */
+
+.wheel { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+
+.wheel-head { text-align: center; }
+.wheel-kicker {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.32em;
+  color: var(--gold);
+  opacity: 0.85;
+}
+.wheel-title { font-size: 16px; color: var(--text); }
+
+.wheel-stage {
+  position: relative;
+  width: min(232px, 74vw);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+}
+
+.wheel-dial { width: 100%; height: 100%; display: block; filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.45)); }
+
+.wheel-ring-outer {
+  fill: none;
+  stroke: var(--gold);
+  stroke-width: 1.4;
+  opacity: 0.5;
+}
+.wheel-ring-inner {
+  fill: #0f1420;
+  stroke: color-mix(in srgb, var(--gold) 55%, transparent);
+  stroke-width: 2;
+}
+
+.wheel-sector { stroke: #0b0e14; stroke-width: 1; }
+.wheel-sector.even { fill: #1b2234; }
+.wheel-sector.odd { fill: #232c42; }
+.wheel-sector.hit { fill: color-mix(in srgb, var(--crimson) 82%, #000); }
+
+.wheel-label {
+  fill: #d9dfee;
+  font-size: 11px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+}
+.wheel-label.hit { fill: #fff5e8; font-weight: 700; }
+
+.wheel-hub-ring { stroke: color-mix(in srgb, var(--gold) 60%, transparent); stroke-width: 1.4; }
+.wheel-hub-text {
+  fill: var(--gold);
+  font-size: 15px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+  letter-spacing: 0.06em;
+}
+
+/* 指针：固定在 12 点，朝下咬住扇区 */
+.wheel-pointer {
+  position: absolute;
+  top: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-top: 18px solid var(--crimson);
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--crimson) 70%, transparent));
+  z-index: 2;
+}
+
+.wheel-foot { min-height: 62px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.wheel-spinning-text { margin: 0; font-size: 13px; color: var(--muted); letter-spacing: 0.14em; }
+.wheel-result {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--gold);
+  letter-spacing: 0.08em;
+  animation: wheel-pop 0.34s cubic-bezier(.2,1.6,.4,1);
+}
+.wheel-continue { width: auto; padding: 8px 28px; }
+@keyframes wheel-pop {
+  from { transform: scale(0.6); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.battle-body { display: flex; flex-direction: column; }
 .battle-over { opacity: 0.85; }
 .enemy-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
 .ally-list { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
@@ -596,28 +727,6 @@ button {
 .tag-row { display: flex; gap: 6px; }
 
 .battle-self { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card-2); }
-
-.wheel-card { transition: border-color 0.3s; }
-.wheel-card.wheel-spinning { border-style: dashed; }
-.wheel-seg.pointer {
-  border-color: var(--accent);
-  color: #fff;
-  background: var(--accent);
-  font-weight: 700;
-  transform: scale(1.08);
-  transition: transform 0.12s;
-}
-.wheel-seg.hit {
-  border-color: var(--accent-2);
-  background: rgba(79, 209, 197, 0.15);
-  transform: scale(1.12);
-  transition: transform 0.25s;
-}
-.wheel-result { margin: 8px 0 0; font-size: 16px; font-weight: 700; color: var(--accent-2); animation: wheel-pop 0.3s ease-out; }
-@keyframes wheel-pop {
-  from { transform: scale(0.6); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
-}
 
 /* ---------- 个人页签：方格栏 / 详情区 / 子页签 / 面板摘要 ---------- */
 

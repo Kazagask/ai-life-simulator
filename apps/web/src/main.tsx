@@ -98,6 +98,20 @@ interface LastResult {
   wheel: WheelResultView | null;
 }
 
+/**
+ * 槽位占位者（用户 2026-11-11 裁决）：轮次槽位 = 事件区的呈现单位，
+ * 「正常事件 / 随机事件 / 战斗 / 自由行动」四者共用一个区域，一个轮次只呈现一个。
+ * 随机事件由服务端结算后随轮次结果直接返回，前端在事件区以转盘揭示它（不再散落在结果卡里）。
+ */
+type SlotOccupant = "wheel" | "battle" | "event" | "action";
+
+const SLOT_BADGE: Record<SlotOccupant, string> = {
+  wheel: "随机事件",
+  battle: "战斗",
+  event: "待你决定",
+  action: "自由行动",
+};
+
 function App() {
   const [worldId, setWorldId] = useState<string | null>(loadWorldId());
   const [snapshot, setSnapshot] = useState<V2Snapshot | null>(null);
@@ -337,6 +351,7 @@ function App() {
             onUseItem={useItem}
             onArchive={archive}
             onEndLife={endLife}
+            onDismissWheel={() => setLastResult((prev) => (prev ? { ...prev, wheel: null } : prev))}
           />
         )}
         {tab === "people" && <PeopleTab snapshot={snapshot} />}
@@ -585,6 +600,7 @@ function LifeTab({
   onUseItem,
   onArchive,
   onEndLife,
+  onDismissWheel,
 }: {
   snapshot: V2Snapshot;
   busy: boolean;
@@ -595,9 +611,29 @@ function LifeTab({
   onUseItem: (itemId: string) => void;
   onArchive: () => void;
   onEndLife: () => void;
+  onDismissWheel: () => void;
 }) {
   // 已终止 / 已归档：世界不再接受动作，只呈现结局（服务端同时清空 availableActions）
   const ended = snapshot.status === "terminated" || snapshot.status === "archived";
+
+  // 槽位唯一：一个轮次的事件区只呈现一个占位者。
+  // 转盘（随机事件，服务端已结算）> 战斗 > 待决事件 > 自由行动（空槽）。
+  const wheel = lastResult?.wheel ?? null;
+  const occupant: SlotOccupant = wheel
+    ? "wheel"
+    : snapshot.battle
+      ? "battle"
+      : snapshot.pendingEvent
+        ? "event"
+        : "action";
+
+  // 「本轮还发生了什么」：已结算的其它事件叙述。
+  // 待决事件由事件面板呈现、随机事件由转盘呈现，都不在底栏重复。
+  const alsoHappened = (lastResult?.events ?? []).filter(
+    (e) => e.id !== snapshot.pendingEvent?.eventId && e.id !== wheel?.eventId,
+  );
+  const wheelTitle = (lastResult?.events ?? []).find((e) => e.id === wheel?.eventId)?.title ?? "随机事件";
+
   return (
     <div className="stack">
       <PlayerCard snapshot={snapshot} />
@@ -611,47 +647,62 @@ function LifeTab({
         />
       )}
 
-      {!ended && snapshot.battle && (
-        <BattlePanel
-          snapshot={snapshot}
-          busy={busy}
-          onBattle={onBattle}
-          onContinue={() => onAdvance({ type: "free", description: "" })}
-        />
-      )}
+      {!ended && (
+        <section className={`card slot-area slot-${occupant}`}>
+          <header className="slot-head">
+            <span className="slot-label">事件区</span>
+            <span className={`slot-badge badge-${occupant}`}>{SLOT_BADGE[occupant]}</span>
+          </header>
+          {lastResult?.elapsed && <p className="slot-elapsed">过去{lastResult.elapsed}</p>}
 
-      {!ended && snapshot.pendingEvent && (
-        <EventPanel snapshot={snapshot} busy={busy} onChoose={onChoose} />
-      )}
-
-      {!ended && !snapshot.battle && !snapshot.pendingEvent && (
-        <ActionPanel
-          snapshot={snapshot}
-          busy={busy}
-          onAdvance={onAdvance}
-          onUseItem={onUseItem}
-          onEndLife={onEndLife}
-        />
-      )}
-
-      {lastResult && (
-        <section className="card result">
-          {lastResult.elapsed && <h3>过去{lastResult.elapsed}</h3>}
-          {lastResult.wheel && <WheelCard wheel={lastResult.wheel} />}
-          {lastResult.events.length > 0 && (
-            <div className="stack-sm">
-              {lastResult.events.map((event) => (
-                <div key={event.id} className="event-card">
-                  <strong>⚡ {event.title}</strong>
-                  <p>{event.narrative}</p>
-                </div>
-              ))}
-            </div>
-          )}
-          {lastResult.events.length === 0 && !lastResult.wheel && (
-            <p className="muted">世界平静地流转着。</p>
-          )}
+          <div className="slot-body">
+            {occupant === "wheel" && wheel && (
+              <WheelReveal
+                wheel={wheel}
+                title={wheelTitle}
+                onContinue={() => onDismissWheel()}
+              />
+            )}
+            {occupant === "battle" && (
+              <BattlePanel
+                snapshot={snapshot}
+                busy={busy}
+                onBattle={onBattle}
+                onContinue={() => onAdvance({ type: "free", description: "" })}
+              />
+            )}
+            {occupant === "event" && (
+              <EventPanel snapshot={snapshot} busy={busy} onChoose={onChoose} />
+            )}
+            {occupant === "action" && (
+              <ActionPanel
+                snapshot={snapshot}
+                busy={busy}
+                onAdvance={onAdvance}
+                onUseItem={onUseItem}
+                onEndLife={onEndLife}
+              />
+            )}
+          </div>
         </section>
+      )}
+
+      {alsoHappened.length > 0 && (
+        <section className="card result">
+          <h3 className="result-title">本轮还发生</h3>
+          <div className="stack-sm">
+            {alsoHappened.map((event) => (
+              <div key={event.id} className="event-card">
+                <strong>⚡ {event.title}</strong>
+                <p>{event.narrative}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {lastResult && !ended && alsoHappened.length === 0 && !wheel && !snapshot.pendingEvent && !snapshot.battle && (
+        <p className="muted result-quiet">世界平静地流转着。</p>
       )}
     </div>
   );
@@ -696,66 +747,139 @@ function EndingPanel({
   );
 }
 
-// ---------- 转盘揭示（带滚动动画：高亮指针先快后慢，停在命中扇区） ----------
+// ---------- 随机事件转盘（咒术式圆盘：扇区按权重切分，指针固定，转子先快后慢停住） ----------
 
-function WheelCard({ wheel }: { wheel: WheelResultView }) {
-  const hitIndex = Math.max(0, wheel.segments.findIndex((s) => s.label === wheel.label));
-  const [active, setActive] = useState(hitIndex);
-  const [spinning, setSpinning] = useState(true);
+/** 扇区几何：0° 在正上方、顺时针为正；极坐标换算与 SVG 的 y 轴向下对齐。 */
+const WHEEL_SIZE = 232;
+const WHEEL_C = WHEEL_SIZE / 2;
+const WHEEL_R = WHEEL_C - 12;
+
+function polar(r: number, deg: number): { x: number; y: number } {
+  const rad = ((deg - 90) * Math.PI) / 180;
+  return { x: WHEEL_C + r * Math.cos(rad), y: WHEEL_C + r * Math.sin(rad) };
+}
+
+function sectorPath(a0: number, a1: number): string {
+  const p0 = polar(WHEEL_R, a0);
+  const p1 = polar(WHEEL_R, a1);
+  const large = a1 - a0 > 180 ? 1 : 0;
+  return `M ${WHEEL_C} ${WHEEL_C} L ${p0.x.toFixed(2)} ${p0.y.toFixed(2)} A ${WHEEL_R} ${WHEEL_R} 0 ${large} 1 ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} Z`;
+}
+
+/**
+ * 随机事件揭示：服务端已用 RNG 结算（`wheelResult`），前端只做视觉呈现，不参与抽取。
+ * 扇区面积按权重等比——玩家看到的概率就是真实概率，不另做「假均匀」美化。
+ * 旋转量 = 整圈数 + 把命中扇区中心转到指针（12 点）所需的补角；动画结束后落定并给「继续」。
+ */
+function WheelReveal({
+  wheel,
+  title,
+  onContinue,
+}: {
+  wheel: WheelResultView;
+  title: string;
+  onContinue: () => void;
+}) {
+  const segs = wheel.segments;
+  const total = segs.reduce((sum, s) => sum + Math.max(0, s.weight), 0) || segs.length;
+  let cursor = 0;
+  const sectors = segs.map((seg, i) => {
+    const weight = Math.max(0, seg.weight);
+    // 末扇区吸收浮点余量，保证 360° 闭合（否则指针可能落在缝隙上）
+    const sweep = i === segs.length - 1 ? 360 - cursor : (weight / total) * 360;
+    const start = cursor;
+    cursor += sweep;
+    return { label: seg.label, weight, start, sweep, center: start + sweep / 2 };
+  });
+  const hit = sectors.find((s) => s.label === wheel.label) ?? sectors[0];
+  const target = 360 * 4 + (360 - hit.center);
+
+  const [spinning, setSpinning] = useState(false);
+  const [settled, setSettled] = useState(false);
 
   useEffect(() => {
-    // 指针扫描：间隔从 70ms 阶梯放大到 420ms，总时长约 2.6s 后停在命中扇区
-    const steps: number[] = [];
-    let gap = 70;
-    let t = 0;
-    while (gap < 420) {
-      steps.push(gap);
-      t += gap;
-      gap = Math.round(gap * 1.18);
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+    if (reduce) {
+      setSettled(true);
+      return;
     }
-    // 收尾步：保证最后一步恰好落在命中扇区
-    let idx = 0;
-    let cancelled = false;
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    let acc = 0;
-    steps.forEach((g, i) => {
-      acc += g;
-      timers.push(
-        setTimeout(() => {
-          if (cancelled) return;
-          idx = i + 1;
-          setActive((idx + hitIndex) % Math.max(1, wheel.segments.length));
-        }, acc),
-      );
-    });
-    timers.push(
-      setTimeout(() => {
-        if (!cancelled) {
-          setActive(hitIndex);
-          setSpinning(false);
-        }
-      }, acc + 60),
-    );
-    return () => {
-      cancelled = true;
-      timers.forEach(clearTimeout);
-    };
-  }, [hitIndex, wheel.segments.length]);
+    // 先渲染 0° 再翻到目标角，浏览器才有过渡起点（同帧切换会被合并成瞬移）
+    const raf = requestAnimationFrame(() => setSpinning(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   return (
-    <div className={`wheel-card ${spinning ? "wheel-spinning" : ""}`}>
-      {spinning ? <strong>🎡 命运转动中…</strong> : <strong>🎡 {wheel.label}</strong>}
-      <div className="wheel-segments">
-        {wheel.segments.map((seg, i) => (
-          <span
-            key={seg.label}
-            className={`wheel-seg ${spinning && i === active ? "pointer" : ""} ${!spinning && seg.label === wheel.label ? "hit" : ""}`}
-          >
-            {seg.label}
-          </span>
-        ))}
+    <div className="wheel">
+      <div className="wheel-head">
+        <span className="wheel-kicker">命运之轮</span>
+        <strong className="wheel-title">{title}</strong>
       </div>
-      {!spinning && <p className="wheel-result">{wheel.label}！</p>}
+
+      <div className="wheel-stage">
+        <div className="wheel-pointer" aria-hidden="true" />
+        <svg
+          className="wheel-dial"
+          viewBox={`0 0 ${WHEEL_SIZE} ${WHEEL_SIZE}`}
+          role="img"
+          aria-label={`转盘：${sectors.map((s) => s.label).join("、")}`}
+        >
+          <defs>
+            <radialGradient id="wheel-hub" cx="50%" cy="42%" r="70%">
+              <stop offset="0%" stopColor="#2b3550" />
+              <stop offset="100%" stopColor="#121724" />
+            </radialGradient>
+          </defs>
+          {/* 外圈：双环 + 刻度，咒术式朱金配色 */}
+          <circle cx={WHEEL_C} cy={WHEEL_C} r={WHEEL_R + 6} className="wheel-ring-outer" />
+          <circle cx={WHEEL_C} cy={WHEEL_C} r={WHEEL_R + 2} className="wheel-ring-inner" />
+          <g
+            className="wheel-rotor"
+            style={{
+              transform: `rotate(${spinning ? target : 0}deg)`,
+              transformOrigin: `${WHEEL_C}px ${WHEEL_C}px`,
+              transition: spinning ? "transform 2.6s cubic-bezier(.13,.72,.06,1)" : "none",
+            }}
+            onTransitionEnd={() => setSettled(true)}
+          >
+            {sectors.map((s, i) => {
+              const isHit = s.label === wheel.label;
+              return (
+                <g key={`${s.label}-${i}`}>
+                  <path
+                    d={sectorPath(s.start, s.start + s.sweep)}
+                    className={`wheel-sector ${i % 2 === 0 ? "even" : "odd"} ${settled && isHit ? "hit" : ""}`}
+                  />
+                  <text
+                    className={`wheel-label ${settled && isHit ? "hit" : ""}`}
+                    x={polar(WHEEL_R * 0.64, s.center).x}
+                    y={polar(WHEEL_R * 0.64, s.center).y}
+                    transform={`rotate(${s.center} ${polar(WHEEL_R * 0.64, s.center).x} ${polar(WHEEL_R * 0.64, s.center).y}) rotate(${s.center > 90 && s.center < 270 ? 180 : 0} ${polar(WHEEL_R * 0.64, s.center).x} ${polar(WHEEL_R * 0.64, s.center).y})`}
+                  >
+                    {s.label}
+                  </text>
+                </g>
+              );
+            })}
+          </g>
+          <circle cx={WHEEL_C} cy={WHEEL_C} r={26} fill="url(#wheel-hub)" className="wheel-hub-ring" />
+          <text className="wheel-hub-text" x={WHEEL_C} y={WHEEL_C + 1}>
+            命
+          </text>
+        </svg>
+      </div>
+
+      <div className="wheel-foot" aria-live="polite">
+        {settled ? (
+          <>
+            <p className="wheel-result">{hit.label}</p>
+            <button className="primary wheel-continue" onClick={onContinue}>
+              继续
+            </button>
+          </>
+        ) : (
+          <p className="wheel-spinning-text">轮盘转动中…</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -773,8 +897,7 @@ function EventPanel({
 }) {
   const ev = snapshot.pendingEvent!;
   return (
-    <section className="card event-active">
-      <span className="tag">事件 · 需要你的决定</span>
+    <div className="event-body">
       <h2>{ev.title}</h2>
       <p>{ev.narrative}</p>
       <div className="option-list">
@@ -785,7 +908,7 @@ function EventPanel({
         ))}
       </div>
       {ev.options.length === 0 && <p className="muted">（没有可选项……）</p>}
-    </section>
+    </div>
   );
 }
 
@@ -809,7 +932,7 @@ function BattlePanel({
   const effectiveTarget = target && aliveEnemies.some((e) => e.instanceId === target) ? target : aliveEnemies[0]?.instanceId;
 
   return (
-    <section className={`card battle ${b.over ? "battle-over" : ""}`}>
+    <div className={`battle-body ${b.over ? "battle-over" : ""}`}>
       <div className="row">
         <h3>⚔ 战斗 · 第 {b.round} 回合</h3>
         {b.over && (
@@ -925,7 +1048,7 @@ function BattlePanel({
           <p key={i}>{line}</p>
         ))}
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -948,8 +1071,7 @@ function ActionPanel({
   const usableItems = snapshot.player.inventory.filter((i) => i.usableOutsideBattle);
 
   return (
-    <section className="card">
-      <h3>行动</h3>
+    <div className="action-body">
       <div className="action-grid">
         {snapshot.availableActions.map((action) => (
           <button
@@ -997,7 +1119,7 @@ function ActionPanel({
       <button className="end-life" disabled={busy} onClick={onEndLife}>
         结束这一生
       </button>
-    </section>
+    </div>
   );
 }
 

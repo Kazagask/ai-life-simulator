@@ -1,17 +1,25 @@
-# R2.5 任务分解（未开工）
+# R2.5 任务分解
 
-> **状态：全部 `pending`。** G1 未过——本文件只做任务分解，不代表允许编码。
+> **状态：`T1-*` / `T2-*` 全部 `pending`。** G1 对引擎与数据模型仍未过。
 > 开工前置：用户在 `docs/OPEN_QUESTIONS.md` #34 / #35 / #36 / #37 / #39 上给出裁决（对应设计 `Q-R25-01..05`），裁决结果回填到本文件「裁决回填」表后，才从 `T1-01` 开始。
+>
+> **例外：T0-10（槽位事件区 UI）已按用户 2026-11-11 指示提前实施并提交**——纯前端呈现改动，不动引擎/数据模型，覆盖 `R-EV-11` 呈现部分；其「记账部分」仍归 `T1-07`。
 
 ## 0. 裁决回填表（等用户）
 
 | 待决 | 影响任务 | 裁决 | 回填后要改的地方 |
 |---|---|---|---|
-| `#34` 立即事件呈现时点（下一轮 vs 当前轮） | `T1-01`、`T1-07` | 待定 | `PendingEvent` 是否加 deferred 标记；`advanceTurnV2` 开局是否先消费 deferred 事件 |
+| `#34` 立即事件呈现时点（下一轮 vs 当前轮） | `T1-01`、`T1-07` | **部分裁决**（2026-11-11）：随机事件占轮次、结算随轮次结果返回、在通用事件区呈现（R-EV-11）；normal 事件呈现时点仍待定 | `PendingEvent` 是否加 deferred 标记；`advanceTurnV2` 开局是否先消费 deferred 事件 |
 | `#35` 协议层「仅一个」强制方式 | `T1-01`、`T1-07` | 待定 | 加载期 superRefine 拒绝，或运行期首个胜出 + 日志 |
 | `#36` 窗口到期未触发处置 | `T1-03` | 待定 | `evaluateDue` 的 `hold` / `expire` 分支；`missedEvents` 写入时机 |
 | `#37` 相对时间基准 | `T1-03` | 待定 | `TimeExpr.relative` 换算锚点 |
 | `#39` 三种时间模型枚举 | `T2-04` | 待定 | `birthTime` 字段形状与 `CalendarAdapter` 接口 |
+
+## 0.1 已提前实施（用户指示，例外放行）
+
+| 任务 | 内容 | 覆盖需求 | 状态 |
+|---|---|---|---|
+| `T0-10` | **槽位事件区 + 圆形转盘**：LifeTab 重构为统一「事件区」容器（槽位可视化），占位者优先级 转盘 > 战斗 > 待决事件 > 自由行动；`WheelReveal` 圆形转盘（SVG 扇区按权重等比、朱金配色、指针固定 12 点、2.6s 缓动落定、prefers-reduced-motion 直出结果）；「本轮还发生」底栏去重（排除待决事件与转盘事件） | R-EV-11（呈现部分） | ✅ 已提交（本迭代） |
 
 ## 1. R2.5 · 事件模型（先做）
 
@@ -23,7 +31,7 @@
 | `T1-04` | **删除全模板扫描**：删 `resolveScheduleV2`；`createWorldV2` 初始化即入队全部 `schedule` 事件；`opening.handoff()` 真正入队并删除 `flags["openingScheduled:*"]`；`turnsPlayed` flag 删除（≡ `turnIndex`） | R-EV-08、R-LM-02 | `T1-03` | 创建世界后 `scheduledEvents` 含全部 schedule 事件；`turn.ts` 无 `template.events` 遍历（除入队与 pool 抽取）；`openingScheduled:*` 与 `turnsPlayed` 全仓库零命中 |
 | `T1-05` | **pool 降格为抽取器**：抽中→`enqueueEvent`（`delay` 按 `Q-R25-02`）；保留最后触发的管线位次；`probability`/`weight` 语义与 drain 阶段如何分工写清 | R-EV-08 | `T1-03` | pool 抽中不产生 `pendingEvents` 条目；抽中即入队的实例可被 drain 取出；pool 的 once/冷却不重复扣减 |
 | `T1-06` | **链与断链**：`evaluateChain()` 纯函数（active 的充分条件含「队列仍有该链未触发实例」）；`ChainStateV2.stepIndex` 改为派生或标注缓存；`advanceChain` 效果（`engine.ts:370-375` 盲目 `+1`）收口到单一推进规则；`advanceWhen` 去留按 `Q-R25-06` | R-EV-10 | `T1-03` | 链步为延时事件时不断链；队列空且无后续步才判完成；同一链不会出现 `stepIndex` 双写漂移（用例覆盖 `advanceChain` 与 settle 同时发生） |
-| `T1-07` | **槽位守卫与立即事件**：按 `#34` 裁决实现呈现时机；按 `#35` 实现「仅一个」强制；`pending_event_required` 语义收窄为「槽位被占则拒绝自由行动」 | R-EV-01/02/03 | `T1-01`、`#34`、`#35` | 槽位不变量用例（任一轮至多一个事件或一次行动）；违规模板按裁决口径被拒绝/降级；`random`/`combat` 即时结算不占槽位 |
+| `T1-07` | **槽位守卫与立即事件**：按 `#34` 裁决实现呈现时机；按 `#35` 实现「仅能有一个」强制；`pending_event_required` 语义收窄为「槽位被占则拒绝自由行动」 | R-EV-01/02/03 | `T1-01`、`#34`、`#35` | 槽位不变量用例（任一轮至多一个事件或一次行动）；违规模板按裁决口径被拒绝/降级；随机事件占其触发轮槽位、结算随轮次结果返回（R-EV-11 记账部分）；combat 为该轮槽位内容 |
 | `T1-08` | **模板与夹具迁移**：`jjk-2006/events.yaml`（1 schedule、5 pool、1 action-hook、~20 chain）；`opens`/测试夹具中的 `atTurn`（`v2.test.ts:737/768`）与 `advanceWhen`（`:711/:786`）；指纹重算 | R-EV-09 | `T1-01`…`T1-07` | 模板加载通过；旧回放断言按新 RNG 序列重录并注明「序列变更」；无模板残留旧字段 |
 | `T1-09` | **协议与验收**：`TEMPLATE_PROTOCOL_V2.md` §8（触发）/§12（条件）/新增调度章节；`tasks/reports/R25-COMPLETION.md` | 全部 EV | `T1-08` | 协议与实现逐字段一致；报告含命令输出与端到端证据（curl：到点触发 / 错失 / 断链不误判） |
 
