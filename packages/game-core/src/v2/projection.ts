@@ -65,6 +65,10 @@ export function projectSnapshotV2(
         count,
         usableOutsideBattle: def?.usableOutsideBattle ?? false,
         usableInBattle: def?.usableInBattle ?? false,
+        // 展示字段（T5-02 / R-EQ-09）：不含任何补正结果——补正只进 effectiveAttributes（P8）
+        type: def?.type ?? "key",
+        slot: def?.slot,
+        category: def?.category,
       };
     });
 

@@ -12,11 +12,14 @@ import {
   createLookup,
   createRunnerContext,
   createTimeAdapter,
+  equipErrorCodeOf,
+  equipV2,
   evaluateLifeV2,
   playerVisibleEntries,
   projectArchiveForPlayer,
   projectSnapshotV2,
   resolveEnding,
+  unequipV2,
   useItemV2,
   type TurnPipelineConfig,
 } from "@life-sim/game-core";
@@ -265,6 +268,60 @@ app.post("/api/worlds/:id/items/use", async (request, reply) => {
     return { worldId: found.world.id, snapshot: res.snapshot };
   } catch (error) {
     return handleEngineError(request, reply, error);
+  }
+});
+
+// ---------- 装备穿脱（R-EQ-07 / R-EQ-08 / design §5.2）：不推进时间 ----------
+
+const equipSchema = z.object({ itemId: z.string().min(1) }).strict();
+const unequipSchema = z.object({ instanceId: z.string().min(1) }).strict();
+
+/** 穿脱错误码映射：409 = 状态冲突但请求合法；400 = 请求本身不对（design §5.2 表）。 */
+function handleEquipError(request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply, error: unknown) {
+  const code = equipErrorCodeOf(error);
+  if (code === null) return handleEngineError(request, reply, error);
+  request.log.warn({ code }, "equipment_error");
+  if (code === "slot_full" || code === "slot_category_mismatch") {
+    return reply.code(409).send({ error: code, detail: error instanceof Error ? error.message : String(error) });
+  }
+  return reply.code(400).send({ error: code, detail: error instanceof Error ? error.message : String(error) });
+}
+
+app.post("/api/worlds/:id/equipment/equip", async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const found = getWorld(id);
+  if (!found) return reply.code(404).send({ error: "world_not_found" });
+
+  const parsed = equipSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({ error: "invalid_body", detail: parsed.error.flatten() });
+  }
+
+  try {
+    const res = equipV2(found.world, parsed.data, found.template, found.lookup);
+    worldStore.save(res.state);
+    return { worldId: found.world.id, snapshot: res.snapshot };
+  } catch (error) {
+    return handleEquipError(request, reply, error);
+  }
+});
+
+app.post("/api/worlds/:id/equipment/unequip", async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const found = getWorld(id);
+  if (!found) return reply.code(404).send({ error: "world_not_found" });
+
+  const parsed = unequipSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({ error: "invalid_body", detail: parsed.error.flatten() });
+  }
+
+  try {
+    const res = unequipV2(found.world, parsed.data, found.template, found.lookup);
+    worldStore.save(res.state);
+    return { worldId: found.world.id, snapshot: res.snapshot };
+  } catch (error) {
+    return handleEquipError(request, reply, error);
   }
 });
 

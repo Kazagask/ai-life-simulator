@@ -1,5 +1,6 @@
-import type { HistoryEntryV2, WorldStateV2 } from "@life-sim/shared";
+import type { HistoryEntryV2, HistoryVisibility, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
 import { isPlayerVisible } from "@life-sim/shared";
+import { createTimeAdapter } from "./time.js";
 import type { ArchiveRecord } from "./archive.js";
 
 /**
@@ -30,4 +31,23 @@ export function projectArchiveForPlayer(
     history: visible,
     hiddenHistoryCount: record.history.length - visible.length,
   };
+}
+
+/**
+ * 历史写入工具（T5-01 从 turn.ts 提取，供多个编排模块复用）：
+ * visibility 由签名强制提供（协议 §21.1），补齐 turnIndex / worldTime / formattedTime。
+ */
+export function pushHistory(
+  state: WorldStateV2,
+  template: WorldTemplateV2,
+  entry: Omit<HistoryEntryV2, "turnIndex" | "worldTime" | "formattedTime"> & {
+    visibility: HistoryVisibility;
+  },
+): void {
+  state.history.push({
+    ...entry,
+    turnIndex: state.turnIndex,
+    worldTime: state.worldTime,
+    formattedTime: createTimeAdapter(template).format(state.worldTime),
+  });
 }

@@ -37,7 +37,7 @@ import { nextInstanceId } from "./equipment.js";
 import { runNpcActionsV2 } from "./npc.js";
 import type { TemplateLookup } from "./lookup.js";
 import { projectSnapshotV2 } from "./projection.js";
-import { playerVisibleHistory } from "./history.js";
+import { playerVisibleHistory, pushHistory } from "./history.js";
 import {
   applyDeathRoute,
   assertActive,
@@ -614,22 +614,6 @@ function tickSimulationStatuses(state: WorldStateV2, lookup: TemplateLookup, isR
     remaining.push(inst);
   }
   state.player.statuses = remaining;
-}
-
-function pushHistory(
-  state: WorldStateV2,
-  template: WorldTemplateV2,
-  entry: Omit<HistoryEntryV2, "turnIndex" | "worldTime" | "formattedTime"> & {
-    /** 写入侧强制提供（协议 §21.1）；缺省编译报错 */
-    visibility: HistoryVisibility;
-  },
-): void {
-  state.history.push({
-    ...entry,
-    turnIndex: state.turnIndex,
-    worldTime: state.worldTime,
-    formattedTime: createTimeAdapter(template).format(state.worldTime),
-  });
 }
 
 // ---------- 玩家选项 ----------

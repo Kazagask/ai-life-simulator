@@ -532,3 +532,112 @@ describe("装备投影（前端装备栏数据源）", () => {
     expect(snapshot.player.equipment).toEqual([]);
   });
 });
+
+// ---------- 穿脱编排（T5-01 / R-EQ-07 / R-EQ-08 / design §5.1） ----------
+
+import { equipV2, unequipV2, equipErrorCodeOf } from "./equipment-turn.js";
+import { markTerminated, EndingGuardError } from "./ending.js";
+import { markArchived } from "./archive.js";
+
+describe("穿脱编排 equipV2 / unequipV2（R-EQ-07 / R-EQ-08）", () => {
+  it("成功装备：写回实例 + 新增 1 条 public 历史 + worldTime/turnIndex 不变", () => {
+    const { template, lookup, state } = setup();
+    const before = JSON.parse(JSON.stringify({ worldTime: state.worldTime, turnIndex: state.turnIndex, history: state.history.length }));
+    const res = equipV2(state, { itemId: "eq-scaled" }, template, lookup);
+    expect(res.state.player.equipment?.map((e) => e.itemId)).toContain("eq-scaled");
+    expect(res.state.worldTime).toBe(before.worldTime); // 不推进时间（R-EQ-08）
+    expect(res.state.turnIndex).toBe(before.turnIndex);
+    expect(res.state.history.length).toBe(before.history + 1);
+    const entry = res.state.history[res.state.history.length - 1];
+    expect(entry.type).toBe("player_action");
+    expect(entry.visibility).toBe("public");
+    expect(entry.summary).toContain("灵环");
+  });
+
+  it("成功卸下：实例移除 + 新增 public 历史 + 时间不变", () => {
+    const { template, lookup, state } = setup();
+    const instanceId = state.player.equipment![0].instanceId; // 初始装备 eq-fixed
+    const res = unequipV2(state, { instanceId }, template, lookup);
+    expect(res.state.player.equipment).toHaveLength(0);
+    expect(res.state.worldTime).toBe(state.worldTime);
+    const entry = res.state.history[res.state.history.length - 1];
+    expect(entry.visibility).toBe("public");
+    expect(entry.summary).toContain("铁剑");
+  });
+
+  it("七种错误码逐一抛 [equip]/[unequip] 且状态不变（equipErrorCodeOf 可解析）", () => {
+    const { template, lookup, state } = setup();
+    const expectCode = (fn: () => unknown, code: string, op: string) => {
+      try {
+        fn();
+        expect.unreachable(`应抛 ${op} ${code}`);
+      } catch (e) {
+        expect(e instanceof Error && e.message).toBe(`[${op}] ${code}`);
+        expect(equipErrorCodeOf(e)).toBe(code);
+      }
+    };
+    expectCode(() => equipV2(state, { itemId: "nope" }, template, lookup), "item_not_found", "equip");
+    // potion 未在玩家背包 → 先给背包再测 item_not_equipment
+    const withPotion = makeTemplate((raw) => {
+      (raw.playerTemplate as Record<string, unknown>).items = [
+        ...(raw.playerTemplate as Record<string, unknown>).items as unknown[],
+        { itemId: "potion", count: 1 },
+      ];
+    });
+    expectCode(() => equipV2(state, { itemId: "potion" }, withPotion, createLookup(withPotion)), "item_not_equipment", "equip");
+    expectCode(() => equipV2(state, { itemId: "eq-fixed" }, template, lookup), "not_owned", "equip"); // 仅初始装备，不在背包
+    const slotless = makeTemplate();
+    slotless.equipment = { ...slotless.equipment!, slots: slotless.equipment!.slots!.filter((s) => s.id !== "accessory") };
+    expectCode(() => equipV2(state, { itemId: "eq-scaled" }, slotless, createLookup(slotless)), "slot_not_found", "equip");
+    const mismatched = makeTemplate();
+    const scaled = mismatched.items.find((i) => i.id === "eq-scaled")!;
+    scaled.category = "amulet";
+    expectCode(() => equipV2(state, { itemId: "eq-scaled" }, mismatched, createLookup(mismatched)), "slot_category_mismatch", "equip");
+    const twoWeapons = makeTemplate((raw) => {
+      (raw.items as Record<string, unknown>[]).push({
+        id: "eq-axe", type: "equipment", name: "战斧", stackable: false,
+        usableInBattle: false, usableOutsideBattle: false, slot: "weapon", category: "blade", quality: "common",
+      });
+    });
+    state.player.inventory["eq-axe"] = 1; // 测试前置：背包塞第二把武器（weapon maxCount=1，已有一件）
+    const frozen = JSON.stringify(state); // 前置变更之后拍快照：后续失败调用不得改状态
+    expectCode(() => equipV2(state, { itemId: "eq-axe" }, twoWeapons, createLookup(twoWeapons)), "slot_full", "equip");
+    expectCode(() => unequipV2(state, { instanceId: "equip-none-9" }, template, lookup), "instance_not_found", "unequip");
+    expect(JSON.stringify(state)).toBe(frozen); // 失败不写状态
+  });
+
+  it("已终止 / 已归档世界拒绝穿脱（assertActive 门禁）", () => {
+    const { template, lookup, state } = setup();
+    const terminated = markTerminated(state, { reason: "r", worldTime: 0, turnIndex: 0, source: "condition" });
+    expect(() => equipV2(terminated, { itemId: "eq-scaled" }, template, lookup)).toThrow(EndingGuardError);
+    expect(() => unequipV2(terminated, { instanceId: "equip-eq-fixed-1" }, template, lookup)).toThrow(EndingGuardError);
+    const archived = markArchived(terminated);
+    expect(() => equipV2(archived, { itemId: "eq-scaled" }, template, lookup)).toThrow(EndingGuardError);
+  });
+});
+
+describe("属性逐字段不变（R-EQ-10 / P8）", () => {
+  it("穿 / 脱前后 player.attributes 逐字段相等；effectiveAttributes 差值等于补正值", () => {
+    const { template, lookup, state } = setup();
+    const attrsBefore = { ...state.player.attributes };
+    const effBefore = playerEffectiveAttributes(state, lookup);
+
+    // eq-scaled（spirit scaled：base 1 + 0.2×spirit）
+    const res = equipV2(state, { itemId: "eq-scaled" }, template, lookup);
+    expect(res.state.player.attributes).toEqual(attrsBefore); // 基础属性逐字段不变
+    const effAfter = playerEffectiveAttributes(res.state, lookup);
+    expect(effAfter.spirit - effBefore.spirit).toBeCloseTo(1 + 0.2 * attrsBefore.spirit, 10); // 补正只进有效值
+    expect(effAfter.power).toBeCloseTo(effBefore.power, 10);
+
+    const unequipped = unequipV2(res.state, { instanceId: "equip-eq-scaled-1" }, template, lookup);
+    expect(unequipped.state.player.attributes).toEqual(attrsBefore);
+    expect(playerEffectiveAttributes(unequipped.state, lookup)).toEqual(effBefore);
+  });
+
+  it("装备实例键集合不含补正字段（R-EQ-04 / P8）", () => {
+    const { template, lookup, state } = setup();
+    const res = equipV2(state, { itemId: "eq-stacked" }, template, lookup);
+    const instance = res.state.player.equipment!.find((e) => e.itemId === "eq-stacked")!;
+    expect(Object.keys(instance).sort()).toEqual(["instanceId", "itemId", "ownerId", "slot"].sort());
+  });
+});

@@ -316,7 +316,18 @@ export interface V2Snapshot {
     attributes: Record<string, number>;
     statuses: StatusView[];
     skills: Array<{ id: string; name: string; description: string; kind: string }>;
-    inventory: Array<{ itemId: string; name: string; description: string; count: number; usableOutsideBattle: boolean; usableInBattle: boolean }>;
+    inventory: Array<{
+      itemId: string;
+      name: string;
+      description: string;
+      count: number;
+      usableOutsideBattle: boolean;
+      usableInBattle: boolean;
+      /** 展示字段（T5-02 / R-EQ-09）：来自物品定义，不含补正结果 */
+      type: "consumable" | "material" | "key" | "equipment";
+      slot?: string;
+      category?: string;
+    }>;
     /**
      * 已装备实例投影：只含展示字段（实例 id / 物品 id / 槽位 / 层数 / 耐久 / 显示名）。
      * 不含任何补正结果——补正由内核每次结算现算（R-EQ-04 / P8）。

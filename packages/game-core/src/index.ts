@@ -14,6 +14,7 @@ export * from "./v2/narrative.js";
 export * from "./v2/life-evaluation.js";
 export * from "./v2/archive.js";
 export * from "./v2/history.js";
+export * from "./v2/equipment-turn.js";
 
 // ---------- 确定性随机源（V2 引擎共用，非 V1 遗留） ----------
 export * from "./rng.js";
