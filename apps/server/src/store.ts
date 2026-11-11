@@ -25,7 +25,11 @@ import { getOpeningTemplates, getTemplateFingerprint } from "./templates.js";
  *   `LIFE_SIM_DATA_DIR` 环境变量可覆盖为任意绝对路径以支持挂载（2026-11-11 用户裁决）。
  */
 
-const SCHEMA_VERSION = 1;
+/**
+ * R2.5（ADR-0007）：信封 1 → 2。世界状态新增实例层延时队列与事实层记录，
+ * 旧档无法机械推导，一律拒载；加载器对 schemaVersion !== 2 记 error 跳过。
+ */
+const SCHEMA_VERSION = 2;
 
 /** 内存保存时间（savedAt），列表接口按其倒序。 */
 const savedAtById = new Map<string, string>();

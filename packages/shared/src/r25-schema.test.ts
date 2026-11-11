@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
-import { WorldTemplateV2Schema } from "./schema/index.js";
+import { ScheduledEventInstanceSchema, WorldTemplateV2Schema } from "./schema/index.js";
 
 /**
  * R2.5 / T1-01 加载期契约验收：
@@ -210,6 +210,31 @@ describe("R2.5 · pool 与战斗解耦 / 新字段 strict（R-EV-13 / R-LM-05）
       ]),
     );
     expect(bad.some((m) => m.includes("notAField") || m.includes("Unrecognized"))).toBe(true);
+  });
+
+  it("R-EV-15：ScheduledEventInstance 不含六个配置域字段的副本（strict + 静态扫描）", () => {
+    const configFields = ["probability", "weight", "once", "priority", "conditions", "onActionId"];
+    const valid = {
+      instanceId: "evi-0",
+      definitionId: "ev-x",
+      origin: { kind: "pool", id: "ev-x" },
+      window: { start: 0 },
+      hasEnd: false,
+      enqueuedAt: 0,
+      enqueueSeq: 0,
+      status: "waiting",
+    };
+    const parsed = ScheduledEventInstanceSchema.parse(valid);
+    for (const field of configFields) {
+      expect(Object.keys(parsed)).not.toContain(field);
+      expect(ScheduledEventInstanceSchema.safeParse({ ...valid, [field]: 0.5 }).success).toBe(false);
+    }
+    const source = readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "schema/event-instance.ts"), "utf8");
+    const declaredKeys = source
+      .split(/\r?\n/)
+      .map((line) => /^\s{2,}([A-Za-z][A-Za-z0-9]*):\s*z\./.exec(line)?.[1])
+      .filter((k): k is string => k !== undefined);
+    for (const field of configFields) expect(declaredKeys).not.toContain(field);
   });
 
   it("enqueueEvent 效果引用未知事件被拒，引用已知事件通过", () => {

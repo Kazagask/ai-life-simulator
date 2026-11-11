@@ -73,10 +73,10 @@ describe("数据目录（2026-11-11 用户裁决：不在 apps/server 下，可�
 });
 
 describe("写入与信封（R-PS-01/03）", () => {
-  it("create/save 落盘；信封字段齐全（schemaVersion=1 / savedAt / templateId / fingerprint / state）", () => {
+  it("create/save 落盘；信封字段齐全（schemaVersion=2 / savedAt / templateId / fingerprint / state）", () => {
     const state = makeRealWorld();
     const envelope = readEnvelope(state.id);
-    expect(envelope.schemaVersion).toBe(1);
+    expect(envelope.schemaVersion).toBe(2);
     expect(typeof envelope.savedAt).toBe("string");
     expect(envelope.templateId).toBe("t");
     expect(typeof envelope.templateFingerprint).toBe("string");
@@ -179,6 +179,83 @@ describe("往返一致性（R-PS-07）", () => {
     expect(parsed.firedEvents).toEqual(state.firedEvents);
     expect(parsed.history.length).toBe(state.history.length);
     expect(parsed.player.inventory).toEqual(state.player.inventory);
+  });
+
+  it("R2.5：实例层 / 事实层新字段逐字段往返无损（含 hasEnd 无限期与错失标签）", () => {
+    const state = makeRealWorld();
+    // 注入一份完整的 R2.5 新状态（不依赖调度器，仅测存档边界）
+    state.scheduledEvents = [
+      {
+        instanceId: "evi-0",
+        definitionId: "ev-saved",
+        origin: { kind: "schedule-init", id: "ev-saved" },
+        window: { start: 1440 },
+        hasEnd: false,
+        enqueuedAt: 0,
+        enqueueSeq: 0,
+        status: "waiting",
+      },
+      {
+        instanceId: "evi-1",
+        definitionId: "ev-saved-ended",
+        origin: { kind: "pool", id: "ev-saved-ended" },
+        window: { start: 2880, end: 4320 },
+        hasEnd: true,
+        enqueuedAt: 1440,
+        enqueueSeq: 1,
+        status: "expired",
+      },
+    ];
+    state.enqueueSeqCounter = 2;
+    state.eventFires = [{ eventId: "ev-saved", turnIndex: 1, worldTime: 1440 }];
+    state.lastFiredIndex = { "ev-saved": { turnIndex: 1, worldTime: 1440 } };
+    state.missedEvents = [
+      { eventId: "ev-saved-ended", instanceId: "evi-1", turnIndex: 3, worldTime: 4321, reason: "window_expired" },
+      { eventId: "ev-saved", instanceId: "evi-0", turnIndex: 2, worldTime: 2880, reason: "miss_when", label: "前提已失效" },
+    ];
+    worldStore.save(state);
+    const envelope = readEnvelope(state.id) as { state: WorldStateV2 };
+    const parsed = WorldStateV2Schema.parse(envelope.state);
+    expect(parsed.scheduledEvents).toEqual(state.scheduledEvents);
+    expect(parsed.enqueueSeqCounter).toBe(2);
+    expect(parsed.eventFires).toEqual(state.eventFires);
+    expect(parsed.lastFiredIndex).toEqual(state.lastFiredIndex);
+    expect(parsed.missedEvents).toEqual(state.missedEvents);
+    // 无 end 的实例不使用任何数值哨兵
+    expect("end" in parsed.scheduledEvents[0].window).toBe(false);
+  });
+
+  it("R2.5：旧 schemaVersion=1 存档被拒且原因可诊断", () => {
+    const state = makeRealWorld();
+    const envelope = readEnvelope(state.id) as Record<string, unknown>;
+    writeFileSync(
+      path.join(dataDir(), "old-v1.json"),
+      JSON.stringify({ ...envelope, schemaVersion: 1, state: { ...(envelope.state as object), id: "w-old-v1" } }),
+      "utf-8",
+    );
+    const result = loadPersistedWorlds(new Map([["t", "sha256:stale"]]));
+    expect(result.errors.some((e) => e.reason === "schema_version_mismatch: 1")).toBe(true);
+    expect(result.loaded.some((w) => w.id === "w-old-v1")).toBe(false);
+  });
+
+  it("R2.5：worldTime 非整数 / MissReason 越界 / hasEnd 与 window.end 不一致均被拒", () => {
+    const state = makeRealWorld();
+    const badTime = structuredClone(state);
+    (badTime as unknown as { worldTime: number }).worldTime = 1.5;
+    expect(WorldStateV2Schema.safeParse(badTime).success).toBe(false);
+
+    const badReason = structuredClone(state);
+    badReason.missedEvents.push({
+      eventId: "ev", instanceId: "evi-9", turnIndex: 1, worldTime: 0, reason: "once_fired" as never,
+    });
+    expect(WorldStateV2Schema.safeParse(badReason).success).toBe(false);
+
+    const badHasEnd = structuredClone(state);
+    badHasEnd.scheduledEvents.push({
+      instanceId: "evi-9", definitionId: "ev", origin: { kind: "effect", id: "ev" },
+      window: { start: 0 }, hasEnd: true, enqueuedAt: 0, enqueueSeq: 9, status: "waiting",
+    });
+    expect(WorldStateV2Schema.safeParse(badHasEnd).success).toBe(false);
   });
 });
 

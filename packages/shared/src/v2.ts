@@ -8,6 +8,7 @@ import type {
   EventOption,
   EventV2,
   Item,
+  ScheduledEventInstance,
   Skill,
   StatusEffect,
   TimeAmount,
@@ -129,10 +130,44 @@ export interface BattleState {
 
 // ---------- 待决事件 ----------
 
+/**
+ * 待玩家决策的即时普通事件（R2.5 起**只**承载槽位呈现队列，不再兼作调度队列）。
+ * 延时事件一律进 `scheduledEvents`，到期出队后才可能产生这里的条目。
+ */
 export interface PendingEvent {
   eventId: string;
   /** 归属链（chain 事件） */
   chainId?: string;
+}
+
+// ---------- R2.5 事实层 / 派生索引 ----------
+
+/** 错失原因封闭枚举：新增原因须改协议（design §3.4.1）。 */
+export type MissReason = "window_expired" | "miss_when";
+
+/** 错失事实（append-only）：一条记录必然能在 scheduledEvents 找到对应 instanceId。 */
+export interface MissedEventRecord {
+  eventId: string;
+  instanceId: string;
+  turnIndex: number;
+  /** 判定错失时的世界分钟（整数） */
+  worldTime: number;
+  reason: MissReason;
+  /** 模板 missLabel 透传，仅 miss_when 有意义 */
+  label?: string;
+}
+
+/** 触发事实（append-only）：同一 eventId 可多条，写入后逐字段不变（R-LM-03）。 */
+export interface EventFireRecord {
+  eventId: string;
+  turnIndex: number;
+  worldTime: number;
+}
+
+/** 派生索引/缓存（**不是事实**）：可从 eventFires 重建，承接 once/冷却/eventOccurred 的 O(1) 查询。 */
+export interface LastFiredIndexEntry {
+  turnIndex: number;
+  worldTime: number;
 }
 
 // ---------- 世界状态 ----------
@@ -176,15 +211,32 @@ export interface WorldStateV2 {
   templateId: string;
   seed: number;
   turnIndex: number;
+  /** 世界时间 = **整数分钟**（R-LM-05；本轮按 #45 裁决不加数值上界校验） */
   worldTime: number;
   playerAgeAtStart: number;
   player: V2Player;
   npcs: V2Npc[];
+  /** 模板可读写的语义黑板；引擎内部记录不得写入（R-LM-02） */
   flags: Record<string, boolean | number | string>;
-  /** eventId -> 最近触发轮次（once/冷却判定） */
+  /**
+   * 【R2.5 过渡兼容】eventId -> 最近触发轮次，保留为 O(1) 「last fired turn」索引。
+   * 与 `lastFiredIndex` / `eventFires` 三者**只由 scheduler.recordFire 一处写入**，不得散写。
+   * 保留原因：ending.ts / turn.ts / 27 处既有消费与测试依赖该数值形态，本轮不冒险批量改写。
+   * R2.6 可统一收敛到 `lastFiredIndex`（含 worldTime）后退役本字段。
+   */
   firedEvents: Record<string, number>;
+  /** 实例层：延时队列（有 id / status / 固化窗口，可审计，不复制配置域字段） */
+  scheduledEvents: ScheduledEventInstance[];
+  /** 全局单调入队序号，纯状态递增（不用 Date / 随机） */
+  enqueueSeqCounter: number;
+  /** 事实层：错失记录（append-only） */
+  missedEvents: MissedEventRecord[];
+  /** 事实层：触发日志（append-only） */
+  eventFires: EventFireRecord[];
+  /** 派生索引：可从 eventFires 重建；冷却读 worldTime */
+  lastFiredIndex: Record<string, LastFiredIndexEntry>;
   chains: ChainStateV2[];
-  /** 待玩家决策的普通事件队列（FIFO） */
+  /** 待玩家决策的普通事件队列（FIFO，只承载槽位呈现） */
   pendingEvents: PendingEvent[];
   /** 进行中的战斗（同一时刻至多一场；over 后保留至下一次轮次推进时清除） */
   battle: BattleState | null;

@@ -128,6 +128,12 @@ export function createWorldV2(
       })),
     flags: {},
     firedEvents: {},
+    // R2.5 实例层 / 事实层：全部由 createWorldV2 显式初始化，存档 strict 校验逐字段要求存在。
+    scheduledEvents: [],
+    enqueueSeqCounter: 0,
+    missedEvents: [],
+    eventFires: [],
+    lastFiredIndex: {},
     chains: [],
     pendingEvents: [],
     battle: null,

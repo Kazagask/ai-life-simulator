@@ -2,6 +2,7 @@ import { z } from "zod";
 import { CombatSettleSchema } from "./schema/event.js";
 import { EndingConfigSchema } from "./schema/ending.js";
 import { EquipmentInstanceSchema } from "./schema/equipment.js";
+import { ScheduledEventInstanceSchema } from "./schema/event-instance.js";
 import { TerminationRecordSchema } from "./schema/ending.js";
 import type { BattleState, HistoryEntryV2, WorldStateV2 } from "./v2.js";
 
@@ -140,18 +141,54 @@ const WheelResultViewSchema = z
 
 const FlagsValueSchema = z.union([z.boolean(), z.number(), z.string()]);
 
+/** 错失原因封闭枚举（design §3.4.1）；模板不能自由书写 reason 文本。 */
+export const MissReasonSchema = z.enum(["window_expired", "miss_when"]);
+
+const MissedEventRecordSchema = z
+  .object({
+    eventId: z.string().min(1),
+    instanceId: z.string().min(1),
+    turnIndex: z.number().int().nonnegative(),
+    worldTime: z.number().int(),
+    reason: MissReasonSchema,
+    label: z.string().min(1).optional(),
+  })
+  .strict();
+
+const EventFireRecordSchema = z
+  .object({
+    eventId: z.string().min(1),
+    turnIndex: z.number().int().nonnegative(),
+    worldTime: z.number().int(),
+  })
+  .strict();
+
+const LastFiredIndexEntrySchema = z
+  .object({
+    turnIndex: z.number().int().nonnegative(),
+    worldTime: z.number().int(),
+  })
+  .strict();
+
 export const WorldStateV2Schema = z
   .object({
     id: z.string().min(1),
     templateId: z.string().min(1),
     seed: z.number().int(),
     turnIndex: z.number().int().nonnegative(),
-    worldTime: z.number(),
+    /** 整数分钟（R-LM-05）；#45 裁决本轮不加数值上界校验 */
+    worldTime: z.number().int(),
     playerAgeAtStart: z.number(),
     player: V2PlayerSchema,
     npcs: z.array(V2NpcSchema),
     flags: z.record(z.string(), FlagsValueSchema),
+    /** 过渡兼容索引：与 lastFiredIndex / eventFires 由 recordFire 一处写入 */
     firedEvents: z.record(z.string(), z.number().int().nonnegative()),
+    scheduledEvents: z.array(ScheduledEventInstanceSchema),
+    enqueueSeqCounter: z.number().int().nonnegative(),
+    missedEvents: z.array(MissedEventRecordSchema),
+    eventFires: z.array(EventFireRecordSchema),
+    lastFiredIndex: z.record(z.string(), LastFiredIndexEntrySchema),
     chains: z.array(ChainStateV2Schema),
     pendingEvents: z.array(PendingEventSchema),
     battle: BattleStateSchema.nullable(),
