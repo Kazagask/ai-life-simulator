@@ -34,7 +34,7 @@ describe("V2 引擎 · 模板加载", () => {
     expect(template.meta.id).toBe("jjk-2006");
     expect(template.events.length).toBeGreaterThan(5);
     expect(template.skills.some((s) => s.id === "sk-domain-void")).toBe(true);
-    expect(template.chains?.length).toBe(4);
+    expect(template.chains?.length).toBe(5);
   });
 
   it("怀玉·玉折主线：schedule 绝对时间开场 + 事件链 + 分支结局", () => {

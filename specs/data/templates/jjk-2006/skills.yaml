@@ -171,3 +171,143 @@ skills:
     unlocksOptions: [opt-examine-curse]
     efficiency: { key: study, bonus: 0.2 }
     proficiency: { maxLevel: 5, growthPerUse: 1 }
+
+  # ---------- 来自「咒术转盘·生得术式」维度的术式库（角色创建维度的具象化，非随机事件） ----------
+
+  - id: sk-ten-shadow
+    kind: combat
+    name: 十种影法术
+    description: 伏黑惠的式神召唤——以影子搏动的十种式神压制对手。
+    cost: { mp: 12 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.65 }
+    damage:
+      - { preset: scaled, base: 12, scaleBy: cursedEnergy, multiplier: 1.1 }
+    applyStatus:
+      - { status: bind, chance: 0.4 }
+    cooldownTurns: 1
+    usableInBattle: true
+
+  - id: sk-red-blood
+    kind: combat
+    name: 赤血操术
+    description: 加茂家的血脉术式，操控自身的血液化作利刃与牢笼。
+    cost: { mp: 10 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.6 }
+    damage:
+      - { preset: scaled, base: 10, scaleBy: cursedEnergy, multiplier: 1.0 }
+    applyStatus:
+      - { status: curse-poison, chance: 0.5 }
+    cooldownTurns: 2
+    usableInBattle: true
+
+  - id: sk-impurity
+    kind: combat
+    name: 无为转变
+    description: 真人的术式——触碰灵魂的形，将对手扭曲成畸形。
+    cost: { mp: 14 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: intellect, baseChance: 0.6 }
+    damage:
+      - { preset: scaled, base: 11, scaleBy: cursedEnergy, multiplier: 1.0 }
+    applyStatus:
+      - { status: stun, chance: 0.35 }
+    cooldownTurns: 2
+    usableInBattle: true
+
+  - id: sk-7-3
+    kind: combat
+    name: 十划咒法
+    description: 七海建人的术式，于 3:7 处制造出绝对弱点。
+    cost: { mp: 8 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.7 }
+    damage:
+      - { preset: fixed, value: 22 }
+    cooldownTurns: 2
+    usableInBattle: true
+
+  - id: sk-doll-curse
+    kind: combat
+    name: 刍灵咒法
+    description: 钉崎野蔷薇的诅咒人偶，以发针钉死对手的命。
+    cost: { mp: 9 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.6 }
+    damage:
+      - { preset: scaled, base: 9, scaleBy: cursedEnergy, multiplier: 1.0 }
+    applyStatus:
+      - { status: cursed-burn, chance: 0.4 }
+    cooldownTurns: 1
+    usableInBattle: true
+
+  - id: sk-thunder
+    kind: combat
+    name: 雷电术式
+    description: 鹿紫云一式的术式，将咒力化作撕裂长空的雷霆。
+    cost: { mp: 13 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.6 }
+    damage:
+      - { preset: scaled, base: 13, scaleBy: cursedEnergy, multiplier: 1.2 }
+    applyStatus:
+      - { status: stun, chance: 0.3 }
+    cooldownTurns: 2
+    usableInBattle: true
+
+  - id: sk-flame
+    kind: combat
+    name: 火焰术式
+    description: 漏瑚的术式，喷涌而出的火山业火将目标吞没。
+    cost: { mp: 12 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.6 }
+    damage:
+      - { preset: scaled, base: 12, scaleBy: cursedEnergy, multiplier: 1.1 }
+    applyStatus:
+      - { status: cursed-burn, chance: 0.5 }
+    cooldownTurns: 2
+    usableInBattle: true
+
+  - id: sk-domain-expansion
+    kind: combat
+    name: 领域展开
+    description: 将生得术式升华至极致——在领域内必中且支配法则。
+    cost: { mp: 50 }
+    target: all_enemies
+    damage:
+      - { preset: scaled, base: 35, scaleBy: cursedEnergy, multiplier: 1.0 }
+    applyStatus:
+      - { status: domain-active, chance: 1.0, stacks: 1, onSelf: true }
+      - { status: stun, chance: 0.8 }
+    cooldownTurns: 99
+    usableInBattle: true
+
+  - id: sk-reverse-attack
+    kind: combat
+    name: 反转术式·攻击型
+    description: 将正向咒力凝为利刃，既修复自身亦贯穿敌手。
+    cost: { mp: 18 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.65 }
+    damage:
+      - { preset: scaled, base: 12, scaleBy: cursedEnergy, multiplier: 1.0 }
+    applyStatus:
+      - { status: reverse-mastered, chance: 1.0, stacks: 1, onSelf: true }
+    cooldownTurns: 3
+    usableInBattle: true
+
+  - id: sk-black-flash
+    kind: combat
+    name: 黑闪
+    description: 物理与咒力在百万分之一秒的偏差内重合——这一击，超越常理。
+    cost: { mp: 16 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.7 }
+    damage:
+      - { preset: scaled, base: 20, scaleBy: cursedEnergy, multiplier: 1.5 }
+    applyStatus:
+      - { status: black-flash, chance: 1.0, stacks: 1, onSelf: true }
+    cooldownTurns: 4
+    usableInBattle: true

@@ -123,3 +123,55 @@ statuses:
       hitChance: 0.2
       damageDealt: 0.3
     visibility: known
+
+  # ---- 来自「咒术转盘」的角色特质补正（角色创建维度的具象化，非随机事件内容） ----
+
+  - id: heavenly-restriction
+    name: 天与咒缚
+    description: 以咒力为代价换得的肉体极致。咒力近乎干涸，肉身却超越凡人。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: -20, physique: 30, agility: 15 }
+    visibility: known
+
+  - id: special-physique
+    name: 特殊体质
+    description: 生来异于常人的躯体，或在危机中觉醒的容器之躯。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { physique: 10, cursedEnergy: 5 }
+    visibility: known
+
+  - id: black-flash
+    name: 黑闪
+    description: 咒力与物理打击在百万分之一秒的偏差内重合，释放远超常理的一击。
+    duration: { turns: 1 }
+    stacking: refresh
+    combat:
+      damageDealt: 0.5
+      battleRounds: 1
+    visibility: known
+
+  - id: domain-active
+    name: 领域展开
+    description: 生得术式的升华——在领域内，你的法则即是绝对。
+    duration: { turns: 2 }
+    stacking: unique
+    combat:
+      hitChance: 0.2
+      damageDealt: 0.3
+      battleRounds: 2
+    visibility: known
+
+  - id: reverse-mastered
+    name: 反转术式·精通
+    description: 以正向咒力重构肉体，近乎不死的再生之力。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 8 }
+    combat:
+      damageDealt: 0.2
+    visibility: known

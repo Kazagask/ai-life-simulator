@@ -615,6 +615,75 @@ events:
           - id: opt-ack-defeat
             text: 舔舐伤口，等待下一场战斗。
 
+# ---------- 来自「咒术转盘」的具象内容 ----------
+# 设计纪律：转盘（wheel.json）55 个维度里，只有极少数作为「随机事件/转盘」落地；
+# 其余维度落位到技能 / 装备 / 补正 / 结局（见对应 yaml），或作为定时/链/普通事件，
+# 避免「把所有维度都写成随机事件」。
+
+  # 主线锚点（定时事件，非转盘）：涩谷事变
+  - id: ev-shibuya
+    title: 涩谷事变 · 前夕
+    narrative: 万圣夜的结界在涩谷被悄然封闭，数千咒灵与「脑花」的棋局，即将在此收网。
+    trigger:
+      source: schedule
+      window:
+        start: { value: 365, unit: day }
+      once: true
+      priority: 13
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-enter-shibuya
+            text: 随高专精锐突入涩谷
+            effects:
+              - { type: setFlag, id: shibuyaEntered, value: true }
+              - { type: adjustRelation, npcId: npc-gojo, value: 5 }
+              - { type: startChain, chainId: chain-shibuya }
+          - id: opt-hold-outside
+            text: 留守外围，接应撤离的民众
+            effects:
+              - { type: setFlag, id: shibuyaEntered, value: false }
+              - { type: adjustAttribute, attribute: reputation, value: 3 }
+
+  - id: ev-shibuya-inside
+    title: 涩谷 · 地下五层
+    narrative: 你随队伍突入涩谷地下。真人、脑花、以及无数改造的咒灵在黑暗中等待。
+    trigger:
+      source: chain
+      priority: 12
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-grade2-curse, levelScale: 2 }
+        canFlee: false
+        onVictory:
+          effects:
+            - { type: setFlag, id: shibuyaSurvived, value: true }
+            - { type: adjustAttribute, attribute: reputation, value: 6 }
+            - { type: adjustMood, value: 4 }
+          nextEventId: ev-shibuya-resolve
+        onDefeat:
+          effects:
+            - { type: applyStatus, status: injured-sim }
+          nextEventId: ev-shibuya-resolve
+
+  - id: ev-shibuya-resolve
+    title: 涩谷 · 黎明
+    narrative: 当第一缕光落进涩谷的废墟，你从瓦砾与咒力的余烬中站了起来。有些名字，永远留在了这一夜。
+    trigger:
+      source: chain
+      priority: 12
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-shibuya-ack
+            text: 把这一夜，记在心里。
+            effects:
+              - { type: adjustMood, value: -2 }
+
 # ---------- 事件链定义 ----------
 
 chains:
@@ -653,3 +722,10 @@ chains:
       - { eventId: ev-night-ending-miguel, advanceWhen: onSettle }
       - { eventId: ev-night-ending-geto, advanceWhen: onSettle }
       - { eventId: ev-night-ending-defeat, advanceWhen: onSettle }
+
+  - id: chain-shibuya
+    startEventId: ev-shibuya-inside
+    pauseWhenHidden: true
+    steps:
+      - { eventId: ev-shibuya-inside, advanceWhen: onSettle }
+      - { eventId: ev-shibuya-resolve, advanceWhen: onSettle }

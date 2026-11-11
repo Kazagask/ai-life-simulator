@@ -74,3 +74,96 @@ items:
       params: { base: 1, perStack: 1, status: absorbed-curses }
       conditions:
         - { mood: { gte: 40 } }
+
+  # ---- 来自「咒术转盘·咒具」维度的特级咒具（角色创建维度的具象化） ----
+
+  - id: eq-ten-spear
+    type: equipment
+    name: 咒具·天逆鉾
+    description: 特级咒具。贯穿一切的矛，可强制解除对手的术式。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: cursed
+    dynamicModifier:
+      attribute: cursedEnergy
+      preset: scaled
+      params: { base: 4, scaleBy: cursedEnergy, multiplier: 0.2 }
+
+  - id: eq-bancho
+    type: equipment
+    name: 咒具·万里锁
+    description: 特级咒具。无限伸缩的锁链，远近皆宜。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: accessory
+    category: charm
+    quality: cursed
+    dynamicModifier:
+      attribute: agility
+      preset: scaled
+      params: { base: 3, scaleBy: agility, multiplier: 0.15 }
+
+  - id: eq-shakujin
+    type: equipment
+    name: 咒具·释魂刀
+    description: 特级咒具。能切割灵魂的利刃，对咒灵尤为致命。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: cursed
+    dynamicModifier:
+      attribute: cursedEnergy
+      preset: scaled
+      params: { base: 3, scaleBy: cursedEnergy, multiplier: 0.18 }
+
+  - id: eq-kurobuna
+    type: equipment
+    name: 咒具·黑绳
+    description: 特级咒具。注入咒力的特制黑绳，专门干扰术式运转。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: cursed
+    dynamicModifier:
+      attribute: agility
+      preset: scaled
+      params: { base: 4, scaleBy: agility, multiplier: 0.2 }
+
+  - id: eq-takatsuki
+    type: equipment
+    name: 咒具·退魔之剑
+    description: 特级咒具。一剑斩出，咒灵灰飞烟灭。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: cursed
+    dynamicModifier:
+      attribute: cursedEnergy
+      preset: scaled
+      params: { base: 5, scaleBy: cursedEnergy, multiplier: 0.22 }
+
+  - id: item-grade1-tool
+    type: key
+    name: 一级咒具
+    description: 由高专配发的制式咒具，勉强可用。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+
+  - id: item-grade2-tool
+    type: key
+    name: 二级咒具
+    description: 稍具威力的咒具，黑市常见。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false

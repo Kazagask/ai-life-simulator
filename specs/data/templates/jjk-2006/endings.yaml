@@ -142,4 +142,30 @@ endings:
       summary: 故事在这里停下。没有传奇，也没有遗言。
     fallback: true
 
+  # 来自「咒术转盘·最终结局」维度的结局（由上述转盘/主线事件驱动，非随机事件本身）
+
+  - endingId: end-shibuya
+    name: 涩谷的幸存者
+    description: 你从万圣夜的修罗场里走了出来。
+    triggerConditions:
+      - { flag: shibuyaSurvived, eq: true }
+    priority: 13
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 涩谷的幸存者
+      summary: 那一夜死了很多人。你活着，所以你记得——替他们记得。
+
+  - endingId: end-peace
+    name: 归隐田园
+    description: 你婉拒了星浆体护卫，也躲过了那场风暴，过回普通人的生活。
+    triggerConditions:
+      - { flag: spEnding, eq: decline }
+    priority: 12
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 归隐田园
+      summary: 你说了不。往后的新闻里，那件事只剩一段短短的注脚——而你，回到了平静的日常。
+
 fallback: end-ordinary
