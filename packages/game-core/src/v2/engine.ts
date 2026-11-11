@@ -1,6 +1,7 @@
 import type {
   Condition,
   Effect,
+  EquipmentInstance,
   Formula,
   StatusInstance,
   V2Npc,
@@ -11,6 +12,7 @@ import type {
 } from "@life-sim/shared";
 import { createRng, pickWeighted, type Rng } from "../rng.js";
 import { amountToMinutes, createTimeAdapter } from "./time.js";
+import { evaluateDynamicModifier, type ModifierConditionGate } from "./equipment.js";
 import type { TemplateLookup } from "./lookup.js";
 
 // ---------- 资源公式（规格 4.4：上限 = base + perLevel × growthLevel + Σ perAttribute[attr] × 基础属性值） ----------
@@ -47,13 +49,27 @@ export function moodBand(mood: number, template: WorldTemplateV2) {
   return template.mood.bands.find((b) => mood >= b.min && mood <= b.max) ?? template.mood.bands[0];
 }
 
-// ---------- 有效属性：基础值 + 补正 simulation 面 + 心情档位修正，再套 caps ----------
+// ---------- 有效属性：基础值 + 补正 simulation 面 + 装备动态补正 + 心情档位修正，再套 caps ----------
 
+/** 属性求值链中条件求值用的确定性空 RNG（装备动态补正条件已在加载期禁用 random）。 */
+export const zeroRng: Rng = () => 0;
+
+/**
+ * 有效属性求值链（协议 §19，顺序固定）：
+ * 基础值 → 状态补正 × 层数 → 装备动态补正 → 心情档位 → caps。
+ *
+ * 第 5/6 参可选（保持既有 4 参调用兼容）：
+ * - equipment：本局装备实例；每件装备的 dynamicModifier 按当前累加状态现算（R-EQ-04）。
+ * - condGate：装备条件求值入口；由调用方注入（内部须用「不含装备」的基础有效属性
+ *   求值 attribute 条件，避免递归）。未提供时带条件的词条当次不生效。
+ */
 export function effectiveAttributes(
   attrs: Record<string, number>,
   statuses: StatusInstance[],
   mood: number,
   lookup: TemplateLookup,
+  equipment?: EquipmentInstance[],
+  condGate?: ModifierConditionGate,
 ): Record<string, number> {
   const eff: Record<string, number> = { ...attrs };
   for (const inst of statuses) {
@@ -61,6 +77,17 @@ export function effectiveAttributes(
     if (!modifiers) continue;
     for (const [key, delta] of Object.entries(modifiers)) {
       eff[key] = (eff[key] ?? 0) + delta * inst.stacks;
+    }
+  }
+  if (equipment?.length) {
+    for (const inst of equipment) {
+      const item = lookup.item(inst.itemId);
+      const spec = item?.type === "equipment" ? item.dynamicModifier : undefined;
+      if (!spec) continue;
+      const deltas = evaluateDynamicModifier(spec, { effAttrs: eff, statuses, condCtx: condGate });
+      for (const [key, delta] of Object.entries(deltas)) {
+        eff[key] = (eff[key] ?? 0) + delta;
+      }
     }
   }
   for (const [key, delta] of Object.entries(moodBand(mood, lookup.template).attributeModifiers)) {
@@ -76,7 +103,15 @@ export function effectiveAttributes(
 }
 
 export function playerEffectiveAttributes(state: WorldStateV2, lookup: TemplateLookup): Record<string, number> {
-  return effectiveAttributes(state.player.attributes, state.player.statuses, state.player.mood, lookup);
+  const equipment = state.player.equipment ?? [];
+  if (equipment.length === 0) {
+    return effectiveAttributes(state.player.attributes, state.player.statuses, state.player.mood, lookup);
+  }
+  // attribute 条件的求值基准 = 不含装备的基础有效属性（避免条件→属性→装备→条件递归）
+  const baseEff = effectiveAttributes(state.player.attributes, state.player.statuses, state.player.mood, lookup);
+  const condGate: ModifierConditionGate = (cond) =>
+    checkCondition(cond, { state, lookup, rng: zeroRng, effAttrsOverride: baseEff });
+  return effectiveAttributes(state.player.attributes, state.player.statuses, state.player.mood, lookup, equipment, condGate);
 }
 
 function clampAttr(template: WorldTemplateV2, key: string, value: number): number {
@@ -155,6 +190,11 @@ export interface ConditionContext {
   state: WorldStateV2;
   lookup: TemplateLookup;
   rng: Rng;
+  /**
+   * 属性条件求值基准（可选）：由调用方显式提供「不含装备」的基础有效属性，
+   * 避免装备条件 → 属性 → 装备的递归求值；缺省时按全量管线现算。
+   */
+  effAttrsOverride?: Record<string, number>;
 }
 
 export function checkCondition(cond: Condition, ctx: ConditionContext): boolean {
@@ -165,7 +205,7 @@ export function checkCondition(cond: Condition, ctx: ConditionContext): boolean 
     return compareValues(value, cond);
   }
   if ("attribute" in cond) {
-    const eff = playerEffectiveAttributes(state, lookup);
+    const eff = ctx.effAttrsOverride ?? playerEffectiveAttributes(state, lookup);
     return compareNumber(eff[cond.attribute] ?? 0, cond);
   }
   if ("status" in cond) {

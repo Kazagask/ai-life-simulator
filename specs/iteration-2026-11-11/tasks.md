@@ -1,6 +1,6 @@
 # 迭代 R2 任务清单（Tasks）
 
-**版本：2026-11-11（R2.2 决策修订）｜状态：阶段 0/1/2/3/4 已完成（T2-01..04、T3-01..05、T4-01..06 已勾选；阶段 4 遗留 4 项登记于 OPEN_QUESTIONS #28..#31）；下一任务阶段 5 `T5-01`｜上游：`requirements.md`、`design.md`**
+**版本：2026-11-11（R2.2 决策修订）｜状态：阶段 0/1/2/3/4/5 已完成（T2-01..04、T3-01..05、T4-01..06、T5-01..04 已勾选；阶段 4 遗留 4 项登记于 OPEN_QUESTIONS #28..#31）；下一任务阶段 6 `T6-01`｜上游：`requirements.md`、`design.md`**
 
 > **R2.1：时间穿越延期。** 阶段 7（`T7-01`～`T7-06`）与 `T1-02`（ADR-0005）整体 `DEFERRED`，编号与原文保留在文末「附录 A」，供 R3 恢复。本轮执行 34 个 ACTIVE 任务，验收 45 条 ACTIVE 需求。
 >
@@ -130,19 +130,19 @@
 
 ## 6. 阶段 5 — 装备系统
 
-- [ ] **T5-01** 依赖：T1-03｜需求：R-EQ-01、R-EQ-02、R-NFR-02｜产出：`schema/equipment.ts`、`equipment.yaml` 样例、`items.yaml` `dynamicModifier` 字段
+- [x] **T5-01** 依赖：T1-03｜需求：R-EQ-01、R-EQ-02、R-NFR-02｜产出：`schema/equipment.ts`、`equipment.yaml` 样例、`items.yaml` `dynamicModifier` 字段
   模板定义槽位/类别/品质/初始装备与**动态补正 spec**（preset 白名单 + params + conditions）；定义与实例分离，实例不存补正结果；**不提供 static/dynamic 二选一**。
   完成定义：两个栏位结构不同的模板均校验通过且无需改引擎；缺字段报错含路径；模板声明 `modifierMode` 或自由表达式时被拒。
 
-- [ ] **T5-02** 依赖：T5-01｜需求：R-EQ-03、R-EQ-06｜产出：`v2/equipment.ts` 效果接线
+- [x] **T5-02** 依赖：T5-01｜需求：R-EQ-03、R-EQ-06｜产出：`v2/equipment.ts` 效果接线
   装备效果走 §12 声明式 DSL / 补正系统，接入 `effectiveAttributes()` 的**运行时求值链**；非白名单字段拒绝；补正结果不得写回 `state.player.attributes` 或 `EquipmentInstance`。
   完成定义：静态检查无自由表达式求值器、无属性写回；注入判定类非白名单字段被拒且状态不变（P8）。
 
-- [ ] **T5-03** 依赖：T5-01｜需求：R-EQ-04｜产出：`evaluateDynamicModifier()` 动态补正求值
+- [x] **T5-03** 依赖：T5-01｜需求：R-EQ-04｜产出：`evaluateDynamicModifier()` 动态补正求值
   每次结算按当前状态 / 层数 / 条件由 preset 白名单求值；固定值作为「无条件」退化 preset 走同一管线；`attributeModifiers.perStack`（S3 #18）明确报错而非静默忽略。
   完成定义：同一装备在两份不同状态下补正值不同且符合 preset 语义；穿脱前后基础属性逐字段不变；`perStack` 报可诊断错误；同 seed 回放补正序列一致。
 
-- [ ] **T5-04** 依赖：T5-02｜需求：R-EQ-05、R-NFR-01｜产出：穿脱/替换操作与槽位冲突校验
+- [x] **T5-04** 依赖：T5-02｜需求：R-EQ-05、R-NFR-01｜产出：穿脱/替换操作与槽位冲突校验
   完成定义：槽位不匹配/重复占槽被拒且状态不变；同 seed 回放属性结果一致。
 
 ## 7. 阶段 6 — 战斗 AI 分层决策

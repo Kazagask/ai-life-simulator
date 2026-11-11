@@ -38,3 +38,39 @@ items:
     usableOutsideBattle: true
     use:
       - { type: adjustMood, value: 2 }
+
+  # ---- 装备（协议 V2.1 §19；统一动态补正，无 static|dynamic 二选一） ----
+
+  - id: eq-cursed-blade
+    type: equipment
+    name: 咒具·游云
+    description: 经年保养的咒具刀，术者的咒力越强，刀身越沉。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: rare
+    # 动态补正：按穿戴者当前有效属性现算（scaled），不写回基础属性
+    dynamicModifier:
+      attribute: cursedEnergy
+      preset: scaled
+      params: { base: 2, scaleBy: cursedEnergy, multiplier: 0.1 }
+
+  - id: eq-watcher-charm
+    type: equipment
+    name: 观察者护符
+    description: 积攒的怨念越多，护符越亮。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: accessory
+    category: charm
+    quality: uncommon
+    # 动态补正：按身上「咒灵怨念」层数现算（stack-scaled）
+    dynamicModifier:
+      attribute: agility
+      preset: stack-scaled
+      params: { base: 1, perStack: 1, status: absorbed-curses }
+      conditions:
+        - { mood: { gte: 40 } }

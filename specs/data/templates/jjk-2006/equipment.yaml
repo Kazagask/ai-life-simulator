@@ -1,0 +1,10 @@
+# JJK Demo 世界模板 · equipment.yaml
+# 装备分域（协议 V2.1 §19）：槽位 / 品质白名单 / 初始装备。
+# 本文件可缺省：未提供时引擎行为与无装备时完全一致（向后兼容）。
+equipment:
+  qualities: [common, uncommon, rare, cursed]
+  slots:
+    - { id: weapon, label: 武器, allowedCategories: [blade, cursed-tool], maxCount: 1 }
+    - { id: accessory, label: 饰品, allowedCategories: [ring, charm], maxCount: 2 }
+  initialEquipment:
+    - itemId: eq-cursed-blade

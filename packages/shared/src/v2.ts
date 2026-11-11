@@ -4,6 +4,7 @@ import type {
   CombatSettle,
   Condition,
   Effect,
+  EquipmentInstance,
   EventOption,
   EventV2,
   Item,
@@ -55,6 +56,11 @@ export interface V2Player extends V2CombatantBase {
   skills: string[];
   /** 成长等级（adjustGrowth 推进；HP/MP 上限公式 perLevel 引用） */
   growthLevel: number;
+  /**
+   * 本局装备实例（R-EQ-02，协议 §19；可缺省，旧存档按 [] 处理）。
+   * 只存实例状态，不存补正结果——补正值每次经 evaluateDynamicModifier 现算（P8）。
+   */
+  equipment?: EquipmentInstance[];
 }
 
 export interface V2Npc extends V2CombatantBase {

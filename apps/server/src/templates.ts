@@ -28,6 +28,7 @@ const TEMPLATE_FILES = [
   "items.yaml",
   "statuses.yaml",
   "events.yaml",
+  "equipment.yaml",
 ] as const;
 
 /** 开局是可选分域（协议 §3）：按文件存在性加载，不并入 WorldTemplateV2，不改 API 契约形状。 */

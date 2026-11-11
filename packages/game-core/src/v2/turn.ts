@@ -2,6 +2,7 @@ import type {
   BattleCommand,
   ChooseOptionCommand,
   CombatSkill,
+  EquipmentInstance,
   EventV2,
   HistoryEntryV2,
   PendingEventView,
@@ -28,6 +29,7 @@ import {
   type EffectContextV2,
 } from "./engine.js";
 import { createBattle, finishBattle, performBattleAction } from "./battle.js";
+import { nextInstanceId } from "./equipment.js";
 import { runNpcActionsV2 } from "./npc.js";
 import type { TemplateLookup } from "./lookup.js";
 import { projectSnapshotV2 } from "./projection.js";
@@ -48,6 +50,18 @@ export function createWorldV2(
   const pt = template.playerTemplate;
   const playerAge = pt?.identity.age ?? 16;
   const mood = pt?.mood ?? template.mood.defaultValue;
+  // 初始装备（协议 §19 equipment.initialEquipment；槽位/类型/类别已由 Schema 加载期校验）
+  const initialEquipment: EquipmentInstance[] = [];
+  for (const init of template.equipment?.initialEquipment ?? []) {
+    const def = template.items.find((i) => i.id === init.itemId);
+    if (!def || def.type !== "equipment" || !def.slot) continue;
+    initialEquipment.push({
+      instanceId: nextInstanceId(initialEquipment, init.itemId),
+      itemId: init.itemId,
+      ownerId: "player",
+      slot: def.slot,
+    });
+  }
   const player = {
     id: "player",
     name: input.playerName,
@@ -64,6 +78,7 @@ export function createWorldV2(
     inventory: {} as Record<string, number>,
     skills: [...(pt?.skills ?? [])],
     growthLevel: 0,
+    equipment: initialEquipment,
   };
   const state: WorldStateV2 = {
     id: worldId,

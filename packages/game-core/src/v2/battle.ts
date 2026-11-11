@@ -11,7 +11,8 @@ import type {
   WorldStateV2,
 } from "@life-sim/shared";
 import { pickWeighted, type Rng } from "../rng.js";
-import { computeMax, effectiveAttributes, maxHp, maxMp, moodBand, rollFormula, applyStatusToPlayer } from "./engine.js";
+import { computeMax, effectiveAttributes, maxHp, maxMp, moodBand, rollFormula, applyStatusToPlayer, checkCondition, zeroRng } from "./engine.js";
+import type { ModifierConditionGate } from "./equipment.js";
 import { createTimeAdapter } from "./time.js";
 import type { TemplateLookup } from "./lookup.js";
 
@@ -125,8 +126,15 @@ function multiplierOf(statuses: StatusInstance[], key: "damageDealt" | "damageTa
   return total;
 }
 
-function effectiveAttrsOf(c: Combatant, lookup: TemplateLookup): Record<string, number> {
-  return effectiveAttributes(c.attributes, c.statuses, c.mood, lookup);
+function effectiveAttrsOf(c: Combatant, lookup: TemplateLookup, state?: WorldStateV2): Record<string, number> {
+  if (!c.isPlayer || !state) return effectiveAttributes(c.attributes, c.statuses, c.mood, lookup);
+  // 玩家侧接入装备动态补正（协议 §19 求值链）；attribute 条件用不含装备的基础值，避免递归
+  const equipment = state.player.equipment ?? [];
+  const base = effectiveAttributes(c.attributes, c.statuses, c.mood, lookup);
+  if (equipment.length === 0) return base;
+  const gate: ModifierConditionGate = (cond) =>
+    checkCondition(cond, { state, lookup, rng: zeroRng, effAttrsOverride: base });
+  return effectiveAttributes(c.attributes, c.statuses, c.mood, lookup, equipment, gate);
 }
 
 // ---------- 建场 ----------
@@ -192,10 +200,10 @@ function buildUnits(
 
 // ---------- 结算：命中判定 ----------
 
-function hitChance(caster: Combatant, target: Combatant, skill: CombatSkill, lookup: TemplateLookup): number {
+function hitChance(caster: Combatant, target: Combatant, skill: CombatSkill, lookup: TemplateLookup, state?: WorldStateV2): number {
   if (!skill.hitCheck) return 1;
-  const effA = effectiveAttrsOf(caster, lookup);
-  const effD = effectiveAttrsOf(target, lookup);
+  const effA = effectiveAttrsOf(caster, lookup, state);
+  const effD = effectiveAttrsOf(target, lookup, state);
   const raw =
     skill.hitCheck.baseChance +
     ((effA[skill.hitCheck.attacker] ?? 0) - (effD[skill.hitCheck.defender] ?? 0)) * 0.05 +
@@ -255,7 +263,7 @@ function executeSkill(
   rng: Rng,
 ): void {
   const log = (text: string) => battle.log.push(text);
-  const effC = effectiveAttrsOf(caster, lookup);
+  const effC = effectiveAttrsOf(caster, lookup, state);
   const dealtBonus = multiplierOf(caster.statuses, "damageDealt", lookup);
 
   // 消耗
@@ -266,7 +274,7 @@ function executeSkill(
 
   for (const target of targets) {
     // 命中判定（省略 hitCheck = 必中）
-    const chance = hitChance(caster, target, skill, lookup);
+    const chance = hitChance(caster, target, skill, lookup, state);
     if (rng() >= chance) {
       log(`${caster.name}的「${skill.name}」被${target.isPlayer ? "你" : target.name}闪开了。`);
       continue;
@@ -398,7 +406,7 @@ function roundEnd(battle: BattleState, state: WorldStateV2, lookup: TemplateLook
     for (const inst of [...c.statuses]) {
       const facet = lookup.status(inst.statusId)?.combat;
       for (const effect of facet?.onRoundEnd ?? []) {
-        const eff = effectiveAttrsOf(c, lookup);
+        const eff = effectiveAttrsOf(c, lookup, state);
         if (effect.damage) {
           const dmg = Math.max(0, Math.round(rollFormula([effect.damage], eff, c.statuses)));
           c.hp -= dmg;
@@ -509,7 +517,7 @@ export function performBattleAction(
     if (!battle.settle.canFlee) throw new Error("flee_not_allowed");
     if (controlOf(pc.statuses, "cannot_flee", lookup)) throw new Error("cannot_flee");
     const fleeCheck = battle.settle.fleeCheck;
-    const eff = effectiveAttrsOf(pc, lookup);
+    const eff = effectiveAttrsOf(pc, lookup, state);
     const blocker = battle.enemies.find((e) => e.alive);
     const defEff = blocker ? effectiveAttrsOf(enemyCombatant(blocker), lookup) : {};
     const chance = fleeCheck

@@ -6,6 +6,7 @@ import { ItemSchema } from "./item.js";
 import { StatusEffectSchema } from "./status-effect.js";
 import { NpcActionSchema } from "./npc-action.js";
 import { ChainSchema, EventV2Schema } from "./event.js";
+import { EquipmentConfigSchema, checkDynamicModifierSpec, type EquipmentSlot } from "./equipment.js";
 
 /**
  * WorldTemplateV2 顶层聚合 Schema。
@@ -162,6 +163,8 @@ export const WorldTemplateV2Schema = z
       .optional(),
     skills: z.array(SkillSchema),
     items: z.array(ItemSchema),
+    /** 装备分域（协议 V2.1 §19，可选；equipment.yaml，未提供时引擎行为不变） */
+    equipment: EquipmentConfigSchema.optional(),
     statuses: z.array(StatusEffectSchema),
     events: z.array(EventV2Schema),
     chains: z.array(ChainSchema).optional(),
@@ -400,6 +403,49 @@ export const WorldTemplateV2Schema = z
         add(["chains", i, "startEventId"], `链起点事件 ${ch.startEventId} 的 trigger.source 必须为 chain`);
       }
     });
+
+    // 装备分域引用完整性（协议 V2.1 §19 / R-EQ-01..05）
+    const eq = w.equipment;
+    if (eq) {
+      const slotById = new Map<string, EquipmentSlot>();
+      (eq.slots ?? []).forEach((s, i) => {
+        if (slotById.has(s.id)) add(["equipment", "slots", i, "id"], `重复槽位 id：${s.id}`);
+        slotById.set(s.id, s);
+      });
+      const qualitySet = new Set(eq.qualities ?? []);
+      w.items.forEach((item, i) => {
+        if (item.type !== "equipment") return;
+        if (!slotById.has(item.slot ?? "")) {
+          add(["items", i, "slot"], `未知槽位：${item.slot ?? "(缺失)"}`);
+          return;
+        }
+        const slot = slotById.get(item.slot ?? "")!;
+        if (!slot.allowedCategories.includes(item.category ?? "")) {
+          add(["items", i, "category"], `槽位 ${slot.id} 不允许类别：${item.category ?? "(缺失)"}（allowedCategories: ${slot.allowedCategories.join(", ")}）`);
+        }
+        if (qualitySet.size > 0 && !qualitySet.has(item.quality ?? "")) {
+          add(["items", i, "quality"], `未知品质：${item.quality ?? "(缺失)"}（qualities 白名单：${[...qualitySet].join(", ")}）`);
+        }
+        if (item.dynamicModifier) {
+          const msg = checkDynamicModifierSpec(item.dynamicModifier, { attributeIds, statusIds });
+          if (msg) add(["items", i, "dynamicModifier"], msg);
+        }
+      });
+      (eq.initialEquipment ?? []).forEach((init, i) => {
+        const item = w.items.find((it) => it.id === init.itemId);
+        if (!item) {
+          add(["equipment", "initialEquipment", i, "itemId"], `未知物品：${init.itemId}`);
+          return;
+        }
+        if (item.type !== "equipment") {
+          add(["equipment", "initialEquipment", i, "itemId"], `初始装备必须引用 type: equipment 物品：${init.itemId}`);
+          return;
+        }
+        if (item.slot && !slotById.has(item.slot)) {
+          add(["equipment", "initialEquipment", i], `初始装备引用了未声明槽位的装备：${init.itemId}`);
+        }
+      });
+    }
 
     // NPC 行动效果引用完整性
     (w.npcActions ?? []).forEach((action, i) => {

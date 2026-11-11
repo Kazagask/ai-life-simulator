@@ -1,0 +1,61 @@
+# 装备 / 动态补正分域样例（协议 V2.1 §19）。可经 WorldTemplateV2Schema 的 equipment 字段校验。
+# 本文件放在 specs/data/examples/（不在 templates/ 下），不参与 apps/server 的模板目录遍历，
+# 仅作为协议样例与测试夹具；jjk-2006 有自己的 equipment.yaml。
+#
+# ⚠️ 挂载警告：本文件给出**两套栏位结构不同**的槽位定义（A 组与 B 组），用于证明引擎
+# 无需改动即可适配不同世界的栏位结构。两套槽位不能同时挂到一个世界（槽位 id 冲突：
+# weapon 同时出现在两组）；若要挂到真实世界目录，请二选一，并把 dynamicModifier 的
+# attribute / scaleBy / status 改成该世界 attributes.order / statuses 中实际存在的 id，
+# initialEquipment 的 itemId 改成该世界 items.yaml 中 type: equipment 的条目。
+#
+# 硬约束提醒（R-EQ-03/04/06）：不提供 modifierMode: static|dynamic 二选一；不支持
+# attributeModifiers.perStack（S3 #18，加载期明确报错）；不接受自由表达式（formula /
+# expression），preset 只取协议 §10 白名单（fixed / scaled / stack-scaled）。
+
+# ── A 组：武器单持 + 饰品双持（同 jjk-2006 形状） ──
+equipment:
+  qualities: [common, uncommon, rare, legendary]
+  slots:
+    - { id: weapon, label: 武器, allowedCategories: [blade, blunt, bow], maxCount: 1 }
+    - { id: accessory, label: 饰品, allowedCategories: [ring, charm, amulet], maxCount: 2 }
+  initialEquipment:
+    - itemId: ex-sample-blade
+
+# ── B 组：护甲分部位（另一套世界可能的栏位结构，示意 alternates 不属于 Schema ——
+#    实际挂载时替换上面 slots 数组即可，引擎零改动） ──
+# equipment:
+#   qualities: [rough, fine, masterwork]
+#   slots:
+#     - { id: head, label: 头部, allowedCategories: [helm, hat], maxCount: 1 }
+#     - { id: body, label: 躯干, allowedCategories: [armor, robe], maxCount: 1 }
+#     - { id: hands, label: 手部, allowedCategories: [gloves, bracers], maxCount: 2 }
+#   initialEquipment:
+#     - itemId: ex-sample-robe
+
+# 对应的 items.yaml 装备条目示意（挂载时并入该世界的 items.yaml）：
+#
+#   - id: ex-sample-blade
+#     type: equipment
+#     name: 样例佩刀
+#     stackable: false
+#     usableInBattle: false
+#     usableOutsideBattle: false
+#     slot: weapon
+#     category: blade
+#     quality: fine-not-in-whitelist   # ⚠️ 示意：quality 必须落在 qualities 白名单内，否则加载期拒绝
+#
+#   - id: ex-sample-robe
+#     type: equipment
+#     name: 样例法袍
+#     stackable: false
+#     usableInBattle: false
+#     usableOutsideBattle: false
+#     slot: body
+#     category: robe
+#     quality: masterwork
+#     dynamicModifier:
+#       attribute: intellect          # 必须是该世界 attributes.order 已声明的属性
+#       preset: scaled
+#       params: { base: 1, scaleBy: intellect, multiplier: 0.2 }
+#       conditions:                   # 数组内 AND；不支持 random / attribute（加载期拒绝）
+#         - { flag: guildMember, eq: true }

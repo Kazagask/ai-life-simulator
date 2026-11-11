@@ -168,3 +168,9 @@ R2 原方案（补充方案 §2/§6）拟引入六阶段 Lifecycle 状态机（`
 - `pnpm typecheck` 0 错误、`pnpm test` 全绿；`docs/OPEN_QUESTIONS.md` #27 编号冲突登记为已解决。
 
 
+
+### 变更记录（2026-11-11，T5-01 装备分域落地）
+
+- `V2Player` 新增**可缺省**字段 `equipment?: EquipmentInstance[]`（协议 §19 / R-EQ-02）：缺省语义为 `[]`，旧存档与旧模板不受影响；本字段为 T5 轮次唯一允许的状态结构变更，不改动本 ADR 的既有三字段（`openingCompleted` / `termination` / `archived`）与门禁语义。
+- 装备实例**只存本局状态**（`instanceId / itemId / ownerId / slot / stacks? / durability?`），不存任何补正结果字段；动态补正每次经 `evaluateDynamicModifier` 现算进 `effectiveAttributes` 运行时累加链（基础值 → 状态补正 × 层数 → 装备动态补正 → 心情档位 → caps），不写回 `state.player.attributes`（P8）。
+- `equipItem` / `unequipItem` 穿脱操作为纯函数（失败返回可诊断错误码、状态不变）；初始装备经 `equipment.yaml` 的 `initialEquipment` 在 `createWorldV2` 注入，实例 id 确定性生成，同 seed 回放补正序列逐次相等（R-EQ-05 / R-NFR-01）。
