@@ -429,6 +429,21 @@ export interface V2Snapshot {
     personality: string;
     relationship: number;
     knownGoals: string[];
+    /**
+     * R2.6 / ADR-0014：与本体相关且玩家**已知**的关系边（仅 known / inferred）。
+     * unknown / hidden 一律不投影（R-OP-05：默认不认识，hidden 来源不泄露）。
+     */
+    relations: Array<{
+      /** 另一端节点 id（NPC 或 "player"） */
+      withId: string;
+      kind: string;
+      visibility: string;
+      /** 边的方向：out = 本体→withId；in = withId→本体 */
+      direction: "out" | "in";
+      value?: number;
+      /** 多跳中文称谓（仅亲属链可推导时存在） */
+      kinshipTerm?: string;
+    }>;
   }>;
   pendingEvent: PendingEventView | null;
   battle: BattleView | null;

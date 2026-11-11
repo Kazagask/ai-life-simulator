@@ -13,6 +13,7 @@ import { moodBand, maxHp, maxMp } from "./engine.js";
 import { createTimeAdapter } from "./time.js";
 import type { TemplateLookup } from "./lookup.js";
 import { pendingEventView } from "./turn.js";
+import { isKinshipKind, kinshipTerm, projectVisibleRelations } from "./relations.js";
 
 /**
  * V2 投影：hidden 信息不外泄；
@@ -34,6 +35,10 @@ export function projectSnapshotV2(
   const status: WorldRunStatus =
     state.archived === true ? "archived" : state.termination !== null ? "terminated" : "running";
   const ended = status !== "running";
+
+  // R2.6 / ADR-0014：只投影 known / inferred 边。称谓也只在**可见子图**上推导，
+  // 否则 hidden 边会成为可推理的侧信道。
+  const visibleRelations = projectVisibleRelations(state.relations);
 
   const statuses = player.statuses
     .map((inst) => {
@@ -143,6 +148,23 @@ export function projectSnapshotV2(
       personality: npc.personality,
       relationship: npc.relationship,
       knownGoals: [...npc.knownGoals],
+      relations: visibleRelations
+        .filter((e) => e.from === npc.id || e.to === npc.id)
+        .map((e) => {
+          const outgoing = e.from === npc.id;
+          const withId = outgoing ? e.to : e.from;
+          // 称谓只在「本体称呼对方」的有向亲属边上成立；反向边不强行反推称谓。
+          const term =
+            outgoing && isKinshipKind(e.kind) ? kinshipTerm(visibleRelations, npc.id, withId) : null;
+          return {
+            withId,
+            kind: e.kind,
+            visibility: e.visibility,
+            direction: outgoing ? ("out" as const) : ("in" as const),
+            ...(e.value !== undefined ? { value: e.value } : {}),
+            ...(term ? { kinshipTerm: term.term } : {}),
+          };
+        }),
     })),
     pendingEvent: ended ? null : pendingEventView(state, lookup),
     battle,

@@ -17,6 +17,7 @@ import type { TemplateLookup } from "./lookup.js";
 // 调度器与效果执行器互为依赖（scheduler 读 checkAllConditions、engine 写入队），
 // 但双方只在函数体内互相调用、无顶层求值，ESM 函数声明提升可保证初始化期安全。
 import { alignChainStep, enqueueCandidate } from "./scheduler.js";
+import { PLAYER_ID } from "@life-sim/shared";
 import { addEdge, freezeOnDeath } from "./relations.js";
 
 // ---------- 资源公式（规格 4.4：上限 = base + perLevel × growthLevel + Σ perAttribute[attr] × 基础属性值） ----------
@@ -226,6 +227,18 @@ export function checkCondition(cond: Condition, ctx: ConditionContext): boolean 
     return true;
   }
   if ("relation" in cond) {
+    // R2.6 / ADR-0014：声明 kind 时改读**关系边**值（from = relation，to 缺省玩家）；
+    // 未声明 kind 时保持旧语义（NPC→玩家 标量 relationship），向后兼容。
+    if (cond.kind !== undefined) {
+      const to = cond.to ?? PLAYER_ID;
+      const edge = state.relations.find(
+        (e) => e.from === cond.relation && e.to === to && e.kind === cond.kind,
+      );
+      const value = edge?.value ?? 0;
+      if (cond.gte !== undefined && value < cond.gte) return false;
+      if (cond.lte !== undefined && value > cond.lte) return false;
+      return true;
+    }
     const npc = state.npcs.find((n) => n.id === cond.relation);
     if (!npc) return false;
     if (cond.gte !== undefined && npc.relationship < cond.gte) return false;

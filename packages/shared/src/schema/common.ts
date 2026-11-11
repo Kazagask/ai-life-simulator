@@ -121,8 +121,20 @@ export const MoodConditionSchema = z
   .object({ mood: z.object({ gte: z.number().optional(), lte: z.number().optional() }).strict() })
   .strict();
 
+/**
+ * 关系条件（R2.6 / ADR-0014 扩展）。
+ * ① 旧形态：`{ relation: npcId, gte, lte }` —— 读 NPC→玩家 标量 `npc.relationship`。
+ * ② 关系边形态：声明 `kind` 时改读边 `(relation → to ?? "player", kind)` 的 `value`
+ *    （缺省 0）；`to` 缺省为玩家，便于表达「某 NPC 对玩家的师徒/敌意强度」。
+ */
 export const RelationConditionSchema = z
-  .object({ relation: z.string().min(1), gte: z.number().optional(), lte: z.number().optional() })
+  .object({
+    relation: z.string().min(1),
+    gte: z.number().optional(),
+    lte: z.number().optional(),
+    kind: RelationKindSchema.optional(),
+    to: z.string().min(1).optional(),
+  })
   .strict();
 
 export const RequiresSkillConditionSchema = z
