@@ -1,5 +1,6 @@
 import type {
   BattleCommand,
+  EndingView,
   TimeAmount,
   V2Snapshot,
   WheelResultView,
@@ -8,9 +9,11 @@ import type {
 const BASE = "";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  // 只有带 body 时才声明 Content-Type：空 body + application/json 会被 Fastify 判为 400
+  const headers = init?.body !== undefined ? { "Content-Type": "application/json" } : undefined;
   const res = await fetch(`${BASE}${url}`, {
-    headers: { "Content-Type": "application/json" },
     ...init,
+    ...(headers ? { headers } : {}),
   });
   if (!res.ok) {
     let detail = `${res.status}`;
@@ -27,6 +30,20 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+export interface OpeningSummary {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface TemplateSummary {
+  id: string;
+  name: string;
+  description: string;
+  startYear: number;
+  openings: OpeningSummary[];
+}
+
 export interface InteractionResponse {
   worldId: string;
   snapshot: V2Snapshot;
@@ -41,23 +58,27 @@ export interface TurnResponse extends InteractionResponse {
 
 export const api = {
   listTemplates() {
-    return request<{ templates: Array<{ id: string; name: string; description: string; startYear: number }> }>(
-      "/api/templates",
-    );
+    return request<{ templates: TemplateSummary[] }>("/api/templates");
   },
-  createWorld(templateId: string, playerName: string, seed?: number) {
+  /** R-OP-01：省略 openingId 时服务端取加载顺序首个开局。 */
+  createWorld(templateId: string, playerName: string, seed?: number, openingId?: string) {
     return request<{ worldId: string; snapshot: V2Snapshot }>("/api/worlds", {
       method: "POST",
-      body: JSON.stringify({ templateId, playerName, ...(seed !== undefined ? { seed } : {}) }),
+      body: JSON.stringify({
+        templateId,
+        playerName,
+        ...(seed !== undefined ? { seed } : {}),
+        ...(openingId !== undefined ? { openingId } : {}),
+      }),
     });
   },
   getWorld(id: string) {
     return request<{ worldId: string; snapshot: V2Snapshot }>(`/api/worlds/${id}`);
   },
-  advanceTurn(id: string, action: { type: string; description: string }) {
+  advanceTurn(id: string, action: { type: string; description: string }, endLife = false) {
     return request<TurnResponse>(`/api/worlds/${id}/turns`, {
       method: "POST",
-      body: JSON.stringify({ action, mode: "single" }),
+      body: JSON.stringify({ action, mode: "single", ...(endLife ? { endLife: true } : {}) }),
     });
   },
   chooseOption(id: string, optionId: string) {
@@ -78,6 +99,10 @@ export const api = {
       body: JSON.stringify({ itemId }),
     });
   },
+  /** 归档封存：仅已终止世界可封存，返回五类归档数据。 */
+  archiveWorld(id: string) {
+    return request<{ worldId: string; archive: unknown }>(`/api/worlds/${id}/archive`, { method: "POST" });
+  },
   history(id: string) {
     return request<{ history: Array<{ id: string; turnIndex: number; worldTime: number; formattedTime: string; type: string; summary: string; detail?: string }> }>(
       `/api/worlds/${id}/history`,
@@ -85,4 +110,4 @@ export const api = {
   },
 };
 
-export type { V2Snapshot, BattleCommand, WheelResultView };
+export type { V2Snapshot, BattleCommand, WheelResultView, EndingView };

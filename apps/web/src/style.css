@@ -618,3 +618,154 @@ button {
   from { transform: scale(0.6); opacity: 0; }
   to { transform: scale(1); opacity: 1; }
 }
+
+/* ---------- 个人页签：装备栏 / 子页签 / 面板摘要 ---------- */
+
+.card .panel-title { margin: 0; }
+.equip-count { margin: 0; font-variant-numeric: tabular-nums; }
+
+/* 槽位横向区：竖屏下等宽并排，槽位多时可横向滚动 */
+.equip-slots {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.equip-slot {
+  flex: 1 1 0;
+  min-width: 104px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card-2);
+}
+
+.equip-slot.empty {
+  align-items: center;
+  justify-content: center;
+  min-height: 72px;
+  border-style: dashed;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.slot-label {
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
+
+.equip-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+}
+
+.equip-item strong { font-size: 14px; }
+.equip-item .tag { font-size: 10px; padding: 1px 6px; }
+.equip-meta { margin-top: 4px; }
+
+/* 子页签：不复用底部 .tabbar，避免固定定位与层级串台 */
+.subtabbar {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg-card-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.subtab {
+  flex: 1;
+  min-height: 40px; /* 触控目标不低于 40px */
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  border-radius: 9px;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.subtab.active {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-card));
+  color: var(--text);
+  font-weight: 600;
+}
+
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+
+/* ---------- 结局 ---------- */
+
+.ending-card {
+  border: 1px solid rgba(124, 140, 255, 0.45);
+  background:
+    radial-gradient(120% 120% at 20% 0%, rgba(124, 140, 255, 0.18), transparent 60%),
+    var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ending-card.ending-hidden {
+  border-color: rgba(79, 209, 197, 0.45);
+  background:
+    radial-gradient(120% 120% at 20% 0%, rgba(79, 209, 197, 0.16), transparent 60%),
+    var(--bg-card);
+}
+
+.ending-title {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 0.02em;
+}
+
+.ending-summary {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.ending-meta {
+  margin: 0;
+  font-size: 12px;
+}
+
+.ending-card .ghost {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+.end-life {
+  margin-top: 14px;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.end-life:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: rgba(255, 122, 122, 0.5);
+}
+
+.end-life:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

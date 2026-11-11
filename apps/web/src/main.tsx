@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import { api } from "./api";
-import type { BattleCommand, V2Snapshot, WheelResultView } from "./api";
+import type { BattleCommand, EndingView, TemplateSummary, V2Snapshot, WheelResultView } from "./api";
 
 // ---------- 工具 ----------
 
@@ -21,9 +21,64 @@ function elapsedText(elapsed: { value: number; unit: string }): string {
   return `${elapsed.value} ${UNIT_NAMES[elapsed.unit] ?? elapsed.unit}`;
 }
 
+// ---------- 装备：前向兼容读取 ----------
+
+/**
+ * 装备投影尚未进入 V2Snapshot.player（内核 projection.ts 当前只投影技能与背包）。
+ * 此处按协议 §19 预期形状做前向兼容读取：投影接入后自动生效，不需要再改前端。
+ * 待投影落地后应删除此局部类型，改用 shared 导出的正式视图类型。
+ *
+ * 只声明展示所需字段：补正结果（dynamicModifier 求值）属内核现算状态，
+ * 展示层既不读取也不缓存，避免任何内部状态进入前端。
+ */
+interface EquipmentViewCompat {
+  instanceId: string;
+  itemId: string;
+  slot: string;
+  stacks?: number;
+  durability?: number;
+  /** 投影应下发的展示名；缺失时回退 itemId */
+  name?: string;
+  /** 投影应下发的槽位显示名；缺失时回退 slot */
+  slotLabel?: string;
+}
+
+/** 投影接入后 player 会带 equipment；当前类型未声明，故按可选字段读取。 */
+type PlayerWithEquipment = V2Snapshot["player"] & { equipment?: EquipmentViewCompat[] };
+
+function equipmentOf(player: V2Snapshot["player"]): EquipmentViewCompat[] {
+  const forward: PlayerWithEquipment = player;
+  return forward.equipment ?? [];
+}
+
+interface EquipmentGroup {
+  slot: string;
+  label: string;
+  items: EquipmentViewCompat[];
+}
+
+/** 按 slot 分组；保持投影下发顺序（槽位顺序由模板驱动，前端不自行排序）。 */
+function groupEquipmentBySlot(items: EquipmentViewCompat[]): EquipmentGroup[] {
+  const order: string[] = [];
+  const buckets = new Map<string, EquipmentViewCompat[]>();
+  for (const item of items) {
+    const bucket = buckets.get(item.slot);
+    if (bucket) {
+      bucket.push(item);
+    } else {
+      buckets.set(item.slot, [item]);
+      order.push(item.slot);
+    }
+  }
+  return order.map((slot) => {
+    const bucket = buckets.get(slot) ?? [];
+    return { slot, label: bucket[0]?.slotLabel ?? slot, items: bucket };
+  });
+}
+
 // ---------- 组件 ----------
 
-type Tab = "life" | "people" | "items" | "world" | "log";
+type Tab = "life" | "people" | "personal" | "world" | "log";
 
 interface LastResult {
   elapsed: string;
@@ -34,7 +89,7 @@ interface LastResult {
 function App() {
   const [worldId, setWorldId] = useState<string | null>(loadWorldId());
   const [snapshot, setSnapshot] = useState<V2Snapshot | null>(null);
-  const [templates, setTemplates] = useState<Array<{ id: string; name: string; description: string; startYear: number }>>([]);
+  const [templates, setTemplates] = useState<TemplateSummary[]>([]);
   const [tab, setTab] = useState<Tab>("life");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -127,6 +182,31 @@ function App() {
     [worldId, wrap],
   );
 
+  const archive = useCallback(async () => {
+    const wid = worldIdRef.current;
+    if (!wid || busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.archiveWorld(wid);
+      const fresh = await api.getWorld(wid);
+      setSnapshot(fresh.snapshot);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }, []);
+
+  const endLife = useCallback(() => {
+    const wid = worldIdRef.current;
+    if (!wid) return;
+    if (!window.confirm("结束这一生？本局会立即收束为结局，之后只能封存或重开。")) return;
+    void wrap(() => api.advanceTurn(wid, { type: "free", description: "" }, true));
+  }, [wrap]);
+
   const reset = useCallback(() => {
     clearWorldId();
     setWorldId(null);
@@ -166,10 +246,12 @@ function App() {
             onChoose={choose}
             onBattle={battle}
             onUseItem={useItem}
+            onArchive={archive}
+            onEndLife={endLife}
           />
         )}
         {tab === "people" && <PeopleTab snapshot={snapshot} />}
-        {tab === "items" && <ItemsTab snapshot={snapshot} busy={busy} onUseItem={useItem} />}
+        {tab === "personal" && <PersonalTab snapshot={snapshot} busy={busy} onUseItem={useItem} />}
         {tab === "world" && <WorldTab snapshot={snapshot} />}
         {tab === "log" && <LogTab snapshot={snapshot} />}
       </main>
@@ -179,7 +261,7 @@ function App() {
           [
             ["life", "人生", "◈"],
             ["people", "人物", "☺"],
-            ["items", "物品", "▣"],
+            ["personal", "个人", "▣"],
             ["world", "世界", "◍"],
             ["log", "记录", "≡"],
           ] as const
@@ -202,14 +284,16 @@ function SetupScreen({
   error,
   onCreated,
 }: {
-  templates: Array<{ id: string; name: string; description: string; startYear: number }>;
+  templates: TemplateSummary[];
   error: string | null;
   onCreated: (id: string, snapshot: V2Snapshot) => void;
 }) {
   const [name, setName] = useState("");
   const [seed, setSeed] = useState("");
+  const [openingId, setOpeningId] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const openings = templates[0]?.openings ?? [];
 
   const start = async () => {
     if (!name.trim()) {
@@ -225,6 +309,7 @@ function SetupScreen({
         template?.id ?? "jjk-2006",
         name.trim(),
         Number.isFinite(parsedSeed) ? parsedSeed : undefined,
+        openingId === "" ? undefined : openingId,
       );
       onCreated(res.worldId, res.snapshot);
     } catch (e) {
@@ -255,6 +340,17 @@ function SetupScreen({
           <span>角色姓名</span>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="例如：乙羽遥" maxLength={20} />
         </label>
+        {openings.length > 1 && (
+          <label>
+            <span>开局（起始关系与首个事件不同）</span>
+            <select value={openingId} onChange={(e) => setOpeningId(e.target.value)}>
+              <option value="">默认（{openings[0]?.name}）</option>
+              {openings.slice(1).map((o) => (
+                <option key={o.id} value={o.id}>{o.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           <span>世界种子（可选，相同种子可复现）</span>
           <input value={seed} onChange={(e) => setSeed(e.target.value)} placeholder="留空随机" inputMode="numeric" />
@@ -340,6 +436,8 @@ function LifeTab({
   onChoose,
   onBattle,
   onUseItem,
+  onArchive,
+  onEndLife,
 }: {
   snapshot: V2Snapshot;
   busy: boolean;
@@ -348,12 +446,25 @@ function LifeTab({
   onChoose: (optionId: string) => void;
   onBattle: (command: BattleCommand) => void;
   onUseItem: (itemId: string) => void;
+  onArchive: () => void;
+  onEndLife: () => void;
 }) {
+  // 已终止 / 已归档：世界不再接受动作，只呈现结局（服务端同时清空 availableActions）
+  const ended = snapshot.status === "terminated" || snapshot.status === "archived";
   return (
     <div className="stack">
       <PlayerCard snapshot={snapshot} />
 
-      {snapshot.battle && (
+      {ended && snapshot.ending && (
+        <EndingPanel
+          ending={snapshot.ending}
+          archived={snapshot.status === "archived"}
+          busy={busy}
+          onArchive={onArchive}
+        />
+      )}
+
+      {!ended && snapshot.battle && (
         <BattlePanel
           snapshot={snapshot}
           busy={busy}
@@ -362,12 +473,18 @@ function LifeTab({
         />
       )}
 
-      {snapshot.pendingEvent && (
+      {!ended && snapshot.pendingEvent && (
         <EventPanel snapshot={snapshot} busy={busy} onChoose={onChoose} />
       )}
 
-      {!snapshot.battle && !snapshot.pendingEvent && (
-        <ActionPanel snapshot={snapshot} busy={busy} onAdvance={onAdvance} onUseItem={onUseItem} />
+      {!ended && !snapshot.battle && !snapshot.pendingEvent && (
+        <ActionPanel
+          snapshot={snapshot}
+          busy={busy}
+          onAdvance={onAdvance}
+          onUseItem={onUseItem}
+          onEndLife={onEndLife}
+        />
       )}
 
       {lastResult && (
@@ -390,6 +507,45 @@ function LifeTab({
         </section>
       )}
     </div>
+  );
+}
+
+// ---------- 结局面板 ----------
+
+const SOURCE_LABELS: Record<string, string> = {
+  condition: "条件达成",
+  player: "主动收束",
+  battleDefeat: "战败",
+  event: "事件触发",
+};
+
+function EndingPanel({
+  ending,
+  archived,
+  busy,
+  onArchive,
+}: {
+  ending: EndingView;
+  archived: boolean;
+  busy: boolean;
+  onArchive: () => void;
+}) {
+  return (
+    <section className={`card ending-card ${ending.visibility === "hidden" ? "ending-hidden" : ""}`}>
+      <span className="tag">{archived ? "本局已封存" : "本局已结束"}</span>
+      <h2 className="ending-title">{ending.title}</h2>
+      <p className="ending-summary">{ending.summary}</p>
+      <p className="muted ending-meta">
+        第 {ending.turnIndex} 轮 · {SOURCE_LABELS[ending.source] ?? ending.source}
+        {ending.visibility === "hidden" ? " · 隐藏结局" : ""}
+      </p>
+      {!archived && (
+        <button className="ghost" disabled={busy} onClick={onArchive}>
+          {busy ? "封存中…" : "封存这一生"}
+        </button>
+      )}
+      {archived && <p className="muted">已归档，只读。点击顶部「重开」开始新的一生。</p>}
+    </section>
   );
 }
 
@@ -633,11 +789,13 @@ function ActionPanel({
   busy,
   onAdvance,
   onUseItem,
+  onEndLife,
 }: {
   snapshot: V2Snapshot;
   busy: boolean;
   onAdvance: (action: { type: string; description: string }) => void;
   onUseItem: (itemId: string) => void;
+  onEndLife: () => void;
 }) {
   const [freeText, setFreeText] = useState("");
   const usableItems = snapshot.player.inventory.filter((i) => i.usableOutsideBattle);
@@ -689,7 +847,210 @@ function ActionPanel({
           </div>
         </div>
       )}
+      <button className="end-life" disabled={busy} onClick={onEndLife}>
+        结束这一生
+      </button>
     </section>
+  );
+}
+
+// ---------- 个人 Tab（装备栏 + 装备 / 物品 / 技能 / 面板） ----------
+
+type PersonalSubTab = "equipment" | "items" | "skills" | "panel";
+
+const PERSONAL_SUBTABS: Array<{ key: PersonalSubTab; label: string }> = [
+  { key: "equipment", label: "装备" },
+  { key: "items", label: "物品" },
+  { key: "skills", label: "技能" },
+  { key: "panel", label: "面板" },
+];
+
+/** 无装备时的中性空槽数量：槽位定义由模板下发，投影未接入前不猜测槽位名。 */
+const EMPTY_SLOT_PLACEHOLDERS = 2;
+
+function PersonalTab({
+  snapshot,
+  busy,
+  onUseItem,
+}: {
+  snapshot: V2Snapshot;
+  busy: boolean;
+  onUseItem: (itemId: string) => void;
+}) {
+  // 子页签为纯展示状态：切换即时、不触发任何请求。
+  const [sub, setSub] = useState<PersonalSubTab>("equipment");
+  const equipment = equipmentOf(snapshot.player);
+  const groups = groupEquipmentBySlot(equipment);
+
+  return (
+    <div className="stack">
+      <section className="card">
+        <div className="row">
+          <h3 className="panel-title">装备</h3>
+          <span className="muted equip-count">{equipment.length} 件</span>
+        </div>
+        <div className="equip-slots">
+          {groups.length === 0
+            ? Array.from({ length: EMPTY_SLOT_PLACEHOLDERS }, (_, i) => (
+                <div key={`empty-slot-${i}`} className="equip-slot empty">
+                  空
+                </div>
+              ))
+            : groups.map((group) => (
+                <div key={group.slot} className="equip-slot">
+                  <span className="slot-label">{group.label}</span>
+                  {group.items.map((eq) => (
+                    <div key={eq.instanceId} className="equip-item">
+                      <strong>{eq.name ?? eq.itemId}</strong>
+                      <EquipMeta equipment={eq} />
+                    </div>
+                  ))}
+                </div>
+              ))}
+        </div>
+        {groups.length === 0 && <p className="muted">暂无装备</p>}
+      </section>
+
+      <div className="subtabbar" role="tablist" aria-label="个人子页签">
+        {PERSONAL_SUBTABS.map((entry) => (
+          <button
+            key={entry.key}
+            role="tab"
+            aria-selected={sub === entry.key}
+            className={`subtab ${sub === entry.key ? "active" : ""}`}
+            onClick={() => setSub(entry.key)}
+          >
+            {entry.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="stack">
+        {sub === "equipment" && <EquipmentDetail equipment={equipment} />}
+        {sub === "items" && <ItemList snapshot={snapshot} busy={busy} onUseItem={onUseItem} />}
+        {sub === "skills" && <SkillList snapshot={snapshot} />}
+        {sub === "panel" && <PanelView snapshot={snapshot} />}
+      </div>
+    </div>
+  );
+}
+
+/** 层数 / 耐久只在投影确实下发时展示，缺失即不渲染（不推算默认值）。 */
+function EquipMeta({ equipment }: { equipment: EquipmentViewCompat }) {
+  const stacks = equipment.stacks;
+  const durability = equipment.durability;
+  const hasStacks = typeof stacks === "number" && stacks > 1;
+  const hasDurability = typeof durability === "number";
+  if (!hasStacks && !hasDurability) return null;
+  return (
+    <div className="tag-row equip-meta">
+      {hasStacks && <span className="tag">×{stacks}</span>}
+      {hasDurability && <span className="tag">耐久 {durability}</span>}
+    </div>
+  );
+}
+
+function EquipmentDetail({ equipment }: { equipment: EquipmentViewCompat[] }) {
+  if (equipment.length === 0) {
+    return (
+      <section className="card">
+        <p className="muted">尚未装备任何物品。</p>
+      </section>
+    );
+  }
+  return (
+    <>
+      {equipment.map((eq) => (
+        <section key={eq.instanceId} className="card item-card">
+          <div className="row">
+            <h2>{eq.name ?? eq.itemId}</h2>
+            <span className="tag">{eq.slotLabel ?? eq.slot}</span>
+          </div>
+          <EquipMeta equipment={eq} />
+        </section>
+      ))}
+    </>
+  );
+}
+
+function ItemList({
+  snapshot,
+  busy,
+  onUseItem,
+}: {
+  snapshot: V2Snapshot;
+  busy: boolean;
+  onUseItem: (itemId: string) => void;
+}) {
+  const items = snapshot.player.inventory;
+  if (items.length === 0) {
+    return (
+      <section className="card">
+        <p className="muted">空空如也。物品可通过事件、商店与战斗掉落获得。</p>
+      </section>
+    );
+  }
+  return (
+    <>
+      {items.map((item) => (
+        <section key={item.itemId} className="card item-card">
+          <div className="row">
+            <h2>{item.name} ×{item.count}</h2>
+            <div className="tag-row">
+              {item.usableOutsideBattle && <span className="tag">可用</span>}
+              {item.usableInBattle && <span className="tag">战斗可用</span>}
+              {!item.usableOutsideBattle && !item.usableInBattle && <span className="tag">被动</span>}
+            </div>
+          </div>
+          {item.description && <p className="item-desc">{item.description}</p>}
+          {item.usableOutsideBattle && (
+            <button className="primary" disabled={busy} onClick={() => onUseItem(item.itemId)}>
+              使用
+            </button>
+          )}
+        </section>
+      ))}
+    </>
+  );
+}
+
+function SkillList({ snapshot }: { snapshot: V2Snapshot }) {
+  const skills = snapshot.player.skills;
+  if (skills.length === 0) {
+    return (
+      <section className="card">
+        <p className="muted">尚未习得技能。</p>
+      </section>
+    );
+  }
+  return (
+    <section className="card">
+      <div className="stack-sm">
+        {skills.map((skill) => (
+          <div key={skill.id} className="event-card">
+            <strong>{skill.name}</strong>
+            <p className="muted">{skill.description}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/** 面板页签只复述投影已有字段，不做任何前端推算。 */
+function PanelView({ snapshot }: { snapshot: V2Snapshot }) {
+  return (
+    <>
+      <PlayerCard snapshot={snapshot} />
+      <section className="card">
+        <h3>状态摘要</h3>
+        <div className="meta-row">
+          <span className="chip">人生阶段：{snapshot.lifeStageLabel}</span>
+          <span className="chip">命运偏离度：{snapshot.evaluation.canonDeviation}</span>
+          <span className="chip">第 {snapshot.turnIndex} 轮</span>
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -751,62 +1112,6 @@ function WorldTab({ snapshot }: { snapshot: V2Snapshot }) {
           ))}
         </section>
       )}
-
-      <section className="card">
-        <h3>技能</h3>
-        {snapshot.player.skills.map((skill) => (
-          <div key={skill.id} className="event-card">
-            <strong>{skill.name}</strong>
-            <p className="muted">{skill.description}</p>
-          </div>
-        ))}
-      </section>
-
-      <section className="card">
-        <h3>持有物品</h3>
-        <p className="muted">已移至「物品」页签。</p>
-      </section>
-    </div>
-  );
-}
-
-// ---------- 物品 Tab ----------
-
-function ItemsTab({
-  snapshot,
-  busy,
-  onUseItem,
-}: {
-  snapshot: V2Snapshot;
-  busy: boolean;
-  onUseItem: (itemId: string) => void;
-}) {
-  const items = snapshot.player.inventory;
-  return (
-    <div className="stack">
-      {items.length === 0 && (
-        <section className="card">
-          <p className="muted">空空如也。物品可通过事件、商店与战斗掉落获得。</p>
-        </section>
-      )}
-      {items.map((item) => (
-        <section key={item.itemId} className="card item-card">
-          <div className="row">
-            <h2>{item.name} ×{item.count}</h2>
-            <div className="tag-row">
-              {item.usableOutsideBattle && <span className="tag">可用</span>}
-              {item.usableInBattle && <span className="tag">战斗可用</span>}
-              {!item.usableOutsideBattle && !item.usableInBattle && <span className="tag">被动</span>}
-            </div>
-          </div>
-          {item.description && <p className="item-desc">{item.description}</p>}
-          {item.usableOutsideBattle && (
-            <button className="primary" disabled={busy} onClick={() => onUseItem(item.itemId)}>
-              使用
-            </button>
-          )}
-        </section>
-      ))}
     </div>
   );
 }
