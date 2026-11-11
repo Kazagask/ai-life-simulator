@@ -15,7 +15,7 @@
 
 | 项 | 状态 |
 |---|---|
-| 当前迭代 | **R2.6「关系图谱 + 时间适配器落地」已启动**（`specs/iteration-2026-11-12-r26/`）：ADR-0013（日历 ②③ + 字面量）/ ADR-0014（关系图 + `relationship.js` 依赖）已通过；实施中（WS-A `T-A1..A5` 时间适配器、WS-B `T-B1..B6` 关系图谱，按 G3 单任务推进）。上一轮 **R2.5 事件模型 `T1-01..T1-09` 已落地自验**（待 QA 验收）；**R2.4「装备归属修复 + DNF 式个人面板」已收尾**。 |
+| 当前迭代 | **R2.6「关系图谱 + 时间适配器落地」已全部完成**（`specs/iteration-2026-11-12-r26/`）：ADR-0013（日历 ②③ + 字面量）与 ADR-0014（关系图 + `relationship.js` 依赖）已通过并落地；WS-A `T-A1..A5`、WS-B `T-B1..B6` 全部实现并自验（`f95f5ce`/`24f9b39`/`eb2946d`/`8ee3998`/`ec4eef6`/`c938f2a`/`ccf57b6`/`cc58699`）。同期执行 **ADR-0015**（jjk-2006 内容收敛：删 5 条主线链，转盘成为开局核心，`0358cc9`）。上一轮 **R2.5 事件模型 `T1-01..T1-09` 已落地自验**；**R2.4「装备归属修复 + DNF 式个人面板」已收尾**。 |
 | 范围 | 用户裁决：先把「配置 / 实例 / 事实」三层梳理清楚再编码。事件侧收敛为立即/延时两类 + 时间窗队列 + 入队门控，退役 x 轮后触发，`pool` 只产出延时事件且 combat 不入池，断链判定须查时间队列；NPC 侧投影与生命周期解耦、`spawn-alive-dead` 默认判活、出生时间动态年龄、关系类型化与亲属/师承推导（含断代与多跳称谓）。→ **ADR-0010/0011/0012（状态：已通过 2026-11-12 G1 评审）**；需求 **27 ACTIVE（LM 5 / EV 15 / NP 7）+ 1 DEFERRED** |
 | 进度 | **G1/G2 已过；R2.5 事件模型 9 个任务全部落地并自验完成（待 `life-sim-qa` 验收）**：`T1-01`..`T1-03` 分别落模板契约 / 状态层 / 调度器（`bd5ef2f`、`bd84f61`、`dfa15a6`），`T1-04`..`T1-07` 引擎接线（`23706e1`），`T1-08` 夹具迁移与验收用例（`f1fd1ee`），`T1-09` 协议 §9.6/§22 与完成报告。**自验**：`pnpm typecheck` 0 错误；game-core 275/275、shared 50/50；`pnpm build` 通过；服务 `/api/templates` 200；HTTP e2e 在 `worldTime=1440` 到点触发 `ev-sp-briefing`。详见 `tasks/reports/R25-COMPLETION.md` 与 r25 `tasks.md` §1.1 |
 | 已有产出 | R2.5 实现：单一 `TimeSpec` + `window/delay/cooldown/timeCost/missWhen`、退役字段诊断与 #35 加载期强制、`ScheduledEventInstance` 三层分离、`scheduler.ts` 确定性出队与封闭 `MissReason`、pool 门控入队与 combat 不入池、链延时步与 `alignChainStep`、结算轮 + `timeCost`、事件轮共享尾管线、`schemaVersion=2` 拒载旧档、协议 §22 调度章节 + 完成报告；**规格侧**保留三层混杂清单 M1–M11、ADR-0010/0011/0012（已通过）与 R2.6 的 NPC 设计 |
