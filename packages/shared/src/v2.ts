@@ -352,10 +352,17 @@ export interface V2Snapshot {
   };
   /**
    * 装备栏槽位定义（模板 equipment.yaml 的 slots 投影）；未配置装备分域的世界为空数组。
-   * 前端据 maxCount 渲染格子数量、据 allowedCategories 过滤可装备物品，
-   * **不得由前端猜槽位名或格子数**（ADR-0008 / R-EQ-11）。
+   * 前端据 maxCount 渲染格子数量、据 allowedCategories 过滤可装备物品、
+   * 据 panelSide 摆位（left/right 两列 + bottom 方块区），
+   * **不得由前端猜槽位名、格子数或摆位**（ADR-0008 / ADR-0009 / R-EQ-11/15）。
    */
-  equipmentSlots?: Array<{ id: string; label: string; maxCount: number; allowedCategories: string[] }>;
+  equipmentSlots?: Array<{
+    id: string;
+    label: string;
+    maxCount: number;
+    allowedCategories: string[];
+    panelSide: "left" | "right" | "bottom";
+  }>;
   npcs: Array<{
     id: string;
     name: string;

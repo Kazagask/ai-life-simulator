@@ -15,10 +15,10 @@
 
 | 项 | 状态 |
 |---|---|
-| 当前迭代 | **R2.4「装备归属修复 + 背包/装备栏方格 UI」**（`specs/iteration-2026-11-11-r24/`，小步修复轮）。上一轮 **R2.3「可见性收口 + 存档持久化 + 装备穿脱」已收尾**（16/16 ACTIVE 验收，见 `tasks/reports/R23-COMPLETION.md`） |
-| 范围 | R2.4：用户三项实测反馈 ① 卸下即遗失 ② 装备不应出现在物品栏 ③ 方格 UI + 详情区 → **ADR-0008 背包与装备栏物理分离**；R-EQ-11..14 共 4 条，已全部验收 |
-| 进度 | R2.4：T1-01..T4-02 全部完成；`pnpm typecheck` 0 错误、game-core 243 tests 全绿、web build 254.99 kB；端到端 curl + 无头截图证据见 r24 `tasks.md`。R2.3：18 个任务全部完成并验收 |
-| 已有产出 | R2.3：ADR-0006/0007、历史可见性收口（§21）、JSON 持久化（仓库根 `data/worlds/`、`LIFE_SIM_DATA_DIR` 可挂载、四道关加载）、装备穿脱端点与 UI。R2.4：ADR-0008、协议 §8/§12/§19 修订、穿脱移动背包计数、快照 `equipmentSlots[]`、方格 UI（`buildSlotCells` + `AssetDetail` 详情区） |
+| 当前迭代 | **R2.4「装备归属修复 + DNF 式个人面板」**（`specs/iteration-2026-11-11-r24/`，小步修复轮）。上一轮 **R2.3「可见性收口 + 存档持久化 + 装备穿脱」已收尾**（16/16 ACTIVE 验收，见 `tasks/reports/R23-COMPLETION.md`） |
+| 范围 | 用户四项裁决：① 卸下即遗失 ② 装备不应混在物品栏 ③ 方格 UI + 详情区 ④ DNF 式人物面板 + 背包分区 + 摆位模板化 → **ADR-0008（背包/装备栏物理分离）+ ADR-0009（面板摆位 panelSide）**；R-EQ-11..16 共 6 条，已全部验收 |
+| 进度 | R2.4：T1-01..T5-03 全部完成；`pnpm typecheck` 0 错误、game-core 245 tests 全绿、web build 257.97 kB；puppeteer 端到端证据见 r24 `tasks.md`。R2.3：18 个任务全部完成并验收 |
+| 已有产出 | R2.3：ADR-0006/0007、历史可见性收口（§21）、JSON 持久化（仓库根 `data/worlds/`、`LIFE_SIM_DATA_DIR` 可挂载、四道关加载）、装备穿脱端点与 UI。R2.4：ADR-0008/0009、协议 §8/§12/§19 修订、穿脱移动背包计数、快照 `equipmentSlots[]`（含 panelSide）、DNF 式个人页（角色面板左/中/右 + 属性网格、背包四分区、统一详情区） |
 | 下一步 | R2.3 遗留：阶段 8 与 `TS` 组 5 条 DEFERRED（附录 A/B）；时间跨度 DEFERRED（模板内容治理另行立项）。候选方向：战斗 AI 端点、NPC 生命周期（#21–#25）、LLM 叙事接入——均需先立规格 |
 | 待决问题 | `docs/OPEN_QUESTIONS.md`（未决项不得自行伪造共识） |
 

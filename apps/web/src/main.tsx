@@ -42,12 +42,14 @@ interface SlotCell {
   slotLabel: string;
   index: number;
   capacity: number;
+  /** 人物面板摆位（ADR-0009）：left / right 左右两列，bottom 底部方块区 */
+  side: "left" | "right" | "bottom";
   instance: EquipmentView | null;
 }
 
 /**
- * 槽位定义 → 格子：**槽位全集与格数由模板投影下发**（R-EQ-11），
- * 前端不猜槽位名、也不从「已装备实例」反推槽位（否则空槽会消失）。
+ * 槽位定义 → 格子：**槽位全集、格数与摆位全部由模板投影下发**（R-EQ-11 / R-EQ-15），
+ * 前端不猜槽位名、不猜件数、也不从「已装备实例」反推槽位（否则空槽会消失）。
  * 同一槽位内按投影顺序落格，多余实例（理论上不会出现）舍弃不渲染。
  */
 function buildSlotCells(slots: EquipmentSlotView[], equipment: EquipmentView[]): SlotCell[] {
@@ -59,6 +61,7 @@ function buildSlotCells(slots: EquipmentSlotView[], equipment: EquipmentView[]):
       slotLabel: slot.label,
       index: i,
       capacity: slot.maxCount,
+      side: slot.panelSide,
       instance: worn[i] ?? null,
     }));
   });
@@ -998,20 +1001,29 @@ function ActionPanel({
   );
 }
 
-// ---------- 个人 Tab（装备栏方格 / 背包方格 / 详情区） ----------
+// ---------- 个人 Tab（人物面板 / 背包分区 / 技能） ----------
 
-type PersonalSubTab = "equipment" | "items" | "skills" | "panel";
+type PersonalSubTab = "character" | "bag" | "skills";
 
 const PERSONAL_SUBTABS: Array<{ key: PersonalSubTab; label: string }> = [
-  { key: "equipment", label: "装备" },
-  { key: "items", label: "物品" },
+  { key: "character", label: "角色" },
+  { key: "bag", label: "背包" },
   { key: "skills", label: "技能" },
-  { key: "panel", label: "面板" },
+];
+
+/** 背包分区（用户裁决：装备与物品在背包里分区，DNF 式）。按物品类型分栏，不混排。 */
+type BagPartition = "equipment" | "consumable" | "material" | "key";
+
+const BAG_PARTITIONS: Array<{ key: BagPartition; label: string; types: InventoryView["type"][] }> = [
+  { key: "equipment", label: "装备", types: ["equipment"] },
+  { key: "consumable", label: "消耗品", types: ["consumable"] },
+  { key: "material", label: "材料", types: ["material"] },
+  { key: "key", label: "其他", types: ["key"] },
 ];
 
 /**
- * 选中项：装备槽（含空槽）/ 背包物品。
- * 详情区是唯一的操作入口——装备只在装备页穿、脱，物品只在物品页使用（ADR-0008）。
+ * 选中项：装备槽（含空槽）/ 背包物品。详情区是唯一的操作入口——
+ * 装备在「角色」页穿脱，物品在「背包」页使用（ADR-0008 / ADR-0009）。
  */
 type PersonalSelection =
   | { kind: "slot"; instanceId: string | null; slotId: string; slotLabel: string; capacity: number }
@@ -1031,19 +1043,25 @@ function PersonalTab({
   onEquip: (itemId: string) => void;
   onUnequip: (instanceId: string) => void;
 }) {
-  // 子页签与选中项都是纯展示状态：切换即时、不触发任何请求。
-  const [sub, setSub] = useState<PersonalSubTab>("equipment");
+  // 子页签 / 背包分区 / 选中项都是纯展示状态：切换即时、不触发任何请求。
+  const [sub, setSub] = useState<PersonalSubTab>("character");
+  const [partition, setPartition] = useState<BagPartition>("equipment");
   const [selection, setSelection] = useState<PersonalSelection>(null);
 
   const equipment = equipmentOf(snapshot.player);
-  const slots = snapshot.equipmentSlots ?? [];
   const bag = snapshot.player.inventory;
 
   // 投影刷新后选中项可能已失效（刚卸下 / 刚用完），此时按「未选中」处理而不是报错
-  const active =
+  const active: PersonalSelection =
     selection?.kind === "slot"
       ? selection.instanceId && !equipment.some((e) => e.instanceId === selection.instanceId)
-        ? { kind: "slot" as const, instanceId: null, slotId: selection.slotId, slotLabel: selection.slotLabel, capacity: selection.capacity }
+        ? {
+            kind: "slot",
+            instanceId: null,
+            slotId: selection.slotId,
+            slotLabel: selection.slotLabel,
+            capacity: selection.capacity,
+          }
         : selection
       : selection?.kind === "item" && !bag.some((i) => i.itemId === selection.itemId)
         ? null
@@ -1068,118 +1086,305 @@ function PersonalTab({
         ))}
       </div>
 
-      {sub === "equipment" && (
-        <EquipGridView
-          slots={slots}
-          equipment={equipment}
-          selection={active}
-          onSelect={setSelection}
-        />
+      {sub === "character" && (
+        <>
+          <CharacterPanel snapshot={snapshot} equipment={equipment} selection={active} onSelect={setSelection} />
+          <StatsPanel snapshot={snapshot} />
+          <AssetDetail
+            snapshot={snapshot}
+            selection={active}
+            busy={busy}
+            onEquip={onEquip}
+            onUnequip={onUnequip}
+            onUseItem={onUseItem}
+          />
+        </>
       )}
-      {sub === "items" && <BagGridView bag={bag} selection={active} onSelect={setSelection} />}
 
-      {(sub === "equipment" || sub === "items") && (
-        <AssetDetail
-          snapshot={snapshot}
-          selection={active}
-          busy={busy}
-          onEquip={onEquip}
-          onUnequip={onUnequip}
-          onUseItem={onUseItem}
-        />
+      {sub === "bag" && (
+        <>
+          <BagPanel
+            snapshot={snapshot}
+            partition={partition}
+            onPartition={(key) => {
+              setPartition(key);
+              setSelection(null);
+            }}
+            selection={active}
+            onSelect={setSelection}
+          />
+          <AssetDetail
+            snapshot={snapshot}
+            selection={active}
+            busy={busy}
+            onEquip={onEquip}
+            onUnequip={onUnequip}
+            onUseItem={onUseItem}
+          />
+        </>
       )}
 
       {sub === "skills" && <SkillList snapshot={snapshot} />}
-      {sub === "panel" && <PanelView snapshot={snapshot} />}
     </div>
   );
 }
 
-/** 装备栏方格：一格 = 槽位的一个位置；空槽也可选中（详情区给出可装备物品）。 */
-function EquipGridView({
-  slots,
+function isSlotSelected(selection: PersonalSelection, cell: SlotCell): boolean {
+  if (selection?.kind !== "slot") return false;
+  return cell.instance
+    ? selection.instanceId === cell.instance.instanceId
+    : selection.instanceId === null && selection.slotId === cell.slotId;
+}
+
+/** 装备格子（左右两列共用）。空槽也可选中——详情区会列出可装备物品。 */
+function SlotTile({
+  cell,
+  selected,
+  onSelect,
+}: {
+  cell: SlotCell;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      className={`cell slot-tile ${selected ? "selected" : ""} ${cell.instance ? "" : "empty"}`}
+      aria-pressed={selected}
+      onClick={onSelect}
+    >
+      <span className="cell-slot">
+        {cell.slotLabel}
+        {cell.capacity > 1 ? ` ${cell.index + 1}` : ""}
+      </span>
+      <span className="cell-glyph">{cell.instance ? "◈" : "＋"}</span>
+      <span className={`cell-name ${cell.instance ? "" : "muted"}`}>{cell.instance?.name ?? "空"}</span>
+    </button>
+  );
+}
+
+/**
+ * 人物面板（DNF M 面板思路）：左列 / 中央人物 / 右列，槽位由模板 `panelSide` 决定摆位，
+ * 底部锚定的槽位（缺省 bottom）排在面板下方。**格子数 = 槽位 maxCount，全部来自模板**，
+ * 前端不猜槽位、不猜件数（R-EQ-15）。
+ */
+function CharacterPanel({
+  snapshot,
   equipment,
   selection,
   onSelect,
 }: {
-  slots: EquipmentSlotView[];
+  snapshot: V2Snapshot;
   equipment: EquipmentView[];
   selection: PersonalSelection;
   onSelect: (next: PersonalSelection) => void;
 }) {
+  const slots = snapshot.equipmentSlots ?? [];
   const cells = buildSlotCells(slots, equipment);
+  const sideOf = (side: SlotCell["side"]) => cells.filter((c) => c.side === side);
+  const left = sideOf("left");
+  const right = sideOf("right");
+  const bottom = sideOf("bottom");
+  const p = snapshot.player;
+
+  const selectCell = (cell: SlotCell) =>
+    onSelect({
+      kind: "slot",
+      instanceId: cell.instance?.instanceId ?? null,
+      slotId: cell.slotId,
+      slotLabel: cell.slotLabel,
+      capacity: cell.capacity,
+    });
 
   return (
     <section className="card">
       <div className="row">
-        <h3 className="panel-title">装备栏</h3>
-        <span className="muted equip-count">{equipment.length} 件</span>
+        <h3 className="panel-title">角色</h3>
+        <span className="muted equip-count">{equipment.length} 件在身</span>
       </div>
+
       {cells.length === 0 ? (
         <p className="muted">这个世界没有配置装备槽位。</p>
       ) : (
-        <div className="cell-grid">
-          {cells.map((cell) => {
-            const selected =
-              selection?.kind === "slot" &&
-              (cell.instance
-                ? selection.instanceId === cell.instance.instanceId
-                : selection.instanceId === null && selection.slotId === cell.slotId);
-            return (
-              <button
-                key={cell.key}
-                className={`cell equip-cell ${selected ? "selected" : ""} ${cell.instance ? "" : "empty"}`}
-                aria-pressed={selected}
-                onClick={() =>
-                  onSelect({
-                    kind: "slot",
-                    instanceId: cell.instance?.instanceId ?? null,
-                    slotId: cell.slotId,
-                    slotLabel: cell.slotLabel,
-                    capacity: cell.capacity,
-                  })
-                }
-              >
-                <span className="cell-slot">
-                  {cell.slotLabel}
-                  {cell.capacity > 1 ? ` ${cell.index + 1}` : ""}
-                </span>
-                <span className="cell-glyph">{cell.instance ? "◈" : "＋"}</span>
-                <span className={`cell-name ${cell.instance ? "" : "muted"}`}>
-                  {cell.instance?.name ?? "空"}
-                </span>
-                {cell.instance && <EquipMeta equipment={cell.instance} />}
-              </button>
-            );
-          })}
-        </div>
+        <>
+          <div className="paperdoll">
+            <div className="paperdoll-col">
+              {left.map((cell) => (
+                <SlotTile
+                  key={cell.key}
+                  cell={cell}
+                  selected={isSlotSelected(selection, cell)}
+                  onSelect={() => selectCell(cell)}
+                />
+              ))}
+            </div>
+
+            <div className="paperdoll-figure">
+              <div className="figure-avatar" aria-hidden="true">◈</div>
+              <strong className="figure-name">{p.name}</strong>
+              <span className="figure-sub">
+                {p.age} 岁 · {p.genderLabel}
+              </span>
+              <div className="figure-bars">
+                <MiniBar
+                  label={snapshot.labels.resources.hp ?? "hp"}
+                  value={p.hp}
+                  max={p.maxHp}
+                  cls="hp"
+                />
+                <MiniBar
+                  label={snapshot.labels.resources.mp ?? "mp"}
+                  value={p.mp}
+                  max={p.maxMp}
+                  cls="mp"
+                />
+              </div>
+              <span className="figure-sub">{snapshot.lifeStageLabel}</span>
+            </div>
+
+            <div className="paperdoll-col right">
+              {right.map((cell) => (
+                <SlotTile
+                  key={cell.key}
+                  cell={cell}
+                  selected={isSlotSelected(selection, cell)}
+                  onSelect={() => selectCell(cell)}
+                />
+              ))}
+            </div>
+          </div>
+
+          {bottom.length > 0 && (
+            <div className="cell-grid paperdoll-bottom">
+              {bottom.map((cell) => (
+                <SlotTile
+                  key={cell.key}
+                  cell={cell}
+                  selected={isSlotSelected(selection, cell)}
+                  onSelect={() => selectCell(cell)}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
-      <p className="muted cell-hint">点格子查看详情，装备 / 卸下都在下方详情区完成。</p>
+      <p className="muted cell-hint">点格子查看详情；装备 / 卸下都在下方详情区完成。</p>
     </section>
   );
 }
 
-/** 背包方格：只含未穿戴物品（穿戴中的已在装备栏，ADR-0008）。 */
-function BagGridView({
-  bag,
-  selection,
-  onSelect,
-}: {
-  bag: InventoryView[];
-  selection: PersonalSelection;
-  onSelect: (next: PersonalSelection) => void;
-}) {
+function MiniBar({ label, value, max, cls }: { label: string; value: number; max: number; cls: string }) {
+  const pct = Math.min(100, Math.max(0, (value / Math.max(1, max)) * 100));
+  return (
+    <div className="mini-bar">
+      <div className="mini-top">
+        <span>{label}</span>
+        <span>
+          {value}/{max}
+        </span>
+      </div>
+      <div className="bar">
+        <div className={`bar-fill ${cls}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+/** 属性面板：只复述投影已有字段，不做任何前端推算（与 DNF 的 M 面板信息区对应）。 */
+function StatsPanel({ snapshot }: { snapshot: V2Snapshot }) {
+  const p = snapshot.player;
+  const labels = snapshot.labels.attributes;
+  const order = Object.keys(labels);
+  const rankOf = (key: string) => {
+    const idx = order.indexOf(key);
+    return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
+  };
+  const entries = Object.entries(p.attributes)
+    .filter(([key]) => !key.startsWith("proficiency"))
+    .sort(([a], [b]) => rankOf(a) - rankOf(b));
+
   return (
     <section className="card">
       <div className="row">
-        <h3 className="panel-title">物品栏</h3>
+        <h3 className="panel-title">属性</h3>
+        <span className="muted equip-count">第 {snapshot.turnIndex} 轮</span>
+      </div>
+      <div className="stat-grid">
+        {entries.map(([key, value]) => (
+          <div key={key} className="stat">
+            <span>{labels[key] ?? key}</span>
+            <strong>{String(value)}</strong>
+          </div>
+        ))}
+        <div className="stat">
+          <span>{snapshot.labels.mood}</span>
+          <strong>{p.moodBandLabel}</strong>
+        </div>
+      </div>
+      {p.statuses.length > 0 && (
+        <div className="status-chips">
+          {p.statuses.map((s) => (
+            <span key={s.id} className="chip status-chip">
+              {s.name}
+              {s.stacks > 1 ? `×${s.stacks}` : ""}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="meta-row">
+        <span className="chip">命运偏离度 {snapshot.evaluation.canonDeviation}</span>
+        <span className="chip">{snapshot.formattedTime}</span>
+      </div>
+      <p className="eval-line">{snapshot.evaluation.summary}</p>
+    </section>
+  );
+}
+
+/** 背包：按类型分区（装备 / 消耗品 / 材料 / 其他），每区独立方格 + 数量角标。 */
+function BagPanel({
+  snapshot,
+  partition,
+  onPartition,
+  selection,
+  onSelect,
+}: {
+  snapshot: V2Snapshot;
+  partition: BagPartition;
+  onPartition: (next: BagPartition) => void;
+  selection: PersonalSelection;
+  onSelect: (next: PersonalSelection) => void;
+}) {
+  const bag = snapshot.player.inventory;
+  const current = BAG_PARTITIONS.find((p) => p.key === partition) ?? BAG_PARTITIONS[0];
+  const items = bag.filter((item) => current.types.includes(item.type));
+  const countOf = (types: InventoryView["type"][]) => bag.filter((i) => types.includes(i.type)).length;
+
+  return (
+    <section className="card">
+      <div className="row">
+        <h3 className="panel-title">背包</h3>
         <span className="muted equip-count">{bag.length} 种</span>
       </div>
-      {bag.length === 0 ? (
-        <p className="muted">空空如也。物品可通过事件、商店与战斗掉落获得。</p>
+
+      <div className="partitionbar" role="tablist" aria-label="背包分区">
+        {BAG_PARTITIONS.map((entry) => (
+          <button
+            key={entry.key}
+            role="tab"
+            aria-selected={partition === entry.key}
+            className={`partition ${partition === entry.key ? "active" : ""}`}
+            onClick={() => onPartition(entry.key)}
+          >
+            {entry.label}
+            <em>{countOf(entry.types)}</em>
+          </button>
+        ))}
+      </div>
+
+      {items.length === 0 ? (
+        <p className="muted">这一格还没有东西。</p>
       ) : (
         <div className="cell-grid">
-          {bag.map((item) => {
+          {items.map((item) => {
             const selected = selection?.kind === "item" && selection.itemId === item.itemId;
             return (
               <button
@@ -1196,7 +1401,7 @@ function BagGridView({
           })}
         </div>
       )}
-      <p className="muted cell-hint">穿在身上的装备不在物品栏里，去「装备」页卸下。</p>
+      <p className="muted cell-hint">穿在身上的装备不在背包里，去「角色」页卸下。</p>
     </section>
   );
 }
@@ -1289,7 +1494,7 @@ function AssetDetail({
           {allowed.length > 0 ? `此槽位接受类别：${allowed.join(" / ")}` : "槽位未声明允许类别。"}
         </p>
         {candidates.length === 0 ? (
-          <p className="muted">物品栏里没有可放进这个槽位的装备。</p>
+          <p className="muted">背包里没有可放进这个槽位的装备。</p>
         ) : (
           <div className="stack-sm">
             {candidates.map((item) => (
@@ -1377,23 +1582,6 @@ function SkillList({ snapshot }: { snapshot: V2Snapshot }) {
         ))}
       </div>
     </section>
-  );
-}
-
-/** 面板页签只复述投影已有字段，不做任何前端推算。 */
-function PanelView({ snapshot }: { snapshot: V2Snapshot }) {
-  return (
-    <>
-      <PlayerCard snapshot={snapshot} />
-      <section className="card">
-        <h3>状态摘要</h3>
-        <div className="meta-row">
-          <span className="chip">人生阶段：{snapshot.lifeStageLabel}</span>
-          <span className="chip">命运偏离度：{snapshot.evaluation.canonDeviation}</span>
-          <span className="chip">第 {snapshot.turnIndex} 轮</span>
-        </div>
-      </section>
-    </>
   );
 }
 

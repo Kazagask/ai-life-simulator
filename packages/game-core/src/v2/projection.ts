@@ -127,12 +127,13 @@ export function projectSnapshotV2(
         };
       }),
     },
-    // 槽位定义（R-EQ-11）：前端据此渲染固定格子数，不从已装备实例反推槽位
+    // 槽位定义（R-EQ-11 / R-EQ-15）：个数、格数与摆位全部来自模板，前端不猜
     equipmentSlots: (template.equipment?.slots ?? []).map((s) => ({
       id: s.id,
       label: s.label,
       maxCount: s.maxCount,
       allowedCategories: [...s.allowedCategories],
+      panelSide: s.panelSide ?? "bottom",
     })),
     npcs: state.npcs.map((npc) => ({
       id: npc.id,

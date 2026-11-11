@@ -14,12 +14,24 @@ import { ConditionSchema } from "./common.js";
 
 // ---------- 槽位 ----------
 
+/**
+ * 槽位定义（模板 equipment.yaml）。
+ *
+ * 「能装备多少东西」完全由模板决定：`slots[]` 的条数 = 槽位种类数，
+ * 每项的 `maxCount` = 该槽可同时穿戴的件数（如饰品 maxCount 2 → 面板两格），
+ * `allowedCategories` = 该槽接受哪些物品类别。引擎与前端都不得写死槽位或件数。
+ *
+ * `panelSide`（ADR-0009）只影响**人物面板的摆位**：左列 / 右列 / 底部方块区；
+ * 缺省 `bottom`，即未声明布局的老模板退化为「槽位方块横排」，行为不变。
+ */
 export const EquipmentSlotSchema = z
   .object({
     id: z.string().min(1),
     label: z.string().min(1),
     allowedCategories: z.array(z.string().min(1)).min(1),
     maxCount: z.number().int().positive(),
+    /** 人物面板摆位：left / right 为左右两列，bottom 为底部方块区（缺省） */
+    panelSide: z.enum(["left", "right", "bottom"]).optional(),
   })
   .strict();
 

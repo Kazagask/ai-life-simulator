@@ -650,15 +650,16 @@ worldSpecificDimensions:
 
 | 分域 | 字段 | 说明 |
 |---|---|---|
-| `equipment.yaml` | `slots[]: { id, label, allowedCategories[], maxCount }`、`initialEquipment[]` | 槽位与初始装备 |
+| `equipment.yaml` | `slots[]: { id, label, allowedCategories[], maxCount, panelSide? }`、`initialEquipment[]` | 槽位与初始装备 |
 | `items.yaml`（`type: equipment`） | `slot / category / quality / dynamicModifier` | 装备**定义** |
 | `EquipmentInstance`（运行时） | `itemId / ownerId / slot / stacks? / durability?` | **不存补正结果** |
 
-**背包与装备栏的关系（V2.2 / ADR-0008）**
+**背包与装备栏的关系（V2.2 / ADR-0008 / ADR-0009）**
 
 - 穿脱是**物理移动**：穿上 `inventory[itemId] - 1`、卸下 `+1`；穿戴中的装备不在背包，卸下必定回流背包（初始装备也不遗失）。
 - `initialEquipment` 是**独立的穿戴授予**，不从背包扣除；与 `playerTemplate.items` 同 id 时玩家得到「1 件穿戴 + 1 件备用」。
-- 快照下发 `equipmentSlots[]`（id / label / maxCount / allowedCategories）供前端按 `maxCount` 渲染固定格数、按 `allowedCategories` 过滤可装备物品；前端不得从已装备实例反推槽位（空槽会消失）。
+- **装备容量完全模板化**：`slots[]` 条数 = 槽位种类数，`maxCount` = 该槽可同时穿戴件数，`allowedCategories` = 接受品类；引擎与前端均不得写死。
+- 快照下发 `equipmentSlots[]`（id / label / maxCount / allowedCategories / `panelSide`），供前端按 `maxCount` 渲染固定格数、按 `allowedCategories` 过滤可装备物品、按 `panelSide`（left / right / bottom，缺省 bottom）摆人物面板；前端不得从已装备实例反推槽位（空槽会消失）。
 
 ```yaml
 # equipment.yaml

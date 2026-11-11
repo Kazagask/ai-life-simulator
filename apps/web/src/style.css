@@ -695,11 +695,123 @@ button {
 
 .cell-hint { margin: 10px 0 0; font-size: 12px; }
 
-.equip-cell .equip-meta { margin-top: 2px; justify-content: center; }
-.equip-cell .tag { font-size: 9px; padding: 0 5px; }
 .bag-cell { min-height: 92px; }
 
-/* 详情区：选中格子的说明与操作，位于方格下方 */
+/* ---------- 人物面板（DNF M 面板思路）：左列 / 人物 / 右列 ---------- */
+
+.paperdoll {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr) 82px;
+  gap: 8px;
+  margin-top: 12px;
+  align-items: start;
+}
+
+.paperdoll-col { display: flex; flex-direction: column; gap: 8px; }
+
+.paperdoll-bottom { margin-top: 8px; }
+
+.slot-tile {
+  min-height: 78px;
+  padding: 6px 4px;
+  gap: 2px;
+}
+
+.slot-tile .cell-slot { font-size: 10px; }
+.slot-tile .cell-glyph { font-size: 18px; }
+.slot-tile .cell-name { font-size: 11px; }
+
+.paperdoll-figure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  border-radius: 14px;
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(124, 140, 255, 0.18), transparent 62%),
+    var(--bg-card-2);
+}
+
+.figure-avatar {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  color: var(--accent-2);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 50%;
+  background: rgba(124, 140, 255, 0.12);
+}
+
+.figure-name { font-size: 14px; }
+.figure-sub { font-size: 11px; color: var(--muted); text-align: center; }
+.figure-bars { width: 100%; display: flex; flex-direction: column; gap: 5px; margin-top: 2px; }
+
+.mini-bar { display: flex; flex-direction: column; gap: 2px; font-size: 10px; color: var(--muted); }
+.mini-top { display: flex; justify-content: space-between; gap: 4px; font-variant-numeric: tabular-nums; }
+.mini-bar .bar { height: 6px; }
+
+/* ---------- 属性面板 / 背包分区 ---------- */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card-2);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.stat strong { color: var(--text); font-size: 15px; font-variant-numeric: tabular-nums; }
+
+.partitionbar {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.partition {
+  flex: 1 0 auto;
+  min-height: 34px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: var(--bg-card-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.partition em { font-style: normal; font-size: 10px; opacity: 0.75; font-variant-numeric: tabular-nums; }
+
+.partition.active {
+  color: var(--text);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-card-2));
+  font-weight: 600;
+}
+
+/* 详情区：选中格子的说明与操作，位于方格 / 面板下方 */
 .detail-card { border-color: color-mix(in srgb, var(--accent) 34%, var(--border)); }
 .detail-card h3 { margin: 0; font-size: 17px; }
 .detail-card .item-desc { color: var(--muted); font-size: 14px; margin: 8px 0; }

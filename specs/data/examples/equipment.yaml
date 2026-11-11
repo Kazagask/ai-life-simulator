@@ -16,8 +16,8 @@
 equipment:
   qualities: [common, uncommon, rare, legendary]
   slots:
-    - { id: weapon, label: 武器, allowedCategories: [blade, blunt, bow], maxCount: 1 }
-    - { id: accessory, label: 饰品, allowedCategories: [ring, charm, amulet], maxCount: 2 }
+    - { id: weapon, label: 武器, allowedCategories: [blade, blunt, bow], maxCount: 1, panelSide: left }
+    - { id: accessory, label: 饰品, allowedCategories: [ring, charm, amulet], maxCount: 2, panelSide: right }
   initialEquipment:
     - itemId: ex-sample-blade
 

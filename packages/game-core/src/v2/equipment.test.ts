@@ -554,13 +554,35 @@ describe("装备投影（前端装备栏数据源）", () => {
     );
   });
 
-  it("投影下发槽位定义（前端渲染固定格子数，不猜槽位）（R-EQ-11）", () => {
+  it("投影下发槽位定义（前端渲染固定格子数，不猜槽位）（R-EQ-11/15）", () => {
     const { template, lookup, state } = setup();
     const snapshot = projectSnapshotV2(state, template, lookup);
     expect(snapshot.equipmentSlots).toEqual([
-      { id: "weapon", label: "武器", maxCount: 1, allowedCategories: ["blade"] },
-      { id: "accessory", label: "饰品", maxCount: 2, allowedCategories: ["charm", "ring"] },
+      { id: "weapon", label: "武器", maxCount: 1, allowedCategories: ["blade"], panelSide: "bottom" },
+      { id: "accessory", label: "饰品", maxCount: 2, allowedCategories: ["charm", "ring"], panelSide: "bottom" },
     ]);
+    // 未声明 panelSide 时缺省 bottom：老模板摆位不变（ADR-0009）
+  });
+
+  it("模板声明 panelSide 时按声明下发（人物面板左右列由模板决定）", () => {
+    const withSides = makeTemplate((raw) => {
+      const slots = (raw.equipment as { slots: Array<Record<string, unknown>> }).slots;
+      slots[0].panelSide = "left";
+      slots[1].panelSide = "right";
+    });
+    expect(withSides.equipment?.slots?.map((s) => s.panelSide)).toEqual(["left", "right"]);
+    const snapshot = projectSnapshotV2(
+      createActiveWorldV2({ templateId: withSides.meta.id, playerName: "摆位", seed: 3 }, withSides, "w-side"),
+      withSides,
+      createLookup(withSides),
+    );
+    expect(snapshot.equipmentSlots?.map((s) => s.panelSide)).toEqual(["left", "right"]);
+  });
+
+  it("panelSide 非法取值在加载期被拒（不静默降级）", () => {
+    const raw = structuredClone(RAW_TEMPLATE);
+    (raw.equipment as { slots: Array<Record<string, unknown>> }).slots[0].panelSide = "top";
+    expect(() => WorldTemplateV2Schema.parse(raw)).toThrow(/panelSide/);
   });
 
   it("背包与装备栏互斥：穿戴中的物品不出现在 inventory 投影（ADR-0008）", () => {
