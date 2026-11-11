@@ -1,0 +1,86 @@
+# 结局 / 终止 / 死亡路径分域样例（协议 V2.1 §17）。可经 EndingConfigSchema 校验。
+# 本文件放在 specs/data/examples/（不在 templates/ 下），不参与 apps/server 的模板目录遍历，
+# 仅作为协议样例与测试夹具；jjk-2006 保持六文件，未提供 endings.yaml 时引擎用最小默认配置。
+#
+# ⚠️ 挂载提示：下列 ev-death-funeral / end-* / flag 名（mainObjectiveDone / fatalWound /
+# secretUnlocked）均为协议示意值，jjk-2006 的 events.yaml 与 flag 并未定义它们。
+# 若要把本样例挂到真实世界目录，须把 deathRoute.deathEventId 改成该模板 events.yaml 中
+# 已定义的事件 id，terminationConditions / triggerConditions / unlockConditions 的 flag 名
+# 改成该世界实际会写入的 flag（且不得以 HP 数值或 HP 归零为判据，R-EN-07 / P9）。
+
+terminationConditions:
+  - type: objective
+    params:
+      conditions:
+        - { flag: mainObjectiveDone, eq: true }
+    combinator: AND
+    terminationMode: afterSettle
+  - type: battleDefeat
+    params:
+      conditions:
+        - { flag: fatalWound, eq: true }
+    combinator: OR
+    terminationMode: immediate
+
+deathRoute:
+  deathMode: event
+  deathEventId: ev-death-funeral
+  conditions:
+    - { flag: fatalWound, eq: true }
+
+endings:
+  - endingId: end-fallen
+    name: 战殁
+    description: 战败且身负致命伤。
+    triggerConditions:
+      - { flag: fatalWound, eq: true }
+    priority: 20
+    endingType: sacrifice
+    narrativeConfig:
+      source: template
+      title: 战殁
+      summary: 战斗以败北告终，故事在此收束。
+    visibility: public
+
+  - endingId: end-hero
+    name: 功成
+    description: 主目标达成。
+    triggerConditions:
+      - { flag: mainObjectiveDone, eq: true }
+    priority: 10
+    endingType: triumph
+    narrativeConfig:
+      source: template
+      title: 功成
+      summary: 你完成了主目标，故事在此收束。
+    visibility: public
+    exclusiveGroup: main-path
+
+  - endingId: end-secret
+    name: 隐藏结局
+    description: 满足解锁条件才进入候选集。
+    triggerConditions:
+      - { flag: mainObjectiveDone, eq: true }
+    priority: 30
+    endingType: secret
+    narrativeConfig:
+      source: template
+      summary: 不为人知的另一条路。
+    visibility: hidden
+    unlockConditions:
+      - { flag: secretUnlocked, eq: true }
+
+  - endingId: end-ordinary
+    name: 平凡
+    description: 无专属命中时的兜底结局。
+    triggerConditions: []
+    priority: 0
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 平凡
+      summary: 一生平淡收束。
+    visibility: public
+    fallback: true
+
+fallback: end-ordinary

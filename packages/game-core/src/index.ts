@@ -10,6 +10,9 @@ export * from "./v2/projection.js";
 export * from "./v2/runner-context.js";
 export * from "./v2/replay.js";
 export * from "./v2/opening.js";
+export * from "./v2/narrative.js";
+export * from "./v2/life-evaluation.js";
+export * from "./v2/archive.js";
 
 // ---------- 确定性随机源（V2 引擎共用，非 V1 遗留） ----------
 export * from "./rng.js";

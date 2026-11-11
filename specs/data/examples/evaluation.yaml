@@ -1,0 +1,19 @@
+# 人生评价分域样例（协议 V2.1 §18）。可经 EvaluationConfigSchema 校验。
+# 本文件放在 specs/data/examples/（不在 templates/ 下），不参与 apps/server 的模板目录遍历，
+# 仅作为协议样例与测试夹具；jjk-2006 保持六文件，未提供 evaluation.yaml 时引擎用最小默认配置。
+#
+# ⚠️ 挂载提示：维度 id 以协议 §18 为权威（relationships / achievements / choices /
+# growth / influence / regrets），中文 label 可按世界观覆写；worldSpecificDimensions 里的
+# cursedEnergyMastery 与 explainRules 标签为示意值，挂到真实世界时须改成该世界实际会记录
+# 的过程标签。模板可增删维度、改名、调权，但不得声明 overall 维度、不得把结局类型当维度。
+
+dimensions:
+  - { id: relationships, label: 羁绊, weight: 1.0, ranges: [0, 100], explainRules: [relation-events] }
+  - { id: achievements, label: 成就, weight: 1.2, ranges: [0, 100], explainRules: [objective-events] }
+  - { id: choices, label: 抉择, weight: 1.0, ranges: [0, 100], explainRules: [choice-events] }
+  - { id: growth, label: 成长, weight: 1.0, ranges: [0, 100], explainRules: [growth-events] }
+  - { id: influence, label: 影响, weight: 1.0, ranges: [0, 100], explainRules: [influence-events] }
+  - { id: regrets, label: 遗憾, weight: 0.8, ranges: [0, 100], explainRules: [regret-events] }
+
+worldSpecificDimensions:
+  - { id: cursedEnergyMastery, label: 咒力掌控, weight: 0.8, ranges: [0, 100], explainRules: [skill-events] }

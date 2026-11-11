@@ -4,8 +4,12 @@ import path from "node:path";
 import { parse } from "yaml";
 import { z } from "zod";
 import {
+  EndingConfigSchema,
+  EvaluationConfigSchema,
   OpeningTemplateSchema,
   WorldTemplateV2Schema,
+  type EndingConfig,
+  type EvaluationConfig,
   type OpeningTemplate,
   type WorldTemplateV2,
 } from "@life-sim/shared";
@@ -28,6 +32,9 @@ const TEMPLATE_FILES = [
 
 /** 开局是可选分域（协议 §3）：按文件存在性加载，不并入 WorldTemplateV2，不改 API 契约形状。 */
 const openingTemplates = new Map<string, OpeningTemplate[]>();
+/** 结局 / 评价同为可选分域（协议 §17 / §18）：未提供时引擎走最小默认配置。 */
+const endingConfigs = new Map<string, EndingConfig>();
+const evaluationConfigs = new Map<string, EvaluationConfig>();
 
 function templatesDir(): string {
   if (process.env.TEMPLATES_DIR) return path.resolve(process.env.TEMPLATES_DIR);
@@ -69,16 +76,35 @@ function loadOpenings(dir: string): OpeningTemplate[] {
   return list;
 }
 
+/** 按文件存在性加载单个可选分域；校验失败由启动期 fail-fast 拦截，错误信息含字段路径。 */
+function loadOptionalConfig<T>(
+  dir: string,
+  file: string,
+  schema: { parse: (input: unknown) => T },
+): T | undefined {
+  const filePath = path.join(dir, file);
+  if (!existsSync(filePath)) return undefined;
+  const doc: unknown = parse(readFileSync(filePath, "utf8"));
+  return schema.parse(doc);
+}
+
 export function loadTemplates(): Map<string, WorldTemplateV2> {
   const dir = templatesDir();
   if (!existsSync(dir)) throw new Error(`templates_dir_missing: ${dir}`);
   const templates = new Map<string, WorldTemplateV2>();
+  endingConfigs.clear();
+  evaluationConfigs.clear();
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const template = loadTemplate(path.join(dir, entry.name));
+    const worldDir = path.join(dir, entry.name);
+    const template = loadTemplate(worldDir);
     templates.set(template.meta.id, template);
-    const openings = loadOpenings(path.join(dir, entry.name));
+    const openings = loadOpenings(worldDir);
     if (openings.length > 0) openingTemplates.set(template.meta.id, openings);
+    const endings = loadOptionalConfig(worldDir, "endings.yaml", EndingConfigSchema);
+    if (endings) endingConfigs.set(template.meta.id, endings);
+    const evaluation = loadOptionalConfig(worldDir, "evaluation.yaml", EvaluationConfigSchema);
+    if (evaluation) evaluationConfigs.set(template.meta.id, evaluation);
   }
   if (templates.size === 0) throw new Error(`no_templates_found_in: ${dir}`);
   return templates;
@@ -87,4 +113,14 @@ export function loadTemplates(): Map<string, WorldTemplateV2> {
 /** 供 store.create 接线开局；未提供 opening.yaml 的世界返回空数组（走最小默认开局）。 */
 export function getOpeningTemplates(templateId: string): OpeningTemplate[] {
   return openingTemplates.get(templateId) ?? [];
+}
+
+/** 未提供 endings.yaml 时返回 undefined，由引擎使用最小默认配置。 */
+export function getEndingConfig(templateId: string): EndingConfig | undefined {
+  return endingConfigs.get(templateId);
+}
+
+/** 未提供 evaluation.yaml 时返回 undefined，由引擎使用最小默认配置。 */
+export function getEvaluationConfig(templateId: string): EvaluationConfig | undefined {
+  return evaluationConfigs.get(templateId);
 }

@@ -517,6 +517,7 @@ export function chooseOptionV2(
   template: WorldTemplateV2,
   lookup: TemplateLookup,
 ): V2TurnResult {
+  assertActive(state);
   if (state.battle && !state.battle.over) throw new Error("battle_in_progress");
   const pending = state.pendingEvents[0];
   if (!pending) throw new Error("no_pending_event");
@@ -564,6 +565,7 @@ export function battleActionV2(
   template: WorldTemplateV2,
   lookup: TemplateLookup,
 ): V2TurnResult {
+  assertActive(state);
   const battle = state.battle;
   if (!battle || battle.over) throw new Error("battle_not_active");
   const rng = createRng(deriveTurnSeed(state.seed + 13, state.turnIndex * 100 + battle.round));
@@ -630,6 +632,7 @@ export function useItemV2(
   template: WorldTemplateV2,
   lookup: TemplateLookup,
 ): V2TurnResult {
+  assertActive(state);
   if (state.battle && !state.battle.over) throw new Error("battle_in_progress");
   const item = lookup.item(command.itemId);
   if (!item) throw new Error("item_not_found");

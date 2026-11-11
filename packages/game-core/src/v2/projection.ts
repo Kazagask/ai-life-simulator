@@ -1,5 +1,6 @@
 import type {
   BattleView,
+  EvaluationRecord,
   V2Snapshot,
   WorldStateV2,
   WorldTemplateV2,
@@ -17,6 +18,8 @@ export function projectSnapshotV2(
   state: WorldStateV2,
   template: WorldTemplateV2,
   lookup: TemplateLookup,
+  /** 评价唯一事实来源（v2/life-evaluation.ts）；未提供时用中性占位文案 */
+  evaluation?: EvaluationRecord | null,
 ): V2Snapshot {
   const player = state.player;
   const genderLabel = lookup.genderLabel(player.gender);
@@ -115,7 +118,7 @@ export function projectSnapshotV2(
       duration: a.duration,
     })),
     evaluation: {
-      summary: evaluateSummaryV2(state, template),
+      summary: evaluation?.summary ?? "本局评价尚未生成。",
       canonDeviation: typeof state.flags.canonDeviation === "number" ? state.flags.canonDeviation : 0,
     },
   };
@@ -186,22 +189,4 @@ function battleView(state: WorldStateV2, lookup: TemplateLookup, template: World
     })),
     log: battle.log.slice(-30),
   };
-}
-
-function evaluateSummaryV2(state: WorldStateV2, template: WorldTemplateV2): string {
-  const attrs = Object.values(state.player.attributes);
-  const growth = attrs.length > 0 ? attrs.reduce((a, b) => a + b, 0) / attrs.length : 0;
-  const milestones = Object.entries(state.flags).filter(
-    ([key, value]) => key.startsWith("milestone:") && value === true,
-  ).length;
-  const relations = state.npcs.map((n) => n.relationship);
-  const relationAvg = relations.length > 0 ? relations.reduce((a, b) => a + b, 0) / relations.length : 0;
-  const overall = Math.min(100, growth * 4 + milestones * 10 + (relationAvg + 100) / 10);
-  void template;
-  // 过渡实现：评价文案不得含世界观专名（R-NFR-05）；正式评价由 v2/life-evaluation.ts 接管（T4-04）
-  return overall >= 70
-    ? "你的能力与心性都在急速成长，命运的轨迹已被你搅动。"
-    : overall >= 40
-      ? "你的日子平稳推进，机会与危险都还在前方。"
-      : "你还只是个初出茅庐的新人，前路漫长而未知。";
 }

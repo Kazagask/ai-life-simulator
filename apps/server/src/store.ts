@@ -49,6 +49,11 @@ export const worldStore = {
     return worlds.get(id);
   },
   save(state: WorldStateV2): void {
+    // R-AR-02 / R-EV-06 / P3：归档只读。已归档世界（store 内或传入状态）拒绝任何写入。
+    const existing = worlds.get(state.id);
+    if (state.archived === true || existing?.archived === true) {
+      throw new Error("[ARCHIVED] 本局已归档，只读，拒绝写入世界状态");
+    }
     worlds.set(state.id, state);
   },
 };
