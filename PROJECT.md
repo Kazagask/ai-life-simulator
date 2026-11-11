@@ -15,11 +15,11 @@
 
 | 项 | 状态 |
 |---|---|
-| 当前迭代 | R2.2「终止模型 + 结局评价 + 遗留能力补齐」，**已确认并进入实施（2026-11-11 05:10）** |
-| 范围 | 45 条 `ACTIVE` / 7 条 `DEFERRED`（时间穿越，转 R3）/ 6 条 `RETIRED`（Lifecycle 状态机） |
+| 当前迭代 | **R2.3「可见性收口 + 存档持久化 + 时间跨度 + 装备穿脱」**（`specs/iteration-2026-11-11-r23/`），**规格草案待用户确认（2026-11-11）**；上一轮 R2.2 已收尾 |
+| 范围 | R2.3：**21 条 `ACTIVE`**（`VS` 5 / `PS` 7 / `TS` 5 / `EQ` 4）、23 个任务；**阶段 8（`T8-01..04`）延期**，原文保留在本轮 `tasks.md` 附录 A。R2.2：45 `ACTIVE` / 7 `DEFERRED` / 6 `RETIRED`（已全部验收） |
 | 进度 | `specs/iteration-2026-11-11/tasks.md`：34 个 ACTIVE 任务；**阶段 0（T0-01..04）、阶段 1（T1-01/03/04）、阶段 2（T2-01..04）、阶段 3（T3-01..05）、阶段 4（T4-01..06）、阶段 5（T5-01..04）、阶段 6（T6-01..04）已全部勾选**；R2 ACTIVE 编码任务全部完成 |
 | 已有产出 | 差距报告 `tasks/reports/R2-GAP-ANALYSIS.md`（含 §10 R2.2 增量复核）；`docs/DECISIONS.md` ADR-0004（已接受）；`specs/data/TEMPLATE_PROTOCOL_V2.md` V2.1（§16–§20）；`CORE_ENGINE.md §8` 已标注取代；V1 引擎与类型已于 04:01 下线，仅保留 V2 共用 `rng.ts`；**V2 实现已固化为基线提交 `f8206ca`**；T2-01 终止模型三字段 + `assertActive()` / 幂等 `markTerminated()`；T2-03 静态边界检查、T2-04 `RunnerContext` + 同 seed 回放夹具；阶段 3 开局分域（schema / `drawOpeningEvents` / `runOpening` / `handoff` / server 接线 / 按 `openingId` 选择）；**T2-02 `assertActive()` 门禁已接入 `advanceTurnV2` 入口**，配 `test-utils.ts` 统一激活夹具与 `guard.test.ts` |
-| 下一步 | R2 ACTIVE 编码任务全部完成，阶段 4 遗留 **#29 / #30 已接线**（终止→结局→归档全链路、`worldStore.seal` 封存入口、`POST /api/worlds/:id/archive`、`endLife` 主动收束）；`jjk-2006` 增 `endings.yaml` / `opening.yaml`，前端有结局面板、归档按钮、开局选择与装备栏数据源。剩余未决：#28（评价维度名规格对齐）、#31（`deathMode: event` 不重放效果） |
+| 下一步 | **R2.3 规格草案已落盘，等用户确认后从阶段 0（`T0-01` 现状复核）开始**；确认前不得改实现代码（G1）。本轮四项按优先级：① 可见性收口（修 `hidden` 事件/结局经 `/history` 泄漏，在线违反 `R-NFR-04`）② 存档落盘（`worldStore` 是内存 Map，重启即清空，需 ADR-0006）③ 时间跨度（16→60 岁约 6 万轮，寿终实际不可达，需 ADR-0007）④ 装备穿脱端点与 UI。阶段 8 延期；LLM 叙事、战斗 AI 端点、NPC 生命周期（#21–#25）不在本轮 |
 | 待决问题 | `docs/OPEN_QUESTIONS.md`（未决项不得自行伪造共识） |
 
 > 状态会变。每轮迭代收尾时**只更新本表**，不要在别处另建第二份状态。
