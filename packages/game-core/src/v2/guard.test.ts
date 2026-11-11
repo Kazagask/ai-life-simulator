@@ -34,7 +34,7 @@ function makeTemplate(): WorldTemplateV2 {
         id: "ev-handoff-sched",
         title: "交接定时事件",
         narrative: "开局交接的定时事件。",
-        trigger: { source: "schedule", atWorldTime: { value: 1, unit: "day" } },
+        trigger: { source: "schedule", window: { start: { value: 1, unit: "day" } } },
         kind: "normal",
         settle: { normal: { options: [{ id: "opt-ok", text: "继续" }] } },
       },
@@ -70,7 +70,6 @@ describe("T2-02 · 门禁：开局未完成 ⇒ NOT_ACTIVE", () => {
     const state = createWorldV2(INPUT, template, "w-not-active");
     // 预置待决事件：若门禁不在最前，会先抛 pending_event_required 而非 NOT_ACTIVE。
     state.pendingEvents = [{ eventId: "ev-handoff-normal" }];
-    state.flags.turnsPlayed = 0;
     const before = structuredClone(state);
     expect(guardCodeOf(() => advanceTurnV2(state, REST, template, lookup))).toBe("NOT_ACTIVE");
     expect(state).toEqual(before);
@@ -114,7 +113,14 @@ describe("T2-02 · 门禁：openingCompleted=true 首轮推进", () => {
     };
     const state = createActiveWorldV2(INPUT, template, "w-active", opening);
     expect(state.openingCompleted).toBe(true);
-    expect(state.flags["openingScheduled:ev-handoff-sched"]).toBe(true);
+    // R2.5：交接不再写 flags 占位标记，而是真正入队一个 waiting 实例（origin=opening）。
+    const legacyPrefix = "opening" + "Scheduled:";
+    expect(Object.keys(state.flags).some((k) => k.startsWith(legacyPrefix))).toBe(false);
+    expect(
+      state.scheduledEvents.some(
+        (i) => i.definitionId === "ev-handoff-sched" && i.status === "waiting" && i.origin.kind === "opening",
+      ),
+    ).toBe(true);
     const res = advanceTurnV2(state, REST, template, lookup);
     expect(res.state.turnIndex).toBe(1);
     expect(res.triggeredEvents.some((e) => e.id === "ev-handoff-sched")).toBe(true);

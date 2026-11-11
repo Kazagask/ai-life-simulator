@@ -14,6 +14,9 @@ import { createRng, pickWeighted, type Rng } from "../rng.js";
 import { amountToMinutes, createTimeAdapter } from "./time.js";
 import { evaluateDynamicModifier, type ModifierConditionGate } from "./equipment.js";
 import type { TemplateLookup } from "./lookup.js";
+// 调度器与效果执行器互为依赖（scheduler 读 checkAllConditions、engine 写入队），
+// 但双方只在函数体内互相调用、无顶层求值，ESM 函数声明提升可保证初始化期安全。
+import { alignChainStep, enqueueCandidate } from "./scheduler.js";
 
 // ---------- 资源公式（规格 4.4：上限 = base + perLevel × growthLevel + Σ perAttribute[attr] × 基础属性值） ----------
 
@@ -282,8 +285,10 @@ export interface EffectContextV2 {
   startedChains?: string[];
   /** 当前执行行动的 NPC（adjustRelation 的 npcId 为 "__self__" 时解析为此） */
   selfNpcId?: string;
-  /** advanceTime 效果执行后置 true，调用方据此重新结算时间事件（schedule） */
+  /** advanceTime 效果执行后置 true，调用方据此在安全边界重新 drain 延时队列 */
   timeAdvanced?: boolean;
+  /** enqueueEvent 效果入队的事件 id；调用方据此在同一次边界 drain 到期实例（入口 3） */
+  enqueued?: string[];
 }
 
 export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefined): void {
@@ -368,12 +373,28 @@ export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefin
         break;
       }
       case "advanceChain":
-        // 推进到下一步（nextTurn 型链由轮次管线触发事件）
-        {
-          const chainState = state.chains.find((c) => c.id === effect.chainId);
-          if (chainState) chainState.stepIndex += 1;
-        }
+        // R-EV-10 / M4：收口到 scheduler.alignChainStep 单一推进规则，杜绝盲目 +1
+        // 与「结算时按 nextEventId 对齐」双写造成的 stepIndex 漂移。
+        alignChainStep(state, effect.chainId, lookup);
         break;
+      case "enqueueEvent": {
+        // R-EV-08：延时入队的唯一声明式通道。门控（once/probability）在候选产生时求值，
+        // 门控失败不产生实例、不记错失；delay 缺省由 enqueueCandidate 取相对 0 分钟。
+        const def = lookup.event(effect.eventId);
+        if (!def) {
+          throw new Error(`enqueueEvent 引用未知事件：${effect.eventId}（模板加载期应已拦截）`);
+        }
+        enqueueCandidate({
+          state,
+          definition: def,
+          origin: { kind: "effect", id: effect.eventId },
+          lookup,
+          rng,
+          ...(effect.delay !== undefined ? { delay: effect.delay } : {}),
+        });
+        (ctx.enqueued ??= []).push(effect.eventId);
+        break;
+      }
       case "cancelChain": {
         const chainState = state.chains.find((c) => c.id === effect.chainId);
         if (chainState) chainState.status = "completed";

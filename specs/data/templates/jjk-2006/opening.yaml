@@ -6,8 +6,8 @@
 #   - ev-exchange（kind: normal）      → 京都开局的首个待决事件
 #
 # 差异刻意做在「起始关系 + 起始 flag + 首个待决事件」三处，不新增世界状态结构。
-# handoff.schedule 目前只登记 openingScheduled:<id> 标记（引擎尚未消费为定时实例），
-# 故两处均留空，避免给出「已排程」的错觉。
+# R2.5：handoff.schedule 会真正入队为延时实例（origin=opening）；两处开局均留空，
+# 未来/条件事件统一由 events.yaml 的 source: schedule 定义在世界初始化时入队。
 
 - openingId: op-2006-tokyo
   name: 2006 · 东京高专

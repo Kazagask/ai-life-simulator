@@ -259,7 +259,14 @@ describe("T3-05 · handoff 与首轮推进（R-OP-07 / R-TM-02）", () => {
     const final = handoff(opened, run);
     expect(final.openingCompleted).toBe(true);
     expect(final.pendingEvents.map((p) => p.eventId)).toContain("ev-curse-sighting");
-    expect(final.flags["openingScheduled:ev-sp-briefing"]).toBe(true);
+    // R2.5：未来事件真正入队（origin=opening、绝对窗口 1 天），不再写 flags 标记。
+    const legacyPrefix = "opening" + "Scheduled:";
+    expect(Object.keys(final.flags).some((k) => k.startsWith(legacyPrefix))).toBe(false);
+    const scheduled = final.scheduledEvents.find(
+      (i) => i.definitionId === "ev-sp-briefing" && i.status === "waiting",
+    );
+    expect(scheduled?.origin).toEqual({ kind: "opening", id: "op-test" });
+    expect(scheduled?.window.start).toBe(1440);
     // 纯函数：入参逐字段未被改写
     expect(opened.openingCompleted).toBe(false);
     expect(opened.pendingEvents).toEqual([]);
@@ -295,7 +302,7 @@ describe("T3-05 · handoff 与首轮推进（R-OP-07 / R-TM-02）", () => {
 
     const res = advanceTurnV2(final, { action: { type: "rest" } }, template, lookup);
     expect(res.state.openingCompleted).toBe(true);
-    // schedule 事件由既有 resolveScheduleV2 在首轮触发（复用统一事件系统）
+    // schedule 实例在首轮时间推进后由 drainScheduledEvents 出队触发（统一事件系统）
     expect(res.triggeredEvents.some((e) => e.id === "ev-sp-briefing")).toBe(true);
     // 既有链状态保留并参与首轮管线
     expect(res.state.chains.some((c) => c.id === "chain-star-plasma")).toBe(true);

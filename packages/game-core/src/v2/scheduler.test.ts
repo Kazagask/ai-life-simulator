@@ -60,8 +60,16 @@ function makeTemplate(events: EventV2[], chains?: WorldTemplateV2["chains"]): Wo
   } as unknown as WorldTemplateV2;
 }
 
+/**
+ * 单测夹具：createWorldV2 现在会按 R-EV-08 为全部 source: schedule 定义自动入队，
+ * 而本文件的用例需要自己精确控制实例（start/end/seq），故清空初始化实例后再用。
+ * 「初始化即入队」本身由下方 T1-04 专项用例验证。
+ */
 function makeState(template: WorldTemplateV2): WorldStateV2 {
-  return createWorldV2({ templateId: "t", playerName: "测试者", seed: 1 }, template, "w-sched");
+  const state = createWorldV2({ templateId: "t", playerName: "测试者", seed: 1 }, template, "w-sched");
+  state.scheduledEvents = [];
+  state.enqueueSeqCounter = 0;
+  return state;
 }
 
 const origin: EventInstanceOrigin = { kind: "effect", id: "test" };
@@ -407,6 +415,29 @@ describe("T1-03 · 链与延时队列对账（R-EV-10）", () => {
     expect(state.chains[0].status).toBe("active");
     alignChainStep(state, "chain-delay-test", lookup, "ev-unknown");
     expect(state.chains[0].status).toBe("completed");
+  });
+});
+
+describe("T1-04 · 世界初始化即入队（R-EV-08）", () => {
+  it("所有 source: schedule 定义按 window.start 一次性换算为绝对分钟实例", () => {
+    const template = makeTemplate([
+      normal("ev-day1", { source: "schedule", window: { start: { value: 1, unit: "day" } } }),
+      normal("ev-day2", {
+        source: "schedule",
+        window: { start: { value: 2, unit: "day" }, end: { value: 3, unit: "day" } },
+      }),
+      normal("ev-pool", { source: "pool", probability: 1 }),
+    ]);
+    const state = createWorldV2({ templateId: "t", playerName: "测试者", seed: 1 }, template, "w-init");
+    expect(state.scheduledEvents).toHaveLength(2);
+    expect(state.scheduledEvents.map((i) => i.definitionId)).toEqual(["ev-day1", "ev-day2"]);
+    expect(state.scheduledEvents.map((i) => i.origin.kind)).toEqual(["schedule-init", "schedule-init"]);
+    expect(state.scheduledEvents[0].window).toEqual({ start: 1440 });
+    expect(state.scheduledEvents[0].hasEnd).toBe(false);
+    expect(state.scheduledEvents[1].window).toEqual({ start: 2880, end: 4320 });
+    expect(state.scheduledEvents[1].hasEnd).toBe(true);
+    expect(state.enqueueSeqCounter).toBe(2);
+    expectNoConfigSnapshot(state.scheduledEvents);
   });
 });
 

@@ -17,10 +17,11 @@ export function createActiveWorldV2(
   opening: OpeningTemplate = createDefaultOpeningTemplate(),
 ): WorldStateV2 {
   const base = createWorldV2(input, template, worldId);
+  const lookup = createLookup(template);
   const openingCtx: OpeningRunnerContext = {
     ...createRunnerContext(base.seed),
-    lookup: createLookup(template),
+    lookup,
   };
   const { state: opened, run } = runOpening(base, opening, openingCtx);
-  return handoff(opened, run);
+  return handoff(opened, run, lookup);
 }

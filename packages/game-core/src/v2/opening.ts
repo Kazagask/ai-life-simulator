@@ -12,12 +12,15 @@ import { createRng, pickWeighted, type Rng } from "../rng.js";
 import type { RunnerContext } from "./runner-context.js";
 import type { TemplateLookup } from "./lookup.js";
 import { applyEffectsV2, checkAllConditions, type ConditionContext } from "./engine.js";
+import { amountToMinutes } from "./time.js";
+import { enqueueScheduled } from "./scheduler.js";
 
 /**
  * 阶段 3 · Opening 开局（design §4 / §6、R-OP-*）。
- * 纯函数 + 注入 RunnerContext；不新建事件栈调度器、不新增 source 枚举、
- * 不改动 WorldStateV2 结构，只读写既有 openingCompleted 标记。
+ * 纯函数 + 注入 RunnerContext；不新建事件栈调度器、不新增 source 枚举。
  * 条件 / 效果只走既有声明式 DSL（checkAllConditions / applyEffectsV2）。
+ * R2.5：handoff 的 schedule 事件改为真正入延时队列（state.scheduledEvents），
+ * 不再写开局排程标记 flags 占位；实例沿用统一的 ScheduledEventInstance。
  */
 
 /** runOpening 的上下文：RunnerContext + 模板查找器（既有条件 DSL 求值需要）。 */
@@ -221,10 +224,13 @@ export function runOpening(
 
 /**
  * T3-05 交接。completionConditions 满足后把未完成即时事件送入现有 pendingEvents
- * （带 chainId 者接入现有 chains）、未来事件送入现有 schedule，并置 openingCompleted = true。
- * 纯函数，返回新状态；不设阶段枚举、不新建调度器、不改动 WorldStateV2 结构。
+ * （带 chainId 者接入现有 chains）、未来事件**真正入队**到 state.scheduledEvents，
+ * 并置 openingCompleted = true。纯函数，返回新状态；不设阶段枚举、不新建调度器。
+ *
+ * `lookup` 可选：提供时交接实例沿用事件定义 window.start 作为窗口起点；
+ * 未提供时退化为 `s.at ?? 0`，保证旧调用方（2 参）编译与行为可用。
  */
-export function handoff(state: WorldStateV2, run: OpeningRun): WorldStateV2 {
+export function handoff(state: WorldStateV2, run: OpeningRun, lookup?: TemplateLookup): WorldStateV2 {
   if (!run.completed) {
     throw new Error("[opening_not_complete] completionConditions 未满足，拒绝交接");
   }
@@ -246,11 +252,29 @@ export function handoff(state: WorldStateV2, run: OpeningRun): WorldStateV2 {
     }
   }
 
-  // 2) 未来/条件事件 → 现有 schedule：引用 events.yaml 中既有 source: schedule 定义，
-  //    由轮次管线的 resolveScheduleV2 按 atTurn / atWorldTime 在首轮消费；
-  //    此处只登记"已排程"实例标记，不新建队列、不改 WorldStateV2 结构。
+  // 2) 未来/条件事件 → 延时队列（R-EV-08 / M5 修复）：真正产生 ScheduledEventInstance，
+  //    由 drainScheduledEvents 在到期时统一判定，取代旧的 flags 占位标记。
+  //    createWorldV2 已为全部 source: schedule 定义入队 schedule-init 实例；开局若重复声明
+  //    同一事件，以开局为准：把旧的 waiting 实例标 cancelled，避免同一事件触发两次。
+  //    opening 条目上的 conditions 属配置域声明，旧实现也从未消费（M3「写而不读」），
+  //    且实例不得复制配置字段（R-EV-15）——出队终判读事件定义现值，此处不复制。
   for (const s of run.scheduledEvents) {
-    next.flags[`openingScheduled:${s.eventId}`] = true;
+    for (const existing of next.scheduledEvents) {
+      if (existing.status === "waiting" && existing.definitionId === s.eventId) {
+        existing.status = "cancelled";
+      }
+    }
+    // s.at / 定义 window.start 都是「相对世界起始」的偏移（世界初始化 now=0 入队等价表达），
+    // 而 TimeSpec 默认相对入队时刻（#37）；交接可能发生在 advanceTo 之后，故按绝对量固化。
+    const startSpec = s.at ?? lookup?.event(s.eventId)?.trigger.window?.start;
+    enqueueScheduled({
+      state: next,
+      definitionId: s.eventId,
+      origin: { kind: "opening", id: run.openingId },
+      ...(startSpec !== undefined
+        ? { absoluteStart: amountToMinutes(startSpec) }
+        : { start: { value: 0, unit: "minute" } }),
+    });
   }
 
   // 3) 交接标记（ADR-0004 / R-TM-02）。

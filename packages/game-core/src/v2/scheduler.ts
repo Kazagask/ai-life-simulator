@@ -80,6 +80,12 @@ export interface EnqueueScheduledInput {
   origin: EventInstanceOrigin;
   /** 相对入队时刻的窗口起点；缺省 = 相对 0 分钟（OQ-#38） */
   start?: TimeSpec;
+  /**
+   * 绝对世界分钟窗口起点，优先于 `start`。
+   * 仅供 opening.handoff 使用：OpeningScheduledEventSchema.at 的语义是「相对世界起始」，
+   * 与 TimeSpec 的「默认相对入队时刻」不同（#37），交接时按绝对量固化，避免被交接时刻二次平移。
+   */
+  absoluteStart?: number;
   /** 相对入队时刻的窗口终点；缺省 = 无限期（hasEnd=false，不用数值哨兵） */
   end?: TimeSpec;
   chainId?: string;
@@ -95,7 +101,7 @@ export interface EnqueueScheduledInput {
 export function enqueueScheduled(input: EnqueueScheduledInput): ScheduledEventInstance {
   const { state } = input;
   const now = state.worldTime;
-  const start = resolveTimeSpec(input.start ?? ZERO_SPEC, now, input.calendar);
+  const start = input.absoluteStart ?? resolveTimeSpec(input.start ?? ZERO_SPEC, now, input.calendar);
   const end = input.end === undefined ? undefined : resolveTimeSpec(input.end, now, input.calendar);
   const seq = state.enqueueSeqCounter;
   const inst: ScheduledEventInstance = {

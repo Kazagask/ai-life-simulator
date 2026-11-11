@@ -42,7 +42,7 @@ export function replay(spec: ReplaySpec): WorldStateV2 {
     lookup,
   };
   const { state: opened, run } = runOpening(state, createDefaultOpeningTemplate(), openingCtx);
-  let current: WorldStateV2 = handoff(opened, run);
+  let current: WorldStateV2 = handoff(opened, run, lookup);
   for (const command of spec.commands) {
     current = advanceTurnV2(current, command, template, lookup, ctx).state;
   }

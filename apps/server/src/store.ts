@@ -163,7 +163,7 @@ export const worldStore = {
       lookup: createLookup(template),
     };
     const { state: opened, run } = runOpening(base, tpl, ctx);
-    const world = handoff(opened, run);
+    const world = handoff(opened, run, ctx.lookup);
     worlds.set(world.id, world);
     persist(world, world.templateId);
     return world;

@@ -89,7 +89,7 @@ events:
       once: true
       priority: 8
       conditions:
-        # 原 flag: turnsPlayed >= 5（每轮默认 4h ≈ 20h）→ 时间维度等价表达；flags 不再承载系统轮次
+        # 原「系统轮次计数 >= 5」（每轮默认 4h ≈ 20h）→ 时间维度等价表达；flags 不再承载系统轮次
         - { time: { gte: { value: 20, unit: hour } } }
     kind: normal
     settle:
