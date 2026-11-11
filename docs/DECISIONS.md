@@ -415,3 +415,44 @@ NPC 现无任何存活状态：死亡/失联的 NPC 照样被效用评分选中�
 8. **施工状态（已并入正文）**：G1 已过、G2 已过，本轮进入实施，从 `T1-01` 起按 G3 单任务推进；范围 R2.5 事件模型（T1-01..T1-09），R2.6/NPC（`T2-*`）为下一期；ADR-0010/0011/0012 状态「已通过（2026-11-12 G1 评审）」。**落点**：三篇 ADR 状态行、`PROJECT.md` §2、`tasks.md` 顶部、`README.md` 门禁状态、`design.md` §0.3/#8。
 
 > 与 `design.md` §0.2 冲突处，以 §0.3（第二批裁决）为准：`§0.2` 的「`worldTime` 加显式上界」「年号/纪元本轮渲染」「字符串加载期解析」等表述已被 #45 / #39 / #43 / #44 修订。
+
+---
+
+## ADR-0013 时间适配器落地：真实公历 + 自定义历/年号（R2.6 首批）
+
+- **状态**：**已通过（2026-11-12 用户确认路线「两块全做」，G1/G2 清除）**。依据 AGENTS.md §0「改核心数据模型 / 配置前先写 ADR」。
+- **背景**：R2.5 仅实现三种时间模型中的 ①近似标量（`UNIT_MINUTES` 固定 30 天月/365 天年），`CalendarAdapter.toMinutes`/`parseTimeSpec` 仅留 seam 未实现（见 `time.ts:57-64`）。#39/#43 用户在 2026-11-12 裁决「继续延期，下一期（R2.6）首批解决」；#44 方向定 A（复合时长 + 历法日期字面量）；#45 保持现状（不加时间上界）。
+- **决策**：
+  1. 实现 ②真实公历 与 ③自定义历/年号/纪元；模板经 `time.calendar.preset` 声明切换，引擎不再硬编码历法。
+  2. `CalendarAdapter` 三方法落地：`toMinutes(amount, from)`（TimeSpec→分钟，按历法）、`parseTimeSpec(spec, from)`（字符串字面量解析）、`format(minute)`/`ageAt(minute)` 按 `preset` 分支渲染（含年号）。
+  3. 字符串 `TimeSpec` 语法：复合时长 `3d`/`2h30m`/`1y2m` + 历法日期字面量（`2006-12-24`、年号纪元串），加载期由 `parseTimeSpec` 解析（#44 方向 A）。
+  4. 引擎内所有「TimeSpec→分钟」换算（`enqueueScheduled`/`delay`/`timeCost`/`advanceBy` 等）统一经 `CalendarAdapter.toMinutes`，不再直接读 `UNIT_MINUTES`（除 `approx` preset 内部仍用它）。
+  5. #45 本轮**不**加 `MAX_WORLD_TIME` 上界、不引入 `{epochIndex, minuteInEpoch}`/BigInt；`worldTime` 维持 `number` 分钟；年号/纪元渲染随本 ADR 落地；若 `era.epochStartMinute` 超出 `number` 范围再单独评估（保持 `number` 不变）。
+- **数据模型**（配置层，属 breaking 变更 → 指纹必变 → 旧档一致拒载）：
+  - `WorldTemplateV2.time` 增 `calendar?: { preset: "approx" | "gregorian" | "custom"; era?: { name: string; epochStartMinute: number }; months?: Array<{ name: string; days: number }>; leapRule?: "gregorian" | "none" | string }`。
+  - 缺省 `calendar` ⇒ `preset: "approx"`（= 现状），零迁移，字节兼容。
+- **影响面**：`shared/src/schema/world.ts`（calendar 配置 schema + `superRefine` 校验 months 天数/leapRule 合法）；`v2/time.ts`（`createTimeAdapter` 按 preset 选实现，保留 `approx` 分支）；`v2/engine.ts`（`TimeSpec`→分钟走 `toMinutes`）；模板 `world.yaml`（jjk-2006 声明 `calendar: { preset: "gregorian", startYear: 2006 }` 验证真实公历）；`apps/web` 时间展示走 `format`，零改动。
+- **确定性**：历法计算全部纯函数，零 `Date`/`Math.random`/种子依赖；`startYear`/`era` 为模板常量。
+- **验收/DoD**：见 `specs/iteration-2026-11-12-r26/tasks.md` T-A*。关联需求 R-NP-04、#39/#43/#44/#45。
+
+---
+
+## ADR-0014 关系图谱：NPC↔NPC 图 + 多跳中文称谓（relationship.js 分层复用）
+
+- **状态**：**已通过（2026-11-12 用户确认路线「两块全做」，G1/G2 清除）**。依据 AGENTS.md §0「引入 game-core 依赖前先写 ADR」。
+- **背景**：现状 `CharacterSchema.relationship` 是单值标量 `z.number().min(-100).max(100)`（NPC→玩家单向，见 `character.ts:56`）；`npc.ts` 只读该标量。OPEN_QUESTIONS #25 指出：无 NPC↔NPC、无关系来源/档位/阈值/传播；R-OP-05 要求「不得默认所有 NPC 都认识主角」。谱系/亲属/师承推导 #40（已关闭）裁定**分层复用 `relationship.js`**（npm `mumuy/relationship` MIT v1.2.9，确定性、离线、零运行时依赖）。
+- **决策**：
+  1. **引入 `relationship.js` 进 `game-core`**（G2 依赖门禁）：锁版本、零运行时依赖；仅用于「已知跳数亲属路径 → 中文称谓」这一纯算法，不承载图遍历/环检测/断代/师承（自研）。
+  2. **图内核自研** `v2/relations.ts`：边增删查、最短路径（BFS）、环检测、`ancestorGaps` 断代（显式 gap 标记 + 粗称谓，不猜代数、不补节点）、师承称谓走模板 `titleRules`。
+  3. **关系模型统一为边 `RelationEdge`**：`{ from, to, kind, source, visibility: "known"|"inferred"|"unknown", tier?, value? }`，NPC↔NPC 与 NPC↔玩家同构表达；保留 `npc.relationship` 标量作为「NPC→玩家」便捷只读投影（初始化时由种子边生成，向后兼容），新代码优先读边。
+  4. **默认不认识**（R-OP-05）：所有关系边初始 `visibility: "unknown"`；仅模板 `characters.yaml` 显式声明或事件/效果建立的边才 `known`/`inferred`。
+  5. **多跳中文称谓**：已知亲属跳数路径 → 转关系链记号（`f/m/s/d/xb/ob/lb/xs/os/ls`…）→ `relationship.js` 出称谓（舅外公、甥外孙…）；路径不唯一取**最短路径 + 确定性次序**（字典序），与库 `optimal` 语义一致。
+  6. **关系变化触发 NPC 行动**：本轮只建模型 + 查询 API；关系条件接入 NPC 行动效用（`goalMatch`/条件 DSL 已支持关系）留接口，不强制触发。
+- **数据模型**（实例/事实层，breaking → 指纹变 → 旧档拒载）：
+  - `WorldStateV2` 增 `relations: RelationEdge[]`。
+  - `shared/src/schema/character.ts`：`relationship` 标量保留作初始化便捷；`characters.yaml` 可增 `relations: RelationEdge[]` 初始声明（可选）。
+  - 效果 DSL：`adjustRelation` 扩为支持 `fromId`/`toId` 双向；新增 `addRelationEdge`/`freezeRelationsOnDeath`（死亡/NPC 失联时关系冻结，Q-R25-08 口径）。
+- **影响面**：`shared/src/schema/{character,world,state}.ts`、`v2/relations.ts`（新）、`v2/engine.ts`（效果消费）、`v2/npc.ts`（图查询供效用/条件）、`v2/projection.ts`（`projectNpc` 关系可见性投影）、`package.json`（依赖）、jjk-2006 `characters.yaml`（声明初识关系边，如 五条/夏油/硝子 互识）。`apps/web` 关系消费点按需，不强行扩展。
+- **确定性**：`relationship.js` 纯算法；图操作纯函数；无外部时间/随机；同输入 ⇒ 同输出。
+- **风险**：多跳称谓依赖库数据表覆盖度；罕见路径库无结果时回退粗称谓（`ancestorGaps`/kind 标签），不抛异常、不静默。
+- **验收/DoD**：见 `specs/iteration-2026-11-12-r26/tasks.md` T-B*。关联需求 R-NP-08、#25、R-OP-05、Q-R25-08。
