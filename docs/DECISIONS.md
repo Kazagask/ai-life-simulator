@@ -304,3 +304,93 @@ R2.4 第一轮交付后用户补充两点：① 背包里装备和物品要**分
 - `EquipmentSlotSchema` 新增可选 `panelSide`；模板指纹随之变化，**旧存档（含 R2.4 第一轮测试档）被指纹拒载**，需重开（既定设计，迭代期接受）。
 - 快照 `equipmentSlots[]` 每项恒带 `panelSide`（缺省 bottom），前端 `buildSlotCells` 据此分列。
 - 测试 +2：模板声明 panelSide 时投影按声明下发；非法取值加载期拒绝。
+
+## ADR-0010 配置/实例/事实三层分离
+
+状态：**待评审**（2026-11-11，R2.5 起草；对应 `specs/iteration-2026-11-11-r25/design.md` §1/§2）
+
+### 背景
+
+现状事件与 NPC 侧存在系统性三层混杂（design.md §1 M1-M10 逐条核实）：`resolveScheduleV2`（`v2/turn.ts:374-383`）把模板事件当调度器每轮全量扫描，调度没有实例可回溯；`firedEvents` 只存 turnIndex，冷却绑定轮次维度；`flags` 同时承载模板语义 flag、NPC 行动冷却、投影状态、开局排程补丁、冗余轮次计数五类东西，模板条件 DSL 可以读到引擎内部记录；`ChainStateV2.stepIndex` 是派生状态却存成事实且有双写入口（`engine.ts:370-375` 与 `turn.ts:302-305`）；`EventInstanceSchema` 存在但 `handoff()` 只写 `flags["openingScheduled:*"]`，运行时调度不消费实例；NPC 年龄静态、relationship 单值混合好感/亲属/师承、isEnemy 与 visibility 语义重叠。用户裁决：**先梳理清楚配置、实例、事实再编码**。
+
+### 决策
+
+1. **三层模型与读写硬约束**（design.md §2）：
+   - **配置层** = 模板 YAML（Zod strict、只读、指纹保护）。只允许在两个时刻被读：入队/实例化时（固化判定参数）、条件求值时（读定义结构）。**调度循环不得遍历 `template.events`**，只遍历 `state.scheduledEvents`。
+   - **实例层** = 本局对象（事件实例、待决事件、链实例、NPC、战斗、装备），有 id、有 status、可序列化，写入口收口（调度唯一入口 `v2/scheduler.ts`、链推进单一规则）。
+   - **事实层** = 只追加记录（history、`eventFires: Array<{eventId, turnIndex, worldTime}>` 触发日志、`missedEvents`、`relationLog`）。**注意：现 `firedEvents`（按 eventId 覆盖写"最近一次"）不是合法的事实形态**——覆盖违反 R-LM-03「事实只追加、逐字段不变」；拆为两层：append-only 的 `eventFires[]` 日志 + **派生索引 `lastFiredIndex`（显式标注为可重建缓存、不是事实）**承接 once/冷却/结局 `eventOccurred`（`v2/ending.ts:134`）的按 id O(1) 查询；索引与日志不一致时以日志为准重建。事实的合法消费只有三种：条件求值的只读输入、投影展示、结局证据。**事实不得反向驱动调度**——触发只能来自玩家行动、效果 DSL、延时队列到期。
+2. **flags 拆分**：`flags` 定位收窄为「模板语义黑板」（setFlag/adjustFlag/clearFlag/FlagCondition 的专属域）；系统内部记录全部迁出——`npcAction:*` 迁 NPC 实例冷却记录（R2.6）、`infoVisibility:*` 迁 NPC 实例字段（R2.6）、`relationSource:*` 迁关系边 source（R2.6）、`openingScheduled:*` 被延时队列实例取代（R2.5 删除）、`turnsPlayed` 删除（≡ turnIndex）。
+3. **调度判定器纯函数化**：`evaluateDue(instance, worldTime, facts)` 输入全显式、无隐藏读取，保证确定性可测。
+
+### 被否决的备选
+
+- **保留每轮全模板扫描（现状）**：零改动成本，但调度无实例可回溯（R3 时间回拨时无法判断"哪些排程实例已触发/已过期"），窗口结束/相对时间/错失语义全部无法表达；且 O(n) 扫描随模板增长无界。用户明确要求梳理后再编码，此备选与诉求直接冲突。
+- **只给 flags 加命名空间约定（前缀规范）而不迁出**：模板条件 DSL 仍可读引擎内部记录，层级墙依然被穿透；键名字符串拼接依旧无 schema 保护。治标不治本。
+- **事实层完全只读、连冷却/once 判定也不读**：不可行——once/冷却本质是"历史事实约束未来触发"，必须以事实为只读输入；本 ADR 把"只读输入"划为合法消费，禁止的是"事实作为触发源反向驱动调度"。
+
+### 后果
+
+- 影响面：`shared/src/v2.ts`（新增 scheduledEvents/enqueueSeqCounter/missedEvents/relationLog/eventFires/lastFiredIndex，旧 `firedEvents` 下线）、`game-core/src/v2/scheduler.ts`（新）、`turn.ts`/`engine.ts`/`opening.ts`/`npc.ts`/`projection.ts` 写入点迁移、模板 events.yaml/characters.yaml 随指纹升级。
+- 确定性：调度与判定全部纯函数化、RNG 消耗顺序固化入规范；同 seed 结果序列相对 R2.4b 会改变（一次性，见 ADR-0011）。
+- 迁移成本：schemaVersion 1→2，旧存档拒载（与模板指纹拒旧档叠加，迭代期接受重开）；jjk-2006 模板迁移量小（无 atTurn、全链 onSettle）。
+- R3 seam：调度从模板扫描改为实例队列，时间回拨只需对实例重算到期，**加强**而非封死穿越预留。
+
+## ADR-0011 事件触发收敛为立即/延时两类 + 时间窗口队列
+
+状态：**待评审**（2026-11-11，R2.5 起草；对应 design.md §3）
+
+### 背景
+
+现行 `EventTriggerSchema.source` 四值（pool/chain/schedule/action-hook）混入了两种不同概念：触发时机（schedule/action-hook）与抽取来源（pool）。`atTurn`（x 轮后）无法换算为世界时间（轮次时长由行动/人生阶段决定不可预知）；`cooldownTurns` 把轮次当时间单位；`resolvePoolV2` 抽中即立即呈现，无延时语义。用户裁决：轮次槽位唯一；触发分立即/延时两类；延时按绝对时间窗口入队、出队判定，排序 `start asc → end asc（空视为最大）→ 入队顺序`；退役 x 轮后触发；pool 只能触发延时事件。
+
+### 决策
+
+1. **触发分类收敛**：立即触发 = `action_trigger`（`action-hook` 改名，过渡期 superRefine 双接受）+ `chain`（无 delay 的步骤）；延时触发 = `schedule`（世界初始化/效果入队）+ pool 抽中实例 + 声明 `delay` 的链步骤。`pool` 降格为抽取器：抽中一律入延时队列，不得立即呈现。
+2. **时间窗口队列**：`WorldStateV2` 新增 `scheduledEvents: ScheduledEventInstance[]`（instanceId/definitionId/origin/chainId?/window{start,end?}/enqueuedAt/enqueueSeq/status/snapshot?）与 `enqueueSeqCounter`。`TimeExpr = absolute（世界起点偏移）| relative（入队时刻 + N）`，**入队即换算固化**为分钟窗口（回拨/前拨不影响已固化窗口）。排序键严格 `start asc → end asc（undefined ≡ +∞）→ enqueueSeq asc`，`enqueueSeq` 全局唯一保证全序与排序稳定性（design.md §3.3 证明）。
+3. **drain 与判定**：三个 drain 入口（轮次推进后、效果推进时间后、入队即到期）；循环取队首，`start > now` 即停（有序队列）；过期 → `status=expired` + missedEvents 错失事实；判定顺序固定为 once（drop）→ conditions（hold 留队）→ 冷却（hold）→ probability（一次性掷骰，drop）。概率失败留队会造成每轮重掷、语义失真为"窗口内至少命中一次"，故丢弃。
+4. **退役**：`atTurn` 删除（现存模板零使用，但 v2.test.ts:737/768 夹具在用，需换形迁移）；`cooldownTurns` 改 `cooldown: TimeExpr`（时间维度，依赖 `firedEvents` 两层拆分：`eventFires[]` 日志 + `lastFiredIndex` 派生索引）。补正 `duration.turns` 与 NPC 行动冷却本轮不动（Q-R25-04）。
+5. **槽位唯一**：`pending_event_required` 守卫语义收窄为"槽位被占用时拒绝新自由行动"；立即事件的呈现排队沿用既有 `EVENT_SOURCE_PRIORITY`，不新增排序结构。
+6. **链组合**：`ChainStep.delay?: TimeExpr` 表达"3 天后触发"；链断链判定 `evaluateChain()` 纯函数——链 active 的充分条件之一是时间队列存在该链的未触发实例（修复 stepIndex 双写漂移的结构性风险）；`advanceWhen: nextTurn` 保留（"下一轮"是槽位语义，非 x 轮后，Q-R25-06）。
+
+### 被否决的备选
+
+- **用轮次做延迟（保留 atTurn + cooldownTurns）**：轮次时长不可预知（rest 一轮 8h、冒险一轮 1h），"3 轮后"在不同行动序列下时间跨度完全不同，无法满足用户"按绝对时间窗口"的诉求；且轮次延迟在时间穿越场景下语义崩溃。**会改变同 seed 结果**：任何与 R2.4b 兼容的混合方案都不成立，本 ADR 显式接受 RNG 序列一次性变化。
+- **不引入队列入队序号、仅靠数组插入顺序**：数组顺序在取消/过期/重排序后不可靠，无法保证同键条目的确定定序；enqueueSeq 是廉价的确定性 tie-breaker。
+- **事件栈/未来事件队列另建调度结构**：违反"映射到既有结构不新增调度器"约束；本决策的 scheduledEvents 是实例层状态而非新的调度器模块，drain 复用既有管线位次（步骤 3）。
+- **概率失败留队重试**：每轮重掷消耗 RNG、概率语义失真；一次性判定 + 错失事实可查询、可投影（"你错过了…"）。
+
+### 后果
+
+- 影响面：`schema/event.ts`、`schema/event-instance.ts`（统一实例 schema）、`schema/common.ts`（TimeExpr）、`v2/scheduler.ts`（新）、`v2/turn.ts`（删 resolveScheduleV2 全模板扫描、pool 改入队、onCooldown 改时间维度）、`v2/opening.ts`（handoff 真入队）、jjk-2006 events.yaml。
+- **确定性声明**：drain/pool 的 RNG 消耗顺序与 R2.4b 不同，**同 seed 事件序列与转盘结果会改变**——新行为完全可复现，但旧回放断言需重录、旧存档拒载（schemaVersion 2）。
+- 迁移成本：strict schema 下旧字段加载期即拒绝，模板随指纹一并升级；jjk-2006 迁移量小（1 schedule、5 pool、1 action-hook、~20 chain 全 onSettle、无 atTurn）。
+
+## ADR-0012 NPC 生命周期与投影解耦 / 出生时间与年龄派生
+
+状态：**待评审**（2026-11-11，R2.6 起草；对应 design.md §4）
+
+### 背景
+
+NPC 现无任何存活状态：死亡/失联的 NPC 照样被效用评分选中去行动（`npc.ts` 只跳过 `isEnemy`）；`identity.age` 是创建时静态快照永不更新；`relationship` 单值混合好感/亲属/师承；`isEnemy` 与 `visibility: public|hidden` 语义重叠。用户裁决：① 投影与生命周期解耦（开局已死亡的重要角色也可上屏）；② NPC 完整生命周期 spawn-alive-dead，默认判活且不与业务语义耦合（失联也是 dead）；③ 年龄动态计算、NPC 挂出生时间、支持三种时间模型；④ 关系模型拆分 affinity 与类型化边，亲属/师承由 parents/masterId 推导。
+
+### 决策
+
+1. **生命周期字段**：`V2Npc.lifecycle = { state: "alive" | "inactive" | "unspawned", reasonCode?, sinceTurn, sinceWorldTime }`。**引擎只判 `alive`**，`reasonCode` 是模板自由字符串（dead/missing/sealed…），**引擎不得对 reasonCode 分支**；"死人才能…"的业务语义由模板条件表达（新增 `{ npcState: { npcId, state } }` 条件，只匹配状态不匹配 reasonCode）。不引入 lifecycle.ts/阶段枚举（ADR-0004 禁令继续有效）——这是角色级三态字段，不是流程编排。
+2. **默认判活四处**（模板零书写）：NPC 自主行动循环过滤（npc.ts）、战斗参战 ref 解析时**跳过该场战斗整条触发并记一条事实**（沿用现 combat 冲突口径：不消耗 once/冷却、不写触发提示；`enemies` 与 `allies` 同规则——不在建场期硬报错，「分支里先死、之后再引用同一 NPC 的战斗」是合法剧情，事件条件层可用 `npcState` 另行把关；仅 `characterId` 在模板中不存在才加载期报错，属引用完整性）、关系/affinity 写入对 inactive 冻结、NPC 行动候选先于条件求值过滤。复活/死亡/spawn 走统一效果 `{ type: "setNpcLifecycle", npcId, state, reasonCode? }`，无特权通道。
+3. **投影与生命周期解耦**：`projectNpc(npc, state, template) → NpcView | null`。输入 = NPC public 字段 + 动态已知标记 `infoVisibility`（自 flags 迁入实例）+ 模板 `projection` 配置（`alwaysVisible`/`revealFields`/`showLifecycle`）；unknown 且非 alwaysVisible → 不上屏；inactive 照常上屏（age 冻结、状态标注由模板 label 映射 reasonCode）。`visibility: public|hidden` 保留为模板静态闸，与动态已知标记 AND 组合（Q-R25-07）。
+4. **出生时间与年龄**：`V2Npc.birthTime: number`（世界分钟，可为负）取代静态 age；`ageAt(birth, now)` 统一经 `CalendarAdapter`（新增 `toMinutes(amount, fromMinute)` / `ageAt(birth, now)` 方法与模板 `calendar.preset` 声明位）。三种时间模型 = ① 固定年长近似 / ② 真实公历 / ③ 自定义历/农历，**统一接口 + 模板声明切换，本轮只实现 ①**（Q-R25-05 待用户确认交付边界）；玩家与 NPC 统一 birthTime 派生（退役 `playerAgeAtStart + elapsedYears`，Q-R25-08）。
+5. **关系模型**：`affinity`（数值，现 relationship 改名）与类型化关系边分离；**只写单向事实**（`parents: string[]`、`masterId`），child/sibling/apprentice/同门反向推导（倒排索引 O(N+E)），辈分上溯 BFS/DFS，写入时环检测（上溯校验目标非自身后代/徒链）；`custom` 关系留类型位给用户后续的通用 yaml 模板机制；`relationLog` 为事实层只追加记录。**自研确定性算法（`v2/relations.ts`，约 150 行），不引入第三方依赖**。
+6. **NPC 行动与事件边界**：NPC 行动只能写事实/实例状态/白名单效果；需要排程时只能经 `enqueueEvent` 效果入延时队列，不得直接触发模板事件（现 startedChains 收集→路由触发的模式保留）。
+
+### 被否决的备选
+
+- **给 NPC 加业务 status 枚举（dead/missing/sealed/fell… 作为引擎枚举）**：引擎必须对每个枚举值分支（死了不能行动、失联不能行动、封印不能行动…），每新增一种世界观语义就要改引擎——违反"世界观规则只进模板"。三态 + 自由 reasonCode 把语义留给模板、结构留给引擎。
+- **沿用 isEnemy/flags 表达存活（如 `flags["npcDead:<id>"]`）**：模板条件可读引擎内部记录（层级墙穿透，ADR-0010 否决过同型方案）；判活逻辑散落各消费点、模板需要自己写 alive 条件（违背"默认判活"诉求）。
+- **引入第三方族谱/称谓库（relationship.js）**：面向现实称谓文本查询，与引擎需要的确定性结构图不同构；单局 NPC 10¹~10² 量级自研图查询毫秒级完成，依赖治理成本 > 自研成本。借鉴其辈分路径思路即可。lunar-javascript 亦本轮不引（历法 ① 零需求），未来启用农历时再单独 ADR。
+- **age 保留为每轮 tick 更新的缓存字段**：多一个每轮写入口、漂移风险与 stepIndex 同型；派生计算（一次除法/历法差）成本可忽略，ageAt 即可。
+
+### 后果
+
+- 影响面（R2.6）：`schema/character.ts`（lifecycle/birthTime/parents/masterId/projection）、`shared/src/v2.ts`（V2Npc/V2Player）、`v2/npc.ts`、`v2/battle.ts`（参战 ref 判活跳过 + 建场 age 快照）、`v2/engine.ts`（setNpcLifecycle/npcState/关系冻结）、`v2/projection.ts`（projectNpc；`player.age`/`npcs[].age` 形状不变、内部改 ageAt 现算）、`v2/time.ts`（CalendarAdapter 扩展）、`v2/relations.ts`（新）、jjk-2006 characters.yaml。前端 `apps/web` 的 age 消费点零改动（视图形状保持）。
+- 确定性：判活过滤改变 NPC 行动候选集与 RNG 消耗（同一 NPC 行动与否影响后续骰序），与 ADR-0011 一并随 schemaVersion 2 边界一次性生效。
+- 未决项：三种时间模型的交付边界（Q-R25-05）、visibility 闸与绕过判活开关（Q-R25-07）、玩家统一 birthTime（Q-R25-08）、inactive NPC 关系冻结（Q-R25-10）——均不阻塞 ADR 方向本身，实施前由用户裁决。
