@@ -1,5 +1,6 @@
 import type {
   EndingRecord,
+  EndingTemplate,
   EvaluationRecord,
   HistoryEntryV2,
   TerminationRecord,
@@ -50,17 +51,21 @@ export function assembleArchive(
   lookup: TemplateLookup,
   ending: EndingRecord,
   evaluation: EvaluationRecord,
+  /** 结局模板集：提供时归档快照携带结局投影（含 hidden 掩码规则） */
+  endings?: readonly EndingTemplate[],
 ): ArchiveResult {
   if (state.termination === null) {
     throw new Error("[archive_requires_termination] 尚未终止，拒绝归档");
   }
   const termination = state.termination;
+  // 归档快照按**已归档**状态投影：status 应为 archived，而非终止瞬间的 terminated
+  const archived = markArchived(state);
   const record: ArchiveRecord = {
-    snapshot: projectSnapshotV2(state, template, lookup, evaluation),
-    history: state.history.map((h) => ({ ...h })),
+    snapshot: projectSnapshotV2(archived, template, lookup, evaluation, endings),
+    history: archived.history.map((h) => ({ ...h })),
     ending,
     evaluation,
     termination,
   };
-  return { state: markArchived(state), record };
+  return { state: archived, record };
 }

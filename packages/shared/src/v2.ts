@@ -238,6 +238,30 @@ export interface StatusView {
   stacks: number;
 }
 
+/**
+ * 结局投影（R-EN-05 / R-NFR-04）。
+ * 只承载玩家可见的结局信息：hidden 结局不得泄漏其 name/description，
+ * 由投影层替换为掩码文案并保留 visibility 标志，供前端提示「已达成隐藏结局」。
+ */
+export interface EndingView {
+  endingId: string;
+  title: string;
+  summary: string;
+  endingType: string;
+  visibility: "public" | "hidden";
+  /** 终止来源：condition / player / battleDefeat / event */
+  source: string;
+  reason: string;
+  worldTime: number;
+  turnIndex: number;
+  narrativeSource: "template" | "llm" | "fallback";
+  /** 本局已确认证据 id（P6：可在 history 中解析） */
+  evidenceIds: string[];
+}
+
+/** 本局运行状态：running=可继续；terminated=已终止；archived=已封存（只读） */
+export type WorldRunStatus = "running" | "terminated" | "archived";
+
 export interface V2Snapshot {
   worldId: string;
   templateId: string;
@@ -277,6 +301,19 @@ export interface V2Snapshot {
     statuses: StatusView[];
     skills: Array<{ id: string; name: string; description: string; kind: string }>;
     inventory: Array<{ itemId: string; name: string; description: string; count: number; usableOutsideBattle: boolean; usableInBattle: boolean }>;
+    /**
+     * 已装备实例投影：只含展示字段（实例 id / 物品 id / 槽位 / 层数 / 耐久 / 显示名）。
+     * 不含任何补正结果——补正由内核每次结算现算（R-EQ-04 / P8）。
+     */
+    equipment?: Array<{
+      instanceId: string;
+      itemId: string;
+      slot: string;
+      stacks?: number;
+      durability?: number;
+      name?: string;
+      slotLabel?: string;
+    }>;
   };
   npcs: Array<{
     id: string;
@@ -293,6 +330,10 @@ export interface V2Snapshot {
   activeChains: Array<{ id: string; status: string }>;
   availableActions: Array<{ id: string; label: string; description: string; duration?: TimeAmount }>;
   evaluation: { summary: string; canonDeviation: number };
+  /** 运行状态；缺省视为 running（兼容未升级的调用方） */
+  status?: WorldRunStatus;
+  /** 已终止时的结局投影；未终止为 null */
+  ending?: EndingView | null;
 }
 
 export interface V2TurnResult {

@@ -185,6 +185,44 @@ export function applyTermination(
   return { state: markTerminated(settled, rec), decision };
 }
 
+export interface TerminationOutcome {
+  state: WorldStateV2;
+  decision: TerminationDecision | null;
+  ending: EndingRecord | null;
+}
+
+/**
+ * 边界编排（终止判定 → 结局决胜 → 一次性写入）。
+ *
+ * 存在的理由：applyTermination() 只写 termination 而不决胜结局，而 markTerminated() 幂等——
+ * 先写 termination 再补 endingId 会被幂等 guard 丢掉。故由本函数在**同一状态快照**上
+ * 先 resolveEnding() 拿到 endingId，再一次写入，避免「已终止但无结局」的半更新态。
+ *
+ * 未命中任何终止条件时原样返回入参（逐字段不变，不产生副本）。
+ */
+export function terminateWithEnding(
+  settled: WorldStateV2,
+  conditions: readonly EndingCondition[],
+  signal: TerminationSignal,
+  templates: readonly EndingTemplate[],
+  ctx: ConditionContext,
+  options: EndingResolveOptions = {},
+): TerminationOutcome {
+  const decision = checkTermination(settled, conditions, signal, ctx);
+  if (!decision) {
+    return { state: settled, decision: null, ending: null };
+  }
+  const ending = resolveEnding(settled, templates, ctx, options);
+  const rec: TerminationRecord = {
+    reason: decision.reason,
+    worldTime: settled.worldTime,
+    turnIndex: settled.turnIndex,
+    source: decision.source,
+    endingId: ending.endingId,
+  };
+  return { state: markTerminated(settled, rec), decision, ending };
+}
+
 // ---------- 结局筛选与决胜（T4-02） ----------
 
 /**

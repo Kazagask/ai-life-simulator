@@ -56,6 +56,19 @@ export const worldStore = {
     }
     worlds.set(state.id, state);
   },
+  /**
+   * 归档封存入口（#30 遗留补齐）：把已终止世界置 archived=true 并落库。
+   * 这是 save() 的**唯一**例外通道——save() 拒绝 archived 写入，封存必须走这里，
+   * 否则归档态永远写不进去。未终止世界拒绝封存（R-AR-01 需要终止记录）。
+   */
+  seal(state: WorldStateV2): WorldStateV2 {
+    if (state.termination === null) {
+      throw new Error("[archive_requires_termination] 尚未终止，拒绝归档");
+    }
+    const sealed: WorldStateV2 = state.archived === true ? state : { ...state, archived: true };
+    worlds.set(sealed.id, sealed);
+    return sealed;
+  },
 };
 
 export type { WorldTemplateV2 };

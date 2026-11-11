@@ -174,3 +174,15 @@ R2 原方案（补充方案 §2/§6）拟引入六阶段 Lifecycle 状态机（`
 - `V2Player` 新增**可缺省**字段 `equipment?: EquipmentInstance[]`（协议 §19 / R-EQ-02）：缺省语义为 `[]`，旧存档与旧模板不受影响；本字段为 T5 轮次唯一允许的状态结构变更，不改动本 ADR 的既有三字段（`openingCompleted` / `termination` / `archived`）与门禁语义。
 - 装备实例**只存本局状态**（`instanceId / itemId / ownerId / slot / stacks? / durability?`），不存任何补正结果字段；动态补正每次经 `evaluateDynamicModifier` 现算进 `effectiveAttributes` 运行时累加链（基础值 → 状态补正 × 层数 → 装备动态补正 → 心情档位 → caps），不写回 `state.player.attributes`（P8）。
 - `equipItem` / `unequipItem` 穿脱操作为纯函数（失败返回可诊断错误码、状态不变）；初始装备经 `equipment.yaml` 的 `initialEquipment` 在 `createWorldV2` 注入，实例 id 确定性生成，同 seed 回放补正序列逐次相等（R-EQ-05 / R-NFR-01）。
+
+### 变更记录（2026-11-11，阶段 4 遗留 #29 / #30 接线）
+
+- **终止 → 结局管线接通**：新增 `terminateWithEnding()`（`v2/ending.ts`）。存在的理由是 `markTerminated()` 幂等且 `applyTermination()` 不决胜结局——先写 `termination` 再补 `endingId` 会被幂等门丢掉。该函数在**同一状态快照**上先 `resolveEnding()` 再一次性 `markTerminated()`，避免「已终止但无结局」的半更新态。
+- **判定边界**（R-EN-02）：`advanceTurnV2` 在时间推进 / 事件结算 / 年龄重算之后判定（`afterTimeAdvance`）；`chooseOptionV2` 在选项结算后（`afterEventSettle`）；`battleActionV2` 在战斗结算后（`afterBattleSettle`，先走死亡路径再走终止条件）；`useItemV2` 在物品效果结算后。结算中途不判定。
+- **配置注入**：新增 `TurnPipelineConfig { endingConfig?, evaluationConfig? }` 作为轮次函数的**可选尾参**。不传时行为与接线前逐字段一致（零终止条件 = 永不终止）；内核不读文件，配置由 `apps/server` 从 `endings.yaml` / `evaluation.yaml` 注入。
+- **死亡路径接线**：战败且 `deathRoute.conditions` 命中时走 `applyDeathRoute`（`direct` / `event` 两路径不变），判死仍只看 `battleDefeat` 信号，不读取 HP（R-EN-07 / P9）。
+- **主动收束**：轮次命令新增可选 `endLife?: boolean`，映射为边界信号 `playerRequested`；模板需声明 `type: playerRequested` 的终止条件才会生效。此为本轮新增的命令字段，不改变既有请求形状（省略即默认行为）。
+- **投影**：`V2Snapshot` 新增可选 `status: "running" | "terminated" | "archived"` 与 `ending: EndingView | null`；终止/归档后 `pendingEvent` 置 `null`、`availableActions` 置空。hidden 结局即便命中也不外泄模板文案（title/summary 掩码、`evidenceIds` 置空），仅保留 `endingId` 与 `visibility`（R-EN-05 / R-NFR-04）。
+- **装备投影**：`snapshot.player.equipment` 下发实例展示字段（`instanceId / itemId / slot / name / slotLabel / stacks? / durability?`），**不含任何补正结果**（R-EQ-04 / P8）；前端已有装备栏由此获得数据源。
+- **归档封存**：`worldStore.seal()` 作为 `save()` 的唯一例外通道，仅接受已终止世界；`save()` 的 archived 拒写门禁不变（R-AR-02）。新增 `POST /api/worlds/:id/archive`，幂等。
+- **内容**：`jjk-2006` 新增 `endings.yaml`（寿终 / 战败 / 星浆体三支线 / 主动收束 / 兜底 / 1 个 hidden）与 `opening.yaml`（东京 / 京都两开局，待决事件引用真实事件 id）。

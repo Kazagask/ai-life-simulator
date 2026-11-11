@@ -1,7 +1,11 @@
 import type {
   BattleView,
+  EndingTemplate,
+  EndingView,
   EvaluationRecord,
+  TerminationRecord,
   V2Snapshot,
+  WorldRunStatus,
   WorldStateV2,
   WorldTemplateV2,
 } from "@life-sim/shared";
@@ -20,11 +24,16 @@ export function projectSnapshotV2(
   lookup: TemplateLookup,
   /** 评价唯一事实来源（v2/life-evaluation.ts）；未提供时用中性占位文案 */
   evaluation?: EvaluationRecord | null,
+  /** 结局模板集（endings.yaml）；未提供时只投影终止事实、结局文案用中性兜底 */
+  endings?: readonly EndingTemplate[],
 ): V2Snapshot {
   const player = state.player;
   const genderLabel = lookup.genderLabel(player.gender);
   const adapter = createTimeAdapter(template);
   const lifeStage = adapter.resolveLifeStage(player.age);
+  const status: WorldRunStatus =
+    state.archived === true ? "archived" : state.termination !== null ? "terminated" : "running";
+  const ended = status !== "running";
 
   const statuses = player.statuses
     .map((inst) => {
@@ -95,6 +104,19 @@ export function projectSnapshotV2(
       statuses,
       skills,
       inventory,
+      // 装备实例：只下发展示字段；补正结果不入投影（R-EQ-04 / P8）
+      equipment: (player.equipment ?? []).map((inst) => {
+        const def = lookup.item(inst.itemId);
+        return {
+          instanceId: inst.instanceId,
+          itemId: inst.itemId,
+          slot: inst.slot,
+          ...(inst.stacks !== undefined ? { stacks: inst.stacks } : {}),
+          ...(inst.durability !== undefined ? { durability: inst.durability } : {}),
+          name: def?.name ?? inst.itemId,
+          slotLabel: template.equipment?.slots?.find((s) => s.id === inst.slot)?.label ?? inst.slot,
+        };
+      }),
     },
     npcs: state.npcs.map((npc) => ({
       id: npc.id,
@@ -105,22 +127,79 @@ export function projectSnapshotV2(
       relationship: npc.relationship,
       knownGoals: [...npc.knownGoals],
     })),
-    pendingEvent: pendingEventView(state, lookup),
+    pendingEvent: ended ? null : pendingEventView(state, lookup),
     battle,
     lastWheel: state.lastWheel,
     activeChains: state.chains
       .filter((c) => c.status === "active")
       .map((c) => ({ id: c.id, status: c.status })),
-    availableActions: (template.actions ?? []).map((a) => ({
-      id: a.id,
-      label: a.label,
-      description: a.description ?? "",
-      duration: a.duration,
-    })),
+    availableActions: ended
+      ? []
+      : (template.actions ?? []).map((a) => ({
+          id: a.id,
+          label: a.label,
+          description: a.description ?? "",
+          duration: a.duration,
+        })),
     evaluation: {
       summary: evaluation?.summary ?? "本局评价尚未生成。",
       canonDeviation: typeof state.flags.canonDeviation === "number" ? state.flags.canonDeviation : 0,
     },
+    status,
+    ending: state.termination ? buildEndingView(state.termination, endings, state) : null,
+  };
+}
+
+/**
+ * 结局投影：只读取模板的公有叙事字段。
+ * hidden 结局即便命中也不外泄 name / description（R-EN-05 / R-NFR-04），
+ * 仅保留 endingId 与 visibility 供前端提示，正文替换为掩码文案。
+ */
+function buildEndingView(
+  termination: TerminationRecord,
+  endings: readonly EndingTemplate[] | undefined,
+  state: WorldStateV2,
+): EndingView {
+  const base = {
+    source: termination.source,
+    reason: termination.reason,
+    worldTime: termination.worldTime,
+    turnIndex: termination.turnIndex,
+  };
+  const tpl = endings?.find((e) => e.endingId === termination.endingId);
+  if (!tpl) {
+    return {
+      endingId: termination.endingId ?? "unresolved",
+      title: "旅程收束",
+      summary: "本局到此结束。",
+      endingType: "neutral",
+      visibility: "public",
+      narrativeSource: "template",
+      evidenceIds: state.history.map((h) => h.id),
+      ...base,
+    };
+  }
+  if (tpl.visibility === "hidden") {
+    return {
+      endingId: tpl.endingId,
+      title: "未公开的结局",
+      summary: "有一个不会出现在公开名录里的结局被达成了。",
+      endingType: tpl.endingType,
+      visibility: "hidden",
+      narrativeSource: "template",
+      evidenceIds: [],
+      ...base,
+    };
+  }
+  return {
+    endingId: tpl.endingId,
+    title: tpl.narrativeConfig.title ?? tpl.name,
+    summary: tpl.narrativeConfig.summary ?? tpl.description,
+    endingType: tpl.endingType,
+    visibility: "public",
+    narrativeSource: "template",
+    evidenceIds: state.history.map((h) => h.id),
+    ...base,
   };
 }
 

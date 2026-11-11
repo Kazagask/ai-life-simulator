@@ -2,7 +2,9 @@ import type {
   BattleCommand,
   ChooseOptionCommand,
   CombatSkill,
+  EndingConfig,
   EquipmentInstance,
+  EvaluationConfig,
   EventV2,
   HistoryEntryV2,
   PendingEventView,
@@ -16,6 +18,7 @@ import type {
 } from "@life-sim/shared";
 import { createRng, deriveTurnSeed, pickWeighted, type Rng } from "../rng.js";
 import type { RunnerContext } from "./runner-context.js";
+import { evaluateLifeV2 } from "./life-evaluation.js";
 import { amountToMinutes, createTimeAdapter, minutesToAmount } from "./time.js";
 import {
   applyEffectsV2,
@@ -33,7 +36,13 @@ import { nextInstanceId } from "./equipment.js";
 import { runNpcActionsV2 } from "./npc.js";
 import type { TemplateLookup } from "./lookup.js";
 import { projectSnapshotV2 } from "./projection.js";
-import { assertActive } from "./ending.js";
+import {
+  applyDeathRoute,
+  assertActive,
+  createDefaultEndingConfig,
+  terminateWithEnding,
+  type TerminationSignal,
+} from "./ending.js";
 
 const MAX_TRIGGER_DEPTH = 8;
 
@@ -397,12 +406,94 @@ function onCooldown(state: WorldStateV2, eventId: string, cooldownTurns: number 
 
 // ---------- 轮次推进 ----------
 
+/**
+ * 可选管线配置（阶段 4 遗留接线）：不传时行为与接线前逐字段一致——
+ * 无 endings.yaml ⇒ 零终止条件 ⇒ 永不终止；评价用引擎默认配置。
+ * 由调用方（apps/server）注入模板分域配置，内核不自行读文件。
+ */
+export interface TurnPipelineConfig {
+  endingConfig?: EndingConfig;
+  evaluationConfig?: EvaluationConfig;
+}
+
+/**
+ * 终止判定边界：命中条件时在**同一状态快照**上决胜结局并写入 termination。
+ * 只原地写 termination 一个字段（turn 管线全链路以可变 state 传递）。
+ */
+function applyEndingBoundary(
+  state: WorldStateV2,
+  lookup: TemplateLookup,
+  rng: Rng,
+  pipeline: TurnPipelineConfig | undefined,
+  signal: TerminationSignal,
+): void {
+  const cfg = pipeline?.endingConfig;
+  if (!cfg || cfg.terminationConditions.length === 0) return;
+  if (state.termination !== null) return;
+  const ctx: ConditionContext = { state, lookup, rng };
+  const outcome = terminateWithEnding(
+    state,
+    cfg.terminationConditions,
+    signal,
+    cfg.endings,
+    ctx,
+    cfg.fallback !== undefined ? { fallbackId: cfg.fallback } : {},
+  );
+  if (outcome.decision !== null && outcome.state.termination !== null) {
+    state.termination = outcome.state.termination;
+  }
+}
+
+/**
+ * 战败死亡路径接线（§9.3）。只在战败边界调用；applyDeathRoute 返回克隆状态，
+ * 这里只回写可能变化的四个字段，保持管线的可变 state 语义。
+ */
+function applyDeathRouteInPlace(
+  state: WorldStateV2,
+  lookup: TemplateLookup,
+  rng: Rng,
+  pipeline: TurnPipelineConfig | undefined,
+  battleDefeat: boolean,
+): void {
+  const cfg = pipeline?.endingConfig;
+  const route = cfg?.deathRoute;
+  if (!cfg || !route || !battleDefeat) return;
+  if (state.termination !== null) return;
+  const ctx: ConditionContext = { state, lookup, rng };
+  const res = applyDeathRoute(
+    state,
+    route,
+    { battleDefeat },
+    cfg.endings,
+    ctx,
+    cfg.fallback !== undefined ? { fallbackId: cfg.fallback } : {},
+  );
+  if (res.outcome.kind === "none") return;
+  state.firedEvents = res.state.firedEvents;
+  state.history = res.state.history;
+  state.pendingEvents = res.state.pendingEvents;
+  state.termination = res.state.termination;
+}
+
+/** 投影 + 评价：评价是唯一事实来源（T4-04），每次投影按当前状态重算。 */
+function projectWithConfig(
+  state: WorldStateV2,
+  template: WorldTemplateV2,
+  lookup: TemplateLookup,
+  pipeline: TurnPipelineConfig | undefined,
+): V2Snapshot {
+  const evaluation = evaluateLifeV2(state, pipeline?.evaluationConfig);
+  return projectSnapshotV2(state, template, lookup, evaluation, pipeline?.endingConfig?.endings);
+}
+
 export function advanceTurnV2(
   state: WorldStateV2,
-  command: { action: { type: string; description?: string }; mode?: "single" | "fast" },
+  /** endLife=true 表示玩家主动结束这一生（边界信号 playerRequested） */
+  command: { action: { type: string; description?: string }; mode?: "single" | "fast"; endLife?: boolean },
   template: WorldTemplateV2,
   lookup: TemplateLookup,
   ctx?: RunnerContext,
+  pipeline?: TurnPipelineConfig,
 ): V2TurnResult {
   assertActive(state);
   if (state.pendingEvents.length > 0) throw new Error("pending_event_required");
@@ -475,7 +566,15 @@ export function advanceTurnV2(
   // 9. 事件池（pool）——最低优先级
   resolvePoolV2(state, template, lookup, rng, result);
 
-  const snapshot = projectSnapshotV2(state, template, lookup);
+  // 10. 终止 / 结局边界：时间已推进、事件已结算、年龄已重算，是唯一合法判定点（R-EN-02）
+  const requested = command.endLife === true;
+  applyEndingBoundary(state, lookup, rng, pipeline, {
+    atBoundary: true,
+    boundary: requested ? "playerRequested" : "afterTimeAdvance",
+    playerRequested: requested,
+  });
+
+  const snapshot = projectWithConfig(state, template, lookup, pipeline);
   return {
     state,
     snapshot,
@@ -531,6 +630,7 @@ export function chooseOptionV2(
   command: ChooseOptionCommand,
   template: WorldTemplateV2,
   lookup: TemplateLookup,
+  pipeline?: TurnPipelineConfig,
 ): V2TurnResult {
   assertActive(state);
   if (state.battle && !state.battle.over) throw new Error("battle_in_progress");
@@ -561,7 +661,13 @@ export function chooseOptionV2(
   triggerChainStarts(state, optionCtx.startedChains, lookup, rng, result);
   advanceChainOnSettle(state, event, option.nextEventId, lookup, rng, 0, result);
 
-  const snapshot = projectSnapshotV2(state, template, lookup);
+  // 选项结算完成 → 终止边界（事件已完整结算，不产生半更新态）
+  applyEndingBoundary(state, lookup, rng, pipeline, {
+    atBoundary: true,
+    boundary: "afterEventSettle",
+  });
+
+  const snapshot = projectWithConfig(state, template, lookup, pipeline);
   return {
     state,
     snapshot,
@@ -579,6 +685,7 @@ export function battleActionV2(
   command: BattleCommand,
   template: WorldTemplateV2,
   lookup: TemplateLookup,
+  pipeline?: TurnPipelineConfig,
 ): V2TurnResult {
   assertActive(state);
   const battle = state.battle;
@@ -626,9 +733,18 @@ export function battleActionV2(
             ? "你身负重伤，勉强脱离了危险。"
             : "你趁隙脱离了战斗。",
     });
+
+    // 战败边界：先走死亡路径（具体），再走终止条件（一般）。
+    // 判死只看 battleDefeat 信号，不读取 HP 数值（R-EN-07 / P9）。
+    applyDeathRouteInPlace(state, lookup, rng, pipeline, outcome === "defeat");
+    applyEndingBoundary(state, lookup, rng, pipeline, {
+      atBoundary: true,
+      boundary: "afterBattleSettle",
+      battleDefeat: outcome === "defeat",
+    });
   }
 
-  const snapshot = projectSnapshotV2(state, template, lookup);
+  const snapshot = projectWithConfig(state, template, lookup, pipeline);
   return {
     state,
     snapshot,
@@ -646,6 +762,7 @@ export function useItemV2(
   command: UseItemCommand,
   template: WorldTemplateV2,
   lookup: TemplateLookup,
+  pipeline?: TurnPipelineConfig,
 ): V2TurnResult {
   assertActive(state);
   if (state.battle && !state.battle.over) throw new Error("battle_in_progress");
@@ -669,7 +786,13 @@ export function useItemV2(
     summary: `使用了「${item.name}」${logs.length > 0 ? `：${logs.join("；")}` : ""}`,
   });
 
-  const snapshot = projectSnapshotV2(state, template, lookup);
+  // 物品效果结算完成 → 终止边界（部分物品会推进时间）
+  applyEndingBoundary(state, lookup, rng, pipeline, {
+    atBoundary: true,
+    boundary: "afterEventSettle",
+  });
+
+  const snapshot = projectWithConfig(state, template, lookup, pipeline);
   return {
     state,
     snapshot,

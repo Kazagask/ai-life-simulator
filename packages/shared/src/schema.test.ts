@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
-import { WorldTemplateV2Schema, type WorldTemplateV2 } from "./schema/index.js";
+import { EndingConfigSchema, OpeningTemplateSchema, WorldTemplateV2Schema, type WorldTemplateV2 } from "./schema/index.js";
 
 /**
  * Schema 校验测试 = 协议验收标准：
@@ -250,5 +250,64 @@ describe("世界模板协议 V2 Schema", () => {
     const options = (event as { settle: { normal: { options: Array<Record<string, unknown>> } } }).settle.normal.options;
     options[0].effects = [{ type: "adjustAttribute", attribute: "cursedEnergy", value: 1 }];
     expect(WorldTemplateV2Schema.safeParse(world).success).toBe(true);
+  });
+});
+
+/**
+ * 阶段 4 遗留接线后的分域验收：jjk-2006 现在真的提供 endings.yaml / opening.yaml，
+ * 因此这两个文件必须像六个主文件一样有加载期校验与引用完整性保护。
+ */
+describe("结局 / 开局分域（jjk-2006 真实文件）", () => {
+  const readRaw = (file: string): unknown => YAML.parse(readFileSync(path.join(TEMPLATE_DIR, file), "utf-8"));
+
+  it("endings.yaml 通过 EndingConfigSchema", () => {
+    const parsed = EndingConfigSchema.safeParse(readRaw("endings.yaml"));
+    if (!parsed.success) {
+      throw new Error(parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("\n"));
+    }
+    expect(parsed.data.terminationConditions.length).toBeGreaterThan(0);
+    expect(parsed.data.endings.some((e) => e.fallback)).toBe(true);
+    expect(parsed.data.fallback).toBe("end-ordinary");
+    expect(parsed.data.deathRoute?.deathMode).toBe("direct");
+  });
+
+  it("拒绝：以 HP 数值作终止判据（R-EN-07 / P9）", () => {
+    const cfg = readRaw("endings.yaml") as { terminationConditions: Array<{ params: { conditions: unknown[] } }> };
+    cfg.terminationConditions[0].params.conditions = [{ attribute: "hp", lte: 0 }];
+    expect(EndingConfigSchema.safeParse(cfg).success).toBe(false);
+  });
+
+  it("拒绝：fallback 指向未定义的结局", () => {
+    const cfg = readRaw("endings.yaml") as { fallback: string };
+    cfg.fallback = "end-not-exist";
+    expect(EndingConfigSchema.safeParse(cfg).success).toBe(false);
+  });
+
+  it("opening.yaml 通过 OpeningTemplateSchema，两个开局 id 唯一", () => {
+    const parsed = OpeningTemplateSchema.array().safeParse(readRaw("opening.yaml"));
+    if (!parsed.success) {
+      throw new Error(parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("\n"));
+    }
+    expect(parsed.data).toHaveLength(2);
+    expect(parsed.data.map((o) => o.openingId)).toEqual(["op-2006-tokyo", "op-2006-kyoto"]);
+  });
+
+  it("opening.yaml 的待决事件与排程均指向 events.yaml 已定义事件", () => {
+    const world = loadJjkTemplate();
+    const eventIds = new Set((world.events as Array<{ id: string }>).map((e) => e.id));
+    const openings = OpeningTemplateSchema.array().parse(readRaw("opening.yaml"));
+    for (const op of openings) {
+      for (const id of op.handoff.pendingEvents) expect(eventIds.has(id), `${op.openingId} -> ${id}`).toBe(true);
+      for (const s of op.handoff.schedule) expect(eventIds.has(s.eventId), `${op.openingId} -> ${s.eventId}`).toBe(true);
+    }
+  });
+
+  it("opening.yaml 待决事件都是 kind: normal（否则首轮卡在 event_not_normal）", () => {
+    const world = loadJjkTemplate();
+    const byId = new Map((world.events as Array<{ id: string; kind: string }>).map((e) => [e.id, e]));
+    const openings = OpeningTemplateSchema.array().parse(readRaw("opening.yaml"));
+    for (const op of openings) {
+      for (const id of op.handoff.pendingEvents) expect(byId.get(id)?.kind).toBe("normal");
+    }
   });
 });

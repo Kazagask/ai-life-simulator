@@ -1,0 +1,149 @@
+# JJK-2006 结局 / 终止 / 死亡路径（协议 V2.1 §17 · R-EN-01..07）
+#
+# 判据纪律：终止与死亡只看声明式条件与 battleDefeat 信号，
+# **不得以 HP 数值或 HP 归零为判据**（R-EN-07 / P9，加载期会拒绝）。
+#
+# 本文件提供两条真正会触发的收束路径：
+#   1) 寿终：世界时间推进到玩家 60 岁（开局 16 岁 ⇒ 经过 44 年）；
+#   2) 战殁：战斗以 defeat 结束且身上留有「受伤」补正时才走死亡路径
+#      （无伤战败只是败北，不判死）。
+
+terminationConditions:
+  # 寿终：时间边界（afterSettle —— 当前事件完整结算后再收束，不产生半更新态）
+  - type: timeReached
+    params:
+      conditions:
+        - { time: { gte: { value: 44, unit: year } } }
+    combinator: AND
+    terminationMode: afterSettle
+
+  # 主动收束：玩家选择「结束这一生」时在边界命中（signal.playerRequested）
+  - type: playerRequested
+    params:
+      conditions: []
+    combinator: AND
+    terminationMode: afterSettle
+
+# 死亡路径：只接 direct（无合适既有事件可复用 deathMode=event 的死亡事件）
+# 条件与 end-death 的 trigger 保持一致，保证「判死 ⇒ 一定有战殁结局可决胜」
+deathRoute:
+  deathMode: direct
+  conditions:
+    - { status: injured-sim, present: true }
+
+endings:
+  # 战殁：战败且带伤。优先级最高，避免寿终时被更低的结局抢走
+  - endingId: end-death
+    name: 战殁
+    description: 一次败北之后，伤势没能撑过来。
+    triggerConditions:
+      - { status: injured-sim, present: true }
+    priority: 50
+    endingType: sacrifice
+    narrativeConfig:
+      source: template
+      title: 战殁
+      summary: 你在咒灵的交锋中败下阵来。伤太重，这一次没能站起来。
+    visibility: public
+
+  # 星浆体支线：幸存（隐藏结局，需先察觉伏击才进入候选集）
+  - endingId: end-sp-aware
+    name: 未言明的守护
+    description: 你提前察觉了伏击，改变了本该发生的事。
+    triggerConditions:
+      - { flag: rikoBond, eq: true }
+    unlockConditions:
+      - { flag: spAware, eq: true }
+    priority: 40
+    endingType: secret
+    narrativeConfig:
+      source: template
+      title: 未言明的守护
+      summary: 你比命运早了一步。有些名字因此没有出现在墓碑上。
+    visibility: hidden
+    exclusiveGroup: sp-outcome
+
+  - endingId: end-sp-survival
+    name: 星浆体 · 幸存
+    description: 天内理子活了下来，故事走向另一条分支。
+    triggerConditions:
+      - { flag: spEnding, eq: survival }
+    priority: 30
+    endingType: triumph
+    narrativeConfig:
+      source: template
+      title: 星浆体 · 幸存
+      summary: 理子活着走出了那两天。咒术界的账本上，多了一笔没人算得清的债。
+    visibility: public
+    exclusiveGroup: sp-outcome
+
+  - endingId: end-sp-canon
+    name: 星浆体 · 原轨
+    description: 该发生的事还是发生了。
+    triggerConditions:
+      - { flag: spEnding, eq: canon }
+    priority: 25
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 星浆体 · 原轨
+      summary: 一切按原本的轨迹走完了。你在其中，什么也没能改变。
+    visibility: public
+    exclusiveGroup: sp-outcome
+
+  - endingId: end-sp-decline
+    name: 星浆体 · 退场
+    description: 你拒绝了那次护卫任务。
+    triggerConditions:
+      - { flag: spEnding, eq: decline }
+    priority: 20
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 星浆体 · 退场
+      summary: 你说了不。往后的新闻里，那件事只剩一段短短的注脚。
+    visibility: public
+    exclusiveGroup: sp-outcome
+
+  # 寿终：走到时间边界时的收束
+  - endingId: end-long-life
+    name: 漫长的一生
+    description: 活到了六十岁。
+    triggerConditions:
+      - { time: { gte: { value: 44, unit: year } } }
+    priority: 10
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 漫长的一生
+      summary: 咒术师很少活到这个年纪。你活到了，代价是把太多人送在了前面。
+    visibility: public
+
+  # 主动收束：玩家自己选择停下（无其它专属结局命中时用这一条）
+  - endingId: end-retire
+    name: 主动收束
+    description: 你选择在这一天停下。
+    triggerConditions: []
+    priority: 5
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 主动收束
+      summary: 你放下了术式，把剩下的日子还给自己。
+    visibility: public
+
+  # 兜底：没有专属结局命中时使用
+  - endingId: end-ordinary
+    name: 平凡收束
+    description: 没有专属结局命中时的兜底。
+    triggerConditions: []
+    priority: 0
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 平凡收束
+      summary: 故事在这里停下。没有传奇，也没有遗言。
+    visibility: public
+    fallback: true
+
+fallback: end-ordinary

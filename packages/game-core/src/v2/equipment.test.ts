@@ -6,6 +6,7 @@ import {
   type WorldTemplateV2,
 } from "@life-sim/shared";
 import { createLookup } from "./lookup.js";
+import { projectSnapshotV2 } from "./projection.js";
 import { createActiveWorldV2 } from "./test-utils.js";
 import { createWorldV2 } from "./turn.js";
 import { createBattle, performBattleAction } from "./battle.js";
@@ -504,5 +505,30 @@ describe("穿脱 / 替换纯函数与槽位校验（R-EQ-05）", () => {
     ];
     expect(nextInstanceId(base, "x")).toBe("equip-x-3");
     expect(nextInstanceId([], "y")).toBe("equip-y-1");
+  });
+});
+
+describe("装备投影（前端装备栏数据源）", () => {
+  it("投影下发实例展示字段，且不含任何补正结果", () => {
+    const { template, lookup, state } = setup();
+    const snapshot = projectSnapshotV2(state, template, lookup);
+    const equipment = snapshot.player.equipment ?? [];
+    expect(equipment).toHaveLength(1);
+    const first = equipment[0];
+    expect(first.itemId).toBe("eq-fixed");
+    expect(first.slot).toBe("weapon");
+    expect(first.name).toBe("铁剑");
+    expect(first.slotLabel).toBe("武器");
+    // 只允许展示字段：出现补正数值即为泄漏（R-EQ-04 / P8）
+    expect(Object.keys(first).sort()).toEqual(
+      ["instanceId", "itemId", "name", "slot", "slotLabel"].sort(),
+    );
+  });
+
+  it("未装备时投影为空数组而非缺失字段", () => {
+    const { template, lookup, state } = setup();
+    const stripped = { ...state, player: { ...state.player, equipment: [] } };
+    const snapshot = projectSnapshotV2(stripped, template, lookup);
+    expect(snapshot.player.equipment).toEqual([]);
   });
 });

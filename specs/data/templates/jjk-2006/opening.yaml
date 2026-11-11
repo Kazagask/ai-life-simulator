@@ -1,0 +1,71 @@
+# JJK-2006 开局分域（协议 V2.1 §16 · R-OP-01..06）
+#
+# 两个开局都引用 events.yaml 中**真实存在**的事件 id，否则首轮会被 event_not_normal /
+# pending_event_required 卡住：
+#   - ev-curse-sighting（kind: normal）→ 东京开局的首个待决事件
+#   - ev-exchange（kind: normal）      → 京都开局的首个待决事件
+#
+# 差异刻意做在「起始关系 + 起始 flag + 首个待决事件」三处，不新增世界状态结构。
+# handoff.schedule 目前只登记 openingScheduled:<id> 标记（引擎尚未消费为定时实例），
+# 故两处均留空，避免给出「已排程」的错觉。
+
+- openingId: op-2006-tokyo
+  name: 2006 · 东京高专
+  description: 以东京咒术高专一年级新生的身份入学，从第一次出勤开始。
+  entryConditions: []
+  steps:
+    - { id: step-enter-tokyo, kind: required }
+  characterSetup:
+    effects:
+      - { type: grantItem, itemId: item-first-aid, count: 1 }
+    flags:
+      openingPath: tokyo
+  worldSetup:
+    flags:
+      openingDone: true
+  npcSetup:
+    relations:
+      - { npcId: npc-gojo, value: 5, source: 入学引导 }
+      - { npcId: npc-shoko, value: 3, source: 同班同学 }
+    visibility:
+      npc-riko: unknown
+      npc-yuta: unknown
+  eventPools: []
+  objectives:
+    flags:
+      objective: 成为能独当一面的术师
+  choices: {}
+  completionConditions:
+    - { flag: openingDone, eq: true }
+  handoff:
+    pendingEvents: [ev-curse-sighting]
+    schedule: []
+
+- openingId: op-2006-kyoto
+  name: 2006 · 京都校交流
+  description: 以京都校交流生的身份来到东京，起点关系与首个待决事件都不同。
+  entryConditions: []
+  steps:
+    - { id: step-enter-kyoto, kind: required }
+  characterSetup:
+    flags:
+      openingPath: kyoto
+  worldSetup:
+    flags:
+      openingDone: true
+  npcSetup:
+    relations:
+      - { npcId: npc-geto, value: 3, source: 交流生接待 }
+    visibility:
+      npc-gojo: unknown
+      npc-riko: unknown
+  eventPools: []
+  objectives: {}
+  choices:
+    flags:
+      transfer: kyoto
+  completionConditions:
+    - { flag: openingDone, eq: true }
+  handoff:
+    pendingEvents: [ev-exchange]
+    schedule: []
