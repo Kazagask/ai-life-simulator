@@ -54,6 +54,14 @@ export interface CalendarAdapter {
   resolveLifeStage(age: number): string;
   /** 人生阶段 id → 显示标签 */
   lifeStageLabel(stageId: string): string;
+  /**
+   * 【R2.6 seam，本轮不实现/不调用】按注入历法把 TimeAmount 换算为分钟。
+   * #39/#43（真实公历 / 自定义纪元）与 #44（字符串 TimeSpec 字面量）下一期首批解决；
+   * 接口形状在此定死，R2.5 只走 UNIT_MINUTES 近似标量。
+   */
+  toMinutes?(amount: TimeAmount, fromMinute: number): number;
+  /** 【R2.6 seam】解析 "3d" / "2h30m" / 历法日期字面量；本轮加载期不做任何字符串解析。 */
+  parseTimeSpec?(spec: string, fromMinute: number): number;
 }
 
 export interface TimeAdapter extends CalendarAdapter {
