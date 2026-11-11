@@ -46,6 +46,8 @@
 | 轮次管线有 10 个固定步骤（行动效果 → 链 → 时间触发 → 行动触发 → 回复 → 状态结算 → 年龄 → NPC 行动 → 事件池 → 终止边界） | `v2/turn.ts:527-570` |
 | RNG 按 `deriveTurnSeed(seed, turnIndex)` 派生 | `rng.ts:19-24` |
 
+**结论（2026-11-11 用户裁决）**：寿终不可达**不是引擎能力缺失，是模板质量问题**（jjk-2006 事件密度不足——44 年只有零星 schedule 事件）。**不改引擎**；原跨度方案（§4）DEFERRED 留档，后续以模板内容密度治理承接（另行立项）。
+
 **结论**：不能让"一次点击 = 一小时"承载 44 年。必须在**时间维度上分两层**，而不是把步长调大。
 
 ### 1.4 装备穿脱
@@ -169,7 +171,11 @@ export function projectArchiveForPlayer(record: ArchiveRecord): ArchiveRecord & 
 
 ### 3.2 落盘格式
 
-目录：`apps/server/.data/worlds/`（`WORLDS_DIR` 环境变量可覆盖；加进 `.gitignore`）。
+目录（**2026-11-11 用户裁决：不得在 `apps/server` 下，必须可挂载**）：
+
+- 默认 `<仓库根>/data/worlds/`——由 server 模块位置解析（`apps/server/src` → 上溯三级），**不依赖进程 cwd**；
+- 环境变量 `LIFE_SIM_DATA_DIR` 可覆盖为任意绝对路径（Docker volume / NAS 挂载点）；
+- `<repo>/.gitignore` 追加 `/data/`。
 
 单局一文件 `<worldId>.json`：
 
@@ -258,7 +264,9 @@ GET /api/worlds  →  { worlds: Array<{ id, templateId, playerName, turnIndex, w
 
 ------------------------------------------------------------------------
 
-## 4. 时间跨度设计（`R-TS-01..05`）
+## 4. 时间跨度设计（`R-TS-01..05`）—— ⛔ **DEFERRED 留档（2026-11-11 用户裁决：不改引擎）**
+
+> 以下分析**不再实施**，仅留档：裁决认定寿终不可达是模板内容密度问题而非引擎缺口（§1.3 结论）；恢复本方案前须先完成模板内容治理并重新立项。文字保持原样，不按新决策修订。
 
 ### 4.1 核心判断
 
@@ -410,20 +418,20 @@ inventory: Array<{ itemId, name, description, count, usableOutsideBattle, usable
 
 | 属性 | 内容 | 本轮如何被覆盖 |
 |---|---|---|
-| P1 | 同 seed 同输入 ⇒ 同结果 | `R-TS-04`、`R-PS-07` |
+| P1 | 同 seed 同输入 ⇒ 同结果 | `R-PS-07`（`R-TS-04` 随 TS 组 DEFERRED） |
 | P2 | 终止后拒绝一切行动 | `R-PS-06` + 新增两个穿脱入口 |
 | P3 | 归档只读 | `R-PS-06` |
-| P5 | 事件/链顺序稳定 | 跨度内 `turnIndex` 递增保证冷却与排序语义不变 |
-| P6 | 模板不可变 | 跨度参数全部来自模板；历史可见性由写入侧来源决定（事件恒 public，结局按模板 `visibility`） |
+| P5 | 事件/链顺序稳定 | 本轮不改时间推进（跨度 DEFERRED），既有语义保持 |
+| P6 | 模板不可变 | 历史可见性由写入侧来源决定（事件恒 public，结局按模板 `narrativeConfig.masked`，ADR-0006） |
 | P7 | `hidden` 不进投影 | `R-VS-02`、`R-VS-05` |
 | P8 | 装备补正不写回基础属性 | `R-EQ-10` |
-| P9 | HP 不作为死亡判据 | 不受本轮影响；跨度只在边界判定，不读 HP |
+| P9 | HP 不作为死亡判据 | 不受本轮影响，本轮无终止判定改动 |
 
 **新增属性**
 
 - **A1**：任意状态下 `history.filter(isPlayerVisible).length === 玩家端可见条数`（三个出口一致）。
 - **A2**：存档往返后 `JSON.stringify(state)` 与往返前相等（同进程内的严格等价）。
-- **A3**：跨度推进 N 个时间片后 `turnIndex` 增加 N，且 `worldTime` 增加 `span`。
+- ~~**A3**：跨度推进 N 个时间片后 `turnIndex` 增加 N~~（随 TS 组 DEFERRED）。
 - **A4**：穿脱请求前后 `player.attributes` 逐字段相等。
 
 ------------------------------------------------------------------------
@@ -434,10 +442,10 @@ inventory: Array<{ itemId, name, description, count, usableOutsideBattle, usable
 
 | 既有约束 | 本轮如何遵守 |
 |---|---|
-| `R-EN-02`「只在结算边界判定终止」 | 跨度只在结束后判定（§4.4） |
+| `R-EN-02`「只在结算边界判定终止」 | 本轮不改终止判定点（跨度 DEFERRED，留档方案见 §4.4） |
 | `R-EQ-04`「补正不写回、实例不含补正结果」 | 穿脱不碰补正（§5.4） |
 | `R-AR-03`「首版沿用现有存档机制」 | 本轮把它从"内存"补成"落盘"，不新增独立存档子系统 |
-| ADR-0002「不开放自由表达式 DSL」 | 跨度参数只有固定枚举与时间量，无表达式 |
+| ADR-0002「不开放自由表达式 DSL」 | 存档信封字段为固定枚举与哈希指纹，无表达式（跨度 DEFERRED 后其"跨度参数"条款随之失效） |
 | 禁新增 npm 包 | JSON 落盘，零依赖（§3.1） |
 | 不引入 Lifecycle 状态机 | 全局状态仍由 `openingCompleted / termination / archived` 三标记表达 |
 
@@ -461,10 +469,10 @@ inventory: Array<{ itemId, name, description, count, usableOutsideBattle, usable
 
 | ADR | 主题 | 必须写清的内容 |
 |---|---|---|
-| **ADR-0007** | 存档持久化：选型与落盘格式 | 为什么不用 DB/新增依赖；信封结构与 `schemaVersion`；模板指纹的作用与代价；加载失败策略（拒绝 vs 修复）；`WorldStateV2Schema` 双维护的缓解；与 `R-AR-03` 的关系（ADR-0006 已被结局可见性 DSL 化占用，2026-11-11） |
-| **ADR-0008** | 时间跨度：双层时间分辨率 | 为什么不是"调大步长"；跨度内 `turnIndex` 递增语义；事件限流与 NPC 抽样；状态衰减一次结算的近似口径；combat 事件在跨度内延后的理由；对 R-EN-02 边界判定的影响 |
+| **ADR-0007** | 存档持久化：选型、落盘格式与可挂载数据目录 | 为什么不用 DB/新增依赖；信封结构与 `schemaVersion`；模板指纹的作用与代价；加载失败策略（拒绝 vs 修复）；`WorldStateV2Schema` 双维护的缓解；与 `R-AR-03` 的关系；**数据目录裁决（2026-11-11）：不得在 `apps/server` 下，默认仓库根 `data/worlds/`，`LIFE_SIM_DATA_DIR` 可覆盖以支持挂载**（ADR-0006 已被结局可见性 DSL 化占用） |
+| ~~ADR-0008~~ | ~~时间跨度~~ | **取消**（2026-11-11 用户裁决：不改引擎，TS 组 DEFERRED，编号不再预留） |
 
-两个 ADR 的编号依据：ADR-0005 已被时间穿越预留（R3），不得占用。
+编号依据：ADR-0005 已被时间穿越预留（R3），不得占用；ADR-0008 编号随时间跨度 DEFERRED 释放，未来如需可重新使用。
 
 ------------------------------------------------------------------------
 
@@ -474,14 +482,13 @@ inventory: Array<{ itemId, name, description, count, usableOutsideBattle, usable
 |---|---|
 | `packages/shared/src/v2.ts` | `HistoryVisibility`、`HistoryEntryV2.visibility`、`isPlayerVisible`、背包投影字段 |
 | `packages/shared/src/v2-state.ts`（新） | `WorldStateV2Schema` |
-| `packages/shared/src/schema/world.ts` | `time.spanSteps` 配置段与校验 |
-| `packages/game-core/src/v2/turn.ts` | `pushHistory` 提取导出；跨度分支；历史过滤 |
+| `packages/game-core/src/v2/turn.ts` | `pushHistory` 提取导出；历史过滤（时间推进路径本轮不动） |
 | `packages/game-core/src/v2/equipment-turn.ts`（新） | `equipV2` / `unequipV2` |
 | `packages/game-core/src/v2/archive.ts` | `projectArchiveForPlayer` |
 | `packages/game-core/src/v2/history.ts`（新） | `playerVisibleHistory` / `playerVisibleEntries` / `isPlayerVisible` 的引擎侧封装 |
-| `apps/server/src/store.ts` | 落盘、加载、列表、删除 |
+| `apps/server/src/store.ts` | 落盘、加载、列表、删除；数据目录解析（仓库根 `data/worlds/`，`LIFE_SIM_DATA_DIR` 可覆盖） |
 | `apps/server/src/templates.ts` | 模板指纹 |
 | `apps/server/src/index.ts` | `/api/worlds`、`/equipment/*`、历史过滤接线 |
-| `apps/web/src/*` | 世界列表、跨度入口、装备交互、日志过滤（前端不再依赖后端误给的数据） |
+| `apps/web/src/*` | 世界列表、装备交互、日志过滤（前端不再依赖后端误给的数据） |
 
 **同一时刻仍只允许一个 Agent 写 `packages/`**（`AGENTS.md` G4）。
