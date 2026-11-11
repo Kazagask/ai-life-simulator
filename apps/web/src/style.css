@@ -769,3 +769,87 @@ button {
   opacity: 0.5;
   cursor: default;
 }
+
+/* ---------- 世界列表（R-PS-04 / T3-04） ---------- */
+
+.banner.info {
+  background: color-mix(in srgb, #6aa1ff 15%, transparent);
+  border: 1px solid color-mix(in srgb, #6aa1ff 40%, transparent);
+  color: #6aa1ff;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin: 4px 16px;
+  cursor: pointer;
+}
+
+.world-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.world-item {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.world-open {
+  flex: 1;
+  text-align: left;
+  background: color-mix(in srgb, var(--border) 25%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font: inherit;
+}
+
+.world-open:hover {
+  border-color: color-mix(in srgb, var(--accent, #7aa2ff) 60%, var(--border));
+}
+
+.world-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.world-delete {
+  align-self: center;
+  white-space: nowrap;
+}
+
+.badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.badge.st-running {
+  color: #6ecf8e;
+  border-color: color-mix(in srgb, #6ecf8e 45%, transparent);
+  background: color-mix(in srgb, #6ecf8e 12%, transparent);
+}
+
+.badge.st-terminated {
+  color: #d8b45a;
+  border-color: color-mix(in srgb, #d8b45a 45%, transparent);
+  background: color-mix(in srgb, #d8b45a 12%, transparent);
+}
+
+.badge.st-archived {
+  color: var(--muted);
+  background: color-mix(in srgb, var(--muted) 10%, transparent);
+}

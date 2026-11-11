@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import { api } from "./api";
-import type { BattleCommand, EndingView, TemplateSummary, V2Snapshot, WheelResultView } from "./api";
+import type { BattleCommand, EndingView, TemplateSummary, V2Snapshot, WheelResultView, WorldSummary } from "./api";
 
 // ---------- 工具 ----------
 
@@ -73,9 +73,11 @@ function App() {
   const [worldId, setWorldId] = useState<string | null>(loadWorldId());
   const [snapshot, setSnapshot] = useState<V2Snapshot | null>(null);
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
+  const [worlds, setWorlds] = useState<WorldSummary[]>([]);
   const [tab, setTab] = useState<Tab>("life");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<LastResult | null>(null);
   // 竞态锁：React state 同帧不生效，双击会双发请求（第二个撞 409）——用 ref 同步判断
   const busyRef = React.useRef(false);
@@ -88,21 +90,47 @@ function App() {
       .getWorld(worldId)
       .then((res) => setSnapshot(res.snapshot))
       .catch(() => {
+        // localStorage 里的 worldId 已失效（存档被删 / 坏档被跳过）：
+        // 回到列表并提示，而不是静默吞掉（R-PS-04 / design §3.8）
         clearWorldId();
         setWorldId(null);
+        setNotice("这一局已不存在（可能已被删除），已回到列表。");
       });
   }, [worldId]);
 
   useEffect(() => {
     if (worldId) return;
     api.listTemplates().then((res) => setTemplates(res.templates)).catch((e) => setError(String(e)));
+    api.listWorlds().then((res) => setWorlds(res.worlds)).catch((e) => setError(String(e)));
   }, [worldId]);
+
+  const refreshWorlds = useCallback(() => {
+    api.listWorlds().then((res) => setWorlds(res.worlds)).catch(() => {/* 列表刷新失败不阻断 */});
+  }, []);
+
+  const openWorld = useCallback((id: string) => {
+    setNotice(null);
+    saveWorldId(id);
+    setWorldId(id);
+  }, []);
+
+  const deleteWorld = useCallback(
+    (id: string) => {
+      if (!window.confirm("删除这一局？存档文件将被移除，无法恢复。")) return;
+      api
+        .deleteWorld(id)
+        .then(() => refreshWorlds())
+        .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    },
+    [refreshWorlds],
+  );
 
   const handleCreated = useCallback((id: string, snap: V2Snapshot) => {
     saveWorldId(id);
     setWorldId(id);
     setSnapshot(snap);
     setTab("life");
+    setNotice(null);
     setLastResult(null);
   }, []);
 
@@ -194,11 +222,28 @@ function App() {
     clearWorldId();
     setWorldId(null);
     setSnapshot(null);
+    setNotice(null);
     setLastResult(null);
   }, []);
 
   if (!worldId || !snapshot) {
-    return <SetupScreen templates={templates} error={error} onCreated={handleCreated} />;
+    return (
+      <>
+        {notice && (
+          <div className="banner info" onClick={() => setNotice(null)}>
+            {notice}
+          </div>
+        )}
+        <SetupScreen
+          templates={templates}
+          worlds={worlds}
+          error={error}
+          onCreated={handleCreated}
+          onOpen={openWorld}
+          onDelete={deleteWorld}
+        />
+      </>
+    );
   }
 
   const battleActive = snapshot.battle !== null && snapshot.battle.over === null;
@@ -262,14 +307,68 @@ function App() {
 
 // ---------- 创建世界 ----------
 
+const STATUS_LABELS: Record<WorldSummary["status"], { label: string; cls: string }> = {
+  running: { label: "进行中", cls: "st-running" },
+  terminated: { label: "已收束", cls: "st-terminated" },
+  archived: { label: "已封存", cls: "st-archived" },
+};
+
+function WorldList({
+  worlds,
+  onOpen,
+  onDelete,
+}: {
+  worlds: WorldSummary[];
+  onOpen: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  if (worlds.length === 0) {
+    return <p className="muted">还没有存档。在下方新建你的第一局。</p>;
+  }
+  return (
+    <section className="card">
+      <span className="tag">我的世界</span>
+      <ul className="world-list">
+        {worlds.map((w) => {
+          const st = STATUS_LABELS[w.status];
+          return (
+            <li key={w.id} className="world-item">
+              <button className="world-open" onClick={() => onOpen(w.id)}>
+                <div className="world-line">
+                  <strong>{w.playerName}</strong>
+                  <span className={`badge ${st.cls}`}>{st.label}</span>
+                </div>
+                <div className="world-line muted">
+                  <span>{w.templateName}</span>
+                  <span>第 {w.turnIndex} 轮 · {w.formattedTime}</span>
+                </div>
+                {w.endingTitle && <div className="world-line muted">结局：{w.endingTitle}</div>}
+              </button>
+              <button className="ghost world-delete" onClick={() => onDelete(w.id)}>
+                删除
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 function SetupScreen({
   templates,
+  worlds,
   error,
   onCreated,
+  onOpen,
+  onDelete,
 }: {
   templates: TemplateSummary[];
+  worlds: WorldSummary[];
   error: string | null;
   onCreated: (id: string, snapshot: V2Snapshot) => void;
+  onOpen: (id: string) => void;
+  onDelete: (id: string) => void;
 }) {
   const [name, setName] = useState("");
   const [seed, setSeed] = useState("");
@@ -317,6 +416,8 @@ function SetupScreen({
           <p className="muted">{t.description}</p>
         </section>
       ))}
+
+      <WorldList worlds={worlds} onOpen={onOpen} onDelete={onDelete} />
 
       <section className="card form">
         <label>

@@ -62,19 +62,19 @@
 
 ## 4. 阶段 3 — 存档持久化
 
-- [ ] **T3-01** 依赖：T1-01｜需求：`R-PS-02`、`R-PS-03`｜产出：`packages/shared/src/v2-state.ts`（新）
+- [x] **T3-01** 依赖：T1-01｜需求：`R-PS-02`、`R-PS-03`｜产出：`packages/shared/src/v2-state.ts`（新）
   `WorldStateV2Schema`（`.strict()`，覆盖全字段含 `player.equipment` / `statuses` / `skills` / `inventory` / `npcs` / `flags` / `history` / `chains` / `pendingEvents` / `battle` / `termination` / `archived`）；双向类型断言把 schema 与 TS 接口的漂移变成编译错误。
   完成定义：`z.infer` 与 `WorldStateV2` 双向可赋值；一份真实快照通过校验；故意改坏任一字段被拒并给出字段路径。
 
-- [ ] **T3-02** 依赖：T3-01、T1-01｜需求：`R-PS-01/02/03/05/06`｜产出：`apps/server/src/store.ts`、`apps/server/src/templates.ts`
+- [x] **T3-02** 依赖：T3-01、T1-01｜需求：`R-PS-01/02/03/05/06`｜产出：`apps/server/src/store.ts`、`apps/server/src/templates.ts`
   模板指纹（YAML 排序拼接 → sha256）；`persist()` 原子写（`.tmp` + `rename`，失败清 tmp 并抛错）；`save()` / `seal()` 内落盘；启动时扫目录逐个校验（parser → `schemaVersion` → 指纹 → `WorldStateV2Schema`），失败 `log.error` 跳过不阻断；归档世界加载后仍走既有 409 门禁。
   完成定义：强杀重启后状态不变；三类坏档（截断 / 版本不符 / 指纹不符）各 1 条 error 且不影响其它局；写失败时旧文件完好。
 
-- [ ] **T3-03** 依赖：T3-02｜需求：`R-PS-04`｜产出：`apps/server/src/index.ts`
+- [x] **T3-03** 依赖：T3-02｜需求：`R-PS-04`｜产出：`apps/server/src/index.ts`
   `GET /api/worlds`（id / templateId / 玩家名 / turnIndex / 世界时间 + 格式化 / status / endingTitle?，按 `savedAt` 倒序）；`DELETE /api/worlds/:id`（删文件 + 删 Map 条目）。
   完成定义：三局不同状态分类正确；空目录返回空数组；删除后列表与磁盘一致。
 
-- [ ] **T3-04** 依赖：T3-03｜需求：`R-PS-04`｜产出：`apps/web/src/api.ts`、`main.tsx`、`style.css`
+- [x] **T3-04** 依赖：T3-03｜需求：`R-PS-04`｜产出：`apps/web/src/api.ts`、`main.tsx`、`style.css`
   首屏「新建 + 我的世界」两段；列表项显示模板名 / 玩家名 / 轮次 / 状态徽标，点击进入；`localStorage` 的 `worldId` 失效时改为提示「这一局已不存在」并回列表（不再直接抛错）；归档世界只读展示结局。
   完成定义：刷新页面能回到上一次的世界；删除后刷新不再报错。
 

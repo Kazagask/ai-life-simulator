@@ -51,6 +51,19 @@ export interface TemplateSummary {
   openings: OpeningSummary[];
 }
 
+export interface WorldSummary {
+  id: string;
+  templateId: string;
+  templateName: string;
+  playerName: string;
+  turnIndex: number;
+  worldTime: number;
+  formattedTime: string;
+  status: "running" | "terminated" | "archived";
+  endingTitle?: string;
+  savedAt: string;
+}
+
 export interface InteractionResponse {
   worldId: string;
   snapshot: V2Snapshot;
@@ -66,6 +79,13 @@ export interface TurnResponse extends InteractionResponse {
 export const api = {
   listTemplates() {
     return request<{ templates: TemplateSummary[] }>("/api/templates");
+  },
+  /** 世界列表（R-PS-04）：savedAt 倒序由服务端保证。 */
+  listWorlds() {
+    return request<{ worlds: WorldSummary[] }>("/api/worlds");
+  },
+  deleteWorld(id: string) {
+    return request<{ deleted: string }>(`/api/worlds/${id}`, { method: "DELETE" });
   },
   /** R-OP-01：省略 openingId 时服务端取加载顺序首个开局。 */
   createWorld(templateId: string, playerName: string, seed?: number, openingId?: string) {

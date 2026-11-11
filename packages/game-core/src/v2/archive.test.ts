@@ -18,6 +18,14 @@ import { evaluateLifeV2 } from "./life-evaluation.js";
 import { assembleArchive, assertWritable, markArchived } from "./archive.js";
 import { worldStore } from "../../../../apps/server/src/store.js";
 
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+
+// 测试隔离：worldStore 现在会落盘（R-PS-03）。模块顶层把数据目录指向临时目录，
+// 避免 worldStore 用例把测试世界写进仓库 data/worlds/（模块按文件顺序初始化，可靠）。
+process.env.LIFE_SIM_DATA_DIR = mkdtempSync(path.join(tmpdir(), "life-sim-store-"));
+
+
 // ---------- 夹具 ----------
 
 function makeTemplate(): WorldTemplateV2 {
