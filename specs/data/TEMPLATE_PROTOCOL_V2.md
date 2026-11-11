@@ -299,7 +299,7 @@ statusBar:
   usableOutsideBattle: false
 ```
 
-- 库存为角色级映射 `{ itemId: count }`；获取途径由事件/战斗奖励的 `grantItem` 效果提供。
+- 库存为角色级映射 `{ itemId: count }`；获取途径由事件/战斗奖励的 `grantItem` 效果提供。**V2.2 起（ADR-0008）库存即「背包 = 未穿戴物品」**：装备穿上时计数 -1、卸下时 +1，穿戴中的装备不出现在库存；因此该计数不再等于"总持有量"。
 - `equipment` 类型 **V2.1 起正式启用**（用户 2026-11-11 决策 ③：词条统一动态补正）。定义/实例分离：`ItemSchema` 的 equipment 分支描述**定义**（`slot` / `category` / `quality` / `dynamicModifier`），`EquipmentInstance` 只存 `itemId / ownerId / slot / stacks? / durability?`，**不存补正结果**。完整字段、preset 白名单与求值链见 §19。
 
 ```yaml
@@ -470,7 +470,7 @@ stack-scaled : { base, perStack, status }      base + 施放者指定补正层�
 { flag: <id>, eq|ne|gte|lte|gt|lt: <value> }        世界 flag 比较
 { attribute: <id>, gte: <n> }                        角色有效属性（含补正/心情档位修正）
 { status: <id>, present: true } / { status, stacksGte: <n> }
-{ inventory: <itemId>, gte: <n> }
+{ inventory: <itemId>, gte: <n> }                    背包内数量（V2.2 / ADR-0008：不含穿戴中的装备）
 { mood: { gte: 40 } }
 { relation: <npcId>, gte: <n> }
 { requiresSkill: <skillId> }
@@ -653,6 +653,12 @@ worldSpecificDimensions:
 | `equipment.yaml` | `slots[]: { id, label, allowedCategories[], maxCount }`、`initialEquipment[]` | 槽位与初始装备 |
 | `items.yaml`（`type: equipment`） | `slot / category / quality / dynamicModifier` | 装备**定义** |
 | `EquipmentInstance`（运行时） | `itemId / ownerId / slot / stacks? / durability?` | **不存补正结果** |
+
+**背包与装备栏的关系（V2.2 / ADR-0008）**
+
+- 穿脱是**物理移动**：穿上 `inventory[itemId] - 1`、卸下 `+1`；穿戴中的装备不在背包，卸下必定回流背包（初始装备也不遗失）。
+- `initialEquipment` 是**独立的穿戴授予**，不从背包扣除；与 `playerTemplate.items` 同 id 时玩家得到「1 件穿戴 + 1 件备用」。
+- 快照下发 `equipmentSlots[]`（id / label / maxCount / allowedCategories）供前端按 `maxCount` 渲染固定格数、按 `allowedCategories` 过滤可装备物品；前端不得从已装备实例反推槽位（空槽会消失）。
 
 ```yaml
 # equipment.yaml

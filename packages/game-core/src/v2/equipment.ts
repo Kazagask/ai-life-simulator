@@ -8,7 +8,10 @@ import type { TemplateLookup } from "./lookup.js";
  *   固定值即「无条件、无层数」的退化 preset，走同一管线（R-EQ-04）。
  * - 结果只进 effectiveAttributes 的运行时累加链，严禁写回 state.player.attributes
  *   或 EquipmentInstance（P8）。
- * - equipItem / unequipItem：纯函数，返回新实例数组；失败时返回可诊断错误码，
+ * - 穿脱是**背包与装备栏之间的物理移动**（ADR-0008）：装备前提是该物品在背包内，
+ *   穿上时背包 -1、卸下时背包 +1；因此穿戴中的物品不会同时出现在背包投影里，
+ *   卸下的物品也一定回到背包（不会凭空消失）。
+ * - equipItem / unequipItem：纯函数，返回新实例数组 + 新背包，失败时返回可诊断错误码，
  *   调用方据此决定是否写回（失败时状态不变）。
  * - 无自由表达式求值器、无 eval / new Function、无世界观专名（R-EQ-03 / R-NFR-05）。
  */
@@ -67,17 +70,30 @@ export type EquipErrorCode =
   | "instance_not_found";
 
 export type EquipResult =
-  | { ok: true; equipment: EquipmentInstance[] }
+  | { ok: true; equipment: EquipmentInstance[]; inventory: Record<string, number> }
   | { ok: false; code: EquipErrorCode; message: string };
 
 export interface EquipmentOwnerInput {
   /** 当前装备实例数组（不被修改） */
   equipment: EquipmentInstance[];
-  /** 库存（装备前提是持有该物品；穿脱不改变库存计数） */
+  /** 背包（未穿戴物品；装备的前提是背包内有该物品，穿脱会增减计数） */
   inventory: Record<string, number>;
 }
 
 const fail = (code: EquipErrorCode, message: string): EquipResult => ({ ok: false, code, message });
+
+/** 背包计数增减：归零即删键，保证投影与条件判定不会看到 0 值残留。 */
+function adjustInventory(
+  inventory: Record<string, number>,
+  itemId: string,
+  delta: number,
+): Record<string, number> {
+  const next = { ...inventory };
+  const value = (next[itemId] ?? 0) + delta;
+  if (value > 0) next[itemId] = value;
+  else delete next[itemId];
+  return next;
+}
 
 /** 生成确定性 instanceId：`equip-<itemId>-<n>`，n 为不与现存冲突的最小正整数（同 seed 回放可复现）。 */
 export function nextInstanceId(equipment: EquipmentInstance[], itemId: string): string {
@@ -98,7 +114,7 @@ export function equipItem(
   if (!item) return fail("item_not_found", `物品不存在：${itemId}`);
   if (item.type !== "equipment") return fail("item_not_equipment", `物品不是装备：${itemId}`);
   if ((input.inventory[itemId] ?? 0) < 1) {
-    return fail("not_owned", `未持有物品：${itemId}`);
+    return fail("not_owned", `背包内没有物品：${itemId}`);
   }
   const slotId = item.slot ?? "";
   const slot = lookup.template.equipment?.slots?.find((s) => s.id === slotId);
@@ -116,7 +132,11 @@ export function equipItem(
     ownerId: "player",
     slot: slotId,
   };
-  return { ok: true, equipment: [...input.equipment, instance] };
+  return {
+    ok: true,
+    equipment: [...input.equipment, instance],
+    inventory: adjustInventory(input.inventory, itemId, -1),
+  };
 }
 
 export function unequipItem(
@@ -126,5 +146,9 @@ export function unequipItem(
 ): EquipResult {
   const target = input.equipment.find((e) => e.instanceId === instanceId);
   if (!target) return fail("instance_not_found", `装备实例不存在：${instanceId}`);
-  return { ok: true, equipment: input.equipment.filter((e) => e.instanceId !== instanceId) };
+  return {
+    ok: true,
+    equipment: input.equipment.filter((e) => e.instanceId !== instanceId),
+    inventory: adjustInventory(input.inventory, target.itemId, 1),
+  };
 }

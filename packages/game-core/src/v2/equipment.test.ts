@@ -428,9 +428,37 @@ describe("穿脱 / 替换纯函数与槽位校验（R-EQ-05）", () => {
     expect(r1.ok).toBe(true);
     expect(equipmentOf(r1)).toHaveLength(2);
     expect(before).toHaveLength(1); // 纯函数：输入数组不变
-    const r2 = equipItem({ equipment: equipmentOf(r1), inventory: state.player.inventory }, "eq-stacked", lookup);
+    const r2 = equipItem(
+      { equipment: equipmentOf(r1), inventory: r1.ok ? r1.inventory : {} },
+      "eq-stacked",
+      lookup,
+    );
     expect(r2.ok).toBe(true);
     expect(equipmentOf(r2)).toHaveLength(3);
+  });
+
+  it("穿脱在背包与装备栏之间移动物品（ADR-0008 / R-EQ-11）", () => {
+    const { lookup, state } = setup();
+    const r1 = equipItem({ equipment: state.player.equipment ?? [], inventory: state.player.inventory }, "eq-scaled", lookup);
+    expect(r1.ok).toBe(true);
+    if (!r1.ok) return;
+    expect(r1.inventory["eq-scaled"]).toBeUndefined(); // 穿上后背包不再保留同名条目
+
+    const r2 = unequipItem({ equipment: r1.equipment, inventory: r1.inventory }, "equip-eq-scaled-1", lookup);
+    expect(r2.ok).toBe(true);
+    if (!r2.ok) return;
+    expect(r2.inventory["eq-scaled"]).toBe(1); // 卸下后回流背包
+    expect(r2.equipment.map((e) => e.itemId)).toEqual(["eq-fixed"]);
+  });
+
+  it("初始装备不在背包，卸下后仍能在背包中找到（不遗失）", () => {
+    const { lookup, state } = setup();
+    const instanceId = state.player.equipment![0].instanceId; // eq-fixed：initialEquipment 授予
+    expect(state.player.inventory["eq-fixed"]).toBeUndefined();
+    const res = unequipItem({ equipment: state.player.equipment ?? [], inventory: state.player.inventory }, instanceId, lookup);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.inventory["eq-fixed"]).toBe(1);
   });
 
   it("错误码：item_not_equipment / not_owned / slot_not_found / slot_category_mismatch / slot_full / instance_not_found", () => {
@@ -519,10 +547,27 @@ describe("装备投影（前端装备栏数据源）", () => {
     expect(first.slot).toBe("weapon");
     expect(first.name).toBe("铁剑");
     expect(first.slotLabel).toBe("武器");
+    expect(first.quality).toBe("common");
     // 只允许展示字段：出现补正数值即为泄漏（R-EQ-04 / P8）
     expect(Object.keys(first).sort()).toEqual(
-      ["instanceId", "itemId", "name", "slot", "slotLabel"].sort(),
+      ["instanceId", "itemId", "name", "slot", "slotLabel", "description", "category", "quality"].sort(),
     );
+  });
+
+  it("投影下发槽位定义（前端渲染固定格子数，不猜槽位）（R-EQ-11）", () => {
+    const { template, lookup, state } = setup();
+    const snapshot = projectSnapshotV2(state, template, lookup);
+    expect(snapshot.equipmentSlots).toEqual([
+      { id: "weapon", label: "武器", maxCount: 1, allowedCategories: ["blade"] },
+      { id: "accessory", label: "饰品", maxCount: 2, allowedCategories: ["charm", "ring"] },
+    ]);
+  });
+
+  it("背包与装备栏互斥：穿戴中的物品不出现在 inventory 投影（ADR-0008）", () => {
+    const { template, lookup, state } = setup();
+    const equipped = projectSnapshotV2(state, template, lookup);
+    expect(equipped.player.inventory.some((i) => i.itemId === "eq-fixed")).toBe(false);
+    expect(equipped.player.equipment?.map((e) => e.itemId)).toEqual(["eq-fixed"]);
   });
 
   it("未装备时投影为空数组而非缺失字段", () => {
@@ -545,6 +590,7 @@ describe("穿脱编排 equipV2 / unequipV2（R-EQ-07 / R-EQ-08）", () => {
     const before = JSON.parse(JSON.stringify({ worldTime: state.worldTime, turnIndex: state.turnIndex, history: state.history.length }));
     const res = equipV2(state, { itemId: "eq-scaled" }, template, lookup);
     expect(res.state.player.equipment?.map((e) => e.itemId)).toContain("eq-scaled");
+    expect(res.state.player.inventory["eq-scaled"]).toBeUndefined(); // 背包 -1（ADR-0008）
     expect(res.state.worldTime).toBe(before.worldTime); // 不推进时间（R-EQ-08）
     expect(res.state.turnIndex).toBe(before.turnIndex);
     expect(res.state.history.length).toBe(before.history + 1);
@@ -559,10 +605,26 @@ describe("穿脱编排 equipV2 / unequipV2（R-EQ-07 / R-EQ-08）", () => {
     const instanceId = state.player.equipment![0].instanceId; // 初始装备 eq-fixed
     const res = unequipV2(state, { instanceId }, template, lookup);
     expect(res.state.player.equipment).toHaveLength(0);
+    expect(res.state.player.inventory["eq-fixed"]).toBe(1); // 卸下回流背包（ADR-0008）
     expect(res.state.worldTime).toBe(state.worldTime);
     const entry = res.state.history[res.state.history.length - 1];
     expect(entry.visibility).toBe("public");
     expect(entry.summary).toContain("铁剑");
+  });
+
+  it("卸下 → 背包可见 → 再装备 闭环（初始装备不遗失）", () => {
+    const { template, lookup, state } = setup();
+    const instanceId = state.player.equipment![0].instanceId;
+
+    const off = unequipV2(state, { instanceId }, template, lookup);
+    const bag = off.snapshot.player.inventory.find((i) => i.itemId === "eq-fixed");
+    expect(bag?.count).toBe(1); // 卸下后出现在背包投影
+    expect(off.snapshot.player.equipment).toEqual([]);
+
+    const on = equipV2(off.state, { itemId: "eq-fixed" }, template, lookup);
+    expect(on.snapshot.player.inventory.some((i) => i.itemId === "eq-fixed")).toBe(false); // 穿回后离开背包
+    expect(on.snapshot.player.equipment?.map((e) => e.itemId)).toEqual(["eq-fixed"]);
+    expect(on.state.player.inventory["eq-fixed"]).toBeUndefined();
   });
 
   it("七种错误码逐一抛 [equip]/[unequip] 且状态不变（equipErrorCodeOf 可解析）", () => {

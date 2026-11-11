@@ -68,7 +68,9 @@ export function projectSnapshotV2(
         // 展示字段（T5-02 / R-EQ-09）：不含任何补正结果——补正只进 effectiveAttributes（P8）
         type: def?.type ?? "key",
         slot: def?.slot,
+        slotLabel: template.equipment?.slots?.find((s) => s.id === def?.slot)?.label,
         category: def?.category,
+        quality: def?.quality,
       };
     });
 
@@ -119,9 +121,19 @@ export function projectSnapshotV2(
           ...(inst.durability !== undefined ? { durability: inst.durability } : {}),
           name: def?.name ?? inst.itemId,
           slotLabel: template.equipment?.slots?.find((s) => s.id === inst.slot)?.label ?? inst.slot,
+          description: def?.description ?? "",
+          category: def?.category,
+          quality: def?.quality,
         };
       }),
     },
+    // 槽位定义（R-EQ-11）：前端据此渲染固定格子数，不从已装备实例反推槽位
+    equipmentSlots: (template.equipment?.slots ?? []).map((s) => ({
+      id: s.id,
+      label: s.label,
+      maxCount: s.maxCount,
+      allowedCategories: [...s.allowedCategories],
+    })),
     npcs: state.npcs.map((npc) => ({
       id: npc.id,
       name: npc.name,

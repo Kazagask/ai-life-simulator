@@ -24,39 +24,65 @@ function elapsedText(elapsed: { value: number; unit: string }): string {
 // ---------- 装备 ----------
 
 /**
- * 装备投影已落地（协议 §19）：V2Snapshot.player.equipment 为可选字段
+ * 装备投影已落地（协议 §19 / ADR-0008）：V2Snapshot.player.equipment 为可选字段
  * （旧存档 / 未配置装备的模板缺省），元素类型直接从 shared 视图类型派生，
- * 前端不再本地重复声明字段。展示层只读这 7 个展示字段，补正结果属内核现算状态，不接触。
+ * 前端不再本地重复声明字段。展示层只读展示字段，补正结果属内核现算状态，不接触。
  */
 type EquipmentView = NonNullable<V2Snapshot["player"]["equipment"]>[number];
+type EquipmentSlotView = NonNullable<V2Snapshot["equipmentSlots"]>[number];
+type InventoryView = V2Snapshot["player"]["inventory"][number];
 
 function equipmentOf(player: V2Snapshot["player"]): EquipmentView[] {
   return player.equipment ?? [];
 }
 
-interface EquipmentGroup {
-  slot: string;
-  label: string;
-  items: EquipmentView[];
+interface SlotCell {
+  key: string;
+  slotId: string;
+  slotLabel: string;
+  index: number;
+  capacity: number;
+  instance: EquipmentView | null;
 }
 
-/** 按 slot 分组；保持投影下发顺序（槽位顺序由模板驱动，前端不自行排序）。 */
-function groupEquipmentBySlot(items: EquipmentView[]): EquipmentGroup[] {
-  const order: string[] = [];
-  const buckets = new Map<string, EquipmentView[]>();
-  for (const item of items) {
-    const bucket = buckets.get(item.slot);
-    if (bucket) {
-      bucket.push(item);
-    } else {
-      buckets.set(item.slot, [item]);
-      order.push(item.slot);
-    }
-  }
-  return order.map((slot) => {
-    const bucket = buckets.get(slot) ?? [];
-    return { slot, label: bucket[0]?.slotLabel ?? slot, items: bucket };
+/**
+ * 槽位定义 → 格子：**槽位全集与格数由模板投影下发**（R-EQ-11），
+ * 前端不猜槽位名、也不从「已装备实例」反推槽位（否则空槽会消失）。
+ * 同一槽位内按投影顺序落格，多余实例（理论上不会出现）舍弃不渲染。
+ */
+function buildSlotCells(slots: EquipmentSlotView[], equipment: EquipmentView[]): SlotCell[] {
+  return slots.flatMap((slot) => {
+    const worn = equipment.filter((e) => e.slot === slot.id);
+    return Array.from({ length: slot.maxCount }, (_, i) => ({
+      key: `${slot.id}-${i}`,
+      slotId: slot.id,
+      slotLabel: slot.label,
+      index: i,
+      capacity: slot.maxCount,
+      instance: worn[i] ?? null,
+    }));
   });
+}
+
+const ITEM_TYPE_LABEL: Record<InventoryView["type"], string> = {
+  equipment: "装备",
+  consumable: "消耗品",
+  material: "材料",
+  key: "关键物品",
+};
+
+/** 方格内的类别字形（纯文字符号，不引入图标库）。 */
+function itemGlyph(type: InventoryView["type"]): string {
+  switch (type) {
+    case "equipment":
+      return "◈";
+    case "consumable":
+      return "✚";
+    case "material":
+      return "❖";
+    default:
+      return "▣";
+  }
 }
 
 // ---------- 组件 ----------
@@ -972,7 +998,7 @@ function ActionPanel({
   );
 }
 
-// ---------- 个人 Tab（装备栏 + 装备 / 物品 / 技能 / 面板） ----------
+// ---------- 个人 Tab（装备栏方格 / 背包方格 / 详情区） ----------
 
 type PersonalSubTab = "equipment" | "items" | "skills" | "panel";
 
@@ -984,11 +1010,13 @@ const PERSONAL_SUBTABS: Array<{ key: PersonalSubTab; label: string }> = [
 ];
 
 /**
- * 无装备时的中性空槽占位数量。
- * 槽位全集需由模板 equipment.yaml 的 slots 经投影下发才能恒定可见；
- * 当前投影只下发「已装备实例」，拿不到空槽定义，故按数量占位且不猜槽位名。
+ * 选中项：装备槽（含空槽）/ 背包物品。
+ * 详情区是唯一的操作入口——装备只在装备页穿、脱，物品只在物品页使用（ADR-0008）。
  */
-const EMPTY_SLOT_PLACEHOLDERS = 2;
+type PersonalSelection =
+  | { kind: "slot"; instanceId: string | null; slotId: string; slotLabel: string; capacity: number }
+  | { kind: "item"; itemId: string }
+  | null;
 
 function PersonalTab({
   snapshot,
@@ -1003,40 +1031,26 @@ function PersonalTab({
   onEquip: (itemId: string) => void;
   onUnequip: (instanceId: string) => void;
 }) {
-  // 子页签为纯展示状态：切换即时、不触发任何请求。
+  // 子页签与选中项都是纯展示状态：切换即时、不触发任何请求。
   const [sub, setSub] = useState<PersonalSubTab>("equipment");
+  const [selection, setSelection] = useState<PersonalSelection>(null);
+
   const equipment = equipmentOf(snapshot.player);
-  const groups = groupEquipmentBySlot(equipment);
+  const slots = snapshot.equipmentSlots ?? [];
+  const bag = snapshot.player.inventory;
+
+  // 投影刷新后选中项可能已失效（刚卸下 / 刚用完），此时按「未选中」处理而不是报错
+  const active =
+    selection?.kind === "slot"
+      ? selection.instanceId && !equipment.some((e) => e.instanceId === selection.instanceId)
+        ? { kind: "slot" as const, instanceId: null, slotId: selection.slotId, slotLabel: selection.slotLabel, capacity: selection.capacity }
+        : selection
+      : selection?.kind === "item" && !bag.some((i) => i.itemId === selection.itemId)
+        ? null
+        : selection;
 
   return (
     <div className="stack">
-      <section className="card">
-        <div className="row">
-          <h3 className="panel-title">装备</h3>
-          <span className="muted equip-count">{equipment.length} 件</span>
-        </div>
-        <div className="equip-slots">
-          {groups.length === 0
-            ? Array.from({ length: EMPTY_SLOT_PLACEHOLDERS }, (_, i) => (
-                <div key={`empty-slot-${i}`} className="equip-slot empty">
-                  空
-                </div>
-              ))
-            : groups.map((group) => (
-                <div key={group.slot} className="equip-slot">
-                  <span className="slot-label">{group.label}</span>
-                  {group.items.map((eq) => (
-                    <div key={eq.instanceId} className="equip-item">
-                      <strong>{eq.name ?? eq.itemId}</strong>
-                      <EquipMeta equipment={eq} />
-                    </div>
-                  ))}
-                </div>
-              ))}
-        </div>
-        {groups.length === 0 && <p className="muted">暂无装备</p>}
-      </section>
-
       <div className="subtabbar" role="tablist" aria-label="个人子页签">
         {PERSONAL_SUBTABS.map((entry) => (
           <button
@@ -1044,20 +1058,146 @@ function PersonalTab({
             role="tab"
             aria-selected={sub === entry.key}
             className={`subtab ${sub === entry.key ? "active" : ""}`}
-            onClick={() => setSub(entry.key)}
+            onClick={() => {
+              setSub(entry.key);
+              setSelection(null);
+            }}
           >
             {entry.label}
           </button>
         ))}
       </div>
 
-      <div className="stack">
-        {sub === "equipment" && <EquipmentDetail equipment={equipment} busy={busy} onUnequip={onUnequip} />}
-        {sub === "items" && <ItemList snapshot={snapshot} busy={busy} onUseItem={onUseItem} onEquip={onEquip} />}
-        {sub === "skills" && <SkillList snapshot={snapshot} />}
-        {sub === "panel" && <PanelView snapshot={snapshot} />}
-      </div>
+      {sub === "equipment" && (
+        <EquipGridView
+          slots={slots}
+          equipment={equipment}
+          selection={active}
+          onSelect={setSelection}
+        />
+      )}
+      {sub === "items" && <BagGridView bag={bag} selection={active} onSelect={setSelection} />}
+
+      {(sub === "equipment" || sub === "items") && (
+        <AssetDetail
+          snapshot={snapshot}
+          selection={active}
+          busy={busy}
+          onEquip={onEquip}
+          onUnequip={onUnequip}
+          onUseItem={onUseItem}
+        />
+      )}
+
+      {sub === "skills" && <SkillList snapshot={snapshot} />}
+      {sub === "panel" && <PanelView snapshot={snapshot} />}
     </div>
+  );
+}
+
+/** 装备栏方格：一格 = 槽位的一个位置；空槽也可选中（详情区给出可装备物品）。 */
+function EquipGridView({
+  slots,
+  equipment,
+  selection,
+  onSelect,
+}: {
+  slots: EquipmentSlotView[];
+  equipment: EquipmentView[];
+  selection: PersonalSelection;
+  onSelect: (next: PersonalSelection) => void;
+}) {
+  const cells = buildSlotCells(slots, equipment);
+
+  return (
+    <section className="card">
+      <div className="row">
+        <h3 className="panel-title">装备栏</h3>
+        <span className="muted equip-count">{equipment.length} 件</span>
+      </div>
+      {cells.length === 0 ? (
+        <p className="muted">这个世界没有配置装备槽位。</p>
+      ) : (
+        <div className="cell-grid">
+          {cells.map((cell) => {
+            const selected =
+              selection?.kind === "slot" &&
+              (cell.instance
+                ? selection.instanceId === cell.instance.instanceId
+                : selection.instanceId === null && selection.slotId === cell.slotId);
+            return (
+              <button
+                key={cell.key}
+                className={`cell equip-cell ${selected ? "selected" : ""} ${cell.instance ? "" : "empty"}`}
+                aria-pressed={selected}
+                onClick={() =>
+                  onSelect({
+                    kind: "slot",
+                    instanceId: cell.instance?.instanceId ?? null,
+                    slotId: cell.slotId,
+                    slotLabel: cell.slotLabel,
+                    capacity: cell.capacity,
+                  })
+                }
+              >
+                <span className="cell-slot">
+                  {cell.slotLabel}
+                  {cell.capacity > 1 ? ` ${cell.index + 1}` : ""}
+                </span>
+                <span className="cell-glyph">{cell.instance ? "◈" : "＋"}</span>
+                <span className={`cell-name ${cell.instance ? "" : "muted"}`}>
+                  {cell.instance?.name ?? "空"}
+                </span>
+                {cell.instance && <EquipMeta equipment={cell.instance} />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <p className="muted cell-hint">点格子查看详情，装备 / 卸下都在下方详情区完成。</p>
+    </section>
+  );
+}
+
+/** 背包方格：只含未穿戴物品（穿戴中的已在装备栏，ADR-0008）。 */
+function BagGridView({
+  bag,
+  selection,
+  onSelect,
+}: {
+  bag: InventoryView[];
+  selection: PersonalSelection;
+  onSelect: (next: PersonalSelection) => void;
+}) {
+  return (
+    <section className="card">
+      <div className="row">
+        <h3 className="panel-title">物品栏</h3>
+        <span className="muted equip-count">{bag.length} 种</span>
+      </div>
+      {bag.length === 0 ? (
+        <p className="muted">空空如也。物品可通过事件、商店与战斗掉落获得。</p>
+      ) : (
+        <div className="cell-grid">
+          {bag.map((item) => {
+            const selected = selection?.kind === "item" && selection.itemId === item.itemId;
+            return (
+              <button
+                key={item.itemId}
+                className={`cell bag-cell ${selected ? "selected" : ""}`}
+                aria-pressed={selected}
+                onClick={() => onSelect({ kind: "item", itemId: item.itemId })}
+              >
+                <span className="cell-glyph">{itemGlyph(item.type)}</span>
+                <span className="cell-name">{item.name}</span>
+                {item.count > 1 && <span className="cell-count">×{item.count}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <p className="muted cell-hint">穿在身上的装备不在物品栏里，去「装备」页卸下。</p>
+    </section>
   );
 }
 
@@ -1076,87 +1216,144 @@ function EquipMeta({ equipment }: { equipment: EquipmentView }) {
   );
 }
 
-function EquipmentDetail({
-  equipment,
-  busy,
-  onUnequip,
-}: {
-  equipment: EquipmentView[];
-  busy: boolean;
-  onUnequip: (instanceId: string) => void;
-}) {
-  if (equipment.length === 0) {
-    return (
-      <section className="card">
-        <p className="muted">尚未装备任何物品。在「物品」页里把装备类物品装上。</p>
-      </section>
-    );
-  }
-  return (
-    <>
-      {equipment.map((eq) => (
-        <section key={eq.instanceId} className="card item-card">
-          <div className="row">
-            <h2>{eq.name ?? eq.itemId}</h2>
-            <span className="tag">{eq.slotLabel ?? eq.slot}</span>
-          </div>
-          <EquipMeta equipment={eq} />
-          <button className="ghost" disabled={busy} onClick={() => onUnequip(eq.instanceId)}>
-            卸下
-          </button>
-        </section>
-      ))}
-    </>
-  );
-}
-
-function ItemList({
+/**
+ * 详情区：唯一操作入口。
+ * - 已装备：展示说明 + 卸下；
+ * - 空槽：展示槽位允许类别 + 背包内可装备物品（就地装备）；
+ * - 背包物品：展示说明 + 使用 / 装备（装备件按定义槽位落位）。
+ */
+function AssetDetail({
   snapshot,
+  selection,
   busy,
-  onUseItem,
   onEquip,
+  onUnequip,
+  onUseItem,
 }: {
   snapshot: V2Snapshot;
+  selection: PersonalSelection;
   busy: boolean;
-  onUseItem: (itemId: string) => void;
   onEquip: (itemId: string) => void;
+  onUnequip: (instanceId: string) => void;
+  onUseItem: (itemId: string) => void;
 }) {
-  const items = snapshot.player.inventory;
-  if (items.length === 0) {
+  const equipment = equipmentOf(snapshot.player);
+  const bag = snapshot.player.inventory;
+
+  if (!selection) {
     return (
-      <section className="card">
-        <p className="muted">空空如也。物品可通过事件、商店与战斗掉落获得。</p>
+      <section className="card detail-card">
+        <p className="muted">选中上方任意格子查看详情。</p>
       </section>
     );
   }
-  return (
-    <>
-      {items.map((item) => (
-        <section key={item.itemId} className="card item-card">
+
+  if (selection.kind === "slot") {
+    const slot = (snapshot.equipmentSlots ?? []).find((s) => s.id === selection.slotId);
+    const worn = selection.instanceId
+      ? equipment.find((e) => e.instanceId === selection.instanceId)
+      : undefined;
+    if (worn) {
+      return (
+        <section className="card detail-card">
           <div className="row">
-            <h2>{item.name} ×{item.count}</h2>
-            <div className="tag-row">
-              {item.type === "equipment" && <span className="tag">装备{item.slot ? ` · ${item.slot}` : ""}</span>}
-              {item.usableOutsideBattle && item.type !== "equipment" && <span className="tag">可用</span>}
-              {item.usableInBattle && <span className="tag">战斗可用</span>}
-              {!item.usableOutsideBattle && !item.usableInBattle && item.type !== "equipment" && <span className="tag">被动</span>}
-            </div>
+            <h3>{worn.name ?? worn.itemId}</h3>
+            <span className="tag">{worn.slotLabel ?? worn.slot}</span>
           </div>
-          {item.description && <p className="item-desc">{item.description}</p>}
-          {item.type === "equipment" ? (
-            <button className="primary" disabled={busy} onClick={() => onEquip(item.itemId)}>
-              装备
+          <div className="tag-row">
+            <span className="tag">已装备</span>
+            {worn.category && <span className="tag">类别 {worn.category}</span>}
+            {worn.quality && <span className="tag">品质 {worn.quality}</span>}
+          </div>
+          {worn.description && <p className="item-desc">{worn.description}</p>}
+          <EquipMeta equipment={worn} />
+          <div className="detail-actions">
+            <button className="ghost" disabled={busy} onClick={() => onUnequip(worn.instanceId)}>
+              卸下
             </button>
-          ) : (
-            item.usableOutsideBattle && (
-              <button className="primary" disabled={busy} onClick={() => onUseItem(item.itemId)}>
-                使用
-              </button>
-            )
-          )}
+          </div>
         </section>
-      ))}
-    </>
+      );
+    }
+    const allowed = slot?.allowedCategories ?? [];
+    const candidates = bag.filter(
+      (i) => i.type === "equipment" && allowed.includes(i.category ?? ""),
+    );
+    return (
+      <section className="card detail-card">
+        <div className="row">
+          <h3>{selection.slotLabel} · 空</h3>
+          <span className="tag">可装备 {candidates.length}</span>
+        </div>
+        <p className="muted">
+          {allowed.length > 0 ? `此槽位接受类别：${allowed.join(" / ")}` : "槽位未声明允许类别。"}
+        </p>
+        {candidates.length === 0 ? (
+          <p className="muted">物品栏里没有可放进这个槽位的装备。</p>
+        ) : (
+          <div className="stack-sm">
+            {candidates.map((item) => (
+              <div key={item.itemId} className="detail-row">
+                <div>
+                  <strong>{item.name}</strong>
+                  <p className="muted">
+                    {item.quality ? `${item.quality} · ` : ""}
+                    {item.category ?? "无类别"}
+                    {item.count > 1 ? ` · 备用 ${item.count}` : ""}
+                  </p>
+                </div>
+                <button className="primary" disabled={busy} onClick={() => onEquip(item.itemId)}>
+                  装备
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  const item = bag.find((i) => i.itemId === selection.itemId);
+  if (!item) {
+    return (
+      <section className="card detail-card">
+        <p className="muted">选中上方任意格子查看详情。</p>
+      </section>
+    );
+  }
+  const isEquipment = item.type === "equipment";
+  return (
+    <section className="card detail-card">
+      <div className="row">
+        <h3>
+          {item.name}
+          {item.count > 1 ? ` ×${item.count}` : ""}
+        </h3>
+        <span className="tag">{ITEM_TYPE_LABEL[item.type]}</span>
+      </div>
+      <div className="tag-row">
+        {item.slotLabel && <span className="tag">槽位 {item.slotLabel}</span>}
+        {item.category && <span className="tag">类别 {item.category}</span>}
+        {item.quality && <span className="tag">品质 {item.quality}</span>}
+        {item.usableInBattle && <span className="tag">战斗可用</span>}
+      </div>
+      {item.description && <p className="item-desc">{item.description}</p>}
+      <div className="detail-actions">
+        {isEquipment && (
+          <button className="primary" disabled={busy} onClick={() => onEquip(item.itemId)}>
+            装备
+          </button>
+        )}
+        {item.usableOutsideBattle && (
+          <button className="primary" disabled={busy} onClick={() => onUseItem(item.itemId)}>
+            使用
+          </button>
+        )}
+        {!isEquipment && !item.usableOutsideBattle && !item.usableInBattle && (
+          <p className="muted">这件物品无法直接使用，会在剧情里派上用场。</p>
+        )}
+      </div>
+    </section>
   );
 }
 

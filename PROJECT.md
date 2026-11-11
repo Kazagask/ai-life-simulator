@@ -15,11 +15,11 @@
 
 | 项 | 状态 |
 |---|---|
-| 当前迭代 | **R2.3「可见性收口 + 存档持久化 + 装备穿脱」（时间跨度已延期）**（`specs/iteration-2026-11-11-r23/`），**规格草案待用户确认（2026-11-11，同日两次范围裁决）**；上一轮 R2.2 已收尾 |
-| 范围 | R2.3：**16 条 `ACTIVE`**（`VS` 5 / `PS` 7 / `EQ` 4）、18 个任务；**`TS` 组 5 条与阶段 8（`T8-01..04`）DEFERRED**（分别保留在 `tasks.md` 附录 B / 附录 A）。R2.2：45 `ACTIVE` / 7 `DEFERRED` / 6 `RETIRED`（已全部验收） |
-| 进度 | `specs/iteration-2026-11-11/tasks.md`：34 个 ACTIVE 任务；**阶段 0（T0-01..04）、阶段 1（T1-01/03/04）、阶段 2（T2-01..04）、阶段 3（T3-01..05）、阶段 4（T4-01..06）、阶段 5（T5-01..04）、阶段 6（T6-01..04）已全部勾选**；R2 ACTIVE 编码任务全部完成 |
-| 已有产出 | 差距报告 `tasks/reports/R2-GAP-ANALYSIS.md`（含 §10 R2.2 增量复核）；`docs/DECISIONS.md` ADR-0004（已接受）；`specs/data/TEMPLATE_PROTOCOL_V2.md` V2.1（§16–§20）；`CORE_ENGINE.md §8` 已标注取代；V1 引擎与类型已于 04:01 下线，仅保留 V2 共用 `rng.ts`；**V2 实现已固化为基线提交 `f8206ca`**；T2-01 终止模型三字段 + `assertActive()` / 幂等 `markTerminated()`；T2-03 静态边界检查、T2-04 `RunnerContext` + 同 seed 回放夹具；阶段 3 开局分域（schema / `drawOpeningEvents` / `runOpening` / `handoff` / server 接线 / 按 `openingId` 选择）；**T2-02 `assertActive()` 门禁已接入 `advanceTurnV2` 入口**，配 `test-utils.ts` 统一激活夹具与 `guard.test.ts` |
-| 下一步 | **R2.3 规格草案已按两次裁决修订，等用户确认后从阶段 0（`T0-01` 现状复核）开始**；确认前不得改实现代码（G1）。本轮三项按优先级：① 可见性收口（修 `hidden` 结局经 `/history` 泄漏，在线违反 `R-NFR-04`；事件无隐藏语义 #33、结局隐藏 DSL 化 ADR-0006 均已裁决落盘）② 存档落盘（JSON 文件 + 原子写，ADR-0007；**数据目录不得在 `apps/server` 下**，默认仓库根 `data/worlds/`、`LIFE_SIM_DATA_DIR` 可挂载）③ 装备穿脱端点与 UI。**时间跨度 DEFERRED（不改引擎，寿终不可达归因模板质量，后续内容治理另行立项）**；阶段 8 延期；LLM 叙事、战斗 AI 端点、NPC 生命周期（#21–#25）不在本轮 |
+| 当前迭代 | **R2.4「装备归属修复 + 背包/装备栏方格 UI」**（`specs/iteration-2026-11-11-r24/`，小步修复轮）。上一轮 **R2.3「可见性收口 + 存档持久化 + 装备穿脱」已收尾**（16/16 ACTIVE 验收，见 `tasks/reports/R23-COMPLETION.md`） |
+| 范围 | R2.4：用户三项实测反馈 ① 卸下即遗失 ② 装备不应出现在物品栏 ③ 方格 UI + 详情区 → **ADR-0008 背包与装备栏物理分离**；R-EQ-11..14 共 4 条，已全部验收 |
+| 进度 | R2.4：T1-01..T4-02 全部完成；`pnpm typecheck` 0 错误、game-core 243 tests 全绿、web build 254.99 kB；端到端 curl + 无头截图证据见 r24 `tasks.md`。R2.3：18 个任务全部完成并验收 |
+| 已有产出 | R2.3：ADR-0006/0007、历史可见性收口（§21）、JSON 持久化（仓库根 `data/worlds/`、`LIFE_SIM_DATA_DIR` 可挂载、四道关加载）、装备穿脱端点与 UI。R2.4：ADR-0008、协议 §8/§12/§19 修订、穿脱移动背包计数、快照 `equipmentSlots[]`、方格 UI（`buildSlotCells` + `AssetDetail` 详情区） |
+| 下一步 | R2.3 遗留：阶段 8 与 `TS` 组 5 条 DEFERRED（附录 A/B）；时间跨度 DEFERRED（模板内容治理另行立项）。候选方向：战斗 AI 端点、NPC 生命周期（#21–#25）、LLM 叙事接入——均需先立规格 |
 | 待决问题 | `docs/OPEN_QUESTIONS.md`（未决项不得自行伪造共识） |
 
 > 状态会变。每轮迭代收尾时**只更新本表**，不要在别处另建第二份状态。

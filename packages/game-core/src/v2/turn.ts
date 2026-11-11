@@ -61,7 +61,9 @@ export function createWorldV2(
   const pt = template.playerTemplate;
   const playerAge = pt?.identity.age ?? 16;
   const mood = pt?.mood ?? template.mood.defaultValue;
-  // 初始装备（协议 §19 equipment.initialEquipment；槽位/类型/类别已由 Schema 加载期校验）
+  // 初始装备（协议 §19 equipment.initialEquipment；槽位/类型/类别已由 Schema 加载期校验）。
+  // 这是**独立的穿戴授予**，不从背包扣除（ADR-0008）：模板若同时在 playerTemplate.items
+  // 写了同一 itemId，玩家得到「1 件穿戴 + 1 件备用」。卸下时按职业常规回流到背包。
   const initialEquipment: EquipmentInstance[] = [];
   for (const init of template.equipment?.initialEquipment ?? []) {
     const def = template.items.find((i) => i.id === init.itemId);

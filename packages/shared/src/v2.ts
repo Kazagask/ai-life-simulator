@@ -328,11 +328,14 @@ export interface V2Snapshot {
       /** 展示字段（T5-02 / R-EQ-09）：来自物品定义，不含补正结果 */
       type: "consumable" | "material" | "key" | "equipment";
       slot?: string;
+      slotLabel?: string;
       category?: string;
+      quality?: string;
     }>;
     /**
-     * 已装备实例投影：只含展示字段（实例 id / 物品 id / 槽位 / 层数 / 耐久 / 显示名）。
+     * 已装备实例投影：只含展示字段（实例 id / 物品 id / 槽位 / 层数 / 耐久 / 显示名 / 说明）。
      * 不含任何补正结果——补正由内核每次结算现算（R-EQ-04 / P8）。
+     * 背包（inventory）与装备栏**互斥**：穿戴中的实例不出现在 inventory（ADR-0008）。
      */
     equipment?: Array<{
       instanceId: string;
@@ -342,8 +345,17 @@ export interface V2Snapshot {
       durability?: number;
       name?: string;
       slotLabel?: string;
+      description?: string;
+      category?: string;
+      quality?: string;
     }>;
   };
+  /**
+   * 装备栏槽位定义（模板 equipment.yaml 的 slots 投影）；未配置装备分域的世界为空数组。
+   * 前端据 maxCount 渲染格子数量、据 allowedCategories 过滤可装备物品，
+   * **不得由前端猜槽位名或格子数**（ADR-0008 / R-EQ-11）。
+   */
+  equipmentSlots?: Array<{ id: string; label: string; maxCount: number; allowedCategories: string[] }>;
   npcs: Array<{
     id: string;
     name: string;
