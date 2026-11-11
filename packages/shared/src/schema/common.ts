@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RelationKindSchema, RelationVisibilitySchema } from "./relation.js";
 
 /**
  * 协议 V2 公共 Schema：时间量、数值公式 preset、条件与效果 DSL。
@@ -170,7 +171,39 @@ export const EffectSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("adjustAttribute"), attribute: z.string().min(1), value: z.number() }).strict(),
   z.object({ type: z.literal("adjustResource"), resource: z.enum(["hp", "mp"]), value: z.number() }).strict(),
   z.object({ type: z.literal("adjustMood"), value: z.number() }).strict(),
-  z.object({ type: z.literal("adjustRelation"), npcId: z.string().min(1), value: z.number() }).strict(),
+  /**
+   * 关系调整（R2.6 / ADR-0014）。两种形态互斥，引擎侧校验：
+   * ① 旧形态（兼容）：`{ npcId, value }` —— 调整 NPC→玩家 标量 `npc.relationship`。
+   * ② 关系边形态：`{ fromId, toId, kind, value }` —— 对边值做增量调整；
+   *    边不存在时按 `value` 建边（`visibility` 缺省 `unknown`，**不误建为 known**）。
+   * 冻结边（一端已死亡）忽略调整。
+   */
+  z
+    .object({
+      type: z.literal("adjustRelation"),
+      npcId: z.string().min(1).optional(),
+      /** 边起点；`__self__` = 当前行动的 NPC */
+      fromId: z.string().min(1).optional(),
+      toId: z.string().min(1).optional(),
+      kind: RelationKindSchema.optional(),
+      visibility: RelationVisibilitySchema.optional(),
+      value: z.number(),
+    })
+    .strict(),
+  /** 显式建立关系边（已存在则合并，不重复；`frozen` 为单向棘轮）。 */
+  z
+    .object({
+      type: z.literal("addRelationEdge"),
+      fromId: z.string().min(1),
+      toId: z.string().min(1),
+      kind: RelationKindSchema,
+      visibility: RelationVisibilitySchema.optional(),
+      value: z.number().min(-100).max(100).optional(),
+      gap: z.boolean().optional(),
+    })
+    .strict(),
+  /** 角色死亡时冻结与之相连的关系边（仍参与称谓推导，但不再被改动）。 */
+  z.object({ type: z.literal("freezeRelationsOnDeath"), npcId: z.string().min(1) }).strict(),
   z.object({ type: z.literal("grantItem"), itemId: z.string().min(1), count: z.number().int().positive() }).strict(),
   z.object({ type: z.literal("removeItem"), itemId: z.string().min(1), count: z.number().int().positive() }).strict(),
   z.object({ type: z.literal("applyStatus"), status: z.string().min(1), stacks: z.number().int().positive().optional() }).strict(),

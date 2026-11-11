@@ -17,6 +17,7 @@ import type { TemplateLookup } from "./lookup.js";
 // 调度器与效果执行器互为依赖（scheduler 读 checkAllConditions、engine 写入队），
 // 但双方只在函数体内互相调用、无顶层求值，ESM 函数声明提升可保证初始化期安全。
 import { alignChainStep, enqueueCandidate } from "./scheduler.js";
+import { addEdge, freezeOnDeath } from "./relations.js";
 
 // ---------- 资源公式（规格 4.4：上限 = base + perLevel × growthLevel + Σ perAttribute[attr] × 基础属性值） ----------
 
@@ -324,9 +325,66 @@ export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefin
         state.player.mood = clamp(state.player.mood + effect.value, lookup.template.mood.min, lookup.template.mood.max);
         break;
       case "adjustRelation": {
+        // 形态 ①（兼容）：NPC→玩家 标量
+        if (effect.fromId === undefined && effect.toId === undefined) {
+          if (effect.npcId === undefined) {
+            throw new Error("adjustRelation 需要 npcId（标量形态）或 fromId+toId+kind（关系边形态）");
+          }
+          const npcId = effect.npcId === "__self__" ? ctx.selfNpcId : effect.npcId;
+          const npc = npcId ? state.npcs.find((n) => n.id === npcId) : undefined;
+          if (npc) npc.relationship = clamp(npc.relationship + effect.value, -100, 100);
+          break;
+        }
+        // 形态 ②（R2.6）：关系边增量调整；边不存在则按 value 建边
+        if (effect.toId === undefined || effect.kind === undefined) {
+          throw new Error("adjustRelation 关系边形态必须同时声明 toId 与 kind");
+        }
+        const fromId = effect.fromId === "__self__" ? ctx.selfNpcId : effect.fromId;
+        if (fromId === undefined) {
+          throw new Error("adjustRelation 关系边形态的 fromId 无法解析（__self__ 时须有当前 NPC）");
+        }
+        const existing = state.relations.find(
+          (e) => e.from === fromId && e.to === effect.toId && e.kind === effect.kind,
+        );
+        if (!existing) {
+          // 新建边默认 unknown：不得把「运行时刚建立」误当成双方已知（R-OP-05）
+          state.relations.push({
+            from: fromId,
+            to: effect.toId,
+            kind: effect.kind,
+            source: "effect",
+            visibility: effect.visibility ?? "unknown",
+            value: clamp(effect.value, -100, 100),
+          });
+          break;
+        }
+        // 死亡冻结的边不再被改动（T-B2 单向棘轮）
+        if (existing.frozen === true) break;
+        existing.value = clamp((existing.value ?? 0) + effect.value, -100, 100);
+        break;
+      }
+      case "addRelationEdge": {
+        const fromId = effect.fromId === "__self__" ? ctx.selfNpcId : effect.fromId;
+        if (fromId === undefined) {
+          throw new Error("addRelationEdge 的 fromId 无法解析（__self__ 时须有当前 NPC）");
+        }
+        state.relations = addEdge(state.relations, {
+          from: fromId,
+          to: effect.toId,
+          kind: effect.kind,
+          source: "effect",
+          visibility: effect.visibility ?? "unknown",
+          ...(effect.value !== undefined ? { value: effect.value } : {}),
+          ...(effect.gap !== undefined ? { gap: effect.gap } : {}),
+        });
+        break;
+      }
+      case "freezeRelationsOnDeath": {
         const npcId = effect.npcId === "__self__" ? ctx.selfNpcId : effect.npcId;
-        const npc = npcId ? state.npcs.find((n) => n.id === npcId) : undefined;
-        if (npc) npc.relationship = clamp(npc.relationship + effect.value, -100, 100);
+        if (npcId === undefined) {
+          throw new Error("freezeRelationsOnDeath 的 npcId 无法解析（__self__ 时须有当前 NPC）");
+        }
+        state.relations = freezeOnDeath(state.relations, npcId);
         break;
       }
       case "grantItem":

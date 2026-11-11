@@ -571,7 +571,41 @@ export const WorldTemplateV2Schema = z
         if ((eff.type === "unlockSkill" || eff.type === "adjustProficiency") && !skillIds.has(eff.skillId)) {
           add(path, `未知技能：${eff.skillId}`);
         }
-        if (eff.type === "adjustRelation" && eff.npcId !== "__self__" && !characterIds.has(eff.npcId)) {
+        if (eff.type === "adjustRelation") {
+          if (eff.fromId === undefined && eff.toId === undefined) {
+            // 标量形态：npcId 必填
+            if (eff.npcId === undefined) {
+              add(path, "adjustRelation 需要 npcId（标量形态）或 fromId+toId+kind（关系边形态）");
+            } else if (eff.npcId !== "__self__" && !characterIds.has(eff.npcId)) {
+              add(path, `未知角色：${eff.npcId}`);
+            }
+          } else {
+            // 关系边形态（R2.6）：toId 与 kind 必填，端点须为已声明角色或玩家
+            if (eff.toId === undefined || eff.kind === undefined) {
+              add(path, "adjustRelation 关系边形态必须同时声明 toId 与 kind");
+            }
+            if (
+              eff.fromId !== undefined &&
+              eff.fromId !== "__self__" &&
+              eff.fromId !== PLAYER_ID &&
+              !characterIds.has(eff.fromId)
+            ) {
+              add(path, `未知角色：${eff.fromId}`);
+            }
+            if (eff.toId !== undefined && eff.toId !== PLAYER_ID && !characterIds.has(eff.toId)) {
+              add(path, `未知关系目标：${eff.toId}`);
+            }
+          }
+        }
+        if (eff.type === "addRelationEdge") {
+          if (eff.fromId !== "__self__" && eff.fromId !== PLAYER_ID && !characterIds.has(eff.fromId)) {
+            add(path, `未知角色：${eff.fromId}`);
+          }
+          if (eff.toId !== PLAYER_ID && !characterIds.has(eff.toId)) {
+            add(path, `未知关系目标：${eff.toId}`);
+          }
+        }
+        if (eff.type === "freezeRelationsOnDeath" && eff.npcId !== "__self__" && !characterIds.has(eff.npcId)) {
           add(path, `未知角色：${eff.npcId}`);
         }
         if (eff.type === "enqueueEvent" && !eventIds.has(eff.eventId)) {
