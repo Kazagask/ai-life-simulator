@@ -198,3 +198,4 @@ playerTemplate:
   skills: [sk-basic-strike, sk-cursed-speech, sk-cursed-strike, sk-reverse-heal, sk-investigation]
   items:
     - { itemId: item-first-aid, count: 2 }
+    - { itemId: eq-watcher-charm, count: 1 }

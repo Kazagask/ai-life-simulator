@@ -88,19 +88,19 @@
 
 ## 6. 阶段 5 — 装备穿脱
 
-- [ ] **T5-01** 依赖：T1-03｜需求：`R-EQ-07`、`R-EQ-08`｜产出：`packages/game-core/src/v2/equipment-turn.ts`（新）、`turn.ts`、`apps/server/src/index.ts`
+- [x] **T5-01** 依赖：T1-03｜需求：`R-EQ-07`、`R-EQ-08`｜产出：`packages/game-core/src/v2/equipment-turn.ts`（新）、`turn.ts`、`apps/server/src/index.ts`
   `equipV2` / `unequipV2` 编排（`assertActive` → 纯函数穿脱 → 写回 → public 历史 → 投影，**不推进时间**）；`pushHistory` 从 `turn.ts` 提取为可复用工具；两个端点 + 错误码映射（409：`slot_full` / `slot_category_mismatch`；400：其余五种）。
   完成定义：七种错误码各有对应用例且状态不变；成功时 `worldTime` 不变、新增 1 条 public 历史；已终止/已归档世界返回 409。
 
-- [ ] **T5-02** 依赖：T5-01｜需求：`R-EQ-09`｜产出：`packages/shared/src/v2.ts`、`packages/game-core/src/v2/projection.ts`
+- [x] **T5-02** 依赖：T5-01｜需求：`R-EQ-09`｜产出：`packages/shared/src/v2.ts`、`packages/game-core/src/v2/projection.ts`
   背包投影补 `type` / `slot?` / `category?`（来自 `lookup.item()`，不含补正结果）。
   完成定义：装备与消耗品两类字段正确；键集合断言确保无补正字段泄漏。
 
-- [ ] **T5-03** 依赖：T5-02｜需求：`R-EQ-07`｜产出：`apps/web/src/api.ts`、`main.tsx`、`style.css`
+- [x] **T5-03** 依赖：T5-02｜需求：`R-EQ-07`｜产出：`apps/web/src/api.ts`、`main.tsx`、`style.css`
   背包里装备类显示「装备」、装备栏各条显示「卸下」；失败时展示错误码对应文案（如「槽位已满」）；成功后用返回快照替换。
   完成定义：界面上能完成一次完整的「装上 → 卸下 → 换上另一件」。
 
-- [ ] **T5-04** 依赖：T5-01、T5-02｜需求：`R-EQ-10`｜产出：`packages/game-core/src/v2/equipment.test.ts`（扩充）
+- [x] **T5-04** 依赖：T5-01、T5-02｜需求：`R-EQ-10`｜产出：`packages/game-core/src/v2/equipment.test.ts`（扩充）
   属性断言：穿脱前后 `player.attributes` 逐字段相等；`effectiveAttributes()` 差值等于补正值；实例键集合不含补正字段。
   完成定义：≥4 项新增用例；不修改 R2.2 既有 25 项断言。
 

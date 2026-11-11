@@ -87,6 +87,19 @@ export const api = {
   deleteWorld(id: string) {
     return request<{ deleted: string }>(`/api/worlds/${id}`, { method: "DELETE" });
   },
+  /** 装备穿脱（R-EQ-08）：不推进时间，返回新快照。 */
+  equipItem(id: string, itemId: string) {
+    return request<{ worldId: string; snapshot: V2Snapshot }>(`/api/worlds/${id}/equipment/equip`, {
+      method: "POST",
+      body: JSON.stringify({ itemId }),
+    });
+  },
+  unequipItem(id: string, instanceId: string) {
+    return request<{ worldId: string; snapshot: V2Snapshot }>(`/api/worlds/${id}/equipment/unequip`, {
+      method: "POST",
+      body: JSON.stringify({ instanceId }),
+    });
+  },
   /** R-OP-01：省略 openingId 时服务端取加载顺序首个开局。 */
   createWorld(templateId: string, playerName: string, seed?: number, openingId?: string) {
     return request<{ worldId: string; snapshot: V2Snapshot }>("/api/worlds", {

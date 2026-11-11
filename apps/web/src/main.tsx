@@ -135,7 +135,10 @@ function App() {
   }, []);
 
   const wrap = useCallback(
-    async (fn: () => Promise<{ snapshot: V2Snapshot; triggeredEvents?: LastResult["events"]; wheelResult?: WheelResultView | null; elapsed?: { value: number; unit: string } }>) => {
+    async (
+      fn: () => Promise<{ snapshot: V2Snapshot; triggeredEvents?: LastResult["events"]; wheelResult?: WheelResultView | null; elapsed?: { value: number; unit: string } }>,
+      translateError?: (e: unknown) => string,
+    ) => {
       if (busyRef.current) return;
       busyRef.current = true;
       setBusy(true);
@@ -161,8 +164,10 @@ function App() {
               /* 刷新失败则忽略，保留当前画面 */
             }
           }
+          // 穿脱的 409（槽位冲突）给可读文案而不是静默
+          if (translateError) setError(translateError(e));
         } else {
-          setError(e instanceof Error ? e.message : String(e));
+          setError(translateError ? translateError(e) : e instanceof Error ? e.message : String(e));
         }
       } finally {
         busyRef.current = false;
@@ -191,6 +196,33 @@ function App() {
   const useItem = useCallback(
     (itemId: string) => (worldId ? wrap(() => api.useItem(worldId, itemId)) : undefined),
     [worldId, wrap],
+  );
+
+  // 装备穿脱（T5-03 / R-EQ-09）：失败时把错误码翻成可读文案
+  const EQUIP_ERROR_TEXT: Record<string, string> = {
+    slot_full: "槽位已满，请先卸下同类装备再试",
+    slot_category_mismatch: "品类与槽位不符，换一件合适的装备吧",
+    slot_not_found: "该槽位未在世界模板中声明",
+    item_not_equipment: "这件物品不是装备",
+    not_owned: "背包中没有这件装备",
+    instance_not_found: "这件装备已不在装备栏（可能已被卸下）",
+    item_not_found: "物品不存在",
+  };
+  const equipErrorText = useCallback((e: unknown): string => {
+    const raw = e instanceof Error ? e.message : String(e);
+    const code = /请求失败：(\w+)/.exec(raw)?.[1];
+    return (code && EQUIP_ERROR_TEXT[code]) || raw;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const equip = useCallback(
+    (itemId: string) => (worldId ? wrap(() => api.equipItem(worldId, itemId), equipErrorText) : undefined),
+    [worldId, wrap, equipErrorText],
+  );
+
+  const unequip = useCallback(
+    (instanceId: string) => (worldId ? wrap(() => api.unequipItem(worldId, instanceId), equipErrorText) : undefined),
+    [worldId, wrap, equipErrorText],
   );
 
   const archive = useCallback(async () => {
@@ -279,7 +311,9 @@ function App() {
           />
         )}
         {tab === "people" && <PeopleTab snapshot={snapshot} />}
-        {tab === "personal" && <PersonalTab snapshot={snapshot} busy={busy} onUseItem={useItem} />}
+        {tab === "personal" && (
+          <PersonalTab snapshot={snapshot} busy={busy} onUseItem={useItem} onEquip={equip} onUnequip={unequip} />
+        )}
         {tab === "world" && <WorldTab snapshot={snapshot} />}
         {tab === "log" && <LogTab snapshot={snapshot} />}
       </main>
@@ -960,10 +994,14 @@ function PersonalTab({
   snapshot,
   busy,
   onUseItem,
+  onEquip,
+  onUnequip,
 }: {
   snapshot: V2Snapshot;
   busy: boolean;
   onUseItem: (itemId: string) => void;
+  onEquip: (itemId: string) => void;
+  onUnequip: (instanceId: string) => void;
 }) {
   // 子页签为纯展示状态：切换即时、不触发任何请求。
   const [sub, setSub] = useState<PersonalSubTab>("equipment");
@@ -1014,8 +1052,8 @@ function PersonalTab({
       </div>
 
       <div className="stack">
-        {sub === "equipment" && <EquipmentDetail equipment={equipment} />}
-        {sub === "items" && <ItemList snapshot={snapshot} busy={busy} onUseItem={onUseItem} />}
+        {sub === "equipment" && <EquipmentDetail equipment={equipment} busy={busy} onUnequip={onUnequip} />}
+        {sub === "items" && <ItemList snapshot={snapshot} busy={busy} onUseItem={onUseItem} onEquip={onEquip} />}
         {sub === "skills" && <SkillList snapshot={snapshot} />}
         {sub === "panel" && <PanelView snapshot={snapshot} />}
       </div>
@@ -1038,11 +1076,19 @@ function EquipMeta({ equipment }: { equipment: EquipmentView }) {
   );
 }
 
-function EquipmentDetail({ equipment }: { equipment: EquipmentView[] }) {
+function EquipmentDetail({
+  equipment,
+  busy,
+  onUnequip,
+}: {
+  equipment: EquipmentView[];
+  busy: boolean;
+  onUnequip: (instanceId: string) => void;
+}) {
   if (equipment.length === 0) {
     return (
       <section className="card">
-        <p className="muted">尚未装备任何物品。</p>
+        <p className="muted">尚未装备任何物品。在「物品」页里把装备类物品装上。</p>
       </section>
     );
   }
@@ -1055,6 +1101,9 @@ function EquipmentDetail({ equipment }: { equipment: EquipmentView[] }) {
             <span className="tag">{eq.slotLabel ?? eq.slot}</span>
           </div>
           <EquipMeta equipment={eq} />
+          <button className="ghost" disabled={busy} onClick={() => onUnequip(eq.instanceId)}>
+            卸下
+          </button>
         </section>
       ))}
     </>
@@ -1065,10 +1114,12 @@ function ItemList({
   snapshot,
   busy,
   onUseItem,
+  onEquip,
 }: {
   snapshot: V2Snapshot;
   busy: boolean;
   onUseItem: (itemId: string) => void;
+  onEquip: (itemId: string) => void;
 }) {
   const items = snapshot.player.inventory;
   if (items.length === 0) {
@@ -1085,16 +1136,23 @@ function ItemList({
           <div className="row">
             <h2>{item.name} ×{item.count}</h2>
             <div className="tag-row">
-              {item.usableOutsideBattle && <span className="tag">可用</span>}
+              {item.type === "equipment" && <span className="tag">装备{item.slot ? ` · ${item.slot}` : ""}</span>}
+              {item.usableOutsideBattle && item.type !== "equipment" && <span className="tag">可用</span>}
               {item.usableInBattle && <span className="tag">战斗可用</span>}
-              {!item.usableOutsideBattle && !item.usableInBattle && <span className="tag">被动</span>}
+              {!item.usableOutsideBattle && !item.usableInBattle && item.type !== "equipment" && <span className="tag">被动</span>}
             </div>
           </div>
           {item.description && <p className="item-desc">{item.description}</p>}
-          {item.usableOutsideBattle && (
-            <button className="primary" disabled={busy} onClick={() => onUseItem(item.itemId)}>
-              使用
+          {item.type === "equipment" ? (
+            <button className="primary" disabled={busy} onClick={() => onEquip(item.itemId)}>
+              装备
             </button>
+          ) : (
+            item.usableOutsideBattle && (
+              <button className="primary" disabled={busy} onClick={() => onUseItem(item.itemId)}>
+                使用
+              </button>
+            )
           )}
         </section>
       ))}
