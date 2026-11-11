@@ -11,10 +11,11 @@
     "build": "tsc --noEmit -p ../../tsconfig.json"
   },
   "dependencies": {
-    "@life-sim/shared": "workspace:*"
+    "@life-sim/shared": "workspace:*",
+    "relationship.js": "^1.2.9"
   },
   "devDependencies": {
-    "vitest": "^3.2.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
   }
 }

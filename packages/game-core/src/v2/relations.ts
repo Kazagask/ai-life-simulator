@@ -1,3 +1,4 @@
+import relationship from "relationship.js";
 import type { KinshipKind, RelationEdge } from "@life-sim/shared";
 
 /**
@@ -269,4 +270,77 @@ export function projectVisibleRelations(edges: readonly RelationEdge[]): Relatio
   return edges
     .filter((e) => e.visibility === "known" || e.visibility === "inferred")
     .map((e) => ({ ...e }));
+}
+
+// ---------------- 多跳中文称谓（T-B3 · 复用 relationship.js） ----------------
+
+/** 断代 / 库无解时的粗称谓：明确「不猜代数」，不抛错、不静默返回空串。 */
+export const COARSE_KINSHIP_TITLE = "远亲";
+
+/** 自己对自己的称谓。 */
+export const SELF_TITLE = "自己";
+
+export interface KinshipTerm {
+  /** 主称谓（多解时取字典序最小 ⇒ 确定性）。 */
+  readonly term: string;
+  /** 全部候选称谓（字典序）。 */
+  readonly alternatives: readonly string[];
+  /** 推导所用的关系链记号，如 `["爸爸","妈妈"]`；回退粗称谓时仍保留以便诊断。 */
+  readonly tokens: readonly string[];
+  /** 路径含断代边。 */
+  readonly gapped: boolean;
+  /** true = 由 relationship.js 精确推导；false = 断代/无解回退粗称谓。 */
+  readonly exact: boolean;
+}
+
+/**
+ * 求 `from` 对 `to` 的中文称谓（T-B3）。
+ *
+ * 管线：最短亲属路径 → 关系链记号（`爸爸的的妈妈`）→ `relationship.js` → 称谓。
+ * 确定性：路径等长取字典序最小（`shortestPath` 保证），库多解再按字典序取最小。
+ * 回退：断代边（gap）/ 库无解 ⇒ `COARSE_KINSHIP_TITLE`，`exact: false`。
+ * 不可达返回 `null`（不是「不认识」的证据，只表示图里没有亲属链）。
+ */
+export function kinshipTerm(
+  edges: readonly RelationEdge[],
+  from: string,
+  to: string,
+  opts: { readonly maxHops?: number } = {},
+): KinshipTerm | null {
+  if (from === to) {
+    return { term: SELF_TITLE, alternatives: [SELF_TITLE], tokens: [], gapped: false, exact: true };
+  }
+  const graph = buildRelationGraph(edges);
+  const path = shortestPath(graph, from, to, { maxHops: opts.maxHops ?? 8 });
+  if (!path) return null;
+
+  const tokens = path.tokens;
+  if (path.gapped || tokens.length === 0) {
+    return {
+      term: COARSE_KINSHIP_TITLE,
+      alternatives: [COARSE_KINSHIP_TITLE],
+      tokens,
+      gapped: path.gapped,
+      exact: false,
+    };
+  }
+
+  const raw = relationship({ text: tokens.join("的") });
+  const alternatives = [...new Set(raw)].sort();
+  if (alternatives.length === 0) {
+    return {
+      term: COARSE_KINSHIP_TITLE,
+      alternatives: [COARSE_KINSHIP_TITLE],
+      tokens,
+      gapped: false,
+      exact: false,
+    };
+  }
+  return { term: alternatives[0], alternatives, tokens, gapped: false, exact: true };
+}
+
+/** 便捷判据：`from` 是否至少有亲属链可达 `to`（不含自己）。 */
+export function isKinshipReachable(edges: readonly RelationEdge[], from: string, to: string): boolean {
+  if (from === to) return false;
+  return shortestPath(buildRelationGraph(edges), from, to) !== null;
 }

@@ -85,6 +85,9 @@ importers:
       '@life-sim/shared':
         specifier: workspace:*
         version: link:../shared
+      relationship.js:
+        specifier: ^1.2.9
+        version: 1.2.9
     devDependencies:
       typescript:
         specifier: ^5.8.0
@@ -1065,6 +1068,10 @@ packages:
 
   real-require@1.0.0:
     resolution: {integrity: sha512-P4nbQYQfePJxRSmY+v/KINxVucm4NF3p3s7pJveMTtom52FR4YGltUQLB8idDXwDDWW+eYrWDFbuzUnjoWHF7g==}
+
+  relationship.js@1.2.9:
+    resolution: {integrity: sha512-pclNuxR3ZSL1dVuEtpJmpMcbkU387vooAHCbWxBlf0SZA4rcrKJRz0QwSGx/nZbh3firPMqT9YPU+CWU7bHlJA==}
+    engines: {node: '>=20', npm: '>=8', yarn: please-use-npm}
 
   require-from-string@2.0.2:
     resolution: {integrity: sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==}
@@ -2138,6 +2145,8 @@ snapshots:
   react@19.3.1: {}
 
   real-require@1.0.0: {}
+
+  relationship.js@1.2.9: {}
 
   require-from-string@2.0.2: {}
 

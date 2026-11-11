@@ -4,15 +4,19 @@ import {
   ancestorGaps,
   addEdge,
   buildRelationGraph,
+  COARSE_KINSHIP_TITLE,
   detectCycles,
   freezeOnDeath,
   isKinshipKind,
+  isKinshipReachable,
   KINSHIP_TOKEN,
+  kinshipTerm,
   PLAYER_NODE_ID,
   projectVisibleRelations,
   queryEdge,
   relationsOf,
   removeEdge,
+  SELF_TITLE,
   shortestPath,
 } from "./relations.js";
 
@@ -223,5 +227,67 @@ describe("R2.6 关系图谱内核 · 常量与判定", () => {
     ]);
     expect(Object.values(KINSHIP_TOKEN).every((v) => v.length > 0)).toBe(true);
     expect(PLAYER_NODE_ID).toBe("player");
+  });
+});
+
+describe("R2.6 多跳中文称谓（T-B3 · relationship.js 适配）", () => {
+  it("单跳与多跳均得确定性中文称谓", () => {
+    const edges = [
+      edge(PLAYER_NODE_ID, "toji", "father"),
+      edge("toji", "naobito", "father"),
+      edge(PLAYER_NODE_ID, "riko", "mother"),
+    ];
+    expect(kinshipTerm(edges, PLAYER_NODE_ID, "toji")?.term).toBe("爸爸");
+    expect(kinshipTerm(edges, PLAYER_NODE_ID, "naobito")?.term).toBe("爷爷");
+    expect(kinshipTerm(edges, PLAYER_NODE_ID, "riko")?.term).toBe("妈妈");
+  });
+
+  it("旁系与多解称谓按字典序取最小且列出全部候选", () => {
+    // 妈妈的哥哥的女儿 → 舅表姐 / 舅表妹（两解）
+    const edges = [
+      edge(PLAYER_NODE_ID, "mum", "mother"),
+      edge("mum", "uncle", "elder-brother"),
+      edge("uncle", "cousin", "daughter"),
+    ];
+    const t = kinshipTerm(edges, PLAYER_NODE_ID, "cousin")!;
+    expect(t.exact).toBe(true);
+    expect(t.alternatives.length).toBeGreaterThan(1);
+    expect(t.term).toBe([...t.alternatives].sort()[0]);
+    expect(t.tokens).toEqual(["妈妈", "哥哥", "女儿"]);
+    // 确定性：同输入重复调用同输出
+    expect(kinshipTerm(edges, PLAYER_NODE_ID, "cousin")).toEqual(t);
+  });
+
+  it("自己 → 自己；不可达 → null", () => {
+    const edges = [edge(PLAYER_NODE_ID, "toji", "father")];
+    expect(kinshipTerm(edges, PLAYER_NODE_ID, PLAYER_NODE_ID)?.term).toBe(SELF_TITLE);
+    expect(kinshipTerm(edges, PLAYER_NODE_ID, "stranger")).toBeNull();
+    expect(isKinshipReachable(edges, PLAYER_NODE_ID, "stranger")).toBe(false);
+    expect(isKinshipReachable(edges, PLAYER_NODE_ID, "toji")).toBe(true);
+    expect(isKinshipReachable(edges, PLAYER_NODE_ID, PLAYER_NODE_ID)).toBe(false);
+  });
+
+  it("断代边（gap）回退粗称谓而不猜代数", () => {
+    const edges = [edge(PLAYER_NODE_ID, "clan-claim", "father", { gap: true })];
+    const t = kinshipTerm(edges, PLAYER_NODE_ID, "clan-claim")!;
+    expect(t.term).toBe(COARSE_KINSHIP_TITLE);
+    expect(t.exact).toBe(false);
+    expect(t.gapped).toBe(true);
+    // 仍保留关系链记号以便诊断
+    expect(t.tokens).toEqual(["爸爸"]);
+  });
+
+  it("库无解（非法亲属链）也回退粗称谓，不抛错不静默", () => {
+    // 自己→自己的儿子→自己的丈夫：关系链「儿子的丈夫」在库中无解
+    const edges = [edge(PLAYER_NODE_ID, "s", "son"), edge("s", "h", "husband")];
+    const t = kinshipTerm(edges, PLAYER_NODE_ID, "h")!;
+    expect(t.term).toBe(COARSE_KINSHIP_TITLE);
+    expect(t.exact).toBe(false);
+    expect(t.tokens).toEqual(["儿子", "丈夫"]);
+  });
+
+  it("社会边不参与称谓（师徒链不产出称谓）", () => {
+    const edges = [edge(PLAYER_NODE_ID, "gojo", "mentor")];
+    expect(kinshipTerm(edges, PLAYER_NODE_ID, "gojo")).toBeNull();
   });
 });
