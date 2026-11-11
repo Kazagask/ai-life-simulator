@@ -12,6 +12,8 @@ import {
   createLookup,
   createRunnerContext,
   evaluateLifeV2,
+  playerVisibleEntries,
+  projectArchiveForPlayer,
   projectSnapshotV2,
   resolveEnding,
   useItemV2,
@@ -258,7 +260,8 @@ app.get("/api/worlds/:id/history", async (request, reply) => {
   const { id } = request.params as { id: string };
   const world = worldStore.get(id);
   if (!world) return reply.code(404).send({ error: "world_not_found" });
-  return { history: world.history };
+  // 玩家端出口只下发 public 条目（R-VS-02 / 协议 §21.1）
+  return { history: playerVisibleEntries(world.history) };
 });
 
 /**
@@ -297,7 +300,8 @@ app.post("/api/worlds/:id/archive", async (request, reply) => {
     endingConfig.endings,
   );
   worldStore.seal(archived.state);
-  return { worldId: found.world.id, archive: archived.record };
+  // 归档响应只下发 public 历史 + hidden 计数（R-VS-04）；完整记录随 seal 落盘（存档事实保留全量）
+  return { worldId: found.world.id, archive: projectArchiveForPlayer(archived.record) };
 });
 
 function handleEngineError(request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply, error: unknown) {

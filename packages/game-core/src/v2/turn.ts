@@ -37,6 +37,7 @@ import { nextInstanceId } from "./equipment.js";
 import { runNpcActionsV2 } from "./npc.js";
 import type { TemplateLookup } from "./lookup.js";
 import { projectSnapshotV2 } from "./projection.js";
+import { playerVisibleHistory } from "./history.js";
 import {
   applyDeathRoute,
   assertActive,
@@ -585,7 +586,8 @@ export function advanceTurnV2(
     elapsed,
     triggeredEvents: result.triggered,
     wheelResult: result.wheelResult,
-    playerVisibleHistory: state.history.slice(-20),
+    // 先过滤再截断（R-VS-02 / design §2.3）：hidden 条目不占 20 条窗口
+    playerVisibleHistory: playerVisibleHistory(state, 20),
   };
 }
 

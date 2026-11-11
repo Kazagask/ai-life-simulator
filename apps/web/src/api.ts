@@ -1,6 +1,7 @@
 import type {
   BattleCommand,
   EndingView,
+  HistoryEntryV2,
   TimeAmount,
   V2Snapshot,
   WheelResultView,
@@ -110,9 +111,14 @@ export const api = {
     return request<{ worldId: string; archive: unknown }>(`/api/worlds/${id}/archive`, { method: "POST" });
   },
   history(id: string) {
-    return request<{ history: Array<{ id: string; turnIndex: number; worldTime: number; formattedTime: string; type: string; summary: string; detail?: string }> }>(
+    return request<{ history: HistoryEntryV2[] }>(
       `/api/worlds/${id}/history`,
-    );
+    ).then((res) => ({
+      // 前端防线：不依赖后端过滤正确性（R-VS-02 / design 文件清单「日志过滤」）。
+      // 与 shared 的 isPlayerVisible 同语义（缺省视为 public）；本地实现避免把 shared
+      // 的 zod schema 打进 bundle。判定口径变更时须同步协议 §21.1。
+      history: res.history.filter((entry) => (entry.visibility ?? "public") === "public"),
+    }));
   },
 };
 
