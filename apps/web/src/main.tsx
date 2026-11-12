@@ -93,6 +93,8 @@ function itemGlyph(type: InventoryView["type"]): string {
 type Tab = "life" | "people" | "personal" | "world" | "log";
 
 interface LastResult {
+  /** 该响应对应的轮次：用于判断「这批结果是刚结算的」还是「从存档恢复的」（D-09） */
+  turnIndex: number;
   elapsed: string;
   events: Array<{ id: string; title: string; narrative: string }>;
   wheel: WheelResultView | null;
@@ -228,6 +230,7 @@ function App() {
         const res = await fn();
         setSnapshot(res.snapshot);
         setLastResult({
+          turnIndex: res.snapshot.turnIndex,
           elapsed: res.elapsed ? elapsedText(res.elapsed) : "",
           events: res.triggeredEvents ?? [],
           wheel: res.wheelResult ?? null,
@@ -369,6 +372,9 @@ function App() {
   const wheels = mergeWheels(snapshot.lastWheels, lastResult?.wheel ?? null);
   const wheelSig = wheelSignature(snapshot.turnIndex, snapshot.lastWheels);
   const visibleWheels = dismissedWheelSig === wheelSig ? [] : wheels;
+  // 刚结算的这一轮才播转盘动画；从存档恢复（刷新后 lastResult 为空）直接呈现已落定结果，
+  // 否则每次刷新都要白等 2.6s 才看到「继续」（D-09）。
+  const wheelsFresh = lastResult !== null && lastResult.turnIndex === snapshot.turnIndex;
 
   return (
     <div className="shell">
@@ -392,6 +398,7 @@ function App() {
             busy={busy}
             lastResult={lastResult}
             wheels={visibleWheels}
+            wheelsFresh={wheelsFresh}
             onAdvance={advance}
             onChoose={choose}
             onBattle={battle}
@@ -718,6 +725,7 @@ function LifeTab({
   busy,
   lastResult,
   wheels,
+  wheelsFresh,
   onAdvance,
   onChoose,
   onBattle,
@@ -731,6 +739,8 @@ function LifeTab({
   lastResult: LastResult | null;
   /** 本轮**待呈现**的转盘结果（已按「继续」签名过滤；空数组 = 本轮无转盘可看） */
   wheels: WheelResultView[];
+  /** 这批转盘是刚结算的（true，播动画）还是从存档恢复的（false，直接落定） */
+  wheelsFresh: boolean;
   onAdvance: (action: { type: string; description: string }) => void;
   onChoose: (optionId: string) => void;
   onBattle: (command: BattleCommand) => void;
@@ -788,7 +798,12 @@ function LifeTab({
 
           <div className="slot-body">
             {occupant === "wheel" && wheelItems.length > 0 && (
-              <WheelDeck items={wheelItems} onContinue={onDismissWheel} />
+              <WheelDeck
+                key={wheelSignature(snapshot.turnIndex, wheels)}
+                items={wheelItems}
+                animate={wheelsFresh}
+                onContinue={onDismissWheel}
+              />
             )}
             {occupant === "battle" && (
               <BattlePanel
@@ -902,10 +917,13 @@ function sectorPath(a0: number, a1: number): string {
 function WheelReveal({
   wheel,
   title,
+  animate,
   onSettled,
 }: {
   wheel: WheelResultView;
   title: string;
+  /** true = 播放旋转动画；false = 直接落在命中扇区（刷新恢复时不重播） */
+  animate: boolean;
   onSettled: () => void;
 }) {
   const segs = wheel.segments;
@@ -923,9 +941,14 @@ function WheelReveal({
   const target = 360 * 4 + (360 - hit.center);
 
   const [spinning, setSpinning] = useState(false);
-  const [settled, setSettled] = useState(false);
+  // 存档恢复（animate=false）时转盘直接就位：既没有起点动画，也没有「转动中」中间态。
+  const [settled, setSettled] = useState(!animate);
 
   useEffect(() => {
+    if (!animate) {
+      setSettled(true);
+      return;
+    }
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
     if (reduce) {
       setSettled(true);
@@ -934,11 +957,14 @@ function WheelReveal({
     // 先渲染 0° 再翻到目标角，浏览器才有过渡起点（同帧切换会被合并成瞬移）
     const raf = requestAnimationFrame(() => setSpinning(true));
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [animate]);
 
   useEffect(() => {
     if (settled) onSettled();
   }, [settled, onSettled]);
+
+  // 不播动画时转子直接停在命中角度：指针压住的就是服务端结算出的扇区
+  const rotorDeg = animate ? (spinning ? target : 0) : target;
 
   return (
     <div className="wheel">
@@ -967,7 +993,7 @@ function WheelReveal({
           <g
             className="wheel-rotor"
             style={{
-              transform: `rotate(${spinning ? target : 0}deg)`,
+              transform: `rotate(${rotorDeg}deg)`,
               transformOrigin: `${WHEEL_C}px ${WHEEL_C}px`,
               transition: spinning ? "transform 2.6s cubic-bezier(.13,.72,.06,1)" : "none",
             }}
@@ -1024,12 +1050,15 @@ function WheelReveal({
  */
 function WheelDeck({
   items,
+  animate,
   onContinue,
 }: {
   items: Array<{ wheel: WheelResultView; title: string }>;
+  /** 是否播放首枚的旋转动画（存档恢复的场景不播，见 D-09） */
+  animate: boolean;
   onContinue: () => void;
 }) {
-  const [firstSettled, setFirstSettled] = useState(false);
+  const [firstSettled, setFirstSettled] = useState(!animate);
   const handleFirstSettled = useCallback(() => setFirstSettled(true), []);
   const first = items[0];
   const rest = items.slice(1);
@@ -1037,7 +1066,7 @@ function WheelDeck({
 
   return (
     <div className="wheel-deck">
-      <WheelReveal wheel={first.wheel} title={first.title} onSettled={handleFirstSettled} />
+      <WheelReveal wheel={first.wheel} title={first.title} animate={animate} onSettled={handleFirstSettled} />
 
       {firstSettled && rest.length > 0 && (
         <div className="wheel-rest" aria-live="polite">
