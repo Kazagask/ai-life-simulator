@@ -38,6 +38,12 @@ import {
   generateNarrative,
   type NarrativeOutcome,
 } from "./narrative/generate.js";
+import {
+  getFlavors,
+  getFlavorsForEvents,
+  scheduleEventFlavors,
+  type TriggeredEventLike,
+} from "./narrative/flavorCache.js";
 
 const app = Fastify({ logger: true });
 
@@ -218,6 +224,46 @@ async function decorateSnapshot(
   return decorateEndingView(snapshot, outcome);
 }
 
+/** 事件 flavor 后台生成超时（小值）：绝不阻塞当轮结算。 */
+const FLAVOR_TIMEOUT_MS = 3000;
+
+/**
+ * 事件结算 `worldStore.save(...)` 之后调用：**fire-and-forget**，绝不 await LLM。
+ * 失败 / 超时只记服务端可诊断日志（不含 key / token / session），静默回退模板。
+ */
+function scheduleFlavors(
+  request: import("fastify").FastifyRequest,
+  worldId: string,
+  snapshot: V2Snapshot,
+  events: readonly TriggeredEventLike[],
+): void {
+  scheduleEventFlavors({
+    worldId,
+    turnIndex: snapshot.turnIndex,
+    worldTime: snapshot.worldTime,
+    events,
+    provider: llmProvider,
+    timeoutMs: FLAVOR_TIMEOUT_MS,
+    onDiagnostic: (diagnostic) => request.log.warn({ diagnostic }, "narrative_fallback"),
+  });
+}
+
+/**
+ * 响应层下发的可选 `eventFlavors`（按 `eventId` 键）：本轮已缓存 ∪ 该世界历史缓存。
+ * 纯读非权威缓存，缺省 `{}`；绝不写 state / replay / 落盘。合并历史缓存使
+ * 后台生成的文案能在后续响应中呈现（fire-and-forget 的固有延迟由缓存弥合）。
+ */
+function responseEventFlavors(
+  worldId: string,
+  snapshot: V2Snapshot,
+  events: readonly TriggeredEventLike[],
+): Record<string, string> {
+  return {
+    ...getFlavors(worldId),
+    ...getFlavorsForEvents(worldId, snapshot.turnIndex, snapshot.worldTime, events),
+  };
+}
+
 // ---------- 输入校验（Zod） ----------
 
 const createWorldSchema = z.object({
@@ -297,6 +343,8 @@ app.get("/api/worlds/:id", async (request, reply) => {
       found.template,
       found.lookup,
     ),
+    // 可选新增字段：非权威缓存里的事件 flavor（缺省 {}）；缺省完全等同原行为
+    eventFlavors: getFlavors(id),
   };
 });
 
@@ -314,6 +362,8 @@ app.post("/api/worlds/:id/turns", async (request, reply) => {
   try {
     const res = advanceTurnV2(found.world, parsed.data, found.template, found.lookup, undefined, pipelineOf(found.template.meta.id));
     worldStore.save(res.state);
+    // fire-and-forget：绝不 await LLM、不阻塞回合结算（R-LLM-05）
+    scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
     const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup);
     return {
       worldId: found.world.id,
@@ -322,6 +372,7 @@ app.post("/api/worlds/:id/turns", async (request, reply) => {
       snapshot,
       triggeredEvents: res.triggeredEvents,
       wheelResult: res.wheelResult,
+      eventFlavors: responseEventFlavors(found.world.id, res.snapshot, res.triggeredEvents),
     };
   } catch (error) {
     return handleEngineError(request, reply, error);
@@ -341,12 +392,14 @@ app.post("/api/worlds/:id/events/choose", async (request, reply) => {
   try {
     const res = chooseOptionV2(found.world, parsed.data, found.template, found.lookup, pipelineOf(found.template.meta.id));
     worldStore.save(res.state);
+    scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
     const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup);
     return {
       worldId: found.world.id,
       snapshot,
       triggeredEvents: res.triggeredEvents,
       wheelResult: res.wheelResult,
+      eventFlavors: responseEventFlavors(found.world.id, res.snapshot, res.triggeredEvents),
     };
   } catch (error) {
     return handleEngineError(request, reply, error);
@@ -366,12 +419,14 @@ app.post("/api/worlds/:id/battle", async (request, reply) => {
   try {
     const res = battleActionV2(found.world, parsed.data, found.template, found.lookup, pipelineOf(found.template.meta.id));
     worldStore.save(res.state);
+    scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
     const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup);
     return {
       worldId: found.world.id,
       snapshot,
       triggeredEvents: res.triggeredEvents,
       wheelResult: res.wheelResult,
+      eventFlavors: responseEventFlavors(found.world.id, res.snapshot, res.triggeredEvents),
     };
   } catch (error) {
     return handleEngineError(request, reply, error);
@@ -391,8 +446,13 @@ app.post("/api/worlds/:id/items/use", async (request, reply) => {
   try {
     const res = useItemV2(found.world, parsed.data, found.template, found.lookup, pipelineOf(found.template.meta.id));
     worldStore.save(res.state);
+    scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
     const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup);
-    return { worldId: found.world.id, snapshot };
+    return {
+      worldId: found.world.id,
+      snapshot,
+      eventFlavors: responseEventFlavors(found.world.id, res.snapshot, res.triggeredEvents),
+    };
   } catch (error) {
     return handleEngineError(request, reply, error);
   }
