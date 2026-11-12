@@ -560,3 +560,67 @@ NPC 现无任何存活状态：死亡/失联的 NPC 照样被效用评分选中�
   「已归档但未终止」在 API 层不可达；归档态 `GET`、幂等 `POST /archive` 的
   `archive.snapshot.evaluation`、record 层 `archive.evaluation` 三者同值；归档后
   `POST /turns` 返回 409 `terminated`（只读门禁正常）。
+
+---
+
+## ADR-0017 遗留缺陷清理批：投影如实性、评分有界饱和、战斗命令单一真源
+
+- **状态**：**已实施（2026-11-12，用户裁决「yaml 模板问题不处理，游戏内核/前后端 bug 就修复」）**。
+- **背景**：`JJK-V2-ACCEPTANCE.md` 遗留 6 条（D-03/05/06/07/08/09）经逐条定性，全部属内核或前后端问题，无一是模板内容问题；修复过程中又连带发现 **D-12/13/14/15/16**。验收见 `tasks/reports/JJK-V2-FIXES-ACCEPTANCE.md`。
+
+### 决策 1（架构原则）：投影不得让玩家看到引擎会拒绝的操作
+
+- **问题模式**：引擎在 `battle.ts` 里有若干守卫（`cannot_use_items` / `cannot_flee` / `cannot_act` / `sealed_skills` 等），
+  但 `BattleView.player` 只暴露 `canFlee`（且只反映模板 `settle.canFlee`，未合并补正）。结果是**投影说可以做、引擎拒绝**：
+  玩家点击后收 400，或更糟——`cannot_act` 分支**不抛错只跳过**，玩家白丢一个战斗回合且无任何提示。
+- **决策**：凡「引擎会拒绝或静默跳过」的操作，投影**必须**给出对应布尔位，且判定与引擎**同源**（复用 `controlOf`，
+  禁止在前端或服务端各写一套）。当前统一为 `canUseItems` / `canFlee`（= settle 声明 AND 未被 `cannot_flee` 压制）/ `canAct`。
+- **已知未覆盖**：`sealed_skills`（模板 `seal` 状态有定义但零处施加，当前不可达）、`cannot_attack`（不可达）。
+  二者不预加字段——**不为不可达状态提前建抽象**；等真可达时按同一原则补。
+- **风险**：若某模板把控制类补正声明为 `visibility: hidden`，会出现「布尔位为 false 但 `statuses[]` 里没有原因」。
+  当前模板全部 `known`，不可达。
+
+### 决策 2（游戏规则变更）：五维评价改为有界饱和
+
+- **问题**：旧公式 `score = clamp(raw, lo, hi)`，而 `raw` 对多数维度随过程信号**线性增长**（如 `growth = attributeSum + actions×2`）。
+  长局必然远超上限 ⇒ 满年局五维全 100、`overall` 恒高，**评价失去区分度**。
+- **决策**：改为 `score = lo + (hi − lo) · x/(x + k)`，`x = max(0, raw − lo)`，`k = SATURATION_K_RATIO × (hi − lo)`，`SATURATION_K_RATIO = 0.30`。
+  单调递增、**严格小于 `hi`**、`k` 与模板绝对分无关（窄区间模板自动等比缩放）。
+- **标定依据**：6 个种子实测，满年局 `x` 中位 ≈ 291、区间宽 150（中位局 ≈ 1.94×宽度）。
+  若字面取 `k = x_med`，中位满年局只能落在区间 ~50%（约 25 分）——等于用一个缺陷换另一个；故锚定「中位满年局 = 区间 86.7%」反解出 `k/宽度 ≈ 0.3`。
+- **实测区间**：满年局 成长 62.5–72.2 / 羁绊·功绩 78.7–82.5 / 真相·自由 82.6–85.9 / `overall` 76.3–81.2（旧：全 100）；短局有梯度（t10≈60 → t20≈71 → t30≈78）。
+- **确定性**：`k` 为常数，**禁止**按本局最大值归一（会让不同长度的局不可比）；无随机、无跨局依赖。
+- **影响面**：所有世界的评价数值整体下移；评价每次投影重算、不持久化，故旧档无迁移问题。**已知限制**：模板 4 个专属维度
+  （bonds/deeds/truth/freedom）同落 `rawScore` 的 `default` 分支 ⇒ 彼此恒等；真区分需 `explanationRules → 规则 id` 映射机制（协议变更，另立项）。
+
+### 决策 3（契约变更）：`BattleCommand` 增 `pass`，且 schema 单一真源
+
+- **背景**：`cannot_act`（眩晕）时引擎跳过命令但**仍需一次命令提交**才推进回合。若 UI 把所有按钮禁死，眩晕永不到期 ⇒ **战斗硬卡死**。
+  前端被迫借 `{type:"flee"}` 提交（当时安全，因眩晕分支排在命令分发之前），但这是**顺序依赖**：一旦调换分支顺序，
+  眩晕玩家点「硬撑」会真的执行逃跑。
+- **决策**：`BattleCommand` 增 `{ type: "pass" }`（本回合不做任何事、仍消耗一回合；不扣 MP/道具/冷却、不掷逃跑判定）。
+  平衡性判据：每回合敌人照常出手、DoT 照常结算 ⇒ 拖延有代价；且未新增可达状态（此前已可用无伤害技能循环达成僵持）。
+- **同时**：`apps/server` 原有一套**手写**的战斗命令 zod，与 `packages/shared` 类型是两份真源——加 `pass` 时服务端直接 400 拒绝。
+  现收敛为 `packages/shared/src/v2-command.ts` 的 `BattleCommandSchema`，类型用 `z.infer` 派生，服务端只引用；
+  另加源码守卫（服务端不得再出现 `discriminatedUnion(`）防止第二份定义复辟。
+- **不做**：不顺手统一其它路由 schema（它们服务端独占、无漂移风险）。
+
+### 决策 4（投影补充）：轮次转盘结果与标题随结果持久化
+
+- `state.lastWheels: WheelResultView[]` 承接**当轮全部**转盘结果（`lastWheel` 保留为末项，向后兼容）；三个轮次起点清空（均在守卫之后，
+  被拒指令不抹掉上一轮可见结果）；`useItemV2` 为轮外操作故不清空。
+- `WheelResultView.title?`（= `EventV2.title`）随结果写入：此前前端靠 `eventId` 去**本次响应**的 `triggeredEvents` 反查标题，
+  刷新后必然查空 ⇒ 标题回落「随机事件」。写进结果后刷新与旧档均自洽。**旧档无法追溯**（历史上没存过），仍显示兜底文案——属数据缺失，非缺陷复发。
+- 存档兼容：`lastWheels` 在状态 schema 与 TS 均为**可选**、读侧 `?? []`，**不升 `schemaVersion`**（升版会拒载 `data/worlds/` 下全部在跑存档，
+  为 P2 呈现缺陷付此代价不成比例）；沿用 `history.visibility` 的既有兼容先例。
+
+### 决策 5（展示策略）：`storyChapter` 仅数字，评价分项仅结局/归档展示
+
+- 投影输出 `storyChapter?: number`（仅当 `flags.chapter` 是 number）；**不**下发章节中文名（模板无章节名表，不自造）。
+- 五维分项沿用 ADR-0016 补记：跑动中**不渲染**（实测该块 379px 会把主交互区推出首屏），只在 `terminated` / `archived` 展示。
+  注意这是**前端渲染门**，服务端在 running 态仍下发 `dimensions`。
+
+### 验证
+
+`pnpm typecheck` 0 错；game-core **367/367**、shared **58/58**；`pnpm build` 通过。
+10 条缺陷逐条 PASS + 9 项回归 PASS（hidden 不泄露、旧档指纹拒载、章节不重复触发、确定性、V1 残留扫描等），见验收报告。
