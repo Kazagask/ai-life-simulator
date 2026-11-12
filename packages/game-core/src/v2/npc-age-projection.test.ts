@@ -180,6 +180,78 @@ describe("旧档兼容：缺 birthTime 时不拒载、读侧反推（ADR-0021 �
     expect(npcAge(later, "npc-old")).toBe(31);
   });
 
+  // ---------- P1-2 任务 C：已故者年龄冻结（ADR-0024 补遗） ----------
+
+  it("已故（inactive）者的年龄冻结在死亡时刻：推进一年后年龄与阶段都不变", () => {
+    const { state, template, lookup } = setup("w-age-frozen-1");
+    const adapter = createTimeAdapter(template);
+    const young = state.npcs.find((n) => n.id === "npc-young")!;
+
+    // 先推进一年，让世界时间与「死亡时刻」拉开
+    state.worldTime = UNIT_MINUTES.year;
+    expect(npcAge(projectSnapshotV2(state, template, lookup), "npc-young")).toBe(18);
+
+    // 在 t=1 年处死亡 ⇒ sinceWorldTime = 1 年，此后年龄应钉在 18
+    young.lifecycle = { state: "inactive", reasonCode: "阵亡", sinceTurn: 3, sinceWorldTime: state.worldTime };
+    expect(adapter.ageAt(young.birthTime!, state.worldTime)).toBe(18);
+
+    // 再推进五年（远超过出生月日边界），年龄必须仍是 18
+    state.worldTime = 6 * UNIT_MINUTES.year;
+    const view = projectSnapshotV2(state, template, lookup);
+    expect(npcAge(view, "npc-young")).toBe(18);
+    const frozen = view.npcs.find((n) => n.id === "npc-young")!;
+    // 阶段由同一个冻结年龄派生，不会跟着漂
+    expect(frozen.lifeStage).toBe(adapter.resolveLifeStage(18));
+    expect(frozen.lifeStageLabel).toBe(adapter.lifeStageLabel(adapter.resolveLifeStage(18)));
+    // 状态里的 age 仍是起始快照（不被投影回写）
+    expect(young.age).toBe(17);
+  });
+
+  it("同局未死的 NPC 照常随世界时间增长（冻结只对非 alive 生效）", () => {
+    const { state, template, lookup } = setup("w-age-frozen-2");
+    const young = state.npcs.find((n) => n.id === "npc-young")!;
+    young.lifecycle = { state: "inactive", reasonCode: "阵亡", sinceTurn: 0, sinceWorldTime: 0 };
+    state.worldTime = 3 * UNIT_MINUTES.year;
+    const view = projectSnapshotV2(state, template, lookup);
+    expect(npcAge(view, "npc-young")).toBe(17); // 钉在 t=0 的 17 岁
+    expect(npcAge(view, "npc-old")).toBe(33); // 活着的：30 + 3
+  });
+
+  it("复活（回 alive）后按 worldTime 恢复增长 —— 与状态机语义一致", () => {
+    const { state, template, lookup } = setup("w-age-frozen-3");
+    const young = state.npcs.find((n) => n.id === "npc-young")!;
+    young.lifecycle = { state: "inactive", reasonCode: "被同化", sinceTurn: 0, sinceWorldTime: 0 };
+    state.worldTime = 6 * UNIT_MINUTES.year;
+    expect(npcAge(projectSnapshotV2(state, template, lookup), "npc-young")).toBe(17);
+
+    // 复活：sinceWorldTime 刷新到当下，此后重新随世界时间走
+    young.lifecycle = { state: "alive", sinceTurn: 9, sinceWorldTime: state.worldTime };
+    const adapter = createTimeAdapter(template);
+    const atRevive = adapter.ageAt(young.birthTime!, state.worldTime);
+    expect(atRevive).toBeGreaterThan(17); // 已经比死亡时刻老
+    expect(npcAge(projectSnapshotV2(state, template, lookup), "npc-young")).toBe(atRevive);
+    state.worldTime = 7 * UNIT_MINUTES.year;
+    expect(npcAge(projectSnapshotV2(state, template, lookup), "npc-young")).toBe(
+      adapter.ageAt(young.birthTime!, state.worldTime),
+    );
+  });
+
+  it("unspawned（尚未登场）同样按 sinceWorldTime 计龄，不会凭空长大", () => {
+    const { state, template, lookup } = setup("w-age-frozen-4");
+    const young = state.npcs.find((n) => n.id === "npc-young")!;
+    young.lifecycle = { state: "unspawned", sinceTurn: 0, sinceWorldTime: 0 };
+    state.worldTime = 4 * UNIT_MINUTES.year;
+    // unspawned 不上屏（ADR-0022），故此处只验证「若上屏，年龄口径一致」
+    const view = projectSnapshotV2(state, template, lookup);
+    expect(view.npcs.some((n) => n.id === "npc-young")).toBe(false);
+    young.lifecycle = { state: "alive", sinceTurn: 4, sinceWorldTime: 4 * UNIT_MINUTES.year };
+    const adapter = createTimeAdapter(template);
+    // 登场时按当下世界时间计龄（不是从 0 开始凭空长大）
+    expect(projectSnapshotV2(state, template, lookup).npcs.find((n) => n.id === "npc-young")!.age).toBe(
+      adapter.ageAt(young.birthTime!, state.worldTime),
+    );
+  });
+
   it("approx 模板（缺省历法）反推严格等于 -age × UNIT_MINUTES.year", () => {
     const template = makeTemplate();
     template.time = { defaultStep: { value: 1, unit: "year" } };

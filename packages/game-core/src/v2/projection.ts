@@ -158,9 +158,16 @@ export function projectSnapshotV2(
       // ADR-0021 决策 4.1：年龄**投影期现算**（`ageAt(birthTime, worldTime)`，年差口径=
       // 跨年界即 +1），不回写 `state.npcs[].age`（那是起始年龄快照）。旧档缺 birthTime
       // ⇒ 按同一反推口径兜底，保证「加载即与原来一致，此后随世界时间增长」。
+      //
+      // P1-2 任务 C（ADR-0024 补遗）：**已故/被占据/未登场者的年龄冻结在 `sinceWorldTime`**。
+      // 否则人物面板会出现「天内理子 · 已故 · 阵亡 · 26 岁」并且年年长岁——死人不会变老。
+      // 用 lifecycle 作为单一判据（不新引入字段）：alive 走 worldTime，其余走 sinceWorldTime。
+      // `lifeStage` / `lifeStageLabel` 都由下面这个 npcAge 派生 ⇒ 阶段也自动冻结，不另设基准。
+      // 复活（回 alive）后自动恢复按 worldTime 增长，与状态机语义一致。
+      const ageBasis = npc.lifecycle.state === "alive" ? state.worldTime : npc.lifecycle.sinceWorldTime;
       const npcAge = adapter.ageAt(
         npc.birthTime ?? birthTimeFromAge(npc.age, adapter),
-        state.worldTime,
+        ageBasis,
       );
       const npcStage = adapter.resolveLifeStage(npcAge);
       return {
