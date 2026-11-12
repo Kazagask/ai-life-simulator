@@ -1087,7 +1087,11 @@ resolveCombatRefs(state, settle) -> { enemies, allies, enemiesExhausted: boolean
       （补记起草时该断言位于 `:47`，实施后随新增用例下移到 `:61` / `:160`。）
     - 「**`inactive` 必须保留**」**不能**用于否证 M1，它防的是**另一类错法**——按
       `lifecycle.state === "alive"` 做白名单过滤。`inactive` 的 NPC 本来就上屏、本来就在投影集合内，
-      故 M1 下该反例**不红**（诚实记录：M1 下 `v2.test.ts` 39 例全绿，`inactive` 相关探针 C4 亦全绿）。
+      故 M1 下「`inactive` 应当保留」这一**命题本身不红**（诚实记录：M1 下 `v2.test.ts` 39 例全绿；
+      探针 `C4` 的**合成夹具**用例「乙 `inactive` → 乙视玩家为爸爸」亦绿。`C4` 的**真实模板**用例
+      「伏黑惠 `inactive` → `enemy-toji(father)` 父亲边与称谓仍在」在 M1 下**会红**，但红灯原因是
+      `enemy-toji` **无实例**、与 `inactive` 无关 —— 它反而是「敌人端点被误杀」的**第二个独立见证**，
+      不是「inactive 能防 M1」的证据）。
     - 依据：`tasks/reports/RELATION-PROJECTION-FIX-ACCEPTANCE.md` §四（判据变异验证）与 §八 观察 2。
       「三条反例各绑一条断言、并在注释里写明各自区分哪种错法」的测试补强见 `docs/BACKLOG.md` B-23。
 - **决策 2（`player` 端点硬保留）**：`player` 没有 NPC 实例，永不进 `hiddenNodeIds`。这条要写成实现侧的
