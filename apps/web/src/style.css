@@ -283,6 +283,116 @@ button {
   color: var(--accent-2);
 }
 
+/* ---------- 评价分项（ADR-0016 / D-02） ----------
+   每维一行：名称 + 等级 + 数值，条为视觉辅助（宽度是展示近似，见 main.tsx 注释）。
+   行高 ≥ 44px 保证竖屏点按舒适；解释默认收起，展开不改变其它行高度。 */
+
+.eval-dims {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.eval-dims-title {
+  margin: 0 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.eval-dim {
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-card-2) 60%, transparent);
+}
+
+.eval-dim > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.eval-dim > summary::-webkit-details-marker {
+  display: none;
+}
+
+/* summary 与静态行共用一套两行网格：名称/等级/数值 一行，条占满另一行 */
+.eval-dim > summary,
+.eval-dim-total {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 6px;
+  min-height: 44px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.eval-dim-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.eval-dim-level {
+  font-size: 11px;
+  color: var(--accent-2);
+  border: 1px solid color-mix(in srgb, var(--accent-2) 40%, transparent);
+  border-radius: 999px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+
+.eval-dim-score {
+  min-width: 40px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.eval-dim-bar {
+  grid-column: 1 / -1;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--bg-card-2);
+  overflow: hidden;
+}
+
+.eval-dim-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-2), var(--accent));
+  transition: width 0.4s ease;
+}
+
+.eval-dim[open] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-2) 35%, transparent);
+}
+
+.eval-dim-total {
+  margin-top: 2px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  font-weight: 600;
+}
+
+.eval-dim-expl {
+  margin: 0;
+  padding: 0 10px 10px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+.eval-dims-hint {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+
 /* ---------- 行动 ---------- */
 
 .action-grid {

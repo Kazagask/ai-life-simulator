@@ -76,6 +76,20 @@ export interface TurnResponse extends InteractionResponse {
   elapsed: TimeAmount;
 }
 
+/**
+ * 归档响应的玩家投影（R-VS-04）：public 历史 + hidden 计数（内容不下发）。
+ * `archive.snapshot` 是归档时刻的**最终快照**（status=archived，带 ending 与 evaluation
+ * 五维分项），与 `GET /api/worlds/:id` 的投影同源，所以调用方直接用它刷新即可。
+ */
+export interface ArchiveResponse {
+  worldId: string;
+  archive: {
+    snapshot: V2Snapshot;
+    /** 归档中被过滤掉的 hidden 条目数（只公开计数，不公开内容） */
+    hiddenHistoryCount?: number;
+  };
+}
+
 export const api = {
   listTemplates() {
     return request<{ templates: TemplateSummary[] }>("/api/templates");
@@ -139,9 +153,12 @@ export const api = {
       body: JSON.stringify({ itemId }),
     });
   },
-  /** 归档封存：仅已终止世界可封存，返回五类归档数据。 */
+  /**
+   * 归档封存：仅已终止世界可封存，返回五类归档数据。
+   * 响应里的 `archive.snapshot` 已带 evaluation（含五维分项），页面据此刷新即可。
+   */
   archiveWorld(id: string) {
-    return request<{ worldId: string; archive: unknown }>(`/api/worlds/${id}/archive`, { method: "POST" });
+    return request<ArchiveResponse>(`/api/worlds/${id}/archive`, { method: "POST" });
   },
   history(id: string) {
     return request<{ history: HistoryEntryV2[] }>(

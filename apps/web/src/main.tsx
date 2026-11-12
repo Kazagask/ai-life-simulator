@@ -275,9 +275,10 @@ function App() {
     setBusy(true);
     setError(null);
     try {
-      await api.archiveWorld(wid);
-      const fresh = await api.getWorld(wid);
-      setSnapshot(fresh.snapshot);
+      const res = await api.archiveWorld(wid);
+      // 归档响应自带最终快照（status=archived，含 ending 与 evaluation 五维分项），
+      // 直接采用即可：不再多打一次 GET，也不会用非归档投影覆盖归档事实。
+      setSnapshot(res.archive?.snapshot ?? (await api.getWorld(wid)).snapshot);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -526,6 +527,68 @@ function SetupScreen({
   );
 }
 
+// ---------- 人生评价：五维分项（ADR-0016 / D-02） ----------
+
+type EvaluationView = V2Snapshot["evaluation"];
+type EvaluationDimensionView = NonNullable<EvaluationView["dimensions"]>[number];
+
+/**
+ * 条形宽度只是**展示近似**：模板可给每个维度声明各自的得分区间（如 `[-50, 100]`），
+ * 而快照投影只下发 `score` 不下发区间，所以这里统一按 0–100 截断归一（负分条长为 0）。
+ * 数值文本与 `level` 一律原样展示，条长不参与任何判定，也不回写状态。
+ */
+function scoreWidth(score: number): number {
+  return Math.min(100, Math.max(0, score));
+}
+
+/** 单维一行：名称 + 等级 + 数值（服务端原值），条为视觉辅助；解释默认收起避免撑高面板。 */
+function EvaluationDimensionRow({ dim }: { dim: EvaluationDimensionView }) {
+  return (
+    <details className="eval-dim">
+      <summary>
+        <span className="eval-dim-name">{dim.label ?? dim.id}</span>
+        <span className="eval-dim-level">{dim.level}</span>
+        <span className="eval-dim-score">{String(dim.score)}</span>
+        <span className="eval-dim-bar" aria-hidden="true">
+          <span className="eval-dim-bar-fill" style={{ width: `${scoreWidth(dim.score)}%` }} />
+        </span>
+      </summary>
+      {dim.explanation && <p className="eval-dim-expl">{dim.explanation}</p>}
+    </details>
+  );
+}
+
+/**
+ * 五维人生评价（R2.6 / ADR-0016）。数据全部来自服务端投影 `snapshot.evaluation`：
+ * 前端不重算分数、不推导等级、不自备 id→中文映射（`label` 缺失时回退 id）。
+ * `dimensions` / `overall` 在评价尚未生成时缺省 —— 此时整个区块不渲染，
+ * 面板保持只显示 summary + 命运偏离度的原样，不出现空白块或 `undefined`。
+ */
+function EvaluationBreakdown({ evaluation }: { evaluation: EvaluationView }) {
+  const dims = evaluation.dimensions ?? [];
+  if (dims.length === 0) return null;
+  return (
+    <div className="eval-dims">
+      <p className="eval-dims-title">评价分项</p>
+      {dims.map((dim) => (
+        <EvaluationDimensionRow key={dim.id} dim={dim} />
+      ))}
+      {typeof evaluation.overall === "number" && (
+        // 总分与分项同时给出，不取代分项（协议 V2.1 §18）
+        <div className="eval-dim eval-dim-total">
+          <span className="eval-dim-name">综合</span>
+          <span className="eval-dim-level">总评</span>
+          <span className="eval-dim-score">{String(evaluation.overall)}</span>
+          <span className="eval-dim-bar" aria-hidden="true">
+            <span className="eval-dim-bar-fill" style={{ width: `${scoreWidth(evaluation.overall)}%` }} />
+          </span>
+        </div>
+      )}
+      <p className="eval-dims-hint">点分项可展开该维度的评分说明</p>
+    </div>
+  );
+}
+
 // ---------- 玩家状态卡 ----------
 
 function PlayerCard({ snapshot }: { snapshot: V2Snapshot }) {
@@ -571,6 +634,7 @@ function PlayerCard({ snapshot }: { snapshot: V2Snapshot }) {
         </div>
       )}
       <p className="eval-line">{snapshot.evaluation.summary}</p>
+      <EvaluationBreakdown evaluation={snapshot.evaluation} />
     </section>
   );
 }
@@ -1457,6 +1521,7 @@ function StatsPanel({ snapshot }: { snapshot: V2Snapshot }) {
         <span className="chip">{snapshot.formattedTime}</span>
       </div>
       <p className="eval-line">{snapshot.evaluation.summary}</p>
+      <EvaluationBreakdown evaluation={snapshot.evaluation} />
     </section>
   );
 }
