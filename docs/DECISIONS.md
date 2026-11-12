@@ -1079,6 +1079,17 @@ resolveCombatRefs(state, settle) -> { enemies, allies, enemiesExhausted: boolean
     2. **`inactive` 必须保留边与称谓**：ADR-0020 决策 6「`inactive` 照常上屏、只带状态标注」+
        `relations.ts` 的 `freezeOnDeath` 注释「逝去的祖父依旧是祖父」。「不在列表内」是**结果**不是判据，
        用它会让「上屏规则」与「关系过滤规则」互相引用，任何列表口径调整都会静默改掉关系可见性。
+  - **⚠ 实测修正（2026-11-12 · QA 判据变异验证 M1）：两条反例的适用边界不同，不得混用**
+    （判据本身不变，此处只限定两条反例各自能证明什么）：
+    - 「**敌人永不实例化**」用于否证「**不在投影后 NPC 集合内**」：M1 把判据换成「不在上屏集合内」后，
+      真红的只有 `relation-projection.test.ts` 两例——`「只投影 known / inferred 边，unknown 与 hidden 不出现」`
+      与 `「player 与敌人端点必须保留」`，红灯原因均为 `["enemy-x","player"]` 少了 `enemy-x`。
+      （补记起草时该断言位于 `:47`，实施后随新增用例下移到 `:61` / `:160`。）
+    - 「**`inactive` 必须保留**」**不能**用于否证 M1，它防的是**另一类错法**——按
+      `lifecycle.state === "alive"` 做白名单过滤。`inactive` 的 NPC 本来就上屏、本来就在投影集合内，
+      故 M1 下该反例**不红**（诚实记录：M1 下 `v2.test.ts` 39 例全绿，`inactive` 相关探针 C4 亦全绿）。
+    - 依据：`tasks/reports/RELATION-PROJECTION-FIX-ACCEPTANCE.md` §四（判据变异验证）与 §八 观察 2。
+      「三条反例各绑一条断言、并在注释里写明各自区分哪种错法」的测试补强见 `docs/BACKLOG.md` B-23。
 - **决策 2（`player` 端点硬保留）**：`player` 没有 NPC 实例，永不进 `hiddenNodeIds`。这条要写成实现侧的
   注释级硬约束 + 测试用例（防止后续被改造成「白名单」时静默丢掉 NPC↔玩家边，正好反噬本补记要修的另一半）。
 - **决策 3（称谓子图必须收敛）**：`kinshipTerm(...)` 的入参必须是**过滤后的同一份边集**，
