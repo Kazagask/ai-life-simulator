@@ -54,7 +54,7 @@ export interface CalendarAdapter {
   elapsedYears(minutes: number): number;
   /**
    * 该世界分钟落在**哪一年**（历法年；approx 用固定年长折算）。
-   * 负分钟（世界起点之前）⇒ startYear 之前的年份，不做钳位（ADR-0021 决策 4.3）。
+   * 负分钟（世界起点之前）⇒ 返回 startYear 之前的年份，不截断到起点年（ADR-0021 决策 4.3）。
    */
   yearOf(minute: number): number;
   /**
@@ -143,11 +143,12 @@ interface View {
   minuteOfDay: number; // 0..1439
 }
 /**
- * 内部分钟 → 历法视图（Date-free）。
+ * 内部分钟 → 历法视图（Date-free、无截断）。
  *
- * ADR-0021 决策 4.3：**支持负分钟**（世界起点之前）。`minutes >= 0` 的输出与钳位版逐字节一致：
- * 非负时 `Math.floor(total/1440) === total % 1440` 的分解与旧实现同值，故零回归。
- * 负值时从 startYear-01-01 逐年向回走真实年长（闰年/自定义月长各自计入），
+ * 分解式：先用欧几里得分解把分钟拆成「日序号 + 日内分钟」，日序号可为负；
+ * 负数从 startYear-01-01 逐年向回走真实年长（闰年 / 自定义月长各自计入）。
+ * ADR-0021 决策 4.3：这是 R3 时间穿越所需「负时间」的支撑点；
+ * `minutes >= 0` 的分解结果与引入负分钟之前完全同值（非负时 floor 除法与取余等价），故零回归。
  * 与 `eraYearBase` 的手写负分支同一思路（那里保留手写是因为它数的是「纪元年基」）。
  */
 function minutesToView(minutes: number, model: CalendarModel): View {

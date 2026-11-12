@@ -218,7 +218,14 @@ function historyId(state: WorldStateV2, base: string): string {
 
 // ---------- 事件触发路由 ----------
 
-interface TriggerResult {
+/**
+ * 触发路由的累加器（引擎内部类型）。
+ *
+ * **不是**存档 / 投影 / 玩家端 API 的一部分（ADR-0021 决策 1.4）：它只在一次轮次结算内
+ * 被 `triggerEventV2` 一族函数填充，随后由 `advanceTurnV2` 等函数裁成 `V2TurnResult`。
+ * 导出仅为让测试能直接断言诊断位（见 `skipped`）。
+ */
+export interface TriggerResult {
   triggered: Array<{ id: string; title: string; narrative: string }>;
   wheelResult: WheelResultView | null;
   /** 效果推进时间 / 新入队 ⇒ 请求在安全边界再 drain 一轮（§3.4.5 断链保护） */
@@ -227,6 +234,10 @@ interface TriggerResult {
    * 本条触发被跳过的原因（ADR-0021 决策 1.4 的可诊断性补偿）。
    * **非持久化**：不进存档 / 投影 / 玩家端 API，只供测试与本地排障断言
    * 「这场为什么没打」。当前取值见 `SKIP_ALL_ENEMIES_INACTIVE`。
+   *
+   * ⚠ **局限（已知且接受）**：它是**单槽**而非清单 —— 同一轮内多条触发被跳过时，
+   * 后写的覆盖先写的，只保留最后一个原因。需要完整清单请去读
+   * `state.npcs[].lifecycle`（事实源）或逐场断言，不要把这个字段当诊断流水。
    */
   skipped?: string;
 }
@@ -316,8 +327,12 @@ function enqueuePendingEvent(
  * 触发单个事件并按 kind 路由：
  * normal → 入待决队列；random → 服务端立即结算转盘；combat → 建战斗会话。
  * nextEventId 串联触发（深度限制防环）。
+ *
+ * **引擎内部编排函数，不是玩家端 API**：导出只为让测试直接驱动一次触发并断言
+ * `TriggerResult`（含非持久化诊断位 `skipped`）。调用方需自备 `result` 累加器；
+ * `apps/server` 不应调用它（轮次入口是 `advanceTurnV2` / `chooseOptionV2`）。
  */
-function triggerEventV2(
+export function triggerEventV2(
   state: WorldStateV2,
   event: EventV2,
   lookup: TemplateLookup,

@@ -7,7 +7,8 @@ import { WorldTemplateV2Schema, type WorldTemplateV2 } from "@life-sim/shared";
 import { createLookup } from "./lookup.js";
 import { createActiveWorldV2 } from "./test-utils.js";
 import { createBattle, resolveCombatRefs } from "./battle.js";
-import { advanceTurnV2, SKIP_ALL_ENEMIES_INACTIVE } from "./turn.js";
+import { advanceTurnV2, SKIP_ALL_ENEMIES_INACTIVE, triggerEventV2, type TriggerResult } from "./turn.js";
+import { createRng } from "../rng.js";
 import type { WorldStateV2 } from "@life-sim/shared";
 
 /**
@@ -255,8 +256,52 @@ describe("敌人耗尽 ⇒ 整条触发跳过（ADR-0021 决策 1.2）", () => {
   });
 });
 
-// ---------- 真实模板回归：jjk-2006 的 12 场战斗都引用无实例的 enemy-* ----------
+describe("TriggerResult.skipped 诊断位（ADR-0021 决策 1.4 · QA D-1 收口）", () => {
+  /**
+   * 直接驱动一次触发路由：`TriggerResult` 是引擎内部累加器（不进存档/投影/API），
+   * 经导出的 `triggerEventV2` 取到它，是 `skipped` 唯一的读取点。
+   */
+  function makeRun(worldId: string) {
+    const { template, lookup, state } = setup(worldId);
+    const event = template.events.find((e) => e.id === "ev-ambush");
+    if (!event) throw new Error("fixture: 缺少 ev-ambush");
+    const run = (): TriggerResult => {
+      const result: TriggerResult = { triggered: [], wheelResult: null };
+      triggerEventV2(state, event, lookup, createRng(1), 0, result);
+      return result;
+    };
+    return { template, lookup, state, run };
+  }
 
+  it("敌人全部非在世 ⇒ skipped 置为 all_enemies_inactive，且无 triggered / 无战斗", () => {
+    const { state, run } = makeRun("w-skip-1");
+    setLifecycle(state, "npc-a", "inactive");
+    const result = run();
+    expect(result.skipped).toBe(SKIP_ALL_ENEMIES_INACTIVE);
+    expect(result.skipped).toBe("all_enemies_inactive");
+    expect(result.triggered).toEqual([]);
+    expect(state.battle).toBeNull();
+  });
+
+  it("敌人可用 ⇒ skipped 保持 undefined（门未命中不留噪声）", () => {
+    const { state, run } = makeRun("w-skip-2");
+    const result = run();
+    expect(result.skipped).toBeUndefined();
+    expect(result.triggered.map((t) => t.id)).toEqual(["ev-ambush"]);
+    expect(state.battle).not.toBeNull();
+  });
+
+  it("并发 skip（已有战斗进行中）不置 skipped —— 诊断位只标记判活门", () => {
+    const { lookup, state, run } = makeRun("w-skip-3");
+    state.battle = createBattle("ev-other", { enemies: [{ ref: "enemy-x" }] }, state, lookup);
+    const result = run();
+    expect(result.skipped).toBeUndefined();
+    expect(result.triggered).toEqual([]);
+    expect(state.battle!.eventId).toBe("ev-other"); // 原战斗未被替换
+  });
+});
+
+// ---------- 真实模板回归：jjk-2006 的 12 场战斗都引用无实例的 enemy-* ----------
 const jjkDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../specs/data/templates/jjk-2006");
 
 function loadJjkTemplate(): WorldTemplateV2 {
