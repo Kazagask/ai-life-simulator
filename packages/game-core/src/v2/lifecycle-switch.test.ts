@@ -477,12 +477,23 @@ describe("模板级断言（jjk-2006）· 涩谷身体争夺的玩家选择判�
   it("ev-sh-05 是「宿傩归还身体」的唯一入口：被占据后在此回到 alive，reasonCode 清掉", () => {
     const { state, lookup } = atBodyContest("w-jjk-sh-restore");
     setLifecycle(state, lookup, "npc-yuji", { state: "inactive", reasonCode: "宿傩受肉" });
-    // 放任路线打完那场战斗后进入 ev-sh-05；这里直接送进待决队列验结算语义
+    // 放任路线打完那场战斗后进入 ev-sh-05；这里直接触发 ev-sh-05 验结算语义。
+    // 槽位防护：fixture 预置的 ev-sh-03b 占用槽位，ev-sh-05 被守卫转入延时队列
+    //（origin.kind==='effect'、status==='waiting'），不报错、不丢失。
     const event = template.events.find((e) => e.id === "ev-sh-05");
     if (event?.kind !== "normal") throw new Error("fixture: ev-sh-05 不存在或不再是 normal");
     triggerEventV2(state, event, lookup, createRng(5), 0, { triggered: [], wheelResult: null });
-    state.pendingEvents = state.pendingEvents.filter((p) => p.eventId === "ev-sh-05");
+    expect(
+      state.scheduledEvents.some(
+        (i) => i.definitionId === "ev-sh-05" && i.origin.kind === "effect" && i.status === "waiting",
+      ),
+    ).toBe(true);
 
+    // 沿既有链结算（ev-sh-03b → ev-sh-04n → ev-sh-05）释放槽位；被守卫延后的 ev-sh-05 在槽位空出后
+    // 经 scheduledEvents 回检回到 pendingEvents（此处由链上自然到达的那条进入），随后正常结算。
+    chooseOptionV2(state, { optionId: "opt-sh3b-hold" }, template, lookup); // ev-sh-03b → ev-sh-04n
+    chooseOptionV2(state, { optionId: "opt-sh4n-line" }, template, lookup); // ev-sh-04n → ev-sh-05
+    expect(state.pendingEvents.some((p) => p.eventId === "ev-sh-05")).toBe(true);
     chooseOptionV2(state, { optionId: "opt-sh5-go" }, template, lookup);
     expect(lifeOf(state, "npc-yuji")).toMatchObject({ state: "alive" });
     expect("reasonCode" in lifeOf(state, "npc-yuji")).toBe(false);

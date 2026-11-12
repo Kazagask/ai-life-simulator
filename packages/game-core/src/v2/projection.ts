@@ -40,13 +40,18 @@ export function projectSnapshotV2(
   // R2.6 / ADR-0014：只投影 known / inferred 边。称谓也只在**可见子图**上推导，
   // 否则 hidden 边会成为可推理的侧信道。
   //
-  // ADR-0022 补记 D-1：判据是「确知未登场」，不是「不在上屏列表」——敌人永不实例化、
-  // inactive 必须保留边与称谓。player 无 NPC 实例，永不进 hiddenNodeIds（硬保留）。
-  // 反例记录（勿改成「投影后 NPC 集合的补集」）：用「不在上屏集合内」会把
-  // `["enemy-x","player"]` 这类公开边一并误杀，并让列表口径静默决定关系可见性。
-  const hiddenNodeIds = new Set(
-    state.npcs.filter((n) => n.lifecycle.state === "unspawned").map((n) => n.id),
-  );
+  // ADR-0022 补记 D-1：判据是「确知未对玩家可见」，不是「不在上屏列表」——
+  // 可见节点 = 已登场（alive/inactive）且非敌人的 NPC。下列显式归入 hiddenNodeIds：
+  //   · unspawned（尚未出生/登场，由刷新规则管辖）；
+  //   · 敌人（永不实例化、本质是战斗对手，不是玩家可见的关系实体——D-1 原只剔未登场，漏了敌人端点 ⇒ 漏修复）。
+  // inactive 必须保留边与称谓（决策 1 反例 2：逝去的祖父依旧是祖父）。
+  // player 无 NPC 实例，永不进 hiddenNodeIds（硬保留）。
+  // 反例记录（勿改成「投影后 NPC 集合的补集」）：用「不在上屏集合内」会把公开边误杀、并让列表口径静默决定关系可见性；
+  // 因此 hiddenNodeIds 只由上面两条**显式**规则构成，绝不含「投影后的 npc.id 集合」。
+  const hiddenNodeIds = new Set<string>([
+    ...state.npcs.filter((n) => n.lifecycle.state === "unspawned").map((n) => n.id),
+    ...template.characters.filter((c) => c.isEnemy).map((c) => c.id),
+  ]);
   /**
    * 关系面唯一收敛结果：列表行与称谓子图**共用这一份**（决策 3）。
    * 任一端 unspawned ⇒ 整条边剔除，于是「不可达」由 `kinshipTerm` 返回 `null` 自然表达，

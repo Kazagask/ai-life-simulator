@@ -52,13 +52,14 @@ describe("R2.6-T-B5 投影 · 关系可见性（R-OP-05）", () => {
   it("只投影 known / inferred 边，unknown 与 hidden 不出现", () => {
     const { state, template, lookup } = buildWorld("w-b5-vis", [
       e("npc-a", "player", "mentor", { visibility: "known", value: 60 }),
-      e("npc-a", "enemy-x", "friend", { visibility: "inferred" }),
+      e("npc-a", "npc-b", "friend", { visibility: "inferred" }),
       e("npc-a", "ghost", "friend", { visibility: "unknown" }),
       e("npc-a", "shadow", "enemy", { visibility: "hidden" }),
     ]);
     const view = projectSnapshotV2(state, template, lookup);
     const npc = view.npcs.find((n) => n.id === "npc-a")!;
-    expect(npc.relations.map((r) => r.withId).sort()).toEqual(["enemy-x", "player"]);
+    // known + inferred 可见；unknown / hidden 不出现（敌人端点单独在下方 D-1 用例覆盖）
+    expect(npc.relations.map((r) => r.withId).sort()).toEqual(["npc-b", "player"]);
     // 旧标量照常投影
     expect(npc.relationship).toBe(20);
   });
@@ -140,13 +141,14 @@ describe("ADR-0022 补记 D-1 · 关系投影剔除未登场端点", () => {
     expect(JSON.stringify(view)).not.toContain("npc-hidden");
   });
 
-  it("player 与敌人端点必须保留（判据是「确知未登场」，不是「不在上屏集合内」）", () => {
+  it("敌人端点与未登场端点都从关系投影剔除；player / inactive 仍保留", () => {
     const { state, template, lookup } = buildWorld(
       "w-d1-keep",
       [
         e("npc-a", "player", "mentor"),
+        // 敌人 NPC（isEnemy）本质是战斗对手、不实例化，关系端点不应上屏（D-1 原漏修复的一项）
         e("npc-a", "enemy-x", "enemy"),
-        // 无关的未登场边：它的存在不得连带误杀上面两条公开信息
+        // 无关的未登场边：它的存在不得连带误杀上面那条公开信息
         e("npc-hidden", "npc-a", "friend"),
         // inactive 照常保留边与称谓（决策 1 反例 2：逝去的祖父依旧是祖父）
         e("npc-b", "player", "father"),
@@ -156,13 +158,33 @@ describe("ADR-0022 补记 D-1 · 关系投影剔除未登场端点", () => {
     state.npcs.find((n) => n.id === "npc-b")!.lifecycle.state = "inactive";
     const view = projectSnapshotV2(state, template, lookup);
     const npc = view.npcs.find((n) => n.id === "npc-a")!;
-    // 与 `["enemy-x","player"]` 正向断言同向：敌人永不实例化、player 无 NPC 实例 ⇒ 都不 hidden
-    expect(npc.relations.map((r) => r.withId).sort()).toEqual(["enemy-x", "player"]);
+    // 敌人端点 + 未登场端点都剔除；只留 player 这一条公开边
+    expect(npc.relations.map((r) => r.withId)).toEqual(["player"]);
+    expect(JSON.stringify(view)).not.toContain("enemy-x");
+    expect(JSON.stringify(view)).not.toContain("npc-hidden");
     // inactive 不因「不再自主行动」而被剔除
     const b = view.npcs.find((n) => n.id === "npc-b")!;
     expect(b.lifecycle.state).toBe("inactive");
     expect(b.relations.map((r) => r.withId)).toEqual(["player"]);
     expect(b.relations[0].kinshipTerm).toBe("爸爸");
+  });
+
+  it("敌人 NPC 的关系端点不进入任何 NPC 的 relations，也不泄露其 id（投影期剔除，state 层边保留）", () => {
+    const { state, template, lookup } = buildWorld("w-d1-enemy", [
+      e("npc-a", "enemy-x", "enemy", { value: -80 }),
+      e("enemy-x", "npc-b", "father"),
+      e("npc-a", "player", "mentor"),
+    ]);
+    const view = projectSnapshotV2(state, template, lookup);
+    // 两个普通 NPC 的关系列表都不含敌人端点
+    for (const id of ["npc-a", "npc-b"]) {
+      const npc = view.npcs.find((n) => n.id === id)!;
+      expect(npc.relations.some((r) => r.withId === "enemy-x")).toBe(false);
+    }
+    // 敌人 id 不泄露到任何投影字段
+    expect(JSON.stringify(view)).not.toContain("enemy-x");
+    // 决策 5：投影期改动 ⇒ state 层边原样保留，引擎/条件 DSL 仍可读取
+    expect(state.relations.filter((r) => r.to === "enemy-x" || r.from === "enemy-x")).toHaveLength(2);
   });
 });
 

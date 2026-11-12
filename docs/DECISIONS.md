@@ -352,6 +352,9 @@ R2.4 第一轮交付后用户补充两点：① 背包里装备和物品要**分
 3. **drain 与判定（评审修订 + #36 裁决并入）**：三个 drain 入口（轮次推进后、效果推进时间后、入队即到期）；循环取队首，`start > now` 即停（有序队列）。**入队门控前置**：六策略（`once`/`probability` + pool 的 `conditions`/`weight`/`priority`）在候选产生时决定是否入队，失败**不产生实例、不构成错失**。出队判定固定为 `missWhen`（drop，`miss_when`）→ `conditions` 终判（hold）→ `cooldown`（hold）→ fire；`MissReason` 收缩为 `window_expired | miss_when`（OQ-#42 按推荐 ① 通过）。**#36 关闭，采用候选②「留在队列」**：窗口内 `conditions`/`cooldown` 不满足一律 **hold 留队、每轮 drain 重估、不记错失**；仅当 `worldTime > window.end` 才出队并追加 `reason="window_expired"` 的错失事实；无 `window.end` 永不因时间过期，由显式 `missWhen` 兜底（R-EV-12/#42）；门控失败不构成错失。原「once→conditions→cooldown→probability 出队判定」与「概率失败丢弃」表述作废。
 4. **退役**：`atTurn` 删除（现存模板零使用，但 v2.test.ts:737/768 夹具在用，需换形迁移）；`cooldownTurns` 改 `cooldown: TimeSpec`（时间维度，依赖 `firedEvents` 两层拆分：`eventFires[]` 日志 + `lastFiredIndex` 派生索引）。补正 `duration.turns` 与 NPC 行动冷却本轮不动（Q-R25-04）。
 5. **槽位唯一 + #35 加载期强制（评审修订 + #35 裁决并入）**：`pending_event_required` 守卫语义收窄为"槽位被占用时拒绝新自由行动"；立即事件的呈现排队沿用既有 `EVENT_SOURCE_PRIORITY`，不新增排序结构。**事件结算推进轮次**（OQ-#34 关闭）：新增 `timeCost`（缺省 0）、战斗结束算结算轮、用物品暂不算、事件轮跑完整管线、同窗多事件逐轮各占一槽（R-EV-14），RNG 序列变更范围随之扩大。**#35 关闭：同一轮至多一个立即触发事件采用候选①「加载期静态拒绝」（`superRefine`）**，并显式豁免延时事件——只统计「未声明 `window`/`delay` 的立即 `action-hook`」并按 `onActionId` 分组，同组 ≥2 条才报错；声明了 `window`/`delay` 的 `action-hook`（延时）、`chain` 延时步、`schedule`、`pool` 全部不受约束（延时事件不占同一轮槽位）；错误信息须提示「可为后续 hook 声明 window/delay 转为延时」。
+
+> **〔被 ADR-0026 修订，2026-11-13〕** 本决策中「立即事件的呈现排队沿用既有 `EVENT_SOURCE_PRIORITY`，不新增排序结构」「同窗多事件逐轮各占一槽（R-EV-14）」的**队列化表述已撤销**：`pendingEvents` 不再是可积压多条的 FIFO，运行期由 `triggerEventV2` 顶部「槽位守卫」强制恒 ≤ 1（单槽），多 normal 事件经 `enqueueScheduled(ZERO_SPEC)` 串行化进槽位。**R-EV-14 须拆分**：「结算推进轮次（占槽）」一半保持不变（仍由 T1-07 战斗结算用例断言）；「同窗多事件逐轮各占一槽」一半被本 ADR 取代。`#35` 加载期拒绝同 `onActionId` 立即 `action-hook` 仍保留，但「单轮至多 1 个立即事件」改由运行期守卫强制。详见 ADR-0026。
+
 6. **链组合**：`ChainStep.delay?: TimeSpec` 表达"3 天后触发"；链断链判定 `evaluateChain()` 纯函数——链 active 的充分条件之一是时间队列存在该链的未触发实例（修复 stepIndex 双写漂移的结构性风险）；`advanceWhen: nextTurn` 保留（"下一轮"是槽位语义，非 x 轮后，Q-R25-06）。
 
 ### 被否决的备选
@@ -1120,6 +1123,25 @@ resolveCombatRefs(state, settle) -> { enemies, allies, enemiesExhausted: boolean
 - **验证（实施验收口径）**：`pnpm typecheck` 0 错；`v2/relation-projection.test.ts` 新增「未登场端点剔除 /
   称谓不跨未登场节点 / player 与敌人端点保留」三例；`v2.test.ts:981-991` 反改后转绿；
   `playthrough.test.ts` 6 种子不受影响（引擎路径不变，该文件不调 `projectSnapshotV2`）。
+
+### ADR-0022 补记 D-1 修订（2026-11-12 · QA 二次复查）：敌人端点同样从关系投影剔除
+
+> **性质**：对 D-1 的**追加修订（append-only）**，不是新决策，也不改 D-1 已落地的「unspawned 剔除」与「决策 5 投影期单一修复点」。本次只补 D-1 漏掉的一档：**敌人端点（即用户所指『漏修复的敌人 NPC 关系』）**。
+
+- **实证（用户 QA 二次复查）**：D-1 落地后，用户在实际模板与投影输出中仍观察到**敌人 NPC 的关系边泄露**——敌对角色视玩家为敌、或敌对角色作为某 NPC 的父亲边，照样出现在玩家可见的 `relations` 与快照字符串里。D-1 当初**刻意**保留了敌人端点可见（见 D-1「敌人永不实例化……`[enemy-x,player]` 必须存在」「敌人永不实例化用于否证『不在投影后集合内』」两处），把「敌人端点必须保留」当成对「用上屏集合补集做判据」那类错法的反例。但这一反例**被过度适用**了：它确实否证了「用上屏集合补集做判据」，却**不等于**「敌人端点必须可见」。D-1 漏修的正是这后一半。本质即用户所判：**关系投影可见性问题，从根源上漏了一档**。
+
+- **根因（投影期）**：`projection.ts` 的 `hiddenNodeIds` 原只由 `state.npcs.filter(n => n.lifecycle.state === "unspawned")` 构成。敌人角色在建世界期即被 `turn.ts:149`（`template.characters.filter(c => !c.isEnemy)`）剔出 `state.npcs`，故**从不在** `state.npcs`；但 `state.relations` 的边仍可能引用敌人 id（如 `e("npc-a","enemy-x","enemy")`、`e("enemy-x","npc-b","father")`）。旧 `hiddenNodeIds` 只剔 `unspawned` ⇒ 敌端点边**幸存**并随其他 NPC 的 `relations` 与快照泄露。
+
+- **修复（投影期单一修复点，决策 5 不变）**：`hiddenNodeIds` 扩展为 `unspawned ∪ 敌人`，敌 id 取自 `template.characters.filter(c => c.isEnemy).map(c => c.id)`。仍为**纯投影期过滤**：`state.relations` 在 state 层保留全部敌端点边（引擎侧条件 / 存档 / 确定性不受影响），仅投影层剔除。
+
+- **推翻 D-1 旧裁定**：D-1 关于「敌人端点必须保留 / `[enemy-x,player]` 必须存在」的论断**即日起作废**，由本修订取代：敌人端点是**显式** `hiddenNodeIds` 成员，与 `unspawned` 同档。D-1 关于 `inactive` 必须保留的两条反例**仍成立、不受本修订影响**（敌人 ≠ inactive，二者拦截理由不同）。
+
+- **连带修正（测试）**：`v2/relation-projection.test.ts` 中两例原在断言错误（敌端点可见）行为，已反改：
+  - 「只投影 known / inferred 边」一例的 `e("npc-a","enemy-x","friend",{visibility:"inferred"})` 改为 `e("npc-a","npc-b","friend",{visibility:"inferred"})`，期望 `withId` 由 `["enemy-x","player"]` → `["npc-b","player"]`；
+  - 「player 与敌人端点必须保留」整例重写为「敌人端点与未登场端点都从关系投影剔除；player / inactive 仍保留」，期望 `npc.relations.map(r=>r.withId)` 仅 `["player"]` 且快照字符串不含 `enemy-x` / `npc-hidden`。
+  - 新增回归例「敌人 NPC 的关系端点不进入任何 NPC 的 relations，也不泄露其 id（投影期剔除，state 层边保留）」：构造敌端点边 `e("npc-a","enemy-x","enemy",{value:-80})`、`e("enemy-x","npc-b","father")`、`e("npc-a","player","mentor")`；断言任意 NPC 的 `relations` 均不含 `enemy-x`、快照无 `enemy-x`、且 `state.relations` 仍保留 2 条敌端点边（证明仅为投影期收敛）。
+
+- **验证（本轮）**：`pnpm typecheck` 0 错；`v2/relation-projection.test.ts` 12/12；`v2/guard.test.ts` 5/5、`v2/scheduler.test.ts` 21/21、`v2/npc-panel-projection.test.ts` 8/8、`v2/history-visibility.test.ts` 12/12、`v2/boundary.test.ts` 5/5、`v2/spawn-rules.test.ts` 7/7、`v2/lifecycle-switch.test.ts` 19/19 全绿（完整 `src/v2` 套件后台核对中）。
 
 ---
 
@@ -1905,6 +1927,8 @@ RNG ⇒ 「逐字节等价重构」立刻不成立（RNG 流被多扣一次，�
    而不是被伪装成 `completed`）。**重开条件不变**：模板出现带 `trigger.conditions` 的链步骤，或出现任何读
    `chain.status === "completed"` 的消费者时，必须回来补 `alignChainStep` 无参形态对齐，并同步改写该用例。
 
+> **〔被 ADR-0026 调和，2026-11-13〕** 本 ADR「问题」节与「现状核实」中「`pendingEvents` 是只承载槽位呈现的 FIFO」「积压到 5 条」等表述，及隐含的「加固而非退役」定调，**已被 ADR-0026 修正**：`pendingEvents` 现定义为**单槽（≤1）**，非积压队列。**本 ADR 的前提复核机制本身（决策 1–4、决策 8 的 `event_premise_invalidated`、决策 2.2 的 `revalidatePendingV2`、决策 2.1 的 `checkEventPremise`、决策 4 的 `droppedPending`）全部保留为纵深防御**——且因串行化后事件改走 `drainScheduledEvents→evaluateDue` 每轮重估条件，复核覆盖面反而更全。状态行「已实施」维持有效（复核机制仍生效），仅定性被修正。
+
 ## ADR-0025 云服务接入：账号登录 + 人生档案（只上云投影可见字段）
 
 状态：**已接受**（2026-11-13，云服务接入轮）。关联 ADR-0007（存档策略）/ ADR-0010（三层模型）/ ADR-0022（未登场过滤）。**零协议改动**：`packages/shared`、`packages/game-core`、`apps/server` 一行不改。
@@ -1961,3 +1985,241 @@ RNG ⇒ 「逐字节等价重构」立刻不成立（RNG 流被多扣一次，�
 5. **失败面完备**：断网、401（`endpoint` 与发布域名不匹配）、42501、23505、超配额各有明确文案。
 6. **红线抽查**：库里任一行都不含 hidden NPC 名、`missedEvents`、dimension `explanation`、邮箱/手机号/token。
 7. **证据缺口声明**：跨用户隔离只有**两个真实账号**能证明；`exec_sql` 是特权通道，**不作为** RLS 证据。
+
+## ADR-0026 槽模型转正：pendingEvents 串行化守卫
+
+> **本条覆盖**：将 2026-11-13 落地、并已经 QA 云端验收（用户实测「没发现大问题」）的「槽位守卫」实验**转正为正式决策**；以 append-only 方式**修订 ADR-0011 决策 5** 的队列化表述、并**调和 ADR-0024** 的定调。属于 **T-2 最小可逆实验转正**：引擎改动**未提交**、纯语法糖、可整块删除回退；`packages/shared` schema 零改动、不升 `schemaVersion`、协议/投影/存档结构全不变。
+
+- **状态**：**已通过（2026-11-13，QA 云端验收转正）**。依据 `AGENTS.md` §0「改核心数据模型/配置前先写 ADR」——本 ADR 不引入新数据模型，仅对既有 `pendingEvents` 的**运行期语义**做权威裁定（单槽，非积压队列），并显式修订 ADR-0011 决策 5 与 ADR-0024 的相关口径。
+  - 落地改动（工作区未提交，纯引擎语法糖，可整块删除回退）：`packages/game-core/src/v2/turn.ts`（守卫块 + 顶部常量注释）、`packages/game-core/src/v2/v2.test.ts` / `lifecycle-switch.test.ts`（守卫相关用例**改写**：断言单槽 ≤1 与串行化回放——首条 normal 入 `pendingEvents`、其余转 `scheduledEvents` 且 `origin.kind==='effect'`、`status==='waiting'`，被拦事件后续轮次回 `pendingEvents` 可结算）。`r25-acceptance.test.ts` 的 `T1-07 · 槽位守卫与结算轮` / `T1-07 · 战斗结束算一次结算轮（R-EV-14）` 为 R2.5 #34 **既有验收用例（本变更未改）**，佐证结算占槽与「战斗结束推进一次 turnIndex」语义。验证：核心单测 **465/0 全绿**（含守卫用例）；`pnpm typecheck` 0 错。
+  - **回退方式**：删除 `turn.ts` 顶部 `SLOT_GUARD_DELAY` 常量注释块（`:64-80`）与 `triggerEventV2` 内 `recordFire` 之前的守卫拦截块（`:465-485`），即可恢复「多事件可同时入 `pendingEvents`」的旧行为；不动类型/yaml/协议/投影/存档。
+- **起草人**：系统架构师（高见远）；起草基线 = 当前工作区（引擎守卫已实现、未提交）；与 ADR-0011/0024/OPEN_QUESTIONS #48 直接关联。
+- **关联**：ADR-0011 决策 5（**被本 ADR 修订**：撤销队列化表述与 R-EV-14 的 FIFO 解读）、ADR-0024（**被本 ADR 调和**：前提复核保留为纵深防御，但「pending 是永久 FIFO、加固而非退役」定调撤回）、ADR-0004（二态终止）、OPEN_QUESTIONS #48（结论见本 ADR）。
+
+### 背景
+
+用户原始口径（「B 决策」）为「立即触发 不入队 / 单轮单槽 / 无积压队列」，但既有文档与之冲突：
+
+- `ADR-0011` 决策 5 把立即事件落成进 `pendingEvents` **FIFO**（可积压多条，即「同窗多事件逐轮各占一槽 / R-EV-14」），并显式豁免延时/pool/schedule/chain 不受「单轮 ≤1 立即事件」约束——该约束只靠 `#35` 加载期静态拒绝「同 `onActionId` 的立即 `action-hook` ≥2」。
+- `ADR-0024` 在发现「诈尸」bug 后**加固**了 `pendingEvents`（新增 `checkEventPremise` + `revalidatePendingV2` 在每次呈现/结算前复核队首前提），其定性是「`pendingEvents` 是只承载槽位呈现的 FIFO」「加固而非退役」，且 QA 实测积压可达 5 条（`ev-d-canteen` fire@t212 → settle@t220，排队 8 轮）。
+
+`pendingEvents` 作为「可积压多条的 FIFO」带来两类风险：① **因果链断裂**——多个 normal 事件在排队期间相互依赖的前提被后续结算翻转；② **诈尸**——已死/已失效角色的事件在排队窗口内被呈现/可结算（ADR-0024 已证实 3 例）。2026-11-13 做**最小化实验**验证「槽模型」可行性：在 `triggerEventV2` 顶部加一道「槽位守卫」，使运行期 `pendingEvents` 实际恒 ≤ 1，多事件被串行化进槽位而非积压。QA 云端验收结论：用户实测「没发现大问题」，满足采纳标准（槽模型可行 ⇔ 游戏流程无体验问题）。
+
+### 现状核实（以代码为准，不以旧 spec 为准）
+
+| 事项 | 核实结论 | 证据 |
+|---|---|---|
+| 守卫位置 | `triggerEventV2` 内、`recordFire`（`turn.ts:487`）**之前** | `turn.ts:465-485` |
+| 守卫常量 | `SLOT_GUARD_DELAY = ZERO_SPEC`（`{value:0,unit:"minute"}`，相对入队时刻 0 延迟，不依赖历法） | `turn.ts:79`、`scheduler.ts:39` |
+| 守卫条件 | `event.kind === "normal" && state.pendingEvents.length > 0` | `turn.ts:471` |
+| 命中动作 | `enqueueScheduled({ state, definitionId: event.id, origin:{kind:"effect",id:event.id}, start: ZERO_SPEC, ...(chainId?), calendar: undefined })` 后 `return` | `turn.ts:472-483` |
+| 回检路径 | `drainScheduledEvents`（`scheduler.ts:310`）按 `start asc→end asc→enqueueSeq asc` 排序；该实例 `start=now` 立即到期 → `evaluateDue` 重估 `missWhen→conditions→cooldown` → 通过则 `onFire→triggerEventV2` 再次进入；此时槽位若空则 `recordFire + enqueuePendingEvent` | `scheduler.ts:113`（`start=now`）、`:310-357` |
+| 不 recordFire 约定 | 守卫在 `recordFire` 之前，命中即 `return`：命中事件**不**写 `firedEvents/lastFiredIndex/eventFires`、不入 `pendingEvents`、不进 `result.triggered`、不写 `history`；只在真正入 `pendingEvents` 的那一刻记一次 fire（与「立即触发不入队」口径一致，避免重复记火） | `turn.ts:70-71`、`:465-487` 注释 |
+| 单槽不变量 | 运行期 `pendingEvents.length ≤ 1`（槽位被占用时新 normal 事件一律改走延时队列，不入队） | 守卫条件 + 命中 return |
+| combat/random 不受影响 | combat 走 `createBattle`、random 走转盘分支，二者均不经 `pendingEvents`，不受守卫影响 | `turn.ts:451-464`、`497-499` 注释 |
+| 硬约束达成 | `PendingEvent` 类型（`v2.ts:202-206`）、`WorldStateV2.pendingEvents`（`v2.ts:313-314`）、`schemaVersion`、投影 `pendingEvent: PendingEventView|null`（`v2.ts:595`）均**未改**；`V2Snapshot` 字段集不变 | `git diff` 仅 `turn.ts`/`scheduler.ts`/`*.test.ts`，无 `shared` 改动 |
+| 投影契约 | `alsoHappened` 底栏（`apps/web/src/main.tsx:903-979`）基于 `V2TurnResult.triggeredEvents`（当轮已结算事件）派生，契约不变；串行化后同轮 normal 事件至多 1 条入槽，其余延迟到后续轮次，该底栏不再承载「同轮积压的多个 normal 事件」，但渲染逻辑不动 | `main.tsx:906` |
+
+### 决策 1：槽模型定义 —— `pendingEvents` 是**单槽（≤1）**，不是积压队列
+
+1. **运行期语义裁定**：`pendingEvents` 自本 ADR 起**权威定义为单槽**——同一时刻至多承载 1 个待玩家决策的 normal 事件；`pendingEvents.length > 1` 在正确实现下不可达（守卫保证）。它**不再是可积压多条的 FIFO**。
+2. **撤销 `ADR-0011` 决策 5 的队列化表述**：删除「立即事件的呈现排队沿用既有 `EVENT_SOURCE_PRIORITY`，不新增排序结构」「同窗多事件逐轮各占一槽（R-EV-14）」中「多事件可积压进 `pendingEvents` FIFO」的解读。**注意 R-EV-14 的两半须拆分**：
+   - **保留**（不变）：R-EV-14 的「**结算推进轮次（占槽）**」一半——事件结算推进 `turnIndex`、`timeCost` 缺省 0（`r25-acceptance.test.ts` T1-07 战斗结算用例 `:137-196` 仍断言此语义，本 ADR 不改）。
+   - **撤销**（被本 ADR 取代）：R-EV-14 的「**同窗多事件逐轮各占一槽**」一半——多事件不再各自占槽，改为串行化（决策 2）。
+3. **「无积压队列」落地**：多 normal 事件不再同时入 `pendingEvents`；超出槽位的事件经延时队列串行回放（决策 2），语义上等价「同一窗口的事件按序逐轮各占该单槽」，而非「并排占多条槽」。
+
+### 决策 2：串行化机制 —— normal 事件遇槽位占用改走延时队列，下一轮 drain 回检
+
+1. **机制**：当 `state.pendingEvents.length > 0` 时，新 normal 事件的 fire 不被直接入队，而是 `enqueueScheduled({ start: ZERO_SPEC, origin:{kind:"effect",id:event.id} })`（延迟 0 分钟 ⇒ `resolveTimeSpec` 得 `now`，立即到期）；等槽位空出后由 `drainScheduledEvents → onFire` 再次进入 `triggerEventV2`，此刻若槽位空闲则 `recordFire + enqueuePendingEvent` 真正入槽呈现。
+2. **不 recordFire 约定（防重复记火）**：守卫位于 `recordFire` 之前，命中即 `return`，被延后的事件在「转入延时队列」那一刻**不**写触发事实；只在它真正进入 `pendingEvents` 的那一刻记一次 fire——与「立即触发不入队」口径一致，避免 `once`/冷却/事实日志错乱。
+3. **combat / random 不受影响**：二者走各自分支、不经 `pendingEvents`，不受守卫约束（战斗仍按「同一时刻至多一场」既有口径；转盘仍按 `lastWheels` 同轮多结果呈现）。
+
+### 决策 3：`#35` 保留但重新定性 —— 加载期拒绝 + 运行期守卫双重保险
+
+1. **`#35` 加载期静态拒绝保留**：同 `onActionId` 的立即 `action-hook` ≥2 仍在加载期 `superRefine` 报错（ADR-0011 决策 5 原文不变），显式豁免延时事件（声明 `window`/`delay` 的 `action-hook`、chain 延时步、schedule、pool）。
+2. **「单轮至多 1 个立即事件」改由运行期守卫强制**：`#35` 只挡「同 `onActionId` 的立即 hook」这一类静态可判定冲突；**跨来源**（pool/chain/schedule/延时步经 drain 落地的 immediate、不同 `onActionId` 的 hook 同轮触发）的多 normal 事件冲突，由**运行期槽位守卫**兜底。即：单槽不变量 = `#35`（加载期）+ 槽位守卫（运行期）共同保证，而非仅靠加载期校验。
+
+### 决策 4：与 `ADR-0024` 调和 —— 前提复核保留为纵深防御，但「pending 永久 FIFO」定调撤回
+
+1. **前提复核机制全部保留**：`ADR-0024` 的 `checkEventPremise`（`scheduler.ts`）、`revalidatePendingV2`（`turn.ts`）、错误码 `event_premise_invalidated`、`TriggerResult.droppedPending` **继续生效**，作为**纵深防御**。理由：单槽 `pendingEvents[0]` 在其 fire→settle 窗口内仍可能因 `useItemV2`（轮外操作）等发生状态变更，仍需复核防诈尸。
+2. **复核覆盖面反而更全**：串行化后，被延迟的 normal 事件在**每一次 drain** 都经 `evaluateDue`（`missWhen→conditions→cooldown`）重估条件，比旧模型「入 `pendingEvents` 后无人再看」更严——原 ADR-0024「被否决的备选」第 5 条「对 `scheduledEvents` 也加同样复核」的顾虑在此自然消解（事件现在本就走 `scheduledEvents` 路径）。
+3. **撤回 ADR-0024 的定调**：ADR-0024「问题」节与「现状核实」中「`pendingEvents` 是只承载槽位呈现的 FIFO」「积压到 5 条」、以及隐含的「加固而非退役」定性，**被本 ADR 修正**——`pendingEvents` 现定义为**单槽（≤1）**，非积压队列。ADR-0024 的**复核机制本身不被撤销**，其状态行「已实施」维持有效（只修正定性）。
+
+### 决策 5：硬约束（最小可逆实验转正）
+
+1. **类型/字段不动**：`PendingEvent`（`v2.ts:202-206`）、`WorldStateV2.pendingEvents`（`v2.ts:313-314`）**保留原状**；不新增 `instanceId`、不加「允许失效」声明位。
+2. **yaml / 协议 / 投影 / 存档结构全不变**：`schemaVersion` **不升**（旧档可直接载入）；`V2Snapshot` 字段集不变（`pendingEvent: PendingEventView|null`、`lastWheels`、`alsoHappened` 底栏契约不变）；前端零改动。
+3. **守卫可整块删除回退**：删除 `turn.ts` 顶部 `SLOT_GUARD_DELAY` 常量注释块（`:64-80`）与 `triggerEventV2` 内守卫拦截块（`:465-485`），即恢复「多事件可同时入 `pendingEvents`」旧行为——这是本转正决策的**可逆性硬保证**，也是它能被定为「最小实验」而非「协议变更」的原因。
+
+### 决策 6：确定性影响（与 ADR-0024 同口径：变化是预期的、非回归）
+
+1. **守卫本身不耗 RNG**：命中守卫只是 `enqueueScheduled`（纯状态写，无随机），故不改变任何 RNG 序列；延迟实例在 drain 时若含 `random` 条件才会经 `evaluateDue` 消耗 `ADR-0024` 的独立 `+37` 盐（仍由 `state.seed` 决定，确定性成立）。
+2. **受影响 seed 轨迹变化**：凡「同轮多个 normal 事件本应积压」的 seed，其事件呈现顺序/时点会因串行化（延迟 + 每轮重估条件）而改变；若某延迟事件在重估时条件已不满足，则被 `drop`（同 ADR-0024 处置，不记错失、不退 once/冷却）。这与 ADR-0024 的「变化是预期的、非回归」判据同构。
+3. **QA 基线未漂移**（实施核验）：6 种子 × 2 开局收束、`day≈4736–4756`、章节 ≥ 8、五维评分区间不变、核心单测 465/0 全绿——即结构断言全绿，允许变化的只有逐事件时序细节。
+
+### 被否决的备选
+
+- **维持 ADR-0011 现状队列（多事件积压进 `pendingEvents` FIFO）**：已被 ADR-0024 QA 反例证实风险（积压 5 条、排队 8 轮、3 例诈尸/因果链断裂），与用户 B 决策「无积压队列」直接冲突。**否决**。
+- **fire 与 settle 原子化在同轮内完成（立即事件 fire 即 settle、彻底无队列）**：更干净的模型，但需重写「结算推进轮次（占槽）」语义、改 `once`/冷却的时点、改 `V2TurnResult.triggeredEvents` 契约（前端靠它在 fire 轮弹提示），并让所有 `eventFires` 基线平移——收益（消除一条时间戳正确的历史旁白）与代价严重不成比例。本守卫已在不改结算语义、不动协议的前提下达成单槽，**否决**（若将来要动，独立 ADR）。
+- **完全退役 `pendingEvents` 字段 / 改用纯 `scheduledEvents` 承载待决**：违反决策 5 硬约束（`WorldStateV2.pendingEvents` 字段不动、不升 `schemaVersion`、旧档兼容），且破坏既有投影契约（`snapshot.pendingEvent`）与 `pending_event_required` 守卫语义。**否决**。
+
+### 影响面与文件归属
+
+| 改动点 | 归属 | 依据 | 写冲突 |
+|---|---|---|---|
+| 槽位守卫（`SLOT_GUARD_DELAY` 常量注释块 + `triggerEventV2` 内拦截块） | `packages/game-core/src/v2/turn.ts` | 守卫在 `pendingEvents` 归属层；可整块删除回退 | `turn.ts` 是热点，与任何改轮次管线的任务必须串行 |
+| 守卫相关用例（单槽 ≤1 与串行化回放断言） | `packages/game-core/src/v2/{v2.test.ts,lifecycle-switch.test.ts}`（改写）；`r25-acceptance.test.ts` 的 `T1-07` 为 R2.5 #34 既有用例（未改） | 测试 | 低 |
+| `packages/shared` | **零改动**（schema / `PendingEvent` / `schemaVersion` 不动） | 决策 5 | 无 |
+| 投影 / 前端 | **零改动**（`V2Snapshot` 字段集不变；`alsoHappened` 底栏契约不变，运行期恒不再承载同轮积压 normal 事件） | 决策 5 | 无 |
+| 存档 / 载入 | **零改动**（不升 `schemaVersion`；旧档可直接载入） | 决策 5 | 无 |
+
+### 不变量检查表
+
+| 不变量 | 现状 | 本决策影响 | 保护措施 |
+|---|---|---|---|
+| 同 seed 同输入同结果 | 成立 | 受影响 seed 的轨迹因串行化 + drain 重估而改变（预期，非回归） | 守卫不耗 RNG；结构化断言（day/章节/五维）全绿；延迟实例随机条件走 `+37` 独立盐 |
+| hidden 不进入玩家端 API | 成立 | 无影响 | 不动投影字段集 |
+| 世界观规则只进模板 | 成立 | 强化：单槽 + 串行化不引入任何「按 reasonCode/NPC 分支」的引擎逻辑 | 守卫只判 `kind==="normal" && length>0`，不读模板语义 |
+| 时间/随机/ID 可注入 | 成立 | 守卫纯状态写、不读 `Date`/`Math.random`；延迟实例重估沿用既有 `+37` 盐 | 派生点写在一处 |
+| R3 穿越 seam 未被封死 | 三个预留点（事件实例标识 / `TimeAdapter` / 可见性投影）均未硬化 | **正向**：串行化使事件改走 `drainScheduledEvents→evaluateDue` 每轮重估条件，时间回拨后同一事件可重估前提，不写死时间单调 | 复核/重估不缓存结果、不在 fire 时固化前提真值 |
+| `pendingEvents` 单槽（≤1） | 旧：FIFO 可积压多条 | **裁定为单槽**（撤销 ADR-0011 队列化表述） | 运行期守卫 + 加载期 `#35` 双重保证 |
+| `pending_event_required` 守卫语义 | 槽位被占用时拒绝自由行动 | 不变（仍为「槽位占用 ⇒ 拒绝新自由行动」） | `turn.ts:893` 维持 |
+
+### 验证要点（含落地用例位置）
+
+1. **运行期恒 ≤ 1**：构造同轮触发 2 个 normal 事件的场景，断言 `state.pendingEvents.length` 峰值恒为 1（另一个被延迟到 `scheduledEvents`）；由 `v2.test.ts:726` 与 `lifecycle-switch.test.ts:486` 覆盖（`r25-acceptance.test.ts` T1-07 佐证结算占槽语义）。
+2. **串行化回放**：槽位被占时新 normal 事件进 `scheduledEvents`（`origin.kind==="effect"`）；槽位空出后下一轮 drain 入槽呈现，且**只在入槽那一刻 `recordFire` 一次**（验证不重复记火：`eventFires` 长度与入槽次数一致）。
+3. **combat/random 不受影响**：战斗仍按「同一时刻至多一场」、转盘仍按 `lastWheels` 同轮多结果呈现；守卫只对 `kind==="normal"` 生效。
+4. **单槽不变量 = `#35` + 守卫**：加载期仍拒绝同 `onActionId` 立即 `action-hook` ≥2；运行期跨来源冲突由守卫兜底。
+5. **确定性 / 基线未漂移**：核心单测 465/0 全绿；`playthrough.test.ts` 6 种子 × 2 开局结构性断言全绿（`day≈4736–4756`、章节 ≥ 8、五维区间不变）。
+6. **回退验证（可逆性硬保证）**：删除 `turn.ts` 守卫块（`:64-80` + `:465-485`）后，构造同轮 2 normal 事件，断言旧行为恢复（可同时入 `pendingEvents`，length 可达 2）；且 `shared`/schema/投影/存档无任何回退改动。
+
+### 明确不做（边界）
+
+| 不做 | 理由 |
+|---|---|
+| 不动 `PendingEvent` 类型 / `WorldStateV2.pendingEvents` 字段 / `schemaVersion` | 决策 5 硬约束（最小可逆、旧档兼容） |
+| 不引入新协议面（不扩 `MissReason`、不加 `instanceId`） | 与 ADR-0024 决策 8 同口径；正确性不靠开关 |
+| 不改 `alsoHappened` 底栏 / `V2Snapshot` 字段集 | 投影契约不变；串行化后该底栏运行期不再承载同轮积压 normal 事件，但渲染逻辑不动 |
+| 不把 `recordFire`/`pushHistory` 移到 settle 时 | 决策 6 同 ADR-0024「被否决的备选」最后一条 |
+| 不撤销 ADR-0024 的前提复核机制 | 决策 4：单槽窗口内仍需复核防诈尸，且串行化后覆盖更全 |
+| 不处置僵尸链（ADR-0024 决策 6） | 与本 ADR 正交，重开条件不变 |
+
+### 对 ADR-0011 决策 5 与 ADR-0024 的修订回指（append-only 注记，供落地）
+
+**插入 ADR-0011 决策 5 末尾：**
+> **〔被 ADR-0026 修订，2026-11-13〕** 本决策中「立即事件的呈现排队沿用既有 `EVENT_SOURCE_PRIORITY`，不新增排序结构」「同窗多事件逐轮各占一槽（R-EV-14）」的**队列化表述已撤销**：`pendingEvents` 不再是可积压多条的 FIFO，运行期由 `triggerEventV2` 顶部「槽位守卫」强制恒 ≤ 1（单槽），多 normal 事件经 `enqueueScheduled(ZERO_SPEC)` 串行化进槽位。**R-EV-14 须拆分**：「结算推进轮次（占槽）」一半保持不变（仍由 T1-07 战斗结算用例断言）；「同窗多事件逐轮各占一槽」一半被本 ADR 取代。`#35` 加载期拒绝同 `onActionId` 立即 `action-hook` 仍保留，但「单轮至多 1 个立即事件」改由运行期守卫强制。详见 ADR-0026。
+
+**插入 ADR-0024 末尾：**
+> **〔被 ADR-0026 调和，2026-11-13〕** 本 ADR「问题」节与「现状核实」中「`pendingEvents` 是只承载槽位呈现的 FIFO」「积压到 5 条」等表述，及隐含的「加固而非退役」定调，**已被 ADR-0026 修正**：`pendingEvents` 现定义为**单槽（≤1）**，非积压队列。**本 ADR 的前提复核机制本身（决策 1–4、决策 8 的 `event_premise_invalidated`、决策 2.2 的 `revalidatePendingV2`、决策 2.1 的 `checkEventPremise`、决策 4 的 `droppedPending`）全部保留为纵深防御**——且因串行化后事件改走 `drainScheduledEvents→evaluateDue` 每轮重估条件，复核覆盖面反而更全。状态行「已实施」维持有效（复核机制仍生效），仅定性被修正。
+
+## ADR-0027 AI 叙事层接入：LLM Provider 抽象 + 服务端编排 + 确定性边界
+
+> **本条覆盖**：将 2026-11-13 与用户讨论确定的「AI 叙事层（LLM 接入）」落地为正式决策——`LLMProvider` 统一接口（Mock / WorkBuddy 云服务 SDK / OpenAI 兼容）、服务端凭证路由、确定性边界、strict Zod + 证据白名单回退、事件 flavor 异步生成。属于 **T-2 协议/契约变更**（动 server/engine 编排契约 + shared schema 新增），须先写 ADR（AGENTS §0.3）。
+
+- **状态**：**草案（2026-11-13，G1 待评审）**。依据 `AGENTS.md` §0.3：本轮虽多数改动在 `apps/server` 且不升 `schemaVersion`（shared 仅纯新增 `EventFlavorOutputSchema`，`WorldStateV2` 零改动），但动到「server/engine 编排契约 + 叙事来源语义（`narrativeSource` 取值从恒 `template` 变为 `template/llm/fallback` 由运行时决定）」，属契约面变更，故走 ADR。
+  - **起草人**：系统架构师（高见远）；起草基线 = `packages/game-core/src/v2/narrative.ts` 既有 scaffold + 用户 2026-11-13 provider/凭证/延迟面决策。
+- **关联**：ADR-0025（WorkBuddy 登录 + 人生档案，登录会话作为云端 SDK 凭证来源）、AGENTS §1（game-core 不引 LLM SDK/网络）、AGENTS §5（不得客户端直连 LLM / 不得外部账号依赖 / 错误可诊断）、OPEN_QUESTIONS #3（多 Agent，DEFERRED）、#5（provider/模型，先接口与 Mock）、#26（自由文本行动，DEFERRED）。
+
+### 背景
+
+当前 `narrative.ts` 已建好 LLM 接入的**护栏与注入点**——只读 `NarrativeRequest`、`NarrativeAdapter = (req) => unknown` 注入、`EndingNarrativeOutputSchema`/`EvaluationSummaryOutputSchema` 的 **strict** Zod 校验、证据白名单 `allowedEvidenceIds` 防虚构事实、`template/llm/fallback` 三来源 + `diagnostic`。但 LLM 路径**从未接通**：`narrativeSource` 恒为 `"template"`（无 adapter 注入），且 game-core 按 AGENTS §1 严禁任何 LLM SDK / 网络调用。
+
+`BACKLOG.md` §0 将 AI 叙事层列为产品核心模块、主线缺口序列第一。2026-11-13 用户拍板 provider/部署决策：① 参考适配器双轨（OpenAI 兼容 + WorkBuddy 云服务 SDK 免密钥）+ Mock 默认；② 凭证全服务端、客户端零凭证（用户「自带 key」经登录后云端 SDK 消解）；③ 延迟面含事件 flavor 异步。本 ADR 将这些决策固化为实施约束。
+
+### 现状核实（以代码为准）
+
+| 事项 | 核实结论 | 证据 |
+|---|---|---|
+| 叙事护栏 | `NarrativeRequest` 只读、无可写状态；`resolveEndingNarrative`/`finalizeEvaluationSummary` 已做 strict Zod + 证据白名单 + 三来源 + `diagnostic` | `packages/game-core/src/v2/narrative.ts` |
+| 输出契约 | `EndingNarrativeOutputSchema`{title,summary,evidenceIds} strict；`EvaluationSummaryOutputSchema`{summary} strict；`NarrativeSource` enum `["template","llm","fallback"]` | `packages/shared/src/schema/evaluation.ts:98-118`、`ending.ts:37` |
+| 确定性内核 | `packages/game-core` 无任何 LLM SDK / 网络调用 | AGENTS §1；全仓扫描无 LLM import |
+| LLM 路径 | `narrativeSource` 恒 `"template"`，无 provider、无路由、无回退触发 | `narrative.ts`（无 adapter 注入点被填满） |
+| 凭证前提 | ADR-0025 已接 WorkBuddy 登录 + 人生档案（前端 `2991eb2`/`dee5570`）；登录会话可作云端 SDK 凭证来源 | `docs/DECISIONS.md` ADR-0025、`git log` |
+
+### 决策 1：LLMProvider 接口定义在 `apps/server`，game-core 只保留纯函数
+
+1. **`LLMProvider` 接口**（`complete(request, schema, opts?): Promise<unknown>`）定义于 `apps/server`（不在 `packages/game-core`），实现（Mock / WorkBuddy 云端 SDK / OpenAI 兼容）均在服务端。game-core **不新增任何 LLM SDK / 网络调用**（AGENTS §1 硬约束）。
+2. **game-core 抽出导出的纯函数**：`buildEndingNarrativeRequest` / `buildEvaluationSummaryRequest` / `buildEventFlavorRequest` / `validateNarrativeOutput(schema, candidate, allowedEvidenceIds)`。前者构造只读请求，后者复用既有 strict 校验 + 证据白名单逻辑——保证「校验」单一事实来源在 game-core，服务端只调不重写。
+3. 既有 `resolveEndingNarrative(request, adapter?)` / `finalizeEvaluationSummary(record, adapter?)` 保留为同步 adapter 路径（本地/测试用），生产主路径改为服务端编排。
+
+### 决策 2：三层凭证路由，客户端零 LLM 凭证
+
+1. **路由优先级**（服务端持有）：① 存在 WorkBuddy 登录会话 ⇒ 云端 SDK（免密钥，部署/登录态默认）；② 配置了 `LIFE_SIM_LLM_BASE_URL`/`MODEL`/`API_KEY` ⇒ OpenAI 兼容（DeepSeek / 国产 / 本地端点）；③ 否则 ⇒ Mock（返回确定性/模板化文本，demo/测试零外部依赖）。
+2. **客户端绝不持有 LLM 凭证**（AGENTS §5「不得外部账号依赖 / 客户端不直连」）：用户「自带 key」概念经「登录后云端 SDK 免密钥」消解——登录用户凭 ADR-0025 登录会话调平台 LLM，无 key 暴露、无客户端直连。
+3. **密钥仅经环境变量**：`LIFE_SIM_LLM_*` 缺省即视为不可用并回退 Mock；**绝不硬编码、绝不提交**；仓库密钥字面量纳入既有扫描护栏（类比 `boundary.test.ts` 世界观专名扫描）。
+
+### 决策 3：确定性边界——LLM 文本仅展示，排除在 replay 契约外
+
+1. LLM 只填充不参与状态转移 / 评分的**展示字段**；候选与评分仍由规则确定性生成（同 seed 同输入同结果）。
+2. **叙事文本明确排除**在「同 seed 同输入同结果」回放契约之外：归档时把当时生成的叙事原文作为**展示快照**存入档案；重放断言只比对状态/事件/结局/评分，不比对叙事文本。
+3. `EventFlavorOutputSchema` 等 LLM 输出契约均为 **strict**，拒绝任何试图写状态/分数/维度的字段（沿用 R-EN-06 / R-EV-05 既有约束）。
+
+### 决策 4：回退与可诊断——strict Zod + 证据白名单 + 超时/错误 → fallback
+
+1. `generateNarrative(request, schema, provider)` 编排：`provider.complete` → `validateNarrativeOutput` → 成功返回 `{source:"llm", ...}`；**失败/超时/虚构证据**（`evidenceIds` 越出 `allowedEvidenceIds`）一律返回 `{source:"fallback", diagnostic}`。
+2. `diagnostic` 必须非空且区分原因（非法 schema / 虚构证据 / 超时 / adapter 不可用）——错误可诊断，不静默忽略（AGENTS §2）。
+3. LLM 失败**绝不阻塞玩法管线**：回合结算、结局、总结不因 LLM 异常/超时中断。
+
+### 决策 5：事件 flavor 异步生成，存非权威缓存
+
+1. 事件 flavor 在回合管线**之外**后台（`fire-and-forget`）生成，超时即回退模板，不占用/阻塞当轮结算。
+2. 生成结果存**非权威服务端缓存**（键 `worldId + eventInstanceId + worldTime`），**不写入 `WorldStateV2`、不进 replay**；投影优先取缓存，缺失/超时取模板文案。`WorldStateV2` 序列化字节不受缓存影响。
+
+### 决策 6：配置与密钥管理
+
+1. OpenAI 兼容仅经 `LIFE_SIM_LLM_*` 注入；缺失即回退 Mock，启动不报错。
+2. WorkBuddy 云服务 SDK 免密钥 LLM 的真实接入方式（凭 ADR-0025 登录令牌调平台端点）在 T-P2 实施时确认；纯本地 dev 不可达属预期，回退 Mock/OpenAI 兼容。
+3. 密钥字面量不进仓库（扫描护栏覆盖）。
+
+### 被否决的备选
+
+- **客户端直连 LLM（浏览器持 key 调 provider）**：违反 AGENTS §5（key 暴露 / XSS / 绑定外部账号）。**否决**；如需用户身份，统一走服务端「登录后云端 SDK」。
+- **LLM 写权威状态 / 决定评分**：违反 AGENTS §1/§5 与既有 strict 契约。**否决**——叙事文本严格排除在状态/评分之外。
+- **把 LLM SDK 引入 game-core**：违反 AGENTS §1 确定性内核边界。**否决**——LLM 调用全在 `apps/server`。
+- **自由文本行动解析（自然语言→结构化候选行动）并进首轮**：OPEN_QUESTIONS #26 未决，需先定规格归属与校验责任。**否决（DEFERRED）**。
+- **多 Agent 运行时**：OPEN_QUESTIONS #3 明确 P0 不要求。**否决（DEFERRED）**。
+- **事件 flavor 流式输出**：本轮只做异步生成 + 超时回退，流式是后续增强。**否决（延后）**。
+
+### 影响面与文件归属
+
+| 改动点 | 归属 | 依据 | 写冲突 |
+|---|---|---|---|
+| `apps/server/src/llm/{provider,mock,workbuddyCloud,openaiCompatible}.ts` | `apps/server` | 决策 1/2 | 新文件；服务端热点，与任何改 world 路由的任务串行 |
+| `apps/server/src/narrative/generate.ts` | `apps/server` | 决策 4 | 新文件 |
+| `packages/game-core/src/v2/narrative.ts` | `packages/game-core` | 决策 1 | 抽纯函数 + 新增 `buildEventFlavorRequest`；不引 LLM |
+| `packages/shared/src/schema/{event,narrative}.ts` | `packages/shared` | 决策 3 | 纯新增 `EventFlavorOutputSchema`（strict）；不升 `schemaVersion` |
+| `apps/server` 事件 flavor 缓存 | `apps/server` | 决策 5 | 非权威 `Map`；不进 `WorldStateV2` |
+| `apps/web` 投影 | `apps/web` | 决策 3/5 | 消费 `eventFlavor` / `narrativeSource`；缺省模板文案 |
+
+### 不变量检查表
+
+| 不变量 | 现状 | 本决策影响 | 保护措施 |
+|---|---|---|---|
+| 同 seed 同输入同结果 | 成立 | 叙事文本排除在契约外（预期变化）；状态/事件/结局/评分不受影响 | 重放断言不比对叙事；LLM 不写状态/评分 |
+| hidden 不进入玩家端 API | 成立 | 无影响 | 不动投影字段集；flavor 仅文本 |
+| 世界观规则只进模板 | 成立 | 强化：LLM 不引入按世界观分支的引擎逻辑 | provider 只产文本，不读模板语义 |
+| 时间/随机/ID 可注入 | 成立 | LLM 调用不消耗游戏 RNG；缓存键不含随机 | 异步生成在管线外；缓存键确定性 |
+| game-core 无 LLM 依赖 | 成立 | **裁定维持**：LLM SDK/网络只在 `apps/server` | 接口定义在 server；game-core 只抽纯函数 |
+| 客户端零 LLM 凭证 | 旧：无 LLM | **裁定为硬约束** | 路由全服务端；密钥仅 env；客户端不持 key |
+| `WorldStateV2` 不变 | 旧：无 flavor 缓存 | **裁定零改动** | 缓存非权威、在状态外 |
+| `schemaVersion` 不升 | 旧：=2 | **裁定不升**（shared 仅纯新增） | 旧档可直接载入 |
+
+### 验证要点（含落地用例位置）
+
+1. **零回归默认**：无 `LIFE_SIM_LLM_*` 且无登录态 ⇒ Mock 默认、叙事恒模板；`pnpm --filter @life-sim/server start` 加载期不报错。
+2. **回退三反例**：注入非法 schema / 虚构 `evidenceIds` / 超时 ⇒ 均回退 `fallback` + `diagnostic` 区分原因；玩法不中断。
+3. **确定性**：同 seed 重放断言不比对叙事文本；注入 LLM 前后维度/分数/证据逐字段相等。
+4. **事件 flavor 异步**：事件结算不被 LLM 延迟；超时（极短 timeout）后展示仍模板；`WorldStateV2` 两次序列化字节一致。
+5. **密钥护栏**：仓库无明文 key；`API_KEY` 缺失自动 Mock 不报错；密钥字面量不进提交。
+6. **类型**：`pnpm typecheck` 0 错；game-core / shared 测试全绿；`playthrough.test.ts` 6 种子结构性断言（day/章节/五维）不变。
+
+### 明确不做（边界）
+
+| 不做 | 理由 |
+|---|---|
+| 不把 LLM 引入 game-core | 决策 1（AGENTS §1 硬约束） |
+| 不允许客户端直连 LLM | 决策 2（AGENTS §5） |
+| 不升 `schemaVersion` / 不改 `WorldStateV2` | 影响面表（旧档兼容、缓存非权威） |
+| 不把 LLM 写入状态/评分 | 决策 3（AGENTS §5、既有 strict 契约） |
+| 自由文本行动（#26）/ 多 Agent（#3）/ 流式输出 | DEFERRED，本轮只登记不实现 |

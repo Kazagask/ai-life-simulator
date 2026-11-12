@@ -49,6 +49,7 @@ import {
   onCooldown,
   recordFire,
   specToMinutes,
+  ZERO_SPEC,
 } from "./scheduler.js";
 import {
   applyDeathRoute,
@@ -59,6 +60,24 @@ import {
 } from "./ending.js";
 
 const MAX_TRIGGER_DEPTH = 8;
+
+// ============ 临时实验：槽位守卫 SLOT GUARD（待 QA 验收后定论，可整体回退）============
+// 目的：验证「单轮单槽 / 槽模型」是否可行——运行期 pendingEvents 实际恒 ≤ 1，多 normal 事件被
+// 串行化进槽位，避免多事件积压导致的因果链断裂 / 诈尸（已死角色仍被呈现）。
+// 机制：当 pendingEvents 非空时，新的 normal 事件不再直接入队，而是经 enqueueScheduled 转入
+// 延时队列（delay = SLOT_GUARD_DELAY，默认为 0 分钟 ⇒ 下一个 drain 轮次即回检），等槽位空出后
+// 由 drainScheduledEvents → onFire 再次进入 triggerEventV2 时再真正入 pendingEvents 呈现。
+// 约定：命中守卫的事件在「被转入延时队列」那一刻**不** recordFire（守卫位于 recordFire 之前），
+// 只在它真正进入 pendingEvents 的那一刻记一次 fire——与「立即触发 不入队」口径一致，避免重复记火。
+//
+// 回退方式（整体撤除，不动协议 / yaml / 类型）：
+//   1) 删除本常量；
+//   2) 删除 triggerEventV2 内 recordFire 之前的「临时实验：槽位守卫」拦截块。
+// 即可恢复「多事件可同时入 pendingEvents」的旧行为。SLOT_GUARD_DELAY 取值为 ZERO_SPEC（0 分钟）
+// 时 resolveTimeSpec 不依赖历法，故下方调用可传 calendar: undefined。
+// ⚠ 这是临时防护语法糖，非协议变更；结论待 QA 验收后写入 ADR。
+const SLOT_GUARD_DELAY = ZERO_SPEC;
+// ============ /临时实验：槽位守卫 ============
 
 // ---------- 创建世界 ----------
 
@@ -443,6 +462,28 @@ export function triggerEventV2(
       return;
     }
   }
+  // ============ 临时实验：槽位守卫（与文件顶部 SLOT_GUARD_DELAY 配套，可整块删除回退）============
+  // 当槽位（pendingEvents）已被占用时，normal 事件不再直接入队，而是转入延时队列（delay=0，
+  // 下一轮 drain 回检），等槽位空出后再经 onFire 回到本函数、此刻才 recordFire + 入 pendingEvents。
+  // 守卫必须位于 recordFire 之前：出队事件会再次进入 triggerEventV2，若放在 recordFire 之后会
+  // 重复 recordFire（once / 冷却 / 事实日志错乱）。命中守卫即 return，跳过本次的 recordFire /
+  // triggered.push / pushHistory。combat / random 走各自分支、不经 pendingEvents，不受本守卫影响。
+  if (event.kind === "normal" && state.pendingEvents.length > 0) {
+    enqueueScheduled({
+      state,
+      definitionId: event.id,
+      // EventInstanceOrigin 要求 id（协议 §16，所有 kind 均须带 id）；沿用 pool/schedule-init 约定
+      // 以被延后事件自身 id 标识来源（纯元数据，不参与调度分发）。
+      origin: { kind: "effect", id: event.id },
+      start: SLOT_GUARD_DELAY,
+      ...(chainId !== undefined ? { chainId } : {}),
+      // delay=0 ⇒ resolveTimeSpec 不依赖历法，无需注入 calendar（见顶部常量注释）。
+      calendar: undefined,
+    });
+    return;
+  }
+  // ============ /临时实验：槽位守卫 ============
+
   recordFire(state, event.id);
   result.triggered.push({ id: event.id, title: event.title, narrative: event.narrative });
   pushHistory(state, lookup.template, {

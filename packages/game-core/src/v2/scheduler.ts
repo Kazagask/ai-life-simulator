@@ -36,7 +36,7 @@ import type { TemplateLookup } from "./lookup.js";
 /** 历法适配器子集（R2.6 已接线）：字符串字面量与 year/month 量换算经此注入。 */
 export type TimeSpecCalendar = Pick<CalendarAdapter, "parseTimeSpec" | "toMinutes">;
 
-const ZERO_SPEC: TimeSpec = { value: 0, unit: "minute" };
+export const ZERO_SPEC: TimeSpec = { value: 0, unit: "minute" };
 
 /**
  * TimeSpec → 绝对世界分钟。**默认相对入队时刻**（OQ-#37）：now + amount。

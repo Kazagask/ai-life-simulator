@@ -6,7 +6,7 @@ import { parse } from "yaml";
 import { WorldTemplateV2Schema, type WorldStateV2, type WorldTemplateV2 } from "@life-sim/shared";
 import { createLookup } from "./v2/lookup.js";
 import { createBattle, finishBattle, performBattleAction } from "./v2/battle.js";
-import { applyEffectsV2, computeMax, playerEffectiveAttributes, type EffectContextV2 } from "./v2/engine.js";
+import { applyEffectsV2, checkAllConditions, computeMax, playerEffectiveAttributes, type EffectContextV2 } from "./v2/engine.js";
 import { projectSnapshotV2 } from "./v2/projection.js";
 import { advanceTurnV2, battleActionV2, chooseOptionV2 } from "./v2/turn.js";
 import { createDefaultOpeningTemplate } from "./v2/opening.js";
@@ -722,14 +722,21 @@ describe("V2 引擎 · 事件轮次", () => {
 
     const res = advanceTurnV2(state, { action: { type: "patrol", description: "" } }, template, lookup);
 
-    // 队列按优先级有序，与 combat 的抢占顺序一致；取队首即最高优先级
-    expect(state.pendingEvents.map((p) => p.eventId)).toEqual([
-      "ev-chain-normal",
-      "ev-sched-normal",
-      "ev-hook-normal",
-      "ev-normal",
-    ]);
+    // 槽位防护（单槽串行化模型）：运行期 pendingEvents 恒 ≤ 1；首条（最高优先级）normal 事件入槽呈现，
+    // 其余 normal 事件因槽位被占用，经守卫转入延时队列（origin.kind==='effect'、status==='waiting'）
+    // 轮询，等槽位空出再回到 pendingEvents——不丢失、不卡死。
+    expect(state.pendingEvents.length).toBe(1);
+    expect(state.pendingEvents[0]?.eventId).toBe("ev-chain-normal");
     expect(res.snapshot.pendingEvent?.eventId).toBe("ev-chain-normal");
+
+    // 其余 3 条 normal 事件被守卫拦截、落入延时队列（而非入 pendingEvents）
+    const deferred = state.scheduledEvents.filter(
+      (i) => i.origin.kind === "effect" && i.status === "waiting",
+    );
+    const deferredIds = new Set(deferred.map((i) => i.definitionId));
+    expect(deferredIds.has("ev-sched-normal")).toBe(true);
+    expect(deferredIds.has("ev-hook-normal")).toBe(true);
+    expect(deferredIds.has("ev-normal")).toBe(true);
   });
 
   it("normal 队列：后到的高优先级事件插队，同优先级保持 FIFO", () => {
@@ -764,16 +771,34 @@ describe("V2 引擎 · 事件轮次", () => {
       { eventId: "ev-normal" },
     );
 
-    const res = chooseOptionV2(state, { optionId: "opt-plain" }, template, lookup);
-    // 队首被消费；结算中新触发的链事件插到最前，剩余 pool 事件仍按原 FIFO 顺序；
-    // #34：结算轮尾管线又抽中 ev-normal（probability=1、无冷却），为下一槽位追加一条。
-    expect(state.pendingEvents.map((p) => p.eventId)).toEqual([
-      "ev-chain-normal",
-      "ev-pool-normal-2",
-      "ev-normal",
-      "ev-normal",
-    ]);
-    expect(res.snapshot.pendingEvent?.eventId).toBe("ev-chain-normal");
+    chooseOptionV2(state, { optionId: "opt-plain" }, template, lookup);
+    // 槽位防护：预置遗留队列仍占用槽位，结算触发的高优先级 ev-chain-normal 被守卫拦截，
+    // 转入延时队列（origin.kind==='effect'、status==='waiting'），不插入 pendingEvents。
+    expect(state.pendingEvents.some((p) => p.eventId === "ev-chain-normal")).toBe(false);
+    expect(
+      state.scheduledEvents.some(
+        (i) => i.definitionId === "ev-chain-normal" && i.origin.kind === "effect" && i.status === "waiting",
+      ),
+    ).toBe(true);
+
+    // 后续轮次：逐条结算遗留队列释放槽位，被拦的高优事件经 scheduledEvents 出队、回到 pendingEvents 并正常结算。
+    // 每次引擎入队至多 1 条新事件，pendingEvents 整体收敛；用「首项可见选项」推进。
+    const ctx = { state, lookup, rng: () => 0.5 };
+    let guard = 0;
+    while (guard++ < 8 && !state.pendingEvents.some((p) => p.eventId === "ev-chain-normal")) {
+      const pend = state.pendingEvents[0];
+      if (!pend) break;
+      const ev = lookup.event(pend.eventId);
+      if (!ev || ev.kind !== "normal") break;
+      if (state.battle && !state.battle.over) break;
+      const opt = ev.settle.normal.options.find((o) => checkAllConditions(o.visibleWhen, ctx));
+      if (!opt) break;
+      chooseOptionV2(state, { optionId: opt.id }, template, lookup);
+    }
+    expect(state.pendingEvents.some((p) => p.eventId === "ev-chain-normal")).toBe(true);
+    expect(state.pendingEvents.length).toBeLessThanOrEqual(1);
+    // 被拦的高优事件已回到 pendingEvents，可正常结算（不抛错）
+    expect(() => chooseOptionV2(state, { optionId: "opt-ok" }, template, lookup)).not.toThrow();
   });
 
   it("献祭技能按层数结算伤害并消耗补正", () => {
