@@ -1608,6 +1608,9 @@ events:
             text: 去薨星宫，在台阶下放一束花
             effects:
               - { type: setFlag, id: rikoDead, value: true }
+              # 生死只由同一处事实驱动：写 rikoDead 的同一组 effects 里同时落 lifecycle。
+              # 留守线拿到的只是一行通报，但她确实死了（被甚尔枪杀），cause 与 ev-sp-05b 一致。
+              - { type: setNpcLifecycle, npcId: npc-riko, state: inactive, reasonCode: 阵亡 }
               - { type: setFlag, id: hasGrave, value: true }
               - { type: applyStatus, status: grief, stacks: 1 }
               - { type: adjustRelation, npcId: npc-nanami, value: 4 }
@@ -1617,6 +1620,7 @@ events:
             text: 留在学校，把这件事咽下去
             effects:
               - { type: setFlag, id: rikoDead, value: true }
+              - { type: setNpcLifecycle, npcId: npc-riko, state: inactive, reasonCode: 阵亡 }
               - { type: setFlag, id: swallowedIt, value: true }
               - { type: adjustAttribute, attribute: intellect, value: 3 }
               - { type: adjustRelation, npcId: npc-yaga, value: 5 }
@@ -1796,6 +1800,9 @@ events:
             effects:
               - { type: setFlag, id: rikoSacrificed, value: true }
               - { type: setFlag, id: savedRiko, value: false }
+              # 「天内理子」这个人从此不存在——不是被杀，是被同化；cause 用更准确的词，
+              # 与「阵亡」区分开（引擎不对 reasonCode 分支，只存下来给面板看）。
+              - { type: setNpcLifecycle, npcId: npc-riko, state: inactive, reasonCode: 被同化 }
               - { type: adjustFlag, id: getoDoubt, value: 2 }
               - { type: adjustMood, value: -14 }
               - { type: log, text: 天内理子在同化中消失。 , visibility: public }
@@ -1805,6 +1812,9 @@ events:
             effects:
               - { type: setFlag, id: rikoEscaped, value: true }
               - { type: setFlag, id: tenjinEvolved, value: true }
+              # 与上一格对称：把「她仍活着」写成显式事实，避免以后有人在 ev-sp-05a 入口
+              # 统一落死亡时把「救下」这条误标成死。幂等（此处本来就 alive）。
+              - { type: setNpcLifecycle, npcId: npc-riko, state: alive }
               - { type: adjustRelation, npcId: npc-riko, value: 20 }
               - { type: adjustRelation, npcId: npc-geto, value: 8 }
               - { type: adjustFlag, id: getoDoubt, value: -3 }
@@ -1826,6 +1836,8 @@ events:
             text: 去追甚尔
             effects:
               - { type: setFlag, id: rikoDead, value: true }
+              # 她死在台阶上（被甚尔一枪）：与 rikoDead 同一组 effects，cause 统一用「阵亡」。
+              - { type: setNpcLifecycle, npcId: npc-riko, state: inactive, reasonCode: 阵亡 }
               - { type: adjustAttribute, attribute: agility, value: 2 }
               - { type: adjustMood, value: -10 }
             nextEventId: ev-sp-06
@@ -1833,6 +1845,7 @@ events:
             text: 站到夏油旁边。他一句话都没说
             effects:
               - { type: setFlag, id: rikoDead, value: true }
+              - { type: setNpcLifecycle, npcId: npc-riko, state: inactive, reasonCode: 阵亡 }
               - { type: adjustRelation, npcId: npc-geto, value: 8 }
               - { type: adjustFlag, id: getoDoubt, value: 3 }
               - { type: adjustMood, value: -12 }
@@ -1841,6 +1854,7 @@ events:
             text: 一个人走开
             effects:
               - { type: setFlag, id: rikoDead, value: true }
+              - { type: setNpcLifecycle, npcId: npc-riko, state: inactive, reasonCode: 阵亡 }
               - { type: setFlag, id: hasGrave, value: true }
               - { type: applyStatus, status: grief, stacks: 1 }
               - { type: adjustMood, value: -16 }
