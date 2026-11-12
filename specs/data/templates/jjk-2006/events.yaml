@@ -694,6 +694,11 @@ events:
       conditions:
         - { flag: creationDone, eq: true }
         - { flag: era, eq: 1 }
+        # 场景前提（ADR-0024 决策 7）：正文点名了灰原，所以「灰原在世」是**事件级**前提，
+        # 不是选项级可见性。用 npcState 而不是 haibaraDead —— lifecycle 是单一真源（ADR-0020），
+        # haibaraDead 是模板黑板，两者会漂移成双真源。
+        # 引擎在 fire 时与每次呈现前都复核它（ADR-0024）：排队期间灰原阵亡则本场景撤下。
+        - { npcState: { npcId: npc-haibara, state: alive } }
     kind: normal
     settle:
       normal:

@@ -10,9 +10,11 @@ import {
   createRunnerContext,
   createWorldV2,
   handoff,
+  revalidatePendingV2,
   runOpening,
   selectOpeningTemplate,
   type OpeningRunnerContext,
+  type TemplateLookup,
 } from "@life-sim/game-core";
 import { getOpeningTemplates, getTemplateFingerprint } from "./templates.js";
 
@@ -132,9 +134,26 @@ export function loadPersistedWorlds(currentFingerprints: Map<string, string>): {
 
 const worlds = new Map<string, WorldStateV2>();
 
-/** 启动时把校验通过的存档装入内存（loadTemplates 之后、listen 之前调用一次）。 */
-export function hydrate(loaded: WorldStateV2[]): void {
-  for (const state of loaded) worlds.set(state.id, state);
+/**
+ * 启动时把校验通过的存档装入内存（loadTemplates 之后、listen 之前调用一次）。
+ *
+ * ADR-0024 决策 2.3 #5：载入即规范化一次 —— 旧档 / 手改档里可能残留「前提已失效」的待决事件
+ * （例如排队期间角色已死的旧场景）。这里逐世界跑一次复核，有变更立即回写，
+ * 免得玩家载入后第一屏就看到一个不该存在的场景。
+ *
+ * 指纹不匹配的档在 `loadPersistedWorlds` 就已拒载，所以本批改动（改 yaml ⇒ 换指纹）后
+ * 这条只是**防御性冗余**；成本约一行、幂等，且覆盖夹具与手改存档。
+ * 找不到模板的世界原样保留（不猜、不删除）。
+ */
+export function hydrate(loaded: WorldStateV2[], lookupOf: (templateId: string) => TemplateLookup | undefined): void {
+  for (const state of loaded) {
+    const lookup = lookupOf(state.templateId);
+    if (lookup) {
+      const { dropped } = revalidatePendingV2(state, lookup);
+      if (dropped.length > 0) persist(state, state.templateId);
+    }
+    worlds.set(state.id, state);
+  }
 }
 
 export interface CreateWorldInputV2 {

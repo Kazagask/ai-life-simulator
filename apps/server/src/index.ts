@@ -65,7 +65,7 @@ const lookups = new Map([...templates.entries()].map(([id, t]) => [id, createLoo
 const persisted = loadPersistedWorlds(
   new Map([...templates.entries()].map(([id, t]) => [id, getTemplateFingerprint(t.meta.id) ?? "sha256:unknown"])),
 );
-hydrate(persisted.loaded);
+hydrate(persisted.loaded, (templateId) => lookups.get(templateId));
 if (persisted.errors.length > 0) {
   for (const e of persisted.errors) app.log.error({ dataDir: dataDir(), file: e.file, reason: e.reason }, "save_skipped");
 }
@@ -432,7 +432,15 @@ app.post("/api/worlds/:id/archive", async (request, reply) => {
 function handleEngineError(request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply, error: unknown) {
   request.log.error(error);
   const message = error instanceof Error ? error.message : String(error);
-  const interactionErrors = new Set(["pending_event_required", "battle_in_progress", "battle_not_active", "no_pending_event"]);
+  const interactionErrors = new Set([
+    "pending_event_required",
+    "battle_in_progress",
+    "battle_not_active",
+    "no_pending_event",
+    // ADR-0024 决策 8：待决事件的前提在本轮复核中失效 ⇒ 状态冲突（不是请求非法）。
+    // 与 option_not_available 区分开，客户端据此提示「状态已过期，请重取快照」。
+    "event_premise_invalidated",
+  ]);
   if (interactionErrors.has(message)) {
     return reply.code(409).send({ error: message });
   }

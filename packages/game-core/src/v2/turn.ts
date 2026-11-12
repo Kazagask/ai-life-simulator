@@ -40,6 +40,7 @@ import { projectSnapshotV2 } from "./projection.js";
 import { playerVisibleHistory, pushHistory } from "./history.js";
 import {
   alignChainStep,
+  checkEventPremise,
   drainScheduledEvents,
   enqueueCandidate,
   enqueueScheduled,
@@ -255,6 +256,14 @@ export interface TriggerResult {
    * `state.npcs[].lifecycle`（事实源）或逐场断言，不要把这个字段当诊断流水。
    */
   skipped?: string;
+  /**
+   * 本轮因**前提失效**被移出待决队列的 eventId（ADR-0024 决策 4 的可诊断性补偿，保序）。
+   *
+   * **非持久化**：不进存档 / 投影 / 玩家端 API，只供测试与本地排障断言
+   * 「这一轮为什么少了一个场景」。与 `skipped` 分开是刻意的：`skipped` 是单槽，
+   * 两者写同一个字段会互相覆盖。
+   */
+  droppedPending?: string[];
 }
 
 /**
@@ -336,6 +345,69 @@ function enqueuePendingEvent(
     }
   }
   state.pendingEvents.splice(insertAt, 0, { eventId: event.id, chainId });
+}
+
+/**
+ * 待决队列的「呈现前前提复核」（ADR-0024 决策 2.2 / 2.3）。
+ *
+ * 为什么需要它：`pendingEvents` 只在 **fire 时**过一次 `trigger.conditions`，入队后没有任何人再看；
+ * 而排队窗口实测可达 8 轮，其间角色可能死亡、`era` 可能翻页 ⇒ 玩家会看到一张正文点名死者的卡片
+ * （QA 实测 11/30 种子）——也就是「诈尸」。
+ *
+ * 处置 = **静默移出队列**（决策 3）：不推 `turnIndex`、不结算 `timeCost`、不写 `history`、
+ * 不记 `missedEvents`、不动 `eventFires`、不退 `once`/冷却。
+ * 记错失在这里是**结构上不可能**的：`MissedEventRecord` 要求 `instanceId`，而 `PendingEvent`
+ * 只有 `{ eventId, chainId? }`（编造一个就是伪造事实，同 ADR-0021 决策 1.4 的判决）。
+ *
+ * RNG：复核用**独立派生流** `deriveTurnSeed(seed + 37, turnIndex)`（决策 8）。
+ * 盐 `+37` 在既有 `{0, +7, +13, +29}` 之外 ⇒ 不污染主轮 / 选项 / 战斗 / 物品序列；
+ * 条件里若写了 `random`，它只消耗这条独立流，同一 `(seed, turnIndex, state)` 恒得同一结果。
+ * 故本函数**不接受外部 rng 参数**（ADR 决策 2.2 的签名即为 `(state, lookup)`）——
+ * 传进来的 rng 会把复核开销记到调用方的序列账上。
+ *
+ * 定义缺失的条目**保留**：那是加载期完整性问题（`pendingEventView` 已返回 null），
+ * 不属于「前提失效」，复核不越权删除。
+ */
+export function revalidatePendingV2(
+  state: WorldStateV2,
+  lookup: TemplateLookup,
+): { dropped: string[] } {
+  if (state.pendingEvents.length === 0) return { dropped: [] };
+  const rng = createRng(deriveTurnSeed(state.seed + 37, state.turnIndex));
+  const ctx: ConditionContext = { state, lookup, rng };
+  const dropped: string[] = [];
+  const kept: typeof state.pendingEvents = [];
+  for (const pending of state.pendingEvents) {
+    const def = lookup.event(pending.eventId);
+    if (!def) {
+      kept.push(pending);
+      continue;
+    }
+    if (checkEventPremise(def, ctx).ok) kept.push(pending);
+    else dropped.push(pending.eventId);
+  }
+  if (dropped.length === 0) return { dropped };
+  state.pendingEvents = kept;
+  return { dropped };
+}
+
+/** 把本轮丢弃并入诊断位，并把被丢弃的事件从本次 `triggered` 里剔除（ADR-0024 决策 3 附则）。 */
+function recordDroppedPending(result: TriggerResult, dropped: string[]): void {
+  if (dropped.length === 0) return;
+  result.droppedPending = [...(result.droppedPending ?? []), ...dropped];
+  if (result.triggered.length === 0) return;
+  const gone = new Set(dropped);
+  result.triggered = result.triggered.filter((t) => !gone.has(t.id));
+}
+
+/** 被丢弃的事件里是否有 `command.optionId` 所属的那一个（决定抛哪个错误码，ADR-0024 决策 8）。 */
+function droppedEventOwnsOption(dropped: readonly string[], optionId: string, lookup: TemplateLookup): boolean {
+  for (const eventId of dropped) {
+    const def = lookup.event(eventId);
+    if (def?.kind !== "normal") continue;
+    if (def.settle.normal.options.some((o) => o.id === optionId)) return true;
+  }
+  return false;
 }
 
 /**
@@ -747,6 +819,21 @@ function projectWithConfig(
   return projectSnapshotV2(state, template, lookup, evaluation, pipeline?.endingConfig?.endings);
 }
 
+/**
+ * ADR-0024 决策 2.3 #4：**唯一的必做项**——任何返回给玩家的 `snapshot` 之前都复核一次，
+ * 保证响应里没有幽灵场景。四个轮次入口末尾收敛到这一处，避免四条路径各写一遍而漂移。
+ */
+function revalidateThenProject(
+  state: WorldStateV2,
+  template: WorldTemplateV2,
+  lookup: TemplateLookup,
+  pipeline: TurnPipelineConfig | undefined,
+  result: TriggerResult,
+): V2Snapshot {
+  recordDroppedPending(result, revalidatePendingV2(state, lookup).dropped);
+  return projectWithConfig(state, template, lookup, pipeline);
+}
+
 export function advanceTurnV2(
   state: WorldStateV2,
   /** endLife=true 表示玩家主动结束这一生（边界信号 playerRequested） */
@@ -757,6 +844,9 @@ export function advanceTurnV2(
   pipeline?: TurnPipelineConfig,
 ): V2TurnResult {
   assertActive(state);
+  // ADR-0024 决策 2.3 #1：命令入口先复核待决队列，且**必须在槽位守卫之前**——
+  // 否则一个前提已死的队首会继续把玩家挡在自由行动之外（决策 2.5 的硬死锁）。
+  const droppedAtEntry = revalidatePendingV2(state, lookup).dropped;
   // #34 槽位守卫（收窄语义）：待决事件占住本轮槽位时拒绝提交新的自由行动；
   // 事件结算本身已在 chooseOptionV2 / battleActionV2 里推进过 turnIndex，不再拦「结算」。
   if (state.pendingEvents.length > 0) throw new Error("pending_event_required");
@@ -788,7 +878,12 @@ export function advanceTurnV2(
   }
   // ADR-0010：系统轮次计数不再写进 flags（≡ turnIndex），模板条件改用 time DSL。
 
-  const result: TriggerResult = { triggered: [], wheelResult: null };
+  // 入口复核已丢弃的条目并入本轮诊断位（ADR-0024 决策 4：非持久化）
+  const result: TriggerResult = {
+    triggered: [],
+    wheelResult: null,
+    ...(droppedAtEntry.length > 0 ? { droppedPending: [...droppedAtEntry] } : {}),
+  };
 
   // 1. 玩家行动效果（改变状态；startChain / advanceTo 等副作用标记由路由层按优先级消费）
   const actionCtx: EffectContextV2 = { state, lookup, rng, logs: [] };
@@ -835,7 +930,7 @@ export function advanceTurnV2(
     playerRequested: requested,
   });
 
-  const snapshot = projectWithConfig(state, template, lookup, pipeline);
+  const snapshot = revalidateThenProject(state, template, lookup, pipeline, result);
   return {
     state,
     snapshot,
@@ -882,6 +977,13 @@ export function chooseOptionV2(
   pipeline?: TurnPipelineConfig,
 ): V2TurnResult {
   assertActive(state);
+  // ADR-0024 决策 2.3 #2（权威门）：即便状态被外部改坏 / 旧档残留，
+  // 也绝不允许结算一个前提已假的事件。
+  const droppedAtEntry = revalidatePendingV2(state, lookup).dropped;
+  if (droppedEventOwnsOption(droppedAtEntry, command.optionId, lookup)) {
+    // 决策 8：与 option_not_available 分开 —— 客户端据此提示「状态过期，请重取快照」。
+    throw new Error("event_premise_invalidated");
+  }
   if (state.battle && !state.battle.over) throw new Error("battle_in_progress");
   const pending = state.pendingEvents[0];
   if (!pending) throw new Error("no_pending_event");
@@ -919,7 +1021,12 @@ export function chooseOptionV2(
     visibility: "public",
   });
 
-  const result: TriggerResult = { triggered: [], wheelResult: null };
+  // 入口复核已丢弃的条目并入本轮诊断位（ADR-0024 决策 4：非持久化）
+  const result: TriggerResult = {
+    triggered: [],
+    wheelResult: null,
+    ...(droppedAtEntry.length > 0 ? { droppedPending: [...droppedAtEntry] } : {}),
+  };
   const optionCtx: EffectContextV2 = { state, lookup, rng, logs: [] };
   applyEffectsV2(optionCtx, option.effects);
   // drain 入口 2/3：效果推进世界时间或 enqueueEvent 入队（相对 0 分钟即已到期）。
@@ -935,7 +1042,7 @@ export function chooseOptionV2(
     boundary: "afterEventSettle",
   });
 
-  const snapshot = projectWithConfig(state, template, lookup, pipeline);
+  const snapshot = revalidateThenProject(state, template, lookup, pipeline, result);
   return {
     state,
     snapshot,
@@ -956,13 +1063,20 @@ export function battleActionV2(
   pipeline?: TurnPipelineConfig,
 ): V2TurnResult {
   assertActive(state);
+  // ADR-0024 决策 2.3 #3：战斗命令也能在两轮之间改状态，入口同样要复核。
+  const droppedAtEntry = revalidatePendingV2(state, lookup).dropped;
   const battle = state.battle;
   if (!battle || battle.over) throw new Error("battle_not_active");
   const rng = createRng(deriveTurnSeed(state.seed + 13, state.turnIndex * 100 + battle.round));
 
   performBattleAction(state, command, lookup, rng);
 
-  const result: TriggerResult = { triggered: [], wheelResult: null };
+  // 入口复核已丢弃的条目并入本轮诊断位（ADR-0024 决策 4：非持久化）
+  const result: TriggerResult = {
+    triggered: [],
+    wheelResult: null,
+    ...(droppedAtEntry.length > 0 ? { droppedPending: [...droppedAtEntry] } : {}),
+  };
   if (battle.over) {
     // #34：战斗结束算一次结算轮（战果占槽），推进 turnIndex；战斗回合内不推进（ADR-0001）。
     // 战果本身即本轮槽位内容，不再额外跑 NPC/pool 尾管线，避免把新事件塞进同一个槽位。
@@ -1020,7 +1134,7 @@ export function battleActionV2(
     });
   }
 
-  const snapshot = projectWithConfig(state, template, lookup, pipeline);
+  const snapshot = revalidateThenProject(state, template, lookup, pipeline, result);
   return {
     state,
     snapshot,
@@ -1041,6 +1155,9 @@ export function useItemV2(
   pipeline?: TurnPipelineConfig,
 ): V2TurnResult {
   assertActive(state);
+  // ADR-0024 决策 2.3 #3：用物品是**轮外操作**（没有 pending_event_required 守卫），
+  // 是最容易在「呈现之后、结算之前」改变世界状态的入口，复核必须在最前面。
+  const droppedAtEntry = revalidatePendingV2(state, lookup).dropped;
   if (state.battle && !state.battle.over) throw new Error("battle_in_progress");
   const item = lookup.item(command.itemId);
   if (!item) throw new Error("item_not_found");
@@ -1053,7 +1170,12 @@ export function useItemV2(
   state.player.inventory[item.id] -= 1;
   if (state.player.inventory[item.id] <= 0) delete state.player.inventory[item.id];
   const logs: string[] = [];
-  const result: TriggerResult = { triggered: [], wheelResult: null };
+  // 入口复核已丢弃的条目并入本轮诊断位（ADR-0024 决策 4：非持久化）
+  const result: TriggerResult = {
+    triggered: [],
+    wheelResult: null,
+    ...(droppedAtEntry.length > 0 ? { droppedPending: [...droppedAtEntry] } : {}),
+  };
   const itemCtx: EffectContextV2 = { state, lookup, rng, logs };
   applyEffectsV2(itemCtx, item.use);
   // #34：用物品是轮外操作，不推进 turnIndex；但时间推进 / enqueueEvent 仍需在安全边界 drain。
@@ -1074,7 +1196,7 @@ export function useItemV2(
     boundary: "afterEventSettle",
   });
 
-  const snapshot = projectWithConfig(state, template, lookup, pipeline);
+  const snapshot = revalidateThenProject(state, template, lookup, pipeline, result);
   return {
     state,
     snapshot,
@@ -1092,6 +1214,13 @@ export function pendingEventView(state: WorldStateV2, lookup: TemplateLookup): P
   if (!pending) return null;
   const event = lookup.event(pending.eventId);
   if (!event || event.kind !== "normal") return null;
+  // ADR-0024 决策 2.3 #6（只读防御）：队首前提已假 ⇒ 不呈现。
+  // 正常流程在进入投影前就已被 revalidatePendingV2 排空，这里只兜「状态被外部改坏」。
+  // **绝不跳读**（决策 2.4）：呈现集合必须恒等于 `pendingEvents[0]`，否则玩家点的是 A 的选项、
+  // 引擎在找 B 的选项 ⇒ 必然 option_not_available。失效队首只有「排空」与「呈现 null」两条出路。
+  // 用独立盐 +37 求值，避免与下面 visibleWhen 的 +7 流互相污染。
+  const premiseRng = createRng(deriveTurnSeed(state.seed + 37, state.turnIndex));
+  if (!checkEventPremise(event, { state, lookup, rng: premiseRng }).ok) return null;
   const rng = createRng(deriveTurnSeed(state.seed + 7, state.turnIndex));
   const ctx: ConditionContext = { state, lookup, rng };
   return {

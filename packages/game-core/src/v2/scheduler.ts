@@ -220,6 +220,43 @@ export type DueDecision =
   | { kind: "hold" }
   | { kind: "drop"; reason: MissReason; label?: string };
 
+/**
+ * 事件前提的复核结论（ADR-0024 决策 2.1）。
+ *
+ * `missWhen` 与 `conditions` 的**判据**是同一件事（「这个场景现在成不成立」），
+ * 但两者的**处置**不同：`missWhen` 命中 ⇒ 永久失效（drop + 记错失），
+ * `conditions` 不满足 ⇒ 窗口内还可能变真（hold 留队）。
+ * 因此谓词返回判别对象而不是裸 boolean —— 若压成 boolean，`evaluateDue` 就得再求值一次
+ * 才能分辨两种处置，而条件里的 `random` 每求值一次都消耗 RNG，会破坏确定性。
+ * 需要 boolean 的调用方读 `.ok` 即可。
+ */
+export type EventPremiseVerdict =
+  | { ok: true }
+  | { ok: false; missWhen: true; label?: string }
+  | { ok: false; missWhen: false };
+
+/**
+ * **事件前提求值的唯一处**（ADR-0024 决策 2.1；与 `evaluateDue` 同域）。
+ *
+ * 判据 = 事件级 `trigger.conditions` + `missWhen`，顺序固定（missWhen 先），**每个条件数组恰好求值一次**。
+ * 消费方：
+ * - `evaluateDue`（出队终判，区分 drop / hold）；
+ * - `revalidatePendingV2`（待决队列的呈现前复核，两种失败都等价于「前提不成立」）。
+ *
+ * 明确**不**复核的东西（ADR 决策 1）：`cooldown` / `window` / `probability` / `once` / `weight`
+ * —— 它们已在入队门控消费，pending 期间再判会把玩家已看到的场景判成不合法。
+ */
+export function checkEventPremise(def: EventV2, ctx: ConditionContext): EventPremiseVerdict {
+  const trigger = def.trigger;
+  // 序 1：触发前提永久失效（模板显式声明，引擎不隐式推断）
+  if (trigger.missWhen && trigger.missWhen.length > 0 && checkAllConditions(trigger.missWhen, ctx)) {
+    return { ok: false, missWhen: true, ...(trigger.missLabel ? { label: trigger.missLabel } : {}) };
+  }
+  // 序 2：场景条件（读定义现值）
+  if (!checkAllConditions(trigger.conditions, ctx)) return { ok: false, missWhen: false };
+  return { ok: true };
+}
+
 export interface EvaluateDueInput {
   instance: ScheduledEventInstance;
   state: WorldStateV2;
@@ -232,22 +269,27 @@ export interface EvaluateDueInput {
  * 纯判定函数（无状态写入）。顺序**固定不得重排**：
  * missWhen（drop，记 miss_when）→ conditions 终判（hold）→ cooldown（hold）→ fire。
  * 门控类（once / probability）已在入队前消费，失败根本不产生实例，故不构成错失。
+ *
+ * ADR-0024 决策 2.1：序 1/序 2 合并到 `checkEventPremise` 一次求值（**逐字节等价重构**，
+ * 判定结果与求值次数都不变），两种失败按 `missWhen` 标志分派到原有处置。
  */
 export function evaluateDue(input: EvaluateDueInput): DueDecision {
   const { instance, state, lookup, rng, calendar } = input;
   const def = lookup.event(instance.definitionId);
   if (!def) return { kind: "hold" }; // 定义缺失由 drain 标 cancelled，不臆造错失原因
   const ctx: ConditionContext = { state, lookup, rng };
-  const trigger = def.trigger;
 
-  // 序 1：触发前提永久失效（模板显式声明，引擎不隐式推断）
-  if (trigger.missWhen && trigger.missWhen.length > 0 && checkAllConditions(trigger.missWhen, ctx)) {
-    return { kind: "drop", reason: "miss_when", ...(trigger.missLabel ? { label: trigger.missLabel } : {}) };
+  const premise = checkEventPremise(def, ctx);
+  if (!premise.ok) {
+    // 序 1：模板声明的永久失效 ⇒ drop（记 miss_when）
+    if (premise.missWhen) {
+      return { kind: "drop", reason: "miss_when", ...(premise.label !== undefined ? { label: premise.label } : {}) };
+    }
+    // 序 2：#36 窗口内不满足 ⇒ hold 留队、每轮重估、零错失记录
+    return { kind: "hold" };
   }
-  // 序 2：条件终判（读定义现值）；#36 窗口内不满足 ⇒ hold 留队、每轮重估、零错失记录
-  if (!checkAllConditions(trigger.conditions, ctx)) return { kind: "hold" };
   // 序 3：冷却未过 ⇒ hold
-  if (onCooldown(state, def.id, trigger.cooldown, calendar)) return { kind: "hold" };
+  if (onCooldown(state, def.id, def.trigger.cooldown, calendar)) return { kind: "hold" };
   return { kind: "fire" };
 }
 
