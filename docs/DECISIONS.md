@@ -1092,7 +1092,8 @@ resolveCombatRefs(state, settle) -> { enemies, allies, enemiesExhausted: boolean
       「伏黑惠 `inactive` → `enemy-toji(father)` 父亲边与称谓仍在」在 M1 下**会红**，但红灯原因是
       `enemy-toji` **无实例**、与 `inactive` 无关 —— 它反而是「敌人端点被误杀」的**第二个独立见证**，
       不是「inactive 能防 M1」的证据）。
-    - 依据：`tasks/reports/RELATION-PROJECTION-FIX-ACCEPTANCE.md` §四（判据变异验证）与 §八 观察 2。
+    - 依据：`tasks/reports/RELATION-PROJECTION-FIX-ACCEPTANCE.md` §四（判据变异验证，M1 表第 3 行）
+      与 §八 观察 2（`inactive` 归因澄清见 `ca458f9`，报告为最新版）。
       「三条反例各绑一条断言、并在注释里写明各自区分哪种错法」的测试补强见 `docs/BACKLOG.md` B-23。
 - **决策 2（`player` 端点硬保留）**：`player` 没有 NPC 实例，永不进 `hiddenNodeIds`。这条要写成实现侧的
   注释级硬约束 + 测试用例（防止后续被改造成「白名单」时静默丢掉 NPC↔玩家边，正好反噬本补记要修的另一半）。
