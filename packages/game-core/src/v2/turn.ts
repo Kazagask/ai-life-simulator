@@ -136,6 +136,13 @@ export function createWorldV2(
         secrets: [...(c.private.secrets ?? [])],
         lastActedAtTurn: 0,
         isEnemy: false,
+        // ADR-0012 决策 1 / ADR-0020：缺省在世；模板可在 characters[].lifecycle 声明初始态
+        lifecycle: {
+          state: c.lifecycle?.state ?? "alive",
+          ...(c.lifecycle?.reasonCode ? { reasonCode: c.lifecycle.reasonCode } : {}),
+          sinceTurn: 0,
+          sinceWorldTime: 0,
+        },
       })),
     // R2.6 / ADR-0014：初始关系边由 characters[].relations 声明（from=该角色）。
     // visibility 缺省 unknown（R-OP-05 默认不认识）；npc.relationship 标量保留独立

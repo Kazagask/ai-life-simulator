@@ -34,6 +34,9 @@ export function runNpcActionsV2(state: WorldStateV2, lookup: TemplateLookup, rng
   const ctx: ConditionContext = { state, lookup, rng };
   for (const npc of state.npcs) {
     if (npc.isEnemy) continue;
+    // ADR-0012 决策 2 / ADR-0020「默认判活」：只有 alive 的 NPC 才进入行动候选，
+    // 模板零书写。inactive = 已故/失联/退场，语义由模板 reasonCode 表达，引擎不分支。
+    if (npc.lifecycle.state !== "alive") continue;
     if (state.turnIndex - npc.lastActedAtTurn < 1) continue;
 
     const candidates = actions.filter((action) => {

@@ -65,7 +65,26 @@ export interface V2Player extends V2CombatantBase {
   equipment?: EquipmentInstance[];
 }
 
+/** NPC 生命周期三态（ADR-0012 决策 1）：不引入阶段枚举，只这三态 + 自由 reasonCode。 */
+export type NpcLifecycleState = "alive" | "inactive" | "unspawned";
+
+export interface NpcLifecycle {
+  state: NpcLifecycleState;
+  /** 模板自由字符串（阵亡 / 叛逃 / 下落不明…）；引擎不分支，只透传。 */
+  reasonCode?: string;
+  /** 置为当前状态的轮次（世界初始即如此时为 0）。 */
+  sinceTurn: number;
+  /** 置为当前状态的世界时间（分钟）。 */
+  sinceWorldTime: number;
+}
+
 export interface V2Npc extends V2CombatantBase {
+  /**
+   * 生命周期（ADR-0012 决策 1 / ADR-0020 落地）。
+   * 引擎**只判 `state === "alive"`**（NPC 自主行动、关系写入）；`reasonCode` 是模板自由字符串
+   * （阵亡 / 叛逃 / 下落不明…），引擎不对它分支，业务语义由模板 `npcState` 条件表达。
+   */
+  lifecycle: NpcLifecycle;
   /** 与玩家的关系值 */
   relationship: number;
   personality: string;
@@ -506,6 +525,16 @@ export interface V2Snapshot {
     lifeStage: string;
     /** 人生阶段显示标签（模板未给 label 时回退 stage id）。 */
     lifeStageLabel: string;
+    /**
+     * 生命周期（ADR-0020）：与上屏解耦——`inactive` 的 NPC 照常上屏并标注状态，
+     * 只是不再自主行动、关系写入冻结。「已故」由 `state + reasonCode` 表达。
+     */
+    lifecycle: {
+      state: NpcLifecycleState;
+      reasonCode?: string;
+      sinceTurn: number;
+      sinceWorldTime: number;
+    };
   }>;
   pendingEvent: PendingEventView | null;
   battle: BattleView | null;

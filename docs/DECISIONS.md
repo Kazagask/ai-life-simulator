@@ -756,3 +756,48 @@ NPC 现无任何存活状态：死亡/失联的 NPC 照样被效用评分选中�
 - **验证**：`pnpm typecheck` 0 错；game-core **373/373**（新增 `v2/npc-panel-projection.test.ts` 3 例：
   known-only 过滤 + hidden 不留痕迹、阶段按年龄推导三档、无补正给空数组）；shared 62/62；`pnpm build` 通过。
   浏览器实测（430×932 DPR2）：人物页 16 张卡片、展开后三块齐全、`docH 2933 / 横向溢出 0`、控制台零报错。
+
+---
+
+## ADR-0020 NPC 生命周期落地（补 ADR-0012 决策 1/2/3 的欠账）
+
+- **状态**：**已实施（2026-11-12）**。属 T-2（协议 + 状态 + 投影），故先补本条。
+- **欠账事实**：ADR-0012 决策 1/2/3 早在 2026-11-12 已通过（G1 评审）并写明「实施归下一期 R2.6」，
+  但 **R2.6 只落地了 WS-A（日历）与 WS-B（关系图）两条工作流**，NPC 生命周期整批（`T2-*`）从未实施——
+  核实方式：全仓 `grep -rn "lifecycle"` 零命中，`V2Npc` 无任何存活字段，死亡/失联的 NPC 照样被
+  效用评分选中去行动，`end-death` 之类只能靠 flag 间接表达。
+- **决策（沿用 ADR-0012，不新造）**：
+  1. **状态字段** `V2Npc.lifecycle = { state: "alive" | "inactive" | "unspawned", reasonCode?, sinceTurn, sinceWorldTime }`。
+     引擎**只判 `alive`**；`reasonCode` 是模板自由字符串（阵亡 / 叛逃 / 下落不明…），引擎不对它分支。
+     **不引入 `lifecycle.ts` 或阶段枚举**（ADR-0004 禁令继续有效）——这是角色级三态字段，不是流程编排。
+  2. **默认判活三处**（模板零书写）：NPC 自主行动候选（`runNpcActionsV2` 首行过滤）、
+     关系/affinity 写入（标量与关系边两种形态都冻结）、`addRelationEdge` 建边。
+  3. **单一写入口** 效果 `setNpcLifecycle { npcId, state, reasonCode? }`：复活/死亡/失联走同一通道；
+     `__self__` 可解析为当前 NPC；指向未知 NPC 抛可诊断错误（不静默跳过）。
+     离开 `alive` 时**顺带冻结相连关系边**，且**复活不解冻**（与 `freezeRelationsOnDeath` 同一条单向棘轮）。
+  4. **条件 DSL** `{ npcState: { npcId, state } }`：只匹配状态、不匹配 `reasonCode`；
+     「死人才能…」这类业务语义由模板用它组合表达。未知 `npcId` 一律 `false`，不猜测。
+  5. **模板可声明初态** `characters[].lifecycle`：用于「开局即已故/失踪」的角色；缺省在世。
+  6. **投影与上屏解耦**：`inactive` 的 NPC **照常上屏**，只是带状态标注（ADR-0012 决策 3 原意）；
+     前端把卡片降饱和 + 标题加删除线 + 状态胶囊。
+- **兼容**：`V2NpcSchema.lifecycle` 为**可选 + 默认 `alive`**，旧存档加载时补默认，**不升 `schemaVersion`**
+  （沿用 `lastWheels` 先例）。「找不到该 id 的关系端点」按可写处理，只拦**确知**非在世——
+  否则会把指向未实例化角色的边一并挡掉（首版就是这么写坏的，`relation-effects` 6 条测试立刻红）。
+- **本次未做（明确记录，非遗漏）**：
+  - **决策 4 的 `birthTime` / `ageAt` 派生未做**：`V2Npc.age` 仍是 `identity.age` 静态快照。
+    它牵动玩家侧年龄派生（退役 `playerAgeAtStart`）、`CalendarAdapter.ageAt` 与存档迁移，
+    属独立一刀，记在 `docs/BACKLOG.md` §3。
+  - **战斗参战 ref 判活跳过未做**：当前模板没有任何路径把 `inactive` 角色作为 `enemies`/`allies` 引用，
+    不可达；按「不为不达状态提前建抽象」暂缓，真出现时按 ADR-0012 决策 2 原口径补
+    （跳过整条触发并记一条事实）。
+  - **`projectNpc()` 单一判定入口未抽出**：`visibility` 过滤仍在 `turn.ts` 建实例时按 `isEnemy`/
+    `visibility` 处理；抽公共入口属重构，与本轮功能无耦合，留待需要 `revealFields` 时一并做。
+- **模板接线（T-1）**：`ev-bs-05` 两个「确认灰原阵亡」选项后追加
+  `setNpcLifecycle npc-haibara inactive reasonCode 阵亡`，其后对他的 `adjustRelation` 会被自动冻结。
+  **夏油（`npc-geto`）刻意不置 inactive**：`getoGone` 是「叛逃」，剧情中他后续仍以敌人身份出场，
+  标成 inactive 会与内容自相矛盾——`reasonCode` 的语义留给模板判断，引擎不替它决定。
+- **验证**：`pnpm typecheck` 0 错；game-core **380/380**（新增 `v2/lifecycle.test.ts` 7 例：默认判活、
+  模板初态、效果写 since、未知 id 抛错、inactive 不自主行动、关系冻结且复活不解冻、`npcState` 条件、
+  投影透出）；shared 62/62；`pnpm build` 通过。
+  浏览器实测（注入 `lifecycle: inactive` 的灰原，430×932）：卡片降饱和 0.72、胶囊与生命周期块均显示
+  「已故 / 失联 · 阵亡」，控制台零报错。**注入已还原，模板不留该声明。**

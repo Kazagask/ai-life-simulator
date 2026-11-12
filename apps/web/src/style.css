@@ -1466,3 +1466,22 @@ button {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+
+/* 生命周期（ADR-0020）：非在世的卡片整体降饱和，状态胶囊高亮 */
+.npc-card-inactive {
+  opacity: 0.72;
+}
+
+.npc-card-inactive h2 {
+  text-decoration: line-through;
+  text-decoration-color: var(--border);
+}
+
+.npc-life-chip {
+  color: #b4544f;
+  border-color: #b4544f;
+}
+
+.npc-life-inactive {
+  color: #b4544f;
+}

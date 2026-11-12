@@ -61,6 +61,20 @@ const V2NpcSchema = CombatantBaseSchema.extend({
   knowledge: z.array(z.string()),
   secrets: z.array(z.string()),
   lastActedAtTurn: z.number().int().nonnegative(),
+  /**
+   * 生命周期（ADR-0012 决策 1 / ADR-0020）。**可选 + 默认存活**：
+   * 该字段引入前落盘的存档没有它，加载时补成 alive，不升 `schemaVersion`
+   * （沿用 `lastWheels` 的兼容先例，避免为一个新增字段废掉全部在跑存档）。
+   */
+  lifecycle: z
+    .object({
+      state: z.enum(["alive", "inactive", "unspawned"]),
+      reasonCode: z.string().min(1).optional(),
+      sinceTurn: z.number().int().nonnegative(),
+      sinceWorldTime: z.number(),
+    })
+    .strict()
+    .default({ state: "alive", sinceTurn: 0, sinceWorldTime: 0 }),
 }).strict();
 
 const BattleEnemySchema = z

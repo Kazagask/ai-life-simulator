@@ -2081,6 +2081,16 @@ const RELATION_VISIBILITY_LABEL: Record<string, string> = {
   inferred: "推断",
 };
 
+/**
+ * 生命周期三态（ADR-0012 / ADR-0020）。`reasonCode` 是模板自由字符串（阵亡 / 叛逃 / 下落不明），
+ * 前端只原样展示，不解释、不推断——引擎也不对它分支。
+ */
+const NPC_LIFECYCLE_LABEL: Record<string, string> = {
+  alive: "在世",
+  inactive: "已故 / 失联",
+  unspawned: "尚未登场",
+};
+
 function NpcCard({
   npc,
   names,
@@ -2090,7 +2100,7 @@ function NpcCard({
 }) {
   const nameOf = (id: string) => (id === "player" ? "你" : names[id] ?? id);
   return (
-    <section className="card npc-card">
+    <section className={`card npc-card${npc.lifecycle.state === "alive" ? "" : " npc-card-inactive"}`}>
       <div className="row">
         <h2>{npc.name}</h2>
         <span className="tag">
@@ -2100,6 +2110,12 @@ function NpcCard({
       <div className="chip-row npc-meta">
         <span className="chip">{npc.lifeStageLabel}</span>
         <span className="chip">关系 {npc.relationship}</span>
+        {npc.lifecycle.state !== "alive" && (
+          <span className="chip npc-life-chip">
+            {NPC_LIFECYCLE_LABEL[npc.lifecycle.state] ?? npc.lifecycle.state}
+            {npc.lifecycle.reasonCode ? ` · ${npc.lifecycle.reasonCode}` : ""}
+          </span>
+        )}
       </div>
       <p className="muted">{npc.personality}</p>
       <div className="attr">
@@ -2169,6 +2185,11 @@ function NpcCard({
         <div className="npc-block">
           <h3>生命周期</h3>
           <p className="muted">
+            <span className={`npc-life npc-life-${npc.lifecycle.state}`}>
+              {NPC_LIFECYCLE_LABEL[npc.lifecycle.state] ?? npc.lifecycle.state}
+              {npc.lifecycle.reasonCode ? ` · ${npc.lifecycle.reasonCode}` : ""}
+            </span>
+            {" · "}
             {npc.lifeStageLabel} · {npc.age} 岁
           </p>
         </div>

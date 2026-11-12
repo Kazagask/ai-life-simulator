@@ -209,6 +209,12 @@ export function checkCondition(cond: Condition, ctx: ConditionContext): boolean 
     if (value === undefined) return false;
     return compareValues(value, cond);
   }
+  if ("npcState" in cond) {
+    // ADR-0012 决策 1 / ADR-0020：只匹配状态，不匹配 reasonCode。
+    // 未知 npcId 一律 false（模板引用完整性由加载期校验负责，这里不做猜测）。
+    const npc = state.npcs.find((n) => n.id === cond.npcState.npcId);
+    return npc !== undefined && npc.lifecycle.state === cond.npcState.state;
+  }
   if ("attribute" in cond) {
     const eff = ctx.effAttrsOverride ?? playerEffectiveAttributes(state, lookup);
     return compareNumber(eff[cond.attribute] ?? 0, cond);
@@ -305,6 +311,19 @@ export interface EffectContextV2 {
   enqueued?: string[];
 }
 
+/**
+ * 关系写入的判活辅助（ADR-0020）。只拦「**确知**非在世」的情况：
+ * - `"player"`：玩家自身没有 lifecycle，恒视为在世；
+ * - 找不到该 id：无法判定，按可写处理（引用完整性由加载期 `superRefine` 负责，
+ *   这里不做猜测，否则会把「指向未实例化角色的边」一并挡掉）；
+ * - 找到 NPC：要求 `state === "alive"`。
+ */
+function isAliveNode(state: WorldStateV2, nodeId: string): boolean {
+  if (nodeId === "player") return true;
+  const npc = state.npcs.find((n) => n.id === nodeId);
+  return npc === undefined ? true : npc.lifecycle.state === "alive";
+}
+
 export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefined): void {
   if (!effects) return;
   const { state, lookup, rng } = ctx;
@@ -355,7 +374,10 @@ export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefin
           }
           const npcId = effect.npcId === "__self__" ? ctx.selfNpcId : effect.npcId;
           const npc = npcId ? state.npcs.find((n) => n.id === npcId) : undefined;
-          if (npc) npc.relationship = clamp(npc.relationship + effect.value, -100, 100);
+          // ADR-0020：非在世 NPC 的关系写入冻结（单向棘轮，复活不解冻）
+          if (npc && npc.lifecycle.state === "alive") {
+            npc.relationship = clamp(npc.relationship + effect.value, -100, 100);
+          }
           break;
         }
         // 形态 ②（R2.6）：关系边增量调整；边不存在则按 value 建边
@@ -366,6 +388,8 @@ export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefin
         if (fromId === undefined) {
           throw new Error("adjustRelation 关系边形态的 fromId 无法解析（__self__ 时须有当前 NPC）");
         }
+        // ADR-0020：任一端非在世即冻结该边的写入（新建与增量都挡）
+        if (!isAliveNode(state, fromId) || !isAliveNode(state, effect.toId)) break;
         const existing = state.relations.find(
           (e) => e.from === fromId && e.to === effect.toId && e.kind === effect.kind,
         );
@@ -391,6 +415,8 @@ export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefin
         if (fromId === undefined) {
           throw new Error("addRelationEdge 的 fromId 无法解析（__self__ 时须有当前 NPC）");
         }
+        // ADR-0020：任一端非在世不得新建关系边
+        if (!isAliveNode(state, fromId) || !isAliveNode(state, effect.toId)) break;
         state.relations = addEdge(state.relations, {
           from: fromId,
           to: effect.toId,
@@ -408,6 +434,27 @@ export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefin
           throw new Error("freezeRelationsOnDeath 的 npcId 无法解析（__self__ 时须有当前 NPC）");
         }
         state.relations = freezeOnDeath(state.relations, npcId);
+        break;
+      }
+      case "setNpcLifecycle": {
+        // ADR-0012 决策 1 / ADR-0020：复活 / 死亡 / 失联走同一入口，无特权通道。
+        const npcId = effect.npcId === "__self__" ? ctx.selfNpcId : effect.npcId;
+        if (npcId === undefined) {
+          throw new Error("setNpcLifecycle 的 npcId 无法解析（__self__ 时须有当前 NPC）");
+        }
+        const npc = state.npcs.find((n) => n.id === npcId);
+        if (!npc) {
+          // 引用不存在的 NPC 属配置错误，抛可诊断错误而不是静默跳过
+          throw new Error(`setNpcLifecycle 指向未知 NPC：${npcId}`);
+        }
+        npc.lifecycle = {
+          state: effect.state,
+          ...(effect.reasonCode !== undefined ? { reasonCode: effect.reasonCode } : {}),
+          sinceTurn: state.turnIndex,
+          sinceWorldTime: state.worldTime,
+        };
+        // 离开「在世」即冻结相连关系边（单向棘轮：复活不解冻，与 freezeRelationsOnDeath 一致）
+        if (effect.state !== "alive") state.relations = freezeOnDeath(state.relations, npcId);
         break;
       }
       case "grantItem":

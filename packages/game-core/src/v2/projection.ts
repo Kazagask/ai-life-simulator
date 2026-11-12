@@ -169,6 +169,14 @@ export function projectSnapshotV2(
           .filter((s): s is { id: string; name: string; stacks: number } => s !== null),
         lifeStage: npcStage,
         lifeStageLabel: adapter.lifeStageLabel(npcStage),
+        // ADR-0020：生命周期与上屏解耦——inactive 照常上屏，只是带状态标注。
+        // 旧档加载时 schema 已补默认 alive，故这里不必兜底。
+        lifecycle: {
+          state: npc.lifecycle.state,
+          ...(npc.lifecycle.reasonCode !== undefined ? { reasonCode: npc.lifecycle.reasonCode } : {}),
+          sinceTurn: npc.lifecycle.sinceTurn,
+          sinceWorldTime: npc.lifecycle.sinceWorldTime,
+        },
         relations: visibleRelations
           .filter((e) => e.from === npc.id || e.to === npc.id)
           .map((e) => {

@@ -2011,6 +2011,9 @@ events:
             text: 去看他最后一眼
             effects:
               - { type: setFlag, id: haibaraDead, value: true }
+              # 生命周期（ADR-0012/ADR-0020）：灰原确认阵亡 ⇒ inactive；
+              # 其后对他的 adjustRelation 会被自动冻结（单向棘轮），人物面板显示「已故 · 阵亡」
+              - { type: setNpcLifecycle, npcId: npc-haibara, state: inactive, reasonCode: 阵亡 }
               - { type: setFlag, id: hasGrave, value: true }
               - { type: applyStatus, status: grief, stacks: 1 }
               - { type: adjustMood, value: -14 }
@@ -2020,6 +2023,9 @@ events:
             text: 去现场。你不信「特级咒灵」这四个字
             effects:
               - { type: setFlag, id: haibaraDead, value: true }
+              # 生命周期（ADR-0012/ADR-0020）：灰原确认阵亡 ⇒ inactive；
+              # 其后对他的 adjustRelation 会被自动冻结（单向棘轮），人物面板显示「已故 · 阵亡」
+              - { type: setNpcLifecycle, npcId: npc-haibara, state: inactive, reasonCode: 阵亡 }
               - { type: setFlag, id: hasGrave, value: true }
               - { type: setFlag, id: truthBits, value: 2 }
               - { type: applyStatus, status: grief, stacks: 1 }

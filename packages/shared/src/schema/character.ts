@@ -30,6 +30,17 @@ export const CharacterSchema = z
     isEnemy: z.boolean(),
     identity: IdentitySchema,
     visibility: z.enum(["public", "hidden"]),
+    /**
+     * 初始生命周期（ADR-0020）。缺省 = 在世；用于「开局已故/失踪」的角色（如回忆里的死者）。
+     * 只在这里声明**初始态**，运行时变更走效果 `setNpcLifecycle`。
+     */
+    lifecycle: z
+      .object({
+        state: z.enum(["alive", "inactive", "unspawned"]),
+        reasonCode: z.string().min(1).optional(),
+      })
+      .strict()
+      .optional(),
     mood: MoodValueSchema,
     attributes: z.record(z.string(), z.number()),
     /** 角色初始持有的技能（NPC/敌人同样适用；引用完整性在 world.ts 顶层校验） */

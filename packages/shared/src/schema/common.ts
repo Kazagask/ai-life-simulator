@@ -162,6 +162,22 @@ export const TimeConditionSchema = z
   })
   .strict();
 
+/**
+ * NPC 生命周期条件（ADR-0012 决策 1 / ADR-0020 落地）。
+ * 只匹配**状态**，不匹配 `reasonCode`——「死人才能…」这类业务语义由模板用本条件组合表达，
+ * 引擎不得对 reasonCode 分支。
+ */
+export const NpcStateConditionSchema = z
+  .object({
+    npcState: z
+      .object({
+        npcId: z.string().min(1),
+        state: z.enum(["alive", "inactive", "unspawned"]),
+      })
+      .strict(),
+  })
+  .strict();
+
 export const ConditionSchema = z.union([
   FlagConditionSchema,
   AttributeConditionSchema,
@@ -172,6 +188,7 @@ export const ConditionSchema = z.union([
   RequiresSkillConditionSchema,
   RandomConditionSchema,
   TimeConditionSchema,
+  NpcStateConditionSchema,
 ]);
 
 // ---------- 效果 DSL（声明式，引擎白名单实现） ----------
@@ -228,6 +245,19 @@ export const EffectSchema = z.discriminatedUnion("type", [
     .strict(),
   /** 角色死亡时冻结与之相连的关系边（仍参与称谓推导，但不再被改动）。 */
   z.object({ type: z.literal("freezeRelationsOnDeath"), npcId: z.string().min(1) }).strict(),
+  /**
+   * 设置 NPC 生命周期状态（ADR-0012 决策 1/2，ADR-0020 落地）。
+   * 复活 / 死亡 / 失联走同一入口，无特权通道。`reasonCode` 是模板自由字符串
+   * （阵亡 / 叛逃 / 下落不明…），**引擎不对它分支**，只原样存下来供模板条件与投影展示。
+   */
+  z
+    .object({
+      type: z.literal("setNpcLifecycle"),
+      npcId: z.string().min(1),
+      state: z.enum(["alive", "inactive", "unspawned"]),
+      reasonCode: z.string().min(1).optional(),
+    })
+    .strict(),
   z.object({ type: z.literal("grantItem"), itemId: z.string().min(1), count: z.number().int().positive() }).strict(),
   z.object({ type: z.literal("removeItem"), itemId: z.string().min(1), count: z.number().int().positive() }).strict(),
   z.object({ type: z.literal("applyStatus"), status: z.string().min(1), stacks: z.number().int().positive().optional() }).strict(),
