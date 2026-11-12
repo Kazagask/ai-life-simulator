@@ -159,6 +159,7 @@ export function projectSnapshotV2(
         personality: npc.personality,
         relationship: npc.relationship,
         knownGoals: [...npc.knownGoals],
+        attributes: projectNpcAttributes(npc.attributes, template),
         statuses: npc.statuses
           .map((inst) => {
             const def = lookup.status(inst.statusId);
@@ -232,6 +233,25 @@ export function projectSnapshotV2(
     status,
     ending: state.termination ? buildEndingView(state.termination, endings, state) : null,
   };
+}
+
+/**
+ * NPC 属性下发（ADR-0021 决策 3）：
+ * - 键集 = `template.attributes.order`（顺序无关地相等），order 外的键**一律不透**
+ *   ——否则玩家侧的 `proficiency*` 之类内部/派生键会变成新的 API 面；
+ * - 值 = 实例层的模板 base 原值（`turn.ts` 建实例时从 `characters[].attributes` 拷入）；
+ *   order 内但 NPC 未声明的键给 0，与玩家面板取值口径一致；
+ * - order 为空 ⇒ `{}`（不是缺省 undefined，前端直接遍历）。
+ * 这里**不做** effective 派生：补正过滤后算出的数与战斗实算必不一致，
+ * 不过滤则成 hidden 侧信道（ADR-0019 红线），二者不可兼得。
+ */
+function projectNpcAttributes(
+  attributes: Record<string, number>,
+  template: WorldTemplateV2,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const key of template.attributes.order) out[key] = attributes[key] ?? 0;
+  return out;
 }
 
 /**

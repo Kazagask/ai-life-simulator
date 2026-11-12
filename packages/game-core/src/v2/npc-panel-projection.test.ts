@@ -1,7 +1,35 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { parse } from "yaml";
+import { WorldTemplateV2Schema, type WorldTemplateV2 } from "@life-sim/shared";
 import { projectSnapshotV2 } from "./projection.js";
 import { createLookup } from "./lookup.js";
 import { createActiveWorldV2, makeTestTemplate } from "./test-utils.js";
+
+/** 真实模板夹具（jjk-2006 六文件合并）；与 v2.test.ts 同一加载口径。 */
+const jjkDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../specs/data/templates/jjk-2006");
+
+function loadJjkTemplate(): WorldTemplateV2 {
+  const merged: Record<string, unknown> = {};
+  for (const file of ["world.yaml", "characters.yaml", "skills.yaml", "items.yaml", "statuses.yaml", "events.yaml"]) {
+    const doc = parse(readFileSync(path.join(jjkDir, file), "utf8")) as Record<string, unknown>;
+    for (const [key, value] of Object.entries(doc)) {
+      if (key === "meta") merged.meta = value;
+      else if (merged[key] === undefined) merged[key] = value;
+      else if (Array.isArray(merged[key]) && Array.isArray(value)) merged[key] = (merged[key] as unknown[]).concat(value);
+    }
+  }
+  return WorldTemplateV2Schema.parse(merged);
+}
+
+function buildJjkWorld(worldId: string) {
+  const template = loadJjkTemplate();
+  const lookup = createLookup(template);
+  const state = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 7 }, template, worldId);
+  return { state, template, lookup };
+}
 
 /**
  * ADR-0019：NPC 面板需要「关系 / 状态 / 生命周期」三块。
@@ -82,5 +110,58 @@ describe("V2 投影 · NPC 面板字段（ADR-0019）", () => {
     npc.statuses = [];
     const view = projectSnapshotV2(state, template, lookup);
     expect(view.npcs.find((n) => n.id === "npc-a")!.statuses).toEqual([]);
+  });
+});
+
+describe("V2 投影 · NPC 属性（ADR-0021 决策 3）", () => {
+  it("键集与 template.attributes.order 相等；值为模板 base 原值；未声明的键补 0", () => {
+    const { state, template, lookup } = buildWorld("w-npc-attr-1", 17);
+    // 夹具 NPC 只声明三项，order 有四项（willpower 未声明）
+    expect(template.attributes.order).toEqual(["cursedEnergy", "agility", "luck", "willpower"]);
+    const npc = projectSnapshotV2(state, template, lookup).npcs.find((n) => n.id === "npc-a")!;
+    expect(Object.keys(npc.attributes).sort()).toEqual([...template.attributes.order].sort());
+    expect(npc.attributes).toEqual({ cursedEnergy: 5, agility: 3, luck: 3, willpower: 0 });
+  });
+
+  it("order 外的键一律不透（内部/派生键不得变成新 API 面）", () => {
+    const { state, template, lookup } = buildWorld("w-npc-attr-2", 17);
+    const instance = state.npcs.find((n) => n.id === "npc-a")!;
+    instance.attributes.hiddenBonus = 99;
+    instance.attributes.proficiencySword = 7;
+    const npc = projectSnapshotV2(state, template, lookup).npcs.find((n) => n.id === "npc-a")!;
+    expect(npc.attributes.hiddenBonus).toBeUndefined();
+    expect(npc.attributes.proficiencySword).toBeUndefined();
+    expect(JSON.stringify(npc.attributes)).not.toContain("hiddenBonus");
+  });
+
+  it("下发的是 base 值：状态补正不叠进去（补正只走 statuses）", () => {
+    const { state, template, lookup } = buildWorld("w-npc-attr-3", 17);
+    const instance = state.npcs.find((n) => n.id === "npc-a")!;
+    // 夹具已挂 inj（simulation.attributeModifiers.agility = -2）
+    expect(instance.statuses.map((s) => s.statusId)).toContain("inj");
+    const npc = projectSnapshotV2(state, template, lookup).npcs.find((n) => n.id === "npc-a")!;
+    expect(npc.attributes.agility).toBe(3); // base 原值，不是 1
+    // 也不下发任何 effective / delta 派生字段
+    expect(Object.keys(npc)).not.toContain("attributeModifiers");
+    expect(Object.keys(npc)).not.toContain("effectiveAttributes");
+  });
+
+  it("模板 order 为空 ⇒ 下发 {}（必填字段，前端可直接遍历）", () => {
+    const { state, template, lookup } = buildWorld("w-npc-attr-4", 17);
+    template.attributes = { order: [], defaults: {} };
+    const view = projectSnapshotV2(state, template, lookup);
+    for (const npc of view.npcs) expect(npc.attributes).toEqual({});
+    // 必填：字段存在（不是 undefined），JSON 里也保留空对象
+    expect(JSON.parse(JSON.stringify(view.npcs[0])).attributes).toEqual({});
+  });
+
+  it("真实模板 jjk-2006：每个 NPC 的属性键集都等于模板 order", () => {
+    const { state, template, lookup } = buildJjkWorld("w-npc-attr-jjk");
+    const view = projectSnapshotV2(state, template, lookup);
+    expect(view.npcs.length).toBeGreaterThan(3);
+    for (const npc of view.npcs) {
+      expect(Object.keys(npc.attributes).sort()).toEqual([...template.attributes.order].sort());
+      for (const value of Object.values(npc.attributes)) expect(typeof value).toBe("number");
+    }
   });
 });

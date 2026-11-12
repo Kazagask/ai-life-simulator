@@ -502,6 +502,13 @@ export interface V2Snapshot {
     relationship: number;
     knownGoals: string[];
     /**
+     * 属性面板（ADR-0021 决策 3）：**只含模板 `attributes.order` 内的键**，值为模板声明的
+     * base 原值（`levelScale` 与状态补正一概不叠）；order 内但 NPC 未声明的键给 0
+     * （与玩家面板同口径）。**必填**——空模板给 `{}`，前端可直接遍历，不必判 undefined。
+     * 不下发 `attributeModifiers` / effective 派生值：补正只走 `statuses`（hidden 侧信道红线）。
+     */
+    attributes: Record<string, number>;
+    /**
      * R2.6 / ADR-0014：与本体相关且玩家**已知**的关系边（仅 known / inferred）。
      * unknown / hidden 一律不投影（R-OP-05：默认不认识，hidden 来源不泄露）。
      */
