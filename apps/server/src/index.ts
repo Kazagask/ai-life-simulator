@@ -23,6 +23,7 @@ import {
   useItemV2,
   type TurnPipelineConfig,
 } from "@life-sim/game-core";
+import { BattleCommandSchema } from "@life-sim/shared";
 import type { WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
 import { getEndingConfig, getEvaluationConfig, getOpeningTemplates, getTemplateFingerprint, loadTemplates } from "./templates.js";
 import { dataDir, hydrate, loadPersistedWorlds, worldStore } from "./store.js";
@@ -121,13 +122,9 @@ const turnSchema = z.object({
 
 const chooseSchema = z.object({ optionId: z.string().min(1).max(40) });
 
-const battleSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("skill"), skillId: z.string().min(1), targetInstanceId: z.string().optional() }),
-  z.object({ type: z.literal("item"), itemId: z.string().min(1) }),
-  z.object({ type: z.literal("flee") }),
-  // D-14：空过一回合（眩晕时引擎仍需一次命令提交来结束回合；UI 不再借 flee 顶上）
-  z.object({ type: z.literal("pass") }),
-]);
+// 战斗命令的入参校验直接引用 shared 的定义（D-15 单一真源）：
+// 曾经这里手写一份 discriminatedUnion，与 `BattleCommand` 是同一契约的第二份真源，
+// 新增命令（如 `pass`）时服务端会静默 400 拒收。现在结构上不可能再漂移。
 
 const useItemSchema = z.object({ itemId: z.string().min(1) });
 
@@ -235,7 +232,7 @@ app.post("/api/worlds/:id/battle", async (request, reply) => {
   const found = getWorld(id);
   if (!found) return reply.code(404).send({ error: "world_not_found" });
 
-  const parsed = battleSchema.safeParse(request.body);
+  const parsed = BattleCommandSchema.safeParse(request.body);
   if (!parsed.success) {
     return reply.code(400).send({ error: "invalid_body", detail: parsed.error.flatten() });
   }

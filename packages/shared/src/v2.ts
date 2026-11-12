@@ -538,20 +538,13 @@ export interface ChooseOptionCommand {
   optionId: string;
 }
 
-export type BattleCommand =
-  | { type: "skill"; skillId: string; targetInstanceId?: string }
-  | { type: "item"; itemId: string }
-  | { type: "flee" }
-  /**
-   * 空过一回合（D-14）：**本回合不做任何事，但仍消耗一个战斗回合**
-   * （友军/敌人照常行动、`roundEnd` 照常推进、补正寿命与冷却照常递减）。
-   * 不消耗 MP / 道具 / 技能冷却，也不触发逃跑判定。
-   *
-   * 存在的理由：`cannot_act`（眩晕）时引擎会忽略命令但**仍要求玩家提交一次命令**
-   * 才能结束回合；此前 UI 只能借 `flee` 顶上（唯一无资源代价的命令），
-   * 一旦命令分发顺序被调整，「硬撑」就会真的执行逃跑。`pass` 把这个语义补进模型本身。
-   */
-  | { type: "pass" };
+/**
+ * 战斗命令的**类型与 schema 都在 `v2-command.ts`**（D-15 单一真源）：
+ * 此处只做转发，保持既有 `import { BattleCommand } from "@life-sim/shared"` 的引用面不变。
+ * 不要在 `v2.ts` 里恢复手写联合类型——那会立刻退回「同一契约两份真源」。
+ */
+export type { BattleCommand } from "./v2-command.js";
+export { BattleCommandSchema } from "./v2-command.js";
 
 export interface UseItemCommand {
   itemId: string;

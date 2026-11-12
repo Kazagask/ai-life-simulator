@@ -4,4 +4,5 @@
  */
 export * from "./schema/index.js";
 export * from "./v2.js";
+export * from "./v2-command.js";
 export * from "./v2-state.js";
