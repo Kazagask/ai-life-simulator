@@ -58,8 +58,8 @@ pnpm start          # 启动服务（默认 0.0.0.0:3000，同时托管 web 构�
 1. `AGENTS.md`：所有 Coding Agent 必须遵循的工程规则。
 2. `docs/PRODUCT.md`：产品范围与玩法原则。
 3. `docs/ARCHITECTURE.md`：系统边界和技术架构。
-4. `specs/engine/CORE_ENGINE.md`：核心模拟引擎规格。
-5. `specs/demo/JJK_DEMO.md`：Demo 世界模板规格。
+4. `specs/core/CORE_ENGINE.md`：核心模拟引擎规格。
+5. `specs/core/JJK_DEMO.md`：Demo 世界模板规格。
 6. `tasks/AGENT_TRIAL.md`：给 WorkBuddy / CodeBuddy 的同题测试任务。
 
 ## 当前阶段目标

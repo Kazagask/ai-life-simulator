@@ -2,7 +2,19 @@
 
 ## 0. 工作方式
 
-- 开始任务前，先阅读 `README.md`、相关 `docs/` 和 `specs/`。
+### 0.1 规格读取纪律（2026-11-12 用户裁决，硬规则）
+
+- **默认只读 `specs/core/`**，首选 `specs/core/GAME_RULES.md`（一页纸核心决策）。够用就不要往下翻。
+- **重大改动**（核心数据模型 / 技术栈 / 目录结构 / 游戏规则 / 协议）才可加读 `docs/DECISIONS.md` 对应 ADR 正文；仍需才翻 `specs/archive/` 里**指定的那一个**文件。
+- **查询/扫描全部 spec 必须先通知用户并取得确认**，说明动机与范围。禁止自行递归扫描 `specs/` 或「先全量读一遍再动手」。
+- `specs/archive/**` 是历史过程，**不构成现行约束**；与代码冲突时以**代码**为准，不得据此改代码，也不得回改历史文档。
+- 小问题、优化点、已裁决不修、证据缺口一律记 `docs/BACKLOG.md`；产品规则待决记 `docs/OPEN_QUESTIONS.md`；不要新建 spec 文件来追踪它们。
+- 新迭代建在 `specs/iterations/<YYYY-MM-DD>-<短标签>/`；收尾整包移入 `specs/archive/iterations/`。详见 `specs/README.md`。
+- `specs/data/` 是**运行时资产**（服务端按此路径加载模板），不是文档，禁止移动或改名。
+
+### 0.2 通用
+
+- 开始任务前，先阅读 `README.md`、相关 `docs/` 和 `specs/core/`。
 - 先给出简短实施计划，再修改文件。
 - 一次只实现一个明确任务，不要擅自扩展范围。
 - 不确定的产品规则写入 `docs/OPEN_QUESTIONS.md`，不要自行伪造共识。

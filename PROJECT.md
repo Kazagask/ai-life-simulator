@@ -28,16 +28,20 @@
 
 > 状态会变。每轮迭代收尾时**只更新本表**，不要在别处另建第二份状态。
 
-## 3. 迭代输入（消费顺序固定）
+## 3. 迭代输入（消费顺序固定 · 2026-11-12 收起）
 
-| # | 文件 | 作用 |
-|---|---|---|
-| 0 | `AGENTS.md` | 工程规范与硬约束，任何任务先读 |
-| 1 | `specs/iteration-*/README.md` | 本轮范围、冲突对齐、硬约束、交给 Coding Agent 的读法 |
-| 2 | `specs/iteration-*/requirements.md` | EARS 需求 + 验收标准 + 追溯矩阵 |
-| 3 | `specs/iteration-*/design.md` | 现状盘点、数据模型、接口建议、需 ADR 清单 |
-| 4 | `specs/iteration-*/tasks.md` | 分阶段任务、依赖、产出、完成定义 |
-| 5 | `tasks/reports/*.md` | 差距报告与验收证据 |
+> **默认只读 §3 的 0–2 行。** 查全部 spec 前必须先通知用户确认（见 `AGENTS.md` §0.1、`specs/README.md` §0）。
+
+| # | 文件 | 作用 | 何时读 |
+|---|---|---|---|
+| 0 | `AGENTS.md` | 工程规范与硬约束 | 任何任务先读 |
+| 1 | `specs/core/GAME_RULES.md` | **一页纸核心决策速查**（时间/事件/终止/评价/NPC/投影/模板边界） | 默认必读，够用即止 |
+| 2 | `specs/core/` 其余 | `CORE_ENGINE` / `TEMPLATE_PROTOCOL_V2` / `MOBILE_UX` / `JJK_DEMO`，按 `specs/README.md` §2 的对照表按需取 | 命中对应领域时 |
+| 3 | `specs/iterations/<当前迭代>/` | 活跃迭代四件套 `README / requirements / design / tasks` | **仅当前迭代**（当前为空） |
+| 4 | `docs/DECISIONS.md` | ADR 正文 | 重大改动时 |
+| 5 | `specs/archive/**` | 已关闭迭代与历史设计稿，**不构成现行约束** | 仅在用户点名或排查「当初为什么」时，且需先声明 |
+| 6 | `docs/BACKLOG.md` / `docs/OPEN_QUESTIONS.md` | 小问题池 / 产品待决项 | 规划下一轮、或遇到未定规则 |
+| 7 | `tasks/reports/*.md` | 验收证据与结论 | 复核历史结论时 |
 
 ## 4. 硬约束（不可协商，摘自 `AGENTS.md`）
 
@@ -57,7 +61,7 @@
 
   ```
   目标：推进 R2 阶段 0 的差距复核。
-  输入：specs/iteration-2026-11-11/ 四件套、AGENTS.md、当前工作区代码。
+  输入：`specs/core/GAME_RULES.md` + 当前迭代四件套 `specs/iterations/<id>/`、AGENTS.md、当前工作区代码。
   输出：更新 tasks/reports/R2-GAP-ANALYSIS.md，逐条标注 45 条 ACTIVE 需求状态。
   约束：不改任何实现代码；DEFERRED/RETIRED 只登记不分析；不确定项写 docs/OPEN_QUESTIONS.md。
   ```
@@ -77,5 +81,5 @@
 
 - `specs/` — 规格与设计；`tasks/` — 实施计划与报告；`docs/` — 产品、架构、ADR、待决问题。
 - `.workbuddy/` — WorkBuddy 协作元文件（项目记忆 + 项目技能），**不参与构建**，不属于产品架构。
-- 新增一轮迭代时，在 `specs/iteration-<日期>/` 下沿用 `README → requirements → design → tasks` 四件套，
+- 新增一轮迭代时，在 `specs/iterations/<YYYY-MM-DD>-<短标签>/` 下沿用 `README → requirements → design → tasks` 四件套，
   编号不重排，延期需求保留编号与原文。
