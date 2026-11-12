@@ -390,6 +390,17 @@ window.scrollY = 217（自动滚入，未要求玩家自己滑）
 
 ---
 
+### 10.5 HEAD 变动说明（复验期间）
+
+复验在 `bbf734d` 完成；期间 HEAD 前移两步，均不改变本节结论：
+
+| 提交 | 内容 | 对复验的影响 |
+|---|---|---|
+| `8201566` | `docs(ADR-0017)` 补决策 6（属性键 ⊆ order 的加载期校验收紧） | 纯文档 |
+| `6e77aca` | `test(schema/D-17)` 把 `defaults` / `playerTemplate` 的断言从「存在某条 issue」升级为**精确 path 命中数 === 1 + 前缀计数 === 1** | 只动测试；`git diff --name-only bbf734d 6e77aca` = `docs/DECISIONS.md` + `packages/shared/src/schema.test.ts`，**产品代码零改动**，故 §10.1–10.3 的运行时结论不变 |
+
+在 `6e77aca` 上复跑：`pnpm typecheck` **0 错**、shared **62/62**（3.94s）。同时说明一点——内核侧这次补强的正是「存在性断言抓不到重复上报」这个自验盲点，与我 §10.3 用**条数**判 c 组的口径一致，两条独立路径得出同一结论。
+
 ## 附：验收资产清单
 
 ```
