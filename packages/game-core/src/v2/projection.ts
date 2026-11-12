@@ -311,7 +311,12 @@ function battleView(state: WorldStateV2, lookup: TemplateLookup, template: World
       items: Object.entries(state.player.inventory)
         .filter(([itemId, count]) => count > 0 && lookup.item(itemId)?.usableInBattle)
         .map(([itemId, count]) => ({ itemId, name: lookup.item(itemId)?.name ?? itemId, count })),
-      canFlee: battle.settle.canFlee ?? false,
+      /**
+       * D-12：逃跑可用性 = settle 声明**与**未被 cannot_flee 补正压制（与引擎判定同源）。
+       * 引擎侧顺序是 `!settle.canFlee ⇒ flee_not_allowed`、`controlOf(...cannot_flee) ⇒ cannot_flee`，
+       * 两者都通过才真能逃 ⇒ 投影取 AND，判定函数复用 battle.ts 的 controlOf。
+       */
+      canFlee: (battle.settle.canFlee ?? false) && !controlOf(battle.player.statuses, "cannot_flee", lookup),
       /**
        * D-08：与引擎同一判定（battle.ts 的 controlOf），输入取**战斗镜像**的补正列表
        * —— 这正是 performBattleAction 检查 `pc.statuses` 的来源，二者不会漂移。

@@ -86,6 +86,7 @@ const RAW_TEMPLATE: Record<string, unknown> = {
     { id: "st-mute", name: "禁攻", duration: { turns: 1 }, stacking: "refresh" as const, combat: { control: ["cannot_attack" as const] }, visibility: "known" as const },
     { id: "st-confuse", name: "混乱", duration: { turns: 1 }, stacking: "refresh" as const, combat: { control: ["forced_target_self" as const] }, visibility: "known" as const },
     { id: "st-bound", name: "束缚", duration: { turns: 2 }, stacking: "refresh" as const, combat: { control: ["cannot_use_items" as const] }, visibility: "known" as const },
+    { id: "st-grip", name: "缠锁", duration: { turns: 2 }, stacking: "refresh" as const, combat: { control: ["cannot_flee" as const] }, visibility: "known" as const },
   ],
   events: [],
 };
@@ -289,5 +290,39 @@ describe("D-08 · 投影告知「本回合能否使用道具」（与引擎同�
     expect(projectSnapshotV2(state, template, lookup).battle?.player.canUseItems).toBe(false);
     state.battle!.player.statuses = [];
     expect(projectSnapshotV2(state, template, lookup).battle?.player.canUseItems).toBe(true);
+  });
+});
+
+describe("D-12 · 投影告知「本回合能否逃跑」（settle 声明 AND 未被 cannot_flee 压制）", () => {
+  function setupWithFlee(canFlee: boolean) {
+    const template = makeTemplate();
+    const lookup = createLookup(template);
+    const state = createActiveWorldV2({ templateId: template.meta.id, playerName: "测试者", seed: 1 }, template, "w-flee");
+    state.battle = createBattle("ev-1", { enemies: [{ ref: "mob" }], canFlee }, state, lookup);
+    return { template, lookup, state };
+  }
+
+  it("settle 声明可逃 + 无补正 ⇒ canFlee true", () => {
+    const { template, lookup, state } = setupWithFlee(true);
+    expect(projectSnapshotV2(state, template, lookup).battle?.player.canFlee).toBe(true);
+  });
+
+  it("settle 声明可逃 + cannot_flee 补正 ⇒ canFlee false，且引擎同样拒绝（cannot_flee）", () => {
+    const { template, lookup, state } = setupWithFlee(true);
+    state.battle!.player.statuses.push({ statusId: "st-grip", stacks: 1, appliedTurn: 0 });
+
+    const snap = projectSnapshotV2(state, template, lookup);
+    expect(snap.battle?.player.canFlee).toBe(false);
+    // 补正对玩家可见 ⇒ 禁用原因是可解释的
+    expect(snap.battle?.player.statuses.some((s) => s.id === "st-grip")).toBe(true);
+    // 引擎：同一判定 ⇒ 拒绝码不变（投影/引擎不漂移）
+    expect(() => performBattleAction(state, { type: "flee" }, lookup, createRng(5))).toThrow("cannot_flee");
+  });
+
+  it("settle 声明不可逃 ⇒ canFlee false（声明优先，与补正无关）", () => {
+    const { template, lookup, state } = setupWithFlee(false);
+    expect(projectSnapshotV2(state, template, lookup).battle?.player.canFlee).toBe(false);
+    // 引擎拒绝码是 flee_not_allowed（不是 cannot_flee）
+    expect(() => performBattleAction(state, { type: "flee" }, lookup, createRng(5))).toThrow("flee_not_allowed");
   });
 });

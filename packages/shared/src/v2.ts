@@ -308,6 +308,11 @@ export interface BattleView {
     statuses: Array<{ id: string; name: string; stacks: number }>;
     skills: Array<{ id: string; name: string; description: string; costMp: number; cooldownLeft: number }>;
     items: Array<{ itemId: string; name: string; count: number }>;
+    /**
+     * 本回合是否可逃跑（D-12）：settle 声明 `canFlee` **与**未被 `cannot_flee` 补正压制
+     * 的合取，由投影层用与引擎同一判定算出。为 false 时引擎会以 `flee_not_allowed` /
+     * `cannot_flee` 拒绝，前端据此禁用逃跑按钮，不要自己查 status id。
+     */
     canFlee: boolean;
     /**
      * 本回合是否允许使用战斗道具（D-08）。由投影层用与引擎**同一**控制判定
