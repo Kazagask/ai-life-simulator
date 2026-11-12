@@ -620,7 +620,23 @@ NPC 现无任何存活状态：死亡/失联的 NPC 照样被效用评分选中�
 - 五维分项沿用 ADR-0016 补记：跑动中**不渲染**（实测该块 379px 会把主交互区推出首屏），只在 `terminated` / `archived` 展示。
   注意这是**前端渲染门**，服务端在 running 态仍下发 `dimensions`。
 
+### 决策 6（协议层 · 破坏性校验收紧）：属性键必须 ⊆ `attributes.order`
+
+- **缺口**：`world.ts` 的 superRefine 已校验性别 / 技能 / 物品 / 关系目标 / `attributes.labels` 键集等 8 类交叉引用，
+  **唯独 `attributes.defaults` 与 `playerTemplate.attributes` 的键没查**。引擎会把它们直接写进 `player.attributes`，
+  而投影的 `labels.attributes` 只覆盖 `attributes.order` ⇒ 玩家端那一格显示机器名（如 `luck`），加载期不报错、页面不空白、极难归因。
+- **本质是不对称**：`attributes.labels` 的键**被强制 ⊆ order**（既有 L258），`defaults` 的键却没有 —— 于是模板能在
+  defaults 里声明一个 order 外属性，而 labels 永远不可能有它的中文名。
+- **决策**：加载期补齐两条断言（`defaults` / `playerTemplate.attributes` ⇒ 路径精确到键名，消息含键与 `attributes.order`）。
+  **`characters[].attributes` 不新增校验** —— 它早在既有 superRefine 中已校验（路径 `characters[i].attributes`，不含键名），
+  本次仅加一条「命中恰好 1 条」的回归断言，防止将来重写循环时重复上报。
+- **破坏性**：不合规模板从「能加载、静默退化」变为「加载失败」。这是 fail-fast 收紧，与既有 8 类引用校验口径一致；
+  现网 jjk-2006（defaults 6 键 / playerTemplate 6 键 / 16 角色各 5 键，越界 0）与全部测试夹具均通过。
+  **对第三方模板作者属一次破坏性升级**，需在模板协议文档「属性声明」小节标明（文档本轮未改，待授权）。
+- **刻意不做**：不改成"投影让 `attributeLabels()` 覆盖 `player.attributes` 键集"——那是替模板作者的错打掩护，
+  会让漏配永远不可见。守卫放在**加载期 + 测试**，不放在运行时兜底。
+
 ### 验证
 
-`pnpm typecheck` 0 错；game-core **367/367**、shared **58/58**；`pnpm build` 通过。
+`pnpm typecheck` 0 错；game-core **367/367**、shared **62/62**；`pnpm build` 通过。
 10 条缺陷逐条 PASS + 9 项回归 PASS（hidden 不泄露、旧档指纹拒载、章节不重复触发、确定性、V1 残留扫描等），见验收报告。
