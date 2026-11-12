@@ -2117,7 +2117,10 @@ RNG ⇒ 「逐字节等价重构」立刻不成立（RNG 流被多扣一次，�
 
 > **本条覆盖**：将 2026-11-13 与用户讨论确定的「AI 叙事层（LLM 接入）」落地为正式决策——`LLMProvider` 统一接口（Mock / WorkBuddy 云服务 SDK / OpenAI 兼容）、服务端凭证路由、确定性边界、strict Zod + 证据白名单回退、事件 flavor 异步生成。属于 **T-2 协议/契约变更**（动 server/engine 编排契约 + shared schema 新增），须先写 ADR（AGENTS §0.3）。
 
-- **状态**：**草案（2026-11-13，G1 待评审）**。依据 `AGENTS.md` §0.3：本轮虽多数改动在 `apps/server` 且不升 `schemaVersion`（shared 仅纯新增 `EventFlavorOutputSchema`，`WorldStateV2` 零改动），但动到「server/engine 编排契约 + 叙事来源语义（`narrativeSource` 取值从恒 `template` 变为 `template/llm/fallback` 由运行时决定）」，属契约面变更，故走 ADR。
+- **状态**：**已实施（事后补记，2026-11-13）**。
+  - **〔起草期状态原文，留档备查，不删改〕**：**草案（2026-11-13，G1 待评审）**。依据 `AGENTS.md` §0.3：本轮虽多数改动在 `apps/server` 且不升 `schemaVersion`（shared 仅纯新增 `EventFlavorOutputSchema`，`WorldStateV2` 零改动），但动到「server/engine 编排契约 + 叙事来源语义（`narrativeSource` 取值从恒 `template` 变为 `template/llm/fallback` 由运行时决定）」，属契约面变更，故走 ADR。
+  - **状态变更缘由（事后补记）**：2026-11-13 无人值守定时任务中，用户裁决「**本次免除前置 ADR 流程**」，并明确要求「在全部功能与冒烟验证**完成之后**，再事后补记 ADR 内容（涵盖变更范围与决策结果）」，无需等待确认。故本 ADR 未按 G1/G2 门禁先行评审，而是在 **Phase 3 全部功能完成（10 个 commit，HEAD `ba889ba`）+ Phase 4 冒烟验证由 QA 裁定通过** 之后补记；`docs/DECISIONS.md` 在此之前全程未被改动（起草人与主理人此前的现状盘点均为只读）。本节状态据此由「草案」更新为「已实施（事后补记）」，并新增下列「变更范围（实绩）／决策结果（落地口径）／验证结果（冒烟级）／附录：遗留与风险」四个小节。
+  - 🔴 **流程例外声明（显著 · 仅适用本次任务，不延续）**：**「免除前置 ADR 流程」与「事后补记 ADR」的约定仅适用于本次 2026-11-13 无人值守任务，不延续到后续任何任务。** 后续任务一律恢复 `AGENTS.md` §0.3 的 **G1 / G2 正常门禁**：凡动 `packages/shared` / `packages/game-core` / `apps/**` 契约面（T-2），仍须**先写 ADR 并经评审通过后再实施**；不得援引本条作为「先实施、后补 ADR」的先例。
   - **起草人**：系统架构师（高见远）；起草基线 = `packages/game-core/src/v2/narrative.ts` 既有 scaffold + 用户 2026-11-13 provider/凭证/延迟面决策。
 - **关联**：ADR-0025（WorkBuddy 登录 + 人生档案，登录会话作为云端 SDK 凭证来源）、AGENTS §1（game-core 不引 LLM SDK/网络）、AGENTS §5（不得客户端直连 LLM / 不得外部账号依赖 / 错误可诊断）、OPEN_QUESTIONS #3（多 Agent，DEFERRED）、#5（provider/模型，先接口与 Mock）、#26（自由文本行动，DEFERRED）。
 
@@ -2204,6 +2207,9 @@ RNG ⇒ 「逐字节等价重构」立刻不成立（RNG 流被多扣一次，�
 | 客户端零 LLM 凭证 | 旧：无 LLM | **裁定为硬约束** | 路由全服务端；密钥仅 env；客户端不持 key |
 | `WorldStateV2` 不变 | 旧：无 flavor 缓存 | **裁定零改动** | 缓存非权威、在状态外 |
 | `schemaVersion` 不升 | 旧：=2 | **裁定不升**（shared 仅纯新增） | 旧档可直接载入 |
+| 🔴 **隐藏结局（`narrativeConfig.masked`）原文绝不进入 LLM adapter 注入与玩家可见响应**〔事后补记新增行，草案遗漏项〕 | 草案第 2 行「hidden 不进入玩家端 API｜无影响｜不动投影字段集」**不足以覆盖响应层装饰**——LLM 的 title/summary 若直接覆盖 `snapshot.ending` 会绕过 ADR-0006 掩码泄漏 hidden 原文（违反 R-NFR-04 / `GAME_RULES §7`） | 裁定为硬约束：masked 结局一律跳过 LLM adapter 注入**与**响应层装饰，保留模板掩码文案 | **双层实现**：① `isMaskedEnding(resolution)`（`apps/server/src/index.ts:174-178`）按 `endingId` 回查 `narrativeConfig.masked`，命中即 `TEMPLATE_OUTCOME`，结局叙事 / 人生总结 / 归档路由三处同步跳过；② `decorateEndingView`（`apps/server/src/narrative/generate.ts:106-118`）判 `ending.visibility === "hidden"` 原样返回；前端 `AiNarrativeTag` 仅在 `narrativeSource === "llm"` 显示 |
+
+> **〔事后补记注记，草案 8 行原文保留不改〕** 上表第 9 行是 Phase 3 实绩暴露的**草案遗漏项**，由主理人 G6 裁决确认为硬约束后补入本表。另补两条**契约面事实**（供后续核对，非新增不变量）：① **模板指纹不变**——本轮未改任何 `*.yaml`，而 `computeFingerprint`（`apps/server/src/templates.ts:101-112`）只 hash `specs/data/templates/**/*.yaml`，故指纹不变、旧档可直接载入（`apps/server/src/store.ts:96-133` 四道关全过）；② **`V2Snapshot.evaluation` 不含 `summarySource` 字段**，本轮不扩投影契约，玩家侧仅从 `archive.evaluation.summarySource` 读取（见决策结果小节）。
 
 ### 验证要点（含落地用例位置）
 
@@ -2223,3 +2229,122 @@ RNG ⇒ 「逐字节等价重构」立刻不成立（RNG 流被多扣一次，�
 | 不升 `schemaVersion` / 不改 `WorldStateV2` | 影响面表（旧档兼容、缓存非权威） |
 | 不把 LLM 写入状态/评分 | 决策 3（AGENTS §5、既有 strict 契约） |
 | 自由文本行动（#26）/ 多 Agent（#3）/ 流式输出 | DEFERRED，本轮只登记不实现 |
+| **不宣称 WorkBuddy 云端 SDK 免密钥 LLM 已接通**〔事后补记新增行〕 | 决策 2/6 修正 + `OPEN_QUESTIONS #49`：ADR-0025 已定「服务端零凭据」，登录会话只存在于浏览器 SDK 且该 SDK 仅支持 streaming；`apps/server` 无该依赖、拿不到浏览器登录态。本轮只落地 env 注入 session 的**可运行降级形态**，未注入即 `LLMUnavailableError` 回退模板；真实「登录用户 → 服务端免密钥」链路**待用户裁决，不得写成已解决**。 |
+
+> **〔事后补记注记〕** 上表第 6 行为新增行；原 5 行（含 DEFERRED 四项「自由文本行动 #26 / 多 Agent #3 / 流式输出」及「不允许客户端直连 LLM」）**原文保留不改，仍只登记不实现**。
+
+---
+
+### 〔事后补记〕变更范围（实绩）
+
+> 本节及以下三节为 **2026-11-13 事后补记新增**，草案的「背景／现状核实／决策 1–6／被否决的备选／影响面与文件归属／不变量检查表／验证要点」原文一律保留不改，便于后续核对。实绩基线 `ad53d01`（R2.7 起草时 HEAD）→ `ba889ba`（Phase 3 功能完成 HEAD）；`git diff --stat ad53d01..ba889ba` = **18 files changed, 1767 insertions(+), 53 deletions(-)**。本节补记本身（仅 `docs/DECISIONS.md`）在 `ba889ba` 之后单独提交，不计入上述 18 文件。
+
+#### 实绩 1 · 契约面事实（技术判定不变）
+
+| 项 | 落地结论 | 核验证据 |
+|---|---|---|
+| 变更类别 | **T-2 协议/契约变更**（动 `packages/shared` + `packages/game-core` + `apps/**`） | `AGENTS.md §0.3` 判据；草案 `:2118/:2120` 定性成立。用户免除的是**前置 ADR 流程**，不是降级为 T-1。 |
+| `schemaVersion` | **保持 2，不升** | `apps/server/src/store.ts:34` `const SCHEMA_VERSION = 2` 未改；加载四关（`:114` 版本 → `:119` 指纹 → `:123` `WorldStateV2Schema.safeParse`）不变。 |
+| `WorldStateV2` | **零改动** | `packages/shared/src/v2-state.ts` 未改（`git diff --name-only` 反向核验通过）；缓存为 `apps/server` 模块级 `Map`，不进 state/flags/history。 |
+| 模板指纹 | **不变** | 本轮未改任何 `*.yaml`；`computeFingerprint`（`templates.ts:101-112`）只 hash `specs/data/templates/**/*.yaml`。 |
+| 旧档 | **不拒载（可直载）** | 未动 `WorldStateV2Schema`、未升版本、未改 yaml ⇒ 四关全过。⚠️ 与以往「改模板 ⇒ 旧档全拒载」不同：`AGENTS.md §0.3` 的「主动声明存档代价」**只对 yaml 改动生效**，本轮不适用。 |
+| 运行时依赖 | **无新增** | `apps/server/package.json`、`apps/web/package.json`、`pnpm-lock.yaml` 均未在 `git diff --name-only` 中；未 import `@tencent-ai/workbuddy-cloud-sdk`（server 无该依赖）。 |
+| 投影契约 | **`EndingView` / `V2Snapshot` / `projectSnapshotV2` / `buildEndingView` 零改动** | `packages/shared/src/v2.ts`、`packages/game-core/src/v2/projection.ts` 均未改；玩家可见 llm 来源由**服务端出口响应层装饰**实现（见「决策结果」）。 |
+
+#### 实绩 2 · 18 个改动文件与归属（`git diff --name-only ad53d01..ba889ba`）
+
+| # | 文件 | 包 / WS | 角色 |
+|---|---|---|---|
+| 1 | `apps/server/src/llm/provider.ts` | server / WS-P | `LLMProvider` 接口（`id` + `complete`）、`LLMConfig`、`readLLMConfig`、`createLLMProvider` 三层路由 |
+| 2 | `apps/server/src/llm/mock.ts` | server / WS-P | `MockProvider`（确定性文本；默认路由由 `generateNarrative` 短路，不调 `complete`） |
+| 3 | `apps/server/src/llm/openaiCompatible.ts` | server / WS-P | OpenAI 兼容 provider（纯 `fetch` + `LIFE_SIM_LLM_*`，`AbortSignal.timeout`） |
+| 4 | `apps/server/src/llm/workbuddyCloud.ts` | server / WS-P | 云端**可运行降级形态**：env session + SSE 聚合；未注入 session 抛 `LLMUnavailableError` |
+| 5 | `apps/server/src/llm/errors.ts` | server / WS-P | `LLMUnavailableError` / `LLMTimeoutError` / `isTimeoutLike`；错误体绝不含 key/token/session |
+| 6 | `apps/server/src/narrative/generate.ts` | server / WS-P+WS-S | `generateNarrative`（预取 + 超时竞速 + 校验）、`adapterFromOutcome`（同步桥）、`decorateEndingView`（响应层装饰 + hidden 护栏） |
+| 7 | `apps/server/src/narrative/flavorCache.ts` | server / WS-S | 非权威 `Map` + 确定性复合键 + `scheduleEventFlavors` fire-and-forget |
+| 8 | `apps/server/src/index.ts` | server / WS-P+WS-S | **唯一路由文件**（草案/设计稿误写的 `apps/server/src/v2.ts` 并不存在）：`isMaskedEnding`、快照装饰统一入口、归档 adapter 注入、flavor 调度与响应合并 |
+| 9 | `apps/server/smoke/narrative.smoke.ts` | server / T-S4 | 冒烟脚本 6 项（`node:assert` + `tsx`，不引 vitest） |
+| 10 | `apps/web/src/api.ts` | web / WS-S | `EventFlavorMap`、`resolveEventNarrative`、补齐 `ArchiveResponse.archive` 的 `ending`/`evaluation`/`termination` 类型 |
+| 11 | `apps/web/src/main.tsx` | web / WS-S | `AiNarrativeTag`、消费 `eventFlavors` / `summarySource`、GET/409 刷新路径合并 |
+| 12 | `apps/web/src/style.css` | web / WS-S | AI 叙事标记样式 |
+| 13 | `packages/game-core/src/v2/narrative.ts` | game-core / WS-P+WS-S | 导出 `buildEvaluationSummaryRequest`（原私有 `summaryRequest` 提升）、`buildEndingNarrativeRequest`、`buildEventFlavorRequest`（`Object.freeze`）、`validateNarrativeOutput`、`NarrativeInput`/`NarrativeOutputSchemaLike`；**既有同步签名零改动、不引 LLM/网络** |
+| 14 | `packages/game-core/src/v2/narrative-llm.test.ts` | game-core / T-S4 | 定向 12 例 |
+| 15 | `packages/shared/src/schema/event.ts` | shared / WS-S | 新增 `EventFlavorOutputSchema = z.object({flavor}).strict()`（**落在 `event.ts`，导出链零改动**；未挂进任何 `*Template*Schema`） |
+| 16 | `packages/shared/src/event-flavor.test.ts` | shared / T-S4 | 定向 5 例 |
+| 17 | `docs/OPEN_QUESTIONS.md` | 文档 | **#49** 登记（由实施工程师写入，本补记不改） |
+| 18 | `specs/iterations/2026-11-13-ai-narrative/tasks.md` | 规格 | T-* 状态 + T-S4 收窄说明（由实施工程师写入，本补记不改） |
+
+#### 实绩 3 · 10 个 commit 与任务/需求编号（`git log --oneline ad53d01..ba889ba`，由旧到新）
+
+| # | commit | 任务 / 需求 | 内容 |
+|---|---|---|---|
+| 1 | `42ffa17` | T-P1 / R-LLM-01, R-LLM-03 | 叙事纯函数抽取与 `LLMProvider` 契约 |
+| 2 | `e189d03` | T-P2 / R-LLM-02, R-LLM-06 | 三层 Provider 与凭证路由 |
+| 3 | `6242981` | T-P3 / R-LLM-04, R-NAR-01 | 叙事编排与同步/异步桥 |
+| 4 | `3b567dd` | T-P4 / R-LLM-05, R-NAR-03 | 事件 flavor 异步非权威缓存 + 冒烟脚本 |
+| 5 | `c4f59e1` | T-S3 + T-S1/T-S2 / R-NAR-03 | 前端消费 `eventFlavors` + 玩家可见 AI 叙事标记 |
+| 6 | `80379c4` | T-S1 / R-NAR-01 | 结局叙事接真实 LLM + 响应层装饰 |
+| 7 | `00a5649` | T-S2 / R-NAR-02 | 人生总结接真实 LLM |
+| 8 | `0501e98` | T-S3 / R-NAR-03 | 事件 flavor 服务端接入 + 投影下发 |
+| 9 | `ef28d26` | 冒烟护栏 | 冒烟脚本路由占位值改具名常量，消除密钥字面量扫描误报 |
+| 10 | `ba889ba` | T-S3 / R-NAR-03 | 补齐 GET / 409 刷新路径 `eventFlavors` 合并缺口（Phase 3 HEAD） |
+
+> 提交颗粒度符合 `tasks.md`：每个 `T-*` 一个 commit、信息注明任务 ID 与需求编号。本补记为第 11 个 commit，**只改 `docs/DECISIONS.md`**。
+
+---
+
+### 〔事后补记〕决策结果（落地口径）
+
+> 本节把草案决策 1–6 与**实际实现的差异**逐条固化，并固化主理人 6 条 G6 裁决。草案决策编号与措辞原文保留不改。
+
+1. **决策 1（LLMProvider 在 server，game-core 只保留纯函数）——落地一致，补充两点**：① `LLMProvider.complete(request: NarrativeInput, schema: NarrativeOutputSchemaLike, opts?): Promise<unknown>` 定义于 `apps/server/src/llm/provider.ts`，多一个 `readonly id: "mock" | "workbuddy-cloud" | "openai-compatible"` 供编排层短路；② 校验单一事实来源落在 game-core 的 `validateNarrativeOutput(schema, candidate, allowedEvidenceIds)`，返回 `{ok:true,data}` 或 `{ok:false, reason:"invalid_schema"|"fabricated_evidence"}`，`NarrativeOutputSchemaLike` 让 game-core **不直接 import zod**；`buildEventFlavorRequest` 返回 `Object.freeze` 的只读请求。既有 `resolveEndingNarrative` / `organizeEvaluationSummary` / `finalizeEvaluationSummary` **同步签名零改动**。
+
+2. **决策 2 / 决策 6（凭证路由、密钥管理）——修正，🔴 不宣称云端 SDK 接通（主理人 G6 裁决 1）**：草案写「登录会话 → 云端 SDK（免密钥）」，但 **ADR-0025 已定「服务端零凭据」**（`:1934/:1939/:1958/:1967/:1974`），登录会话只存在于浏览器 `apps/web` 的 SDK 单例（`cloud.ts:26-30`），该 SDK 的 `chat.completions.create()` **仅支持 streaming SSE** 且会话以 localStorage 为唯一真源、client 刻意不暴露 `sessionToken`；`apps/server` 无该依赖、前端 `api.ts` 也无任何凭据头。故本轮**不接通、不写成已解决**，落地为**可运行降级形态**：env 注入 `LIFE_SIM_WORKBUDDY_SESSION` + `LIFE_SIM_WORKBUDDY_CLOUD_URL`（未配置时用占位默认端点 `http://127.0.0.1:8787`）→ 全局 `fetch` 调 `${cloudUrl}/.cloud/llm/chat/completions`（`stream:true`）→ `collectSseContent` 聚合 SSE `data:` 行的 `choices[0].delta.content` → `JSON.parse`；**未注入 session 即抛 `LLMUnavailableError` 并回退模板，绝不假装成功**，不可达 / 超时同样回退。真实链路登记 **`docs/OPEN_QUESTIONS.md #49` 待用户裁决**（候选 A 服务端长期凭据 / B 平台可校验短期会话令牌 / C 保持现状；不决策后果即 C）。实际路由优先级：`cloudSession + cloudUrl` ⇒ workbuddy-cloud；三项 `LIFE_SIM_LLM_*` 齐备 ⇒ openai-compatible；否则 ⇒ mock（`createLLMProvider`，`provider.ts:67-80`）。密钥仅经 env，三项缺任一即整组不可用、启动不报错；错误体与日志绝不含 key / token / session。
+
+3. **Mock 语义（主理人 G6 裁决 2，解决 R-LLM-02 与 T-P3 DoD 的口径矛盾）**：**默认路由短路 `template`**——`generateNarrative` 见 `provider.id === "mock"` 直接返回 `{source:"template", data:null, diagnostic:null}`，**根本不调 `complete`**（零回归、零延迟、零外部依赖）；`MockProvider.complete` 保留供单测 / 显式注入，返回满足 strict 契约的确定性合法候选 ⇒ `source:"llm"`；显式注入合法候选或 OpenAI 兼容 env 齐备 ⇒ `llm`。据此 R-LLM-02「无 env 无登录态 ⇒ 叙事恒模板」与 `tasks.md T-P3 DoD`「Mock 返回合法候选 ⇒ llm」两者均成立，不再冲突。
+
+4. **同步 / 异步桥 + 玩家可见准绳（主理人 G6 裁决 3）**：服务端 `generateNarrative` 预取（`await provider.complete` + `Promise.race` 超时竞速，provider 忽略 opts 也挂不住管线）→ 产出 `NarrativeOutcome {source, data, diagnostic}` → `adapterFromOutcome` 转成 game-core 既有**同步** `NarrativeAdapter`（`template` ⇒ `undefined` 不注入；`llm` ⇒ 返回已校验候选交既有 strict Zod 二次确认；`fallback` ⇒ 抛错借用既有 catch 分支产出 `narrativeSource`/`summarySource === "fallback"`），回注 `resolveEnding` 的 `narrativeAdapter` 与 `finalizeEvaluationSummary`。**game-core 同步签名零改动、无网络、无 Promise**。玩家可见 `narrativeSource:"llm"` 由出口 `decorateEndingView` 做**响应层装饰**（`apps/server/src/narrative/generate.ts:106-118`）：只覆盖已终止且 `visibility === "public"` 的 `snapshot.ending.{title,summary,narrativeSource}`，`fallback` 只置来源、保留模板 title/summary；`decorateSnapshot`（`index.ts:210-225`）以 `${world.id}:${snapshot.turnIndex}` 缓存 outcome 保证重复 GET 一致。**不改 `EndingView` / `V2Snapshot` / `projectSnapshotV2` / `buildEndingView` 任何契约**。🔴 LLM 注入**绝不发生在 turn 管线 / `advanceTurnV2` 内**（`resolveEnding` 在引擎内被 `ending.ts:217/:381` 调用），只在归档 / 读取 / 响应出口按需生成，回放与零回归不受影响。
+
+5. **决策 3（确定性边界）+ 主理人 G6 裁决 4**：LLM 文本只进 `EndingRecord` / `EvaluationRecord` 的展示字段与响应对象，不进 `WorldStateV2`、不进存档信封（`store.ts:39-45`）、不进 replay。**`summarySource` 不进 `V2Snapshot.evaluation`**（保持投影契约零改动），玩家侧仅从 `archive.evaluation.summarySource` 读取（`apps/web` 以瞬态展示元数据消费，不落库、不进人生档案）；**事件 flavor 不进 `ArchiveRecord`**（不动 game-core 类型）。归档时 `assembleArchive(..., ending, evaluation, endings)` 已收两个对象、`projectArchiveForPlayer` 只过滤 `history` 其余原样透传 ⇒ 归档响应天然带 `archive.ending.narrativeSource` / `archive.evaluation.summarySource`，**`assembleArchive` 签名零改动**。
+
+6. **决策 4（回退与可诊断）——落地一致，补充 diagnostic 落点**：`EventFlavorOutputSchema` / `EndingNarrativeOutputSchema` / `EvaluationSummaryOutputSchema` 均 `.strict()`，拒任何额外字段（LLM 常附带 `reasoning`/`usage` ⇒ provider 须先产出严格 JSON）；`validateNarrativeOutput` 二次拒绝 `evidenceIds` 越出 `allowedEvidenceIds`。`diagnostic` 区分 `invalid_schema` / `fabricated_evidence` / `[超时]` / `[不可用]` 四类，非空且互不相同。⚠️ **`diagnostic` 在 `EndingRecordSchema` / `EvaluationRecordSchema` 中无字段且 strict** ⇒ 只能留在 `NarrativeOutcome` 与服务端可诊断日志（`request.log.warn({diagnostic}, "narrative_fallback")`，不含 key/token/session），**不写进 shared 契约或 state**；这是草案未明确的口径差，固化于此。LLM 失败/超时一律不阻塞玩法管线。
+
+7. **决策 5（事件 flavor 异步缓存）+ 主理人 G6 裁决 5（缓存键修正）**：草案键 `worldId + eventInstanceId + worldTime` 中的 **`eventInstanceId` 在本轮 `WorldStateV2` / 投影 / 代码中不存在**（全仓仅 4 处规格文档提及）；现有 `instanceId` 是状态层延时队列实例（`event-instance.ts:41/67`，`evi-<seq>`，不进玩家投影），`triggeredEvents[].id` 是**定义 id**。故实绩改用**确定性复合键** `worldId|turnIndex|worldTime|eventId|occurrenceIndex`（`flavorCache.ts:25-33`，`occurrenceIndex` 由同轮 `triggeredEvents` 下标派生），**严禁 `Math.random()` / `Date.now()` / `randomUUID()` 参与键**；`worldId` 是建世界时一次性注入的既有标识，可作前缀。缓存是 `apps/server` 模块级独立 `Map`，只存 flavor 文本，**绝不挂到 state 上**；`worldStore.save(res.state)` 在生成前完成；`WorldStateV2` 与 schema 一行未动 ⇒ 两次 `JSON.stringify(state)` 逐字节一致。`eventFlavors` 只作**响应级可选 map** 下发（不改 `V2TurnResult`/`V2Snapshot` 结构），前端 `resolveEventNarrative` 空值回退模板文案（「字段缺失 = 与改前逐字相同」）。**不进 replay、不落盘**。**R3 seam 保护**：未为缓存键给 `WorldStateV2` 新增实例 id 字段（否则升 `schemaVersion`、动存档、绑死时间穿越预留点），键含 `worldTime` 但**不写死时间单调假设**。
+
+8. **🔴 新增不变量（草案遗漏，主理人 G6 裁决 6）**：`masked` 隐藏结局**一律跳过 LLM adapter 注入与响应层装饰**，绝不把 hidden 原文写进玩家可见响应。已**双层实现**：① 服务端 `isMaskedEnding(resolution)`（`index.ts:174-178`）按 `endingId` 回查模板 `narrativeConfig.masked`，命中即 `TEMPLATE_OUTCOME`，结局叙事 / 人生总结 / 归档路由三处同步跳过；② `decorateEndingView`（`generate.ts:106-118`）判 `ending.visibility === "hidden"` 原样返回。前端 `AiNarrativeTag` 也仅在 `narrativeSource === "llm"` 时显示，hidden 结局恒非 llm。该行已补入「不变量检查表」（见上）。
+
+9. **验收口径补齐（实施期发现并修复）**：事件 flavor 为 `fire-and-forget`，首次结算响应可能早于后台生成 ⇒ `GET /api/worlds/:id` 与 409 冲突刷新路径的 `eventFlavors` 合并缺口由 `ba889ba` 补齐（`index.ts` 的 `responseEventFlavors` 合并「该世界历史缓存 ∪ 本轮缓存」；`main.tsx` 的 `withMergedFlavors` / `mergeEventFlavors`），弥合固有延迟；`apps/web/src/api.ts` 补齐 `ArchiveResponse.archive` 类型（草案/设计阶段前端只声明了 `snapshot` + `hiddenHistoryCount`，与后端返回全量 `ArchiveRecord` 不对齐）。
+
+---
+
+### 〔事后补记〕验证结果（冒烟级）
+
+> 依据主理人转达的 **QA 裁定：通过**（S1–S9 全 PASS、零 P0/P1）。本 ADR 只如实登记验证范围与结论，**不重新出测试结论**。
+
+| 项 | 结果 |
+|---|---|
+| `pnpm typecheck` | **0 错**（全仓 `tsc --noEmit -p tsconfig.json`，覆盖 `packages/**/*.ts` + `apps/**/*.ts(x)`） |
+| 定向用例 | `packages/game-core/src/v2/narrative-llm.test.ts` **12 例** + `packages/shared/src/event-flavor.test.ts` **5 例**，全绿 |
+| 服务端冒烟 | `apps/server/smoke/narrative.smoke.ts` **6 项全 PASS**：① `createLLMProvider` 三层路由 / `API_KEY` 缺失自动 Mock 不抛；② `generateNarrative` 三类反例（非法 schema / 虚构证据 / 超时）回退且 diagnostic 可区分；③ 合法候选 ⇒ `llm`、mock ⇒ `template` 且不调用 `complete`；④ `finalizeEvaluationSummary` 注入 LLM 前后 `dimensions`/`evidenceIds`/`overall` 逐字段相等；⑤ `decorateEndingView` 对 hidden 结局原样返回、public 才装饰；⑥ flavorCache 键确定性 + 缓存不进状态 |
+| 加载期 / 构建 | `apps/server` 加载期 `/health` 与 `/api/templates` **200**；`apps/web` **build 通过** |
+| 安全护栏 | 隐藏信息**零泄漏**（含 masked 隐藏结局护栏）；仓库**密钥零字面量**（`ef28d26` 消除扫描误报） |
+| 零回归 | 无 `LIFE_SIM_LLM_*` 且无登录态 ⇒ 叙事恒 `template`、不调 `complete`，与改前逐字相同 |
+
+> 🔴 **按用户裁决仅执行冒烟级验证，明确未执行：全量测试套件 / `playthrough.test.ts` 6 种子回归 / UI e2e / 全流程测试。** 不得把未跑项目写成已验证。草案「验证要点」第 6 条所列 `playthrough.test.ts` 6 种子结构性断言**本轮未执行**；`tasks.md` T-S4 原文任务编号保留，仅按用户裁决收窄本轮验证范围（见 `specs/iterations/2026-11-13-ai-narrative/tasks.md`「T-S4 收窄说明」）。这是**有意的验收边界**，不是缺陷或遗漏。
+
+---
+
+### 〔事后补记〕附录：遗留与风险
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| `OPEN_QUESTIONS #49` 登录用户 → 服务端免密钥 LLM 真实注入链路 | **待用户裁决（未解决）** | 候选 A（服务端长期凭据，等价 OpenAI 兼容 env 路由）/ B（平台可校验短期会话令牌，需定令牌形态、下发通道、过期与撤销）/ C（保持现状，登录用户仍只走 Mock / OpenAI 兼容，云端免密钥 LLM 在生产不可用）。**不决策后果即 C**。选 A/B 需先定契约并走 T-2 变更 + ADR 补记；本条事后补记**不覆盖此项**。 |
+| `summarySource` 玩家随时可见性 | **待决（不阻断）** | 本轮只在归档路径从 `archive.evaluation.summarySource` 读取；若产品要求跑动中随时可见，须给 `V2Snapshot.evaluation` 加可选字段（**动投影契约 = T-2 + ADR**）。 |
+| QA 建议：`narrativeSource` / `summarySource` 端到端展示断言 | **下轮补强，不阻断** | 本轮仅冒烟级验证；端到端展示断言留待后续迭代。 |
+| 事件 flavor 在刷新 / 409 后合并 | **已补齐** | `ba889ba`（T-S3 补齐 GET/409 刷新路径 `eventFlavors` 合并），见「决策结果」第 9 条。 |
+| `diagnostic` 未持久化 | **已知边界** | `EndingRecordSchema`/`EvaluationRecordSchema` strict 且无该字段 ⇒ 仅存在于 `NarrativeOutcome` 与服务端日志；若产品要求可追溯，须另立 T-2 + ADR。 |
+| WorkBuddy SDK 仅 streaming 与 `complete(): Promise<unknown>` 的签名落差 | **已在本轮降级形态内消化** | `workbuddyCloud.ts` 聚合 SSE chunk 成完整文本后再交 `JSON.parse` + Zod；若将来接真实 SDK 仍须保持此适配。 |
+| 缓存 TTL / 容量 | **已知边界** | 缓存为进程级 `Map`（非权威、随进程生命周期），`worldStore.delete` 时清理对应 `worldId` 分桶；不落盘、不进 replay。 |
+| 免流程与事后补记 | 🔴 **仅适用本次任务，不延续** | 见本 ADR 状态行「流程例外声明」：后续任务一律恢复 `AGENTS.md §0.3` 的 **G1 / G2 正常门禁**，动契约面（T-2）必须先写 ADR 并经评审通过后再实施。 |
+
+> **本补记的边界声明**：只修改 `docs/DECISIONS.md` 的 ADR-0027 一节（状态行改写 + 「不变量检查表」新增 1 行 + 「明确不做」表新增 1 行 + 4 个新增小节）；ADR-0001..0026 历史正文**一字未动**；不涉及「对 ADR-0011 决策 5 与 ADR-0024 的修订回指」（该 append-only 注记属 ADR-0026，见本文件 `:2108-2114`）。未改代码、未改 spec、未改 `PROJECT.md`、未改 `OPEN_QUESTIONS.md`（#49 已由实施工程师登记）。
