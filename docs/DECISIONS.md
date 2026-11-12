@@ -1904,3 +1904,60 @@ RNG ⇒ 「逐字节等价重构」立刻不成立（RNG 流被多扣一次，�
 2. **僵尸链接受为已知限制** —— 已按此实施，并用用例把它**钉死**（`pending-premise.test.ts` ⑥ 断言链仍为 `active`
    而不是被伪装成 `completed`）。**重开条件不变**：模板出现带 `trigger.conditions` 的链步骤，或出现任何读
    `chain.status === "completed"` 的消费者时，必须回来补 `alignChainStep` 无参形态对齐，并同步改写该用例。
+
+## ADR-0025 云服务接入：账号登录 + 人生档案（只上云投影可见字段）
+
+状态：**已接受**（2026-11-13，云服务接入轮）。关联 ADR-0007（存档策略）/ ADR-0010（三层模型）/ ADR-0022（未登场过滤）。**零协议改动**：`packages/shared`、`packages/game-core`、`apps/server` 一行不改。
+
+### 背景
+
+- 世界存档在服务端 JSON 文件（ADR-0007），重新发布即清空 ⇒ 玩家换设备、换次发布后「这一生」全部丢失。
+- 云环境已开通，但**服务端没有上云通道**：cloud SDK 的身份来自浏览器侧 `cloud.auth` 会话，RLS 判据是 `owner_id = auth.uid()`；Fastify 既无平台凭据，也构造不出用户会话。任何「服务端代写云端表」的方案都只能靠特权身份绕过 RLS，见「被否决的备选」。
+- 因此本轮上云的只是**投影副本**：玩家在结算页**已经看到**的结局摘要，按 WorkBuddy 账号隔离，可跨设备/跨次发布查看与删除。
+
+### 决策
+
+1. **服务端不上云、权威状态不迁移**：世界照旧 `data/worlds/*.json`，引擎与协议零改动；云端行**永不回读进引擎**，只做展示。
+2. **只落玩家已可见的字段**，唯一数据源是 `V2Snapshot` + `EndingView`（**不是模板原文**）：`worldId`/`templateId`/`worldName`、`player.name`/`player.age`、`ending.title`/`endingId`/`endingType`、`Math.floor(worldTime/1440)`（与 QA 基线 `day` 同口径，`worldTime` 单位是分钟、0 = 开局当天）、`formattedTime`、`storyChapter`、`evaluation.overall` 与 `dimensions` 的 `{id,label,score,level}`、`npcs.length`、`runStatus`。
+3. **hidden 红线（落库即违规）**：`visibility:hidden` 的 NPC 名与补正、未登场角色（ADR-0022 `hiddenNodeIds` 之后仍未生效的 `visibility` 过滤见 B-22）、`missedEvents`、`history` 的 hidden 条目、五维 `explanation` 长文案、模板原文（hidden 结局只落**投影已掩码**的标题，绝不回 `endings.yaml` 取原文）、邮箱/手机号/token/openid 之类身份字段。
+4. **一个身份源：WorkBuddy 账号登录**（`signInWithOAuth({provider:'workbuddy'})` + 启动期 `handleWorkBuddyCallback`）。**不做邮箱/短信兜底**：① 新开通环境的 `workbuddy_login_enabled` 默认 on，「开关未开」是**运维项**而非设计约束（`references/auth/management.md` 明载）；② SDK 不提供 provider 绑定/合并 ⇒ 多身份源必然造出「同一自然人两个 uid、档案分裂且无法合并」，比登录失败更糟且不可逆；③ Email 是唯一可能 `degraded` 的 provider，多一条身份源就多一条失败面，收益仅为「第二个身份」。
+5. **认证不阻塞游戏**：未登录可完整玩；只有「人生档案」入口要求登录。不引入匿名登录、不造 localStorage 假会话（`getSession()` 无 session 即未登录）。
+6. **数据所有权在数据库**：表 `public.life_records`，`owner_id text not null default auth.uid()`，RLS 四条策略一律 `owner_id = auth.uid()`。前端**不发送 `owner_id`**；`owner_id` 只用于 UI 判断，**不当安全边界**。
+7. **幂等**：唯一索引 `(owner_id, world_id)` + `upsert(onConflict:'owner_id,world_id')` ⇒ 刷新、重复调用、「已终止 → 已归档」都只留一行。
+8. **写是玩家可见动作**：已登录时，结局产生（`terminated`/`archived`）或手动归档成功后写；未登录**不写、不弹窗、不打断结算**，登录回跳后**不自动补写**（隐私最小化），由玩家在档案页显式点「把这局存进档案」。
+9. **删是玩家的**：`.delete().eq('id', …).select()`（RLS 用 `using`）；返回 0 行 = 不存在或无权 ⇒ 必须提示，不得当成功。
+
+### 被否决的备选
+
+| 备选 | 否决理由 |
+|---|---|
+| 服务端（Fastify）持 `publishableKey` 代写 | `publishableKey` 只是「标识哪个应用」的公开值且服务端做 Origin 强匹配，持它仍拿不到用户会话；强行代写等于建一条绕过 RLS 的特权通道 |
+| 存档上云 / 跨设备续玩 | 需要「输入日志 + 确定性重放」，见「明确不做」 |
+| 邮箱 OTP / 短信兜底 | 决策 4 三条理由；且账号绑定能力不存在，分裂后无解 |
+| 匿名登录 / localStorage 假用户 | 档案的意义就是「归属某个账号」；匿名登录不在 SDK 契约内，且 `auth.uid()` 为空时 RLS 恒不成立 |
+
+### 后果
+
+- 云端行是**客户端自报**的副本：玩家可篡改自己的档案（只影响自己的展示，不进评分、不进任何权威路径）；服务端删世界**不联动**删云端行 ⇒ 云端档案可能比存档活得久（本轮接受，重新发布后它反而是唯一留存）。
+- 两份真相天然不同步。ADR-0010 三层模型不变：云端不是第四层，只是投影的又一份拷贝。
+- 客户端新增依赖 `@tencent-ai/workbuddy-cloud-sdk@dev`，**只有 `apps/web` 是调用方**；服务端零新增依赖、零新增环境变量。
+
+### 明确不做（→ BACKLOG B-24）
+
+| 不做 | 理由 / 重开条件 |
+|---|---|
+| 存档上云、跨设备续玩 | 必须存「seed + 模板指纹 + 逐条命令」并在启动期 replay；ADR-0007 已否决「只存 seed + 命令日志回放」（模板一改即失效），要做须同时定「指纹不匹配时的处置」 |
+| 服务端校验/去重档案 | 服务端无身份凭据，无法判定归属；越权判定只能交给 RLS |
+| 多身份源 / 账号绑定 / 账号合并 | 见决策 4 |
+| 云端档案反哺游戏（成就、排行、跨局继承） | 会让「可篡改的副本」进入权威路径，违反 `AGENTS.md` §5 |
+| 重新发布不清档 | ADR-0007 既定策略，另立项 |
+
+### 验收口径
+
+1. **建表与 RLS**：`list_tables` 见 `life_records`（RLS on），`list_rls` 见 4 条策略均为 `owner_id = auth.uid()`。
+2. **已登录往返**：写一次读回同一行；同 `world_id` 再写仍 1 行且字段被更新（唯一索引 + upsert 生效）。
+3. **未登录**：`getSession()` 无 session ⇒ 档案页只给登录入口，**不发**数据库请求。
+4. **越权**：用另一账号的行 id 调 `.delete()` / `.update()` ⇒ 返回 `[]`，UI 报错；不得静默当成功。
+5. **失败面完备**：断网、401（`endpoint` 与发布域名不匹配）、42501、23505、超配额各有明确文案。
+6. **红线抽查**：库里任一行都不含 hidden NPC 名、`missedEvents`、dimension `explanation`、邮箱/手机号/token。
+7. **证据缺口声明**：跨用户隔离只有**两个真实账号**能证明；`exec_sql` 是特权通道，**不作为** RLS 证据。
