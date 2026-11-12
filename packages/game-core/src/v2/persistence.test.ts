@@ -6,6 +6,7 @@ import { WorldStateV2Schema, type WorldStateV2, type WorldTemplateV2 } from "@li
 import { advanceTurnV2 } from "./turn.js";
 import { createLookup } from "./lookup.js";
 import { loadPersistedWorlds, worldStore, dataDir } from "../../../../apps/server/src/store.js";
+import { projectSnapshotV2 } from "./projection.js";
 
 /**
  * 存档持久化（R-PS-01..07 / ADR-0007 / 协议 §21.2）。
@@ -136,6 +137,28 @@ describe("加载校验（R-PS-02/05）", () => {
     expect(state.lastWheels).toEqual([]);
     const roundTrip = WorldStateV2Schema.parse(readEnvelope(state.id).state);
     expect(roundTrip.lastWheels).toEqual([]);
+  });
+
+  it("D-03 旧档加载后投影 lastWheels 恒为 []（状态侧可选 / 投影侧必填的读侧兜底）", () => {
+    const state = makeRealWorld();
+    const template = makeTemplate();
+    const lookup = createLookup(template);
+    // 手工造一份「旧档」：信封指纹对齐，state 里删掉 lastWheels 后落盘
+    const envelope = readEnvelope(state.id) as Record<string, unknown> & { state: Record<string, unknown> };
+    const legacyState = structuredClone(envelope.state);
+    delete legacyState.lastWheels;
+    writeFileSync(
+      path.join(dataDir(), `${state.id}.json`),
+      JSON.stringify({ ...envelope, templateFingerprint: "sha256:fp-t", state: legacyState }),
+      "utf-8",
+    );
+
+    const loaded = loadPersistedWorlds(new Map([["t", "sha256:fp-t"]])).loaded.find((w) => w.id === state.id);
+    expect(loaded).toBeDefined();
+    // 内存里的旧档确实没有该键（不是被 schema 补成 []）
+    expect(loaded!.lastWheels).toBeUndefined();
+    // 但投影侧恒为数组：前端只判一套（不用区分 undefined / []）
+    expect(projectSnapshotV2(loaded!, template, lookup).lastWheels).toEqual([]);
   });
 
   it("合法档加载回内存逐字段相等；坏类档逐个跳过且不阻断（R-PS-05 三类）", () => {
