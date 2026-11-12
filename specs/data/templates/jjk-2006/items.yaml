@@ -167,3 +167,33 @@ items:
     stackable: false
     usableInBattle: false
     usableOutsideBattle: false
+
+  # ---------- 2006 学年追加：消耗品与信物 ----------
+
+  - id: item-mp-candy
+    type: consumable
+    name: 咒力糖
+    description: 高专小卖部特产。嚼一颗，咒力回路会短暂地活跃起来。
+    stackable: true
+    usableInBattle: true
+    usableOutsideBattle: true
+    use:
+      - { type: adjustResource, resource: mp, value: 25 }
+
+  - id: item-smoke
+    type: consumable
+    name: 线香
+    description: 硝子分给你的安神线香，闻一会儿心就静了。
+    stackable: true
+    usableInBattle: false
+    usableOutsideBattle: true
+    use:
+      - { type: adjustMood, value: 10 }
+
+  - id: item-riko-ribbon
+    type: key
+    name: 理子的发带
+    description: 一条普通的、带着樟脑香气的发带。有人把它塞进了你的口袋。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false

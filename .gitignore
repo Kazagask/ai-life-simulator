@@ -19,3 +19,6 @@ packages/game-core/test-output.txt
 ck.txt
 .wbapp_*.genie
 .workbuddy/applications.yaml
+
+# 转盘参考素材（B 站 meme-auto-wheel 导出），加载器只读 *.yaml，永不进引擎
+specs/data/templates/jjk-2006/*.wheel.json

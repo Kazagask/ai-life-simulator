@@ -2,21 +2,23 @@
 # 元信息、历法、性别枚举、心情档位、状态栏、属性/资源、回复与判定默认值。
 meta:
   id: jjk-2006
-  name: 咒术回战 · 平行世界
-  description: 2006 年，东京咒术高专。你以一名原创咒术师的身份进入这个由诅咒与术式交织的世界。
+  name: 咒术回战 · 命数转盘
+  description: 2006 年春，你转动命数转盘成为咒术高专的一年生。术式、咒具、师承与代价都由转盘定下；此后一年，星浆体、叛逃、百鬼夜行与涩谷会依次找上门——你要活到亲手写下结局的那天。
   startYear: 2006
   engineProtocol: v2
 
 time:
-  defaultStep: { value: 4, unit: hour }
+  # 一轮 = 一天：本模板是「一学年」节奏的人生切片，靠剧情节点的 advanceTo 跳月/跳季，
+  # 而不是把 4 小时一步的细粒度强行拉长到几十年（旧模板寿终不可达的根因）。
+  defaultStep: { value: 1, unit: day }
   # R2.6 / ADR-0013：真实公历（月长 28–31、闰年）；缺省 approx（1 月=30 天）。
   # TimeSpec 字符串字面量（如 "2006-12-24"、"3d2h"）自此按真实日历解析。
   calendar:
     preset: gregorian
   lifeStageSteps:
     childhood: { value: 1, unit: day }
-    youth: { value: 4, unit: hour }
-    adulthood: { value: 6, unit: hour }
+    youth: { value: 1, unit: day }
+    adulthood: { value: 1, unit: day }
     elderhood: { value: 1, unit: day }
   # 人生阶段阈值（模板可配置，替代引擎硬编码）
   lifeStages:
@@ -76,36 +78,44 @@ regen:
     rest: { hp: 20, mp: 10 }
 
 # 玩家行动（action-hook 事件引用此处 id；rest 同时享受 regen.actions.rest 额外回复）
+# 设计意图：六个行动各自挂着不同的「钩子」——修炼/上课/交友是稳定收益，
+# 巡逻/探索是高风险高回报的转盘，休息是回血与推进剧情的安全键。
 actions:
   - id: train
     label: 修炼
-    description: 打熬咒力与体术。
-    duration: { value: 4, unit: hour }
+    description: 打熬咒力与体术。咒力 +1，代价是耗掉一些体力。
+    duration: { value: 1, unit: day }
     effects:
       - { type: adjustAttribute, attribute: cursedEnergy, value: 1 }
       - { type: adjustResource, resource: mp, value: -5 }
   - id: patrol
     label: 巡逻
-    description: 在结界薄弱处巡逻，可能遭遇咒灵。
-    duration: { value: 4, unit: hour }
+    description: 在结界薄弱处巡逻——大概率遇见什么，小概率什么也没遇见。
+    duration: { value: 1, unit: day }
     effects:
       - { type: adjustFlag, id: patrolCount, value: 1 }
+  - id: explore
+    label: 探索
+    description: 钻进废弃校舍、地下道与咒灵巢穴。风险自负。
+    duration: { value: 1, unit: day }
+    effects:
+      - { type: adjustFlag, id: exploreCount, value: 1 }
   - id: study
     label: 上课
-    description: 高专的咒理课程。
-    duration: { value: 4, unit: hour }
+    description: 高专的咒理课程。智力 +1，偶尔会被点名。
+    duration: { value: 1, unit: day }
     effects:
       - { type: adjustAttribute, attribute: intellect, value: 1 }
   - id: socialize
     label: 交往
-    description: 与同伴相处。
-    duration: { value: 2, unit: hour }
+    description: 与同伴度过一天。心情与羁绊都会变好。
+    duration: { value: 1, unit: day }
     effects:
       - { type: adjustMood, value: 4 }
   - id: rest
     label: 休息
     description: 回宿舍休整，恢复 HP/MP。
-    duration: { value: 8, unit: hour }
+    duration: { value: 1, unit: day }
 
 # NPC 自主行动（触发式 + 效用评分；goalMatch/traitAffinity 对应角色的 private.goals/traits）
 npcActions:

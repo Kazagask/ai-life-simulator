@@ -311,3 +311,74 @@ skills:
       - { status: black-flash, chance: 1.0, stacks: 1, onSelf: true }
     cooldownTurns: 4
     usableInBattle: true
+
+  # ---------- 2006 学年追加：敌人与诅咒师 kit ----------
+
+  # 伏黑甚尔：天与咒缚的极致，没有咒力，只有碾压一切的肉体
+  - id: sk-heavenly-body
+    kind: combat
+    name: 天与暴君
+    description: 不依赖任何咒力的纯粹暴力，一记正拳足以打穿术师的防御。
+    cost: { mp: 0 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: physique, defender: agility, baseChance: 0.8 }
+    damage:
+      - { preset: scaled, base: 26, scaleBy: physique, multiplier: 1.2 }
+    cooldownTurns: 0
+    usableInBattle: true
+
+  - id: sk-weapon-cleave
+    kind: combat
+    name: 咒具·断刃
+    description: 以特级咒具挥出的斩击，连术式都能一并斩断。
+    cost: { mp: 5 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: physique, defender: physique, baseChance: 0.7 }
+    damage:
+      - { preset: fixed, value: 34 }
+    cooldownTurns: 2
+    usableInBattle: true
+
+  # 一级咒灵：压迫感来自纯粹的质量
+  - id: sk-curse-crush
+    kind: combat
+    name: 咒力碾压
+    description: 一级咒灵凝成的巨大质量，直接把猎物压进地面。
+    cost: { mp: 12 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.65 }
+    damage:
+      - { preset: scaled, base: 18, scaleBy: cursedEnergy, multiplier: 1.4 }
+    applyStatus:
+      - { status: bind, chance: 0.35 }
+    cooldownTurns: 1
+    usableInBattle: true
+
+  # 诅咒师：用术式杀人的人类
+  - id: sk-curse-user-blade
+    kind: combat
+    name: 缚咒斩
+    description: 把咒力凝在刀锋上，专斩术师的咒力回路。
+    cost: { mp: 8 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.7 }
+    damage:
+      - { preset: scaled, base: 14, scaleBy: cursedEnergy, multiplier: 1.2 }
+    applyStatus:
+      - { status: cursed-burn, chance: 0.3 }
+    cooldownTurns: 1
+    usableInBattle: true
+
+  # 玩家的成长型增益：以咒力换取护体，适合应对特级
+  - id: sk-curtain
+    kind: combat
+    name: 简易领域·帐
+    description: 以咒力编织一层帐，削弱来袭的伤害并稳住心神。
+    cost: { mp: 10 }
+    target: self
+    heal:
+      - { preset: scaled, base: 6, scaleBy: cursedEnergy, multiplier: 0.5 }
+    applyStatus:
+      - { status: veil, chance: 1.0, stacks: 1, onSelf: true }
+    cooldownTurns: 3
+    usableInBattle: true

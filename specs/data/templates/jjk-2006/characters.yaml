@@ -204,7 +204,153 @@ characters:
         skillWeights: { sk-gather-curses: 3, sk-uzumaki: 4 }
     relationship: -100
 
-# 玩家初始模板（姓名由创建输入提供）
+  # ---------- 2006 学年追加：同窗、诅咒师与特级咒灵 ----------
+
+  - id: npc-nanami
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 七海建人
+      age: 17
+      gender: male
+      description: 一丝不苟的同班同学，衬衫扣到最上面一颗。理性得近乎冷淡。
+    mood: { value: 60 }
+    attributes: { cursedEnergy: 55, intellect: 8, physique: 6, agility: 7, reputation: 30 }
+    skills: [sk-7-3, sk-basic-strike]
+    public:
+      personality: 冷静务实，把「术师是狗屎工作」挂在嘴边，却从不缺席。
+      knownGoals:
+        - 成为一名可靠的大人
+    private:
+      knowledge: [jujutsu, missions]
+      goals: [protect-comrades, become-stronger]
+      traits: [calm, diligent]
+      combatHints:
+        skillWeights: { sk-7-3: 4, sk-basic-strike: 2 }
+    relationship: 0
+    relations:
+      - { to: npc-haibara, kind: friend, visibility: known, value: 65 }
+      - { to: npc-gojo, kind: colleague, visibility: known, value: 40 }
+
+  - id: npc-haibara
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 灰原雄
+      age: 17
+      gender: male
+      description: 永远在笑的同班同学，嗓门大，心更大。
+    mood: { value: 80 }
+    attributes: { cursedEnergy: 45, intellect: 5, physique: 7, agility: 6, reputation: 20 }
+    skills: [sk-basic-strike, sk-cursed-strike]
+    public:
+      personality: 阳光、直率、行动力过剩。
+      knownGoals:
+        - 保护好身边的每一个人
+    private:
+      knowledge: [jujutsu, missions]
+      goals: [protect-comrades]
+      traits: [cheerful, diligent]
+      combatHints:
+        skillWeights: { sk-basic-strike: 3, sk-cursed-strike: 2 }
+    relationship: 0
+    relations:
+      - { to: npc-nanami, kind: friend, visibility: known, value: 65 }
+
+  # 伏黑甚尔：零咒力的「天与暴君」
+  - id: enemy-toji
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 伏黑甚尔
+      age: 30
+      gender: male
+      description: 没有一丝咒力的男人。正因为没有，他的肉体强得不像人。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 0, intellect: 7, physique: 60, agility: 55, reputation: 0 }
+    skills: [sk-heavenly-body, sk-weapon-cleave]
+    public:
+      personality: 慵懒、市侩，谈到钱时眼睛才会亮。
+    private:
+      combatHints:
+        skillWeights: { sk-weapon-cleave: 3, sk-heavenly-body: 4 }
+      secrets:
+        - 受雇于某个出价更高的买家
+    relationship: -100
+
+  - id: enemy-grade1-curse
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 一级咒灵
+      age: 0
+      gender: agender
+      description: 由一片街区十余年的恐惧凝成的一级咒灵，形如多手的巨影。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 90, intellect: 3, physique: 12, agility: 8, reputation: 0 }
+    skills: [sk-curse-crush, sk-curse-wail]
+    public:
+      personality: 不交谈，只碾压。
+    private:
+      combatHints:
+        skillWeights: { sk-curse-crush: 4, sk-curse-wail: 2 }
+    relationship: -100
+
+  - id: enemy-curse-user
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 诅咒师
+      age: 25
+      gender: male
+      description: 把术式卖给雇主的自由诅咒师，笑起来没有温度。
+    mood: { value: 55 }
+    attributes: { cursedEnergy: 60, intellect: 6, physique: 8, agility: 7, reputation: 0 }
+    skills: [sk-curse-user-blade, sk-curse-wail]
+    public:
+      personality: 只认钱，不讲道理。
+    private:
+      combatHints:
+        skillWeights: { sk-curse-user-blade: 4, sk-curse-wail: 1 }
+    relationship: -100
+
+  - id: enemy-jogo
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 漏瑚
+      age: 0
+      gender: agender
+      description: 火山化身的一级咒灵，坚信咒灵才是真正的人类。
+    mood: { value: 60 }
+    attributes: { cursedEnergy: 120, intellect: 6, physique: 10, agility: 9, reputation: 0 }
+    skills: [sk-flame, sk-curse-wail]
+    public:
+      personality: 傲慢、暴烈，对人类的憎恶近乎信仰。
+    private:
+      combatHints:
+        skillWeights: { sk-flame: 4, sk-curse-wail: 1 }
+    relationship: -100
+
+  - id: enemy-mahito
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 真人
+      age: 0
+      gender: agender
+      description: 从人类对彼此的憎恶里诞生的特级咒灵，触碰灵魂的形状。
+    mood: { value: 65 }
+    attributes: { cursedEnergy: 100, intellect: 7, physique: 9, agility: 11, reputation: 0 }
+    skills: [sk-impurity, sk-curse-bite]
+    public:
+      personality: 孩子气的残忍，把改造人类当成游戏。
+    private:
+      combatHints:
+        skillWeights: { sk-impurity: 4, sk-curse-bite: 2 }
+    relationship: -100
+
+
 playerTemplate:
   identity:
     age: 16

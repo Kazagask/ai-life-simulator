@@ -49,13 +49,26 @@ describe("世界模板协议 V2 Schema", () => {
     expect(world.genders.map((g) => g.id)).toContain("femboy");
     expect(world.mood.bands).toHaveLength(3);
     expect(world.statuses.map((s) => s.id)).toContain("curse-poison");
-    // 主线剧情事件链已删除，模板现以咒术转盘开局链为核心内容
+    // 模板以「命数转盘」开局链为核心：13 步创建 + 五章主线链
     const wheelEntry = world.events.find((e) => e.id === "ev-opening-wheel");
     expect(wheelEntry?.kind).toBe("normal");
     expect(wheelEntry?.trigger.source).toBe("chain");
-    const wheelChain = world.chains?.find((c) => c.id === "chain-wheel-creation");
-    expect(wheelChain?.steps).toHaveLength(43);
-    expect(world.chains?.map((c) => c.id)).toEqual(["chain-wheel-creation"]);
+    const creationChain = world.chains?.find((c) => c.id === "chain-creation");
+    expect(creationChain?.steps).toHaveLength(13);
+    expect(world.chains?.map((c) => c.id)).toEqual([
+      "chain-creation",
+      "chain-sp",
+      "chain-geto",
+      "chain-night",
+      "chain-shibuya",
+      "chain-finale",
+    ]);
+    // 五章章节机：chapter 1..5 各有一个概率 1 的池触发器
+    for (let ch = 1; ch <= 5; ch++) {
+      expect(
+        world.events.some((e) => e.trigger.source === "pool" && e.trigger.conditions?.some((c) => "flag" in c && c.flag === "chapter" && c.eq === ch)),
+      ).toBe(true);
+    }
     expect(world.attributes.order).toContain("luck");
 
     // 主角技能 kits 扩展
@@ -281,9 +294,16 @@ describe("结局 / 开局分域（jjk-2006 真实文件）", () => {
     expect(parsed.data.fallback).toBe("end-ordinary");
     expect(parsed.data.deathRoute?.deathMode).toBe("direct");
     // ADR-0006：隐藏结局 = narrativeConfig.masked 存在；模板不再有 visibility 字段
-    const secret = parsed.data.endings.find((e) => e.endingId === "end-sp-aware");
+    const secret = parsed.data.endings.find((e) => e.endingId === "end-secret-savior");
     expect(secret?.narrativeConfig.masked).toBeDefined();
-    expect(secret?.unlockConditions.length).toBeGreaterThan(0);
+    expect(secret?.triggerConditions.length).toBeGreaterThan(0);
+    // 五章主线 flag 都能兑现成结局：结局与玩法闭环（不出现「写了但拿不到」的结局）
+    const flags = parsed.data.endings.flatMap((e) =>
+      e.triggerConditions.flatMap((c) => ("flag" in c ? [c.flag] : [])),
+    );
+    for (const flag of ["rikoSaved", "getoSaved", "joinedCurse", "shibuyaSurvived", "specialGrade", "leaveJujutsu"]) {
+      expect(flags).toContain(flag);
+    }
     const raw = readRaw("endings.yaml") as { endings: Array<Record<string, unknown>> };
     expect(raw.endings.every((e) => !("visibility" in e))).toBe(true);
   });

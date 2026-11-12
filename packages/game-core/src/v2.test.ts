@@ -41,29 +41,34 @@ describe("V2 引擎 · 模板加载", () => {
     expect(template.meta.id).toBe("jjk-2006");
     expect(template.events.length).toBeGreaterThan(5);
     expect(template.skills.some((s) => s.id === "sk-domain-void")).toBe(true);
-    expect(template.chains?.map((c) => c.id)).toEqual(["chain-wheel-creation"]);
+    expect(template.chains?.map((c) => c.id)).toEqual([
+      "chain-creation",
+      "chain-sp",
+      "chain-geto",
+      "chain-night",
+      "chain-shibuya",
+      "chain-finale",
+    ]);
   });
 
-  it("咒术转盘开局：入口事件 + 43 维链 + 全维度 chain 事件", () => {
+  it("咒术转盘开局：入口事件 + 13 步创建链 + 五章主线链", () => {
     const template = loadJjkTemplate();
     // 入口事件：chain 源 normal 事件，由 opening handoff 直推待决队列首
     const entry = template.events.find((e) => e.id === "ev-opening-wheel");
     expect(entry?.trigger.source).toBe("chain");
     expect(entry?.kind).toBe("normal");
-    // 事件链存在，起点为 ev-w01
-    const chain = template.chains?.find((c) => c.id === "chain-wheel-creation");
+    const chain = template.chains?.find((c) => c.id === "chain-creation");
     expect(chain).toBeDefined();
     expect(chain?.startEventId).toBe("ev-w01");
-    expect(chain?.steps.length).toBe(43);
-    // 43 个维度事件均为 chain 源 normal 事件
+    expect(chain?.steps.length).toBe(13);
     const wheelEvents = template.events.filter((e) => /^ev-w\d{2}$/.test(e.id));
-    expect(wheelEvents.length).toBe(43);
-    for (const e of wheelEvents) {
-      expect(e.trigger.source).toBe("chain");
-      expect(e.kind).toBe("normal");
-    }
+    expect(wheelEvents.length).toBe(13);
+    // 前 12 步为选择，最后一步是真的转盘（random）——转盘负责「命」
+    for (const e of wheelEvents.slice(0, 12)) expect(e.kind).toBe("normal");
+    expect(template.events.find((e) => e.id === "ev-w13")?.kind).toBe("random");
     // 世界观资产（角色/技能/物品/补正）保留
     expect(template.characters.some((c) => c.id === "npc-riko")).toBe(true);
+    expect(template.characters.some((c) => c.id === "enemy-jogo")).toBe(true);
   });
 });
 
@@ -171,7 +176,7 @@ describe("V2 引擎 · 事件链起点触发（回归）", () => {
 
     chooseOptionV2(state, { optionId: "opt-begin" }, template, lookup);
     // 链注册为 active
-    expect(state.chains.some((c) => c.id === "chain-wheel-creation" && c.status === "active")).toBe(true);
+    expect(state.chains.some((c) => c.id === "chain-creation" && c.status === "active")).toBe(true);
     // 链起点 ev-w01 进入待决队列
     expect(state.pendingEvents.some((p) => p.eventId === "ev-w01")).toBe(true);
     // 待决队列里只允许 normal 事件（否则 pendingEventView 返回 null 导致卡死）
@@ -724,11 +729,11 @@ describe("V2 引擎 · 咒术转盘开局链", () => {
 
     // 开始转盘链
     chooseOptionV2(state, { optionId: "opt-begin" }, template, lookup);
-    expect(state.chains.some((c) => c.id === "chain-wheel-creation" && c.status === "active")).toBe(true);
+    expect(state.chains.some((c) => c.id === "chain-creation" && c.status === "active")).toBe(true);
 
-    // 逐轮推进转盘链；按轮次获取技能/装备/补正
+    // 逐步推进创建链；每步选一个「能验证机制」的选项
     let guard = 0;
-    while (guard++ < 90) {
+    while (guard++ < 40) {
       const pend = state.pendingEvents[0];
       if (!pend || !/^ev-w\d{2}$/.test(pend.eventId)) break;
       const ev = template.events.find((e) => e.id === pend.eventId);
@@ -740,22 +745,24 @@ describe("V2 引擎 · 咒术转盘开局链", () => {
       } else if (ev.title === "咒具") {
         const o = ev.settle.normal.options.find((x) => x.text.includes("天逆"));
         if (o) optId = o.id;
-      } else if (ev.title === "天与咒缚") {
-        const o = ev.settle.normal.options.find((x) => !/无|未|不|没/.test(x.text));
+      } else if (ev.title === "咒力资质") {
+        const o = ev.settle.normal.options.find((x) => x.text.includes("肉体在叫嚣"));
         if (o) optId = o.id;
       }
       chooseOptionV2(state, { optionId: optId }, template, lookup);
     }
 
-    // 链收束
-    expect(state.chains.find((c) => c.id === "chain-wheel-creation")?.status).toBe("completed");
+    // 链收束（最后一步 ev-w13 是真转盘：random 即时结算，链随之完成）
+    expect(state.chains.find((c) => c.id === "chain-creation")?.status).toBe("completed");
     // 获取技能（生得术式 → 十种影法术）
     expect(state.player.skills).toContain("sk-ten-shadow");
+    // 获取技能（天与咒缚 → 天与暴君体术）
+    expect(state.player.skills).toContain("sk-heavenly-body");
     // 获取装备（咒具 → 天逆鉾）
     expect((state.player.inventory["eq-ten-spear"] ?? 0) > 0).toBe(true);
     // 获取补正（天与咒缚 → heavenly-restriction）
     expect(state.player.statuses.some((s) => s.statusId === "heavenly-restriction")).toBe(true);
-    // 全量标记覆盖（开局转盘链全部维度：出身地点..神人语录）
+    // 全量标记覆盖（13 步创建链每一步都留下 wNN）
     const wheelCount = template.events.filter((e) => /^ev-w\d{2}$/.test(e.id)).length;
     for (let i = 1; i <= wheelCount; i++) {
       expect(state.flags[`w${String(i).padStart(2, "0")}`]).toBeDefined();

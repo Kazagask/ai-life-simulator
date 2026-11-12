@@ -132,7 +132,7 @@ statuses:
     duration: { untilCured: true }
     stacking: unique
     simulation:
-      attributeModifiers: { cursedEnergy: -20, physique: 30, agility: 15 }
+      attributeModifiers: { cursedEnergy: -8, physique: 20, agility: 12 }
     visibility: known
 
   - id: special-physique
@@ -174,4 +174,75 @@ statuses:
       attributeModifiers: { cursedEnergy: 8 }
     combat:
       damageDealt: 0.2
+    visibility: known
+
+  # ---------- 2006 学年追加：转盘的吉凶与心境 ----------
+
+  - id: veil
+    name: 帐护
+    description: 一层薄薄的咒力帐裹住身体，攻击会被挡掉一部分。
+    duration: { turns: 2 }
+    stacking: refresh
+    combat:
+      damageTaken: -0.3
+      battleRounds: 2
+    visibility: known
+
+  - id: blessed
+    name: 大吉
+    description: 转盘停在最吉利的一格。今天做什么都顺手。
+    duration: { turns: 3 }
+    stacking: refresh
+    simulation:
+      attributeModifiers: { luck: 3 }
+      moodDeltaPerTurn: 1
+    visibility: known
+
+  - id: cursed-mark
+    name: 厄运缠身
+    description: 转盘的大凶格留下了印记。走路都会踩到咒灵的巢。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { luck: -4 }
+      moodDeltaPerTurn: -1
+    visibility: known
+
+  - id: doubt
+    name: 动摇
+    description: 你开始怀疑「保护非术师」这条准则是否站得住脚。
+    duration: { turns: 6 }
+    stacking: stack
+    simulation:
+      attributeModifiers: { intellect: -1 }
+      moodDeltaPerTurn: -1
+    visibility: known
+
+  - id: sp-omen
+    name: 梦魇
+    description: 反复出现的噩梦：一个被悬在半空的身影，和一条染血的长廊。
+    duration: { turns: 5 }
+    stacking: refresh
+    simulation:
+      moodDeltaPerTurn: -2
+      attributeModifiers: { intellect: -1 }
+    visibility: known
+
+  - id: resolved
+    name: 觉悟
+    description: 你已经想清楚要为什么而战。咒力因此凝实。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 4 }
+    visibility: known
+
+  - id: exhausted
+    name: 力竭
+    description: 咒力见底，连抬手都费劲。
+    duration: { turns: 2 }
+    stacking: refresh
+    simulation:
+      attributeModifiers: { agility: -3, physique: -2 }
+      moodDeltaPerTurn: -1
     visibility: known

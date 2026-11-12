@@ -1,25 +1,29 @@
 # JJK-2006 开局分域（协议 V2.1 §16 · R-OP-01..06）
 #
-# 2026-11-12 用户裁决：主线剧情事件链已删除，两个开局的 handoff 均直接挂载
-# 「咒术转盘」入口事件 ev-opening-wheel（chain 源、不属于任何链）。
-# 玩家创建世界后的首个待决事件即开局转盘，选「转动命数转盘」进入
-# chain-wheel-creation（43 维角色创建）。
-# 差异保留在「起始关系 + 起始 flag」两处，不新增世界状态结构。
+# 两个开局都把「命数转盘」当成第一个待决事件（ev-opening-wheel，chain 源、不属于任何链）。
+# 玩家创建世界后的第一个画面就是转盘；选「转动命数转盘」进入 13 步角色创建。
+# 差异保留在「起点关系 + 起始 flag」两处，不新增世界状态结构。
+#
+# worldSetup.flags.chapter = 1 是主线章节机的起点：五章触发器用
+# `{ flag: chapter, eq: N } + time.gte` 门控，章与章之间用 advanceTo 跳月。
 
 - openingId: op-2006-tokyo
   name: 2006 · 东京高专
-  description: 以东京咒术高专一年级新生的身份入学，从命数转盘开始书写此身。
+  description: 以东京咒术高专一年生的身份入学。转盘停下的那一刻，你的一生就这样开始了。
   entryConditions: []
   steps:
     - { id: step-enter-tokyo, kind: required }
   characterSetup:
     effects:
       - { type: grantItem, itemId: item-first-aid, count: 1 }
+      - { type: grantItem, itemId: item-mp-candy, count: 1 }
     flags:
       openingPath: tokyo
   worldSetup:
     flags:
       openingDone: true
+      chapter: 1
+      ready1: true
   npcSetup:
     relations:
       - { npcId: npc-gojo, value: 5, source: 入学引导 }
@@ -30,7 +34,7 @@
   eventPools: []
   objectives:
     flags:
-      objective: 成为能独当一面的术师
+      objective: 活过这一年，然后写下自己的结局
   choices: {}
   completionConditions:
     - { flag: openingDone, eq: true }
@@ -40,19 +44,24 @@
 
 - openingId: op-2006-kyoto
   name: 2006 · 京都校交流
-  description: 以京都校交流生的身份来到东京，起点关系不同，同样从命数转盘开始。
+  description: 作为京都校交流生来到东京，起点关系和别人不太一样，但转盘是一样的。
   entryConditions: []
   steps:
     - { id: step-enter-kyoto, kind: required }
   characterSetup:
+    effects:
+      - { type: grantItem, itemId: item-first-aid, count: 1 }
     flags:
       openingPath: kyoto
   worldSetup:
     flags:
       openingDone: true
+      chapter: 1
+      ready1: true
   npcSetup:
     relations:
-      - { npcId: npc-geto, value: 3, source: 交流生接待 }
+      - { npcId: npc-geto, value: 6, source: 交流生接待 }
+      - { npcId: npc-nanami, value: 4, source: 同期交流 }
     visibility:
       npc-gojo: unknown
       npc-riko: unknown
