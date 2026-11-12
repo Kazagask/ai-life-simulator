@@ -196,6 +196,79 @@ describe("T4-04 · evaluateLifeV2 过程评分", () => {
   });
 });
 
+// ---------- D-06 · 有界饱和（满年局不再五维打满） ----------
+
+describe("D-06 · 有界饱和：长局不再顶到上限且保留区分度", () => {
+  /** 满年量级：45 次玩家行动 + 60 条事件 + 12 个里程碑（与本仓库 36–45 轮满年局同量级）。 */
+  function fullYearState(worldId = "full"): WorldStateV2 {
+    const state = makeActive(worldId);
+    for (let i = 0; i < 45; i++) pushHistory(state, `p${i}`, "player_action");
+    for (let i = 0; i < 60; i++) pushHistory(state, `e${i}`, "event");
+    for (let i = 0; i < 12; i++) state.flags[`milestone:m${i}`] = true;
+    return state;
+  }
+
+  it("满年量级：所有维度严格小于 hi（永不顶到上限），且维度间仍有高低差", () => {
+    const cfg = createDefaultEvaluationConfig();
+    const rec = evaluateLifeV2(fullYearState());
+    rec.dimensions.forEach((d, i) => {
+      const hi = cfg.dimensions[i].ranges[1];
+      expect(d.score, `${d.id} 不应打满 ${hi}`).toBeLessThan(hi);
+      expect(d.score).toBeGreaterThanOrEqual(cfg.dimensions[i].ranges[0]);
+    });
+    const scores = rec.dimensions.map((d) => d.score);
+    // 区分度回来了：不再「六维同值」，而是有可读的高低差
+    expect(Math.max(...scores) - Math.min(...scores)).toBeGreaterThan(5);
+    expect(rec.overall).toBeLessThan(100);
+    // 打满时代五维同值 100；现在高分维应落在 70–95 的可读区间
+    expect(Math.max(...scores)).toBeGreaterThan(70);
+  });
+
+  it("同公式单调且可比：过程更丰富 ⇒ 分更高，但都不到上限（不按本局最大值归一）", () => {
+    const short = makeActive("short");
+    for (let i = 0; i < 10; i++) pushHistory(short, `p${i}`, "player_action");
+    const long = makeActive("long");
+    for (let i = 0; i < 60; i++) pushHistory(long, `p${i}`, "player_action");
+
+    const ps = evaluateLifeV2(short);
+    const pl = evaluateLifeV2(long);
+    const idx = pl.dimensions.findIndex((d) => d.id === "choices");
+    expect(pl.dimensions[idx].score).toBeGreaterThan(ps.dimensions[idx].score);
+    // 长局不因「本局过程最多」被归一成 100；短局也不会因「本局最大」被抬到 100
+    expect(pl.dimensions[idx].score).toBeLessThan(100);
+    expect(ps.dimensions[idx].score).toBeLessThan(60);
+  });
+
+  it("确定性：同一局重复计算逐字段相等，且评价不回写状态", () => {
+    const state = fullYearState("det");
+    const before = structuredClone(state);
+    const first = evaluateLifeV2(state);
+    const second = evaluateLifeV2(structuredClone(state));
+    expect(second).toEqual(first);
+    expect(state).toEqual(before);
+  });
+
+  it("区间边界：无过程信号 / raw 低于 lo ⇒ 停在 lo，饱和不穿透区间", () => {
+    const rec = evaluateLifeV2(makeActive("edge"));
+    // regrets 无战斗 ⇒ raw = 0 = lo
+    expect(rec.dimensions.find((d) => d.id === "regrets")!.score).toBe(0);
+    for (const d of rec.dimensions) {
+      expect(d.score).toBeGreaterThanOrEqual(0);
+      expect(d.score).toBeLessThan(100);
+    }
+    // 自定义区间下界非 0：raw 越低越贴近 lo，不会出现负分/越界
+    const cfg: EvaluationConfig = {
+      dimensions: [{ id: "renown", label: "名望", weight: 1, ranges: [10, 50], explainRules: [] }],
+      worldSpecificDimensions: [],
+    };
+    const low = evaluateLifeV2(makeActive("edge2"), cfg);
+    expect(low.dimensions[0].score).toBe(10);
+    const high = evaluateLifeV2(fullYearState("edge3"), cfg);
+    expect(high.dimensions[0].score).toBeLessThan(50);
+    expect(high.dimensions[0].score).toBeGreaterThan(low.dimensions[0].score);
+  });
+});
+
 // ---------- T4-05 · 证据、总结编排、归档只读 ----------
 
 describe("T4-05 · 证据可解析 / 篡改分数被拒 / 只读", () => {

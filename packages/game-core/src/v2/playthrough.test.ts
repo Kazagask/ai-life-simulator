@@ -15,6 +15,7 @@ import { createRunnerContext } from "./runner-context.js";
 import { handoff, runOpening } from "./opening.js";
 import { advanceTurnV2, battleActionV2, chooseOptionV2, createWorldV2, type TurnPipelineConfig } from "./turn.js";
 import { checkAllConditions, maxHp } from "./engine.js";
+import { evaluateLifeV2 } from "./life-evaluation.js";
 
 const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../specs/data/templates/jjk-2006");
 
@@ -99,6 +100,11 @@ function play(seed: number, openingIdx: number) {
     }, {}),
     ending: state.termination?.endingId ?? "(none)",
     source: state.termination?.source ?? "-",
+    /**
+     * D-06 回归：满年局的五维分（真实 evaluation.yaml 配置）。
+     * 旧实现长局必然被 `min(hi, raw)` 打满 100；改有界饱和后应落在可读区间。
+     */
+    evaluation: evaluateLifeV2(state, evaluation),
     wins: state.flags.battleWins ?? 0,
     ce: state.player.attributes.cursedEnergy,
     rep: state.player.attributes.reputation,
@@ -150,5 +156,36 @@ describe("咒术转盘 · 整局回归（固定种子的自动通关）", () => 
     }
     // 终局内容可达：至少一个种子活到涩谷并走完学年
     expect(rows.some((r) => r.keys.includes("shibuyaSurvived") || r.keys.includes("storyDone"))).toBe(true);
+  });
+
+  it("D-06：满年局五维不再全部打满 100（有界饱和），overall 仍有区分度", () => {
+    const rows = [1, 2, 3, 4, 5, 6].map((seed) => play(seed, seed % 2));
+    console.log(
+      "evaluation:",
+      rows
+        .map(
+          (r) =>
+            `s${r.seed} ${r.evaluation.dimensions.map((d) => `${d.id}=${d.score}`).join(",")} overall=${r.evaluation.overall}`,
+        )
+        .join(" | "),
+    );
+    // 模板声明的区间上界（evaluation.yaml：growth/bonds/deeds [−50,100]，truth/freedom [−30,100]）
+    const hiById = new Map(
+      [...evaluation.dimensions, ...evaluation.worldSpecificDimensions].map((d) => [d.id, d.ranges[1]]),
+    );
+    for (const r of rows) {
+      for (const d of r.evaluation.dimensions) {
+        const hi = hiById.get(d.id)!;
+        // 旧缺陷：长局 `min(hi, raw)` ⇒ 五维恒等于 hi。现在必须严格小于上界。
+        expect(d.score, `seed ${r.seed} 维度 ${d.id} 仍被打满 ${hi}`).toBeLessThan(hi);
+        // 同时不能因为压缩过头失去「走完一生」的写实性
+        expect(d.score, `seed ${r.seed} 维度 ${d.id} 分过低`).toBeGreaterThan(55);
+      }
+      const overall = r.evaluation.overall!;
+      expect(overall).toBeLessThan(95);
+      expect(overall).toBeGreaterThan(60);
+    }
+    // 不同种子的 overall 不再全部相等（区分度）
+    expect(new Set(rows.map((r) => r.evaluation.overall)).size).toBeGreaterThan(1);
   });
 });

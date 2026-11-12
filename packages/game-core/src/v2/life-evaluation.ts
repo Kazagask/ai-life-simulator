@@ -150,6 +150,42 @@ function rawScore(dimensionId: string, s: ProcessSignals): number {
   }
 }
 
+/**
+ * 有界饱和的尺度常数（D-06）：k = SATURATION_K_RATIO × (hi − lo)。
+ *
+ * 为什么需要：rawScore 对多数维度是**线性增长**（growth = attributeSum + actions×2、
+ * 其余维度 = events×3 + actions×2 + attributeSum/4），长局必然远超 hi，
+ * 旧实现 `min(hi, raw)` 直接把五维全钉在 100 —— 4 个模板专属维度还共用 default 规则，
+ * 于是「满年局 5 维全 100、overall≈100」，评价失去区分度（QA D-06）。
+ *
+ * 采用 `score = lo + (hi − lo) · x / (x + k)`（x = raw − lo 的正部，Michaelis-Menten 型）：
+ * - 单调递增 ⇒ 过程越好分越高，不引入随机；
+ * - 严格小于 hi（x/(x+k) < 1 ∀x<∞）⇒ 永不顶到上限，长局之间仍有差；
+ * - k 是**常数**而非本局最大值 ⇒ 不同长度的局仍可比（禁止按本局归一）。
+ *
+ * k 的标定依据（2026-11-12 实测，jjk-2006 + playthrough.test.ts 的 6 个种子）：
+ * 满年局（走完一年、36–45 轮）各维 x 中位数 = 291（growth 166，四个 default 维度 271.5–325.75），
+ * 而各维区间宽度均为 150 ⇒ 中位局 x ≈ 1.94 × 区间宽度。
+ * 若取 k = x_med（半饱和点落在中位局），满年局只映射到区间 50%（≈25 分），偏低；
+ * 目标是让满年局落在区间 70–90，取中位局 = 区间的 ~86.7% 反解：
+ * k = x_med × (1 − 0.867) / 0.867 = x_med / 6.5 ≈ 45 ≈ **0.3 × 区间宽度**。
+ * 故落成与模板绝对分数无关的形式 k = 0.3 × (hi − lo)：模板声明窄区间时 k 自动等比缩小。
+ */
+const SATURATION_K_RATIO = 0.3;
+
+/**
+ * 原始分 → 区间分（有界饱和）。刻意**不使用**本局最大值/历史极值做归一，
+ * 否则两局长度不同即不可比（D-06 要求）。
+ */
+function saturatedScore(raw: number, lo: number, hi: number): number {
+  if (!(hi > lo)) return lo; // 退化的零点区间：只可能是 lo
+  const x = Math.max(0, raw - lo);
+  const k = SATURATION_K_RATIO * (hi - lo);
+  const score = lo + ((hi - lo) * x) / (x + k);
+  // 理论上 score ∈ [lo, hi)，clamp 只做数值兜底（round 只在距上限 5e-3 内才可能触顶）
+  return Math.round(Math.max(lo, Math.min(hi, score)) * 100) / 100;
+}
+
 /** 基于过程的确定性评分；输出维度集合严格等于模板声明集合。 */
 export function evaluateLifeV2(
   state: WorldStateV2,
@@ -160,7 +196,7 @@ export function evaluateLifeV2(
   const dimensions: EvaluationDimensionResult[] = all.map((d) => {
     const evidence = dimensionEvidence(d.id, signals);
     const [lo, hi] = d.ranges;
-    const score = Math.max(lo, Math.min(hi, Math.round(rawScore(d.id, signals) * 100) / 100));
+    const score = saturatedScore(rawScore(d.id, signals), lo, hi);
     const ratio = hi > lo ? (score - lo) / (hi - lo) : 0;
     const level = ratio < 1 / 3 ? "低" : ratio < 2 / 3 ? "中" : "高";
     return {
