@@ -365,3 +365,50 @@ describe("D-13 · 投影告知「本回合能否正常行动」（与引擎 cann
     expect(state.battle!.enemies[0].hp).toBeLessThan(enemyHpBefore);
   });
 });
+
+describe("D-14 · pass（空过一回合）语义", () => {
+  it("未眩晕下 pass：回合 +1、MP 与库存不变、日志可见、战斗未结束", () => {
+    const { lookup, state } = setup();
+    const battle = state.battle!;
+    const roundBefore = battle.round;
+    const mpBefore = battle.player.mp;
+    const inventoryBefore = structuredClone(state.player.inventory);
+
+    performBattleAction(state, { type: "pass" }, lookup, createRng(5));
+
+    expect(battle.round).toBe(roundBefore + 1);
+    expect(battle.player.mp).toBe(mpBefore);
+    expect(state.player.inventory).toEqual(inventoryBefore);
+    expect(battle.log.join("\n")).toContain("你按兵不动。");
+    expect(battle.over).toBeNull();
+  });
+
+  it("眩晕下 pass：命令被忽略（日志是「你无法行动。」而非 pass 的日志），回合仍 +1", () => {
+    const { lookup, state } = setup();
+    const battle = state.battle!;
+    battle.player.statuses.push({ statusId: "st-stun", stacks: 1, appliedTurn: 0 });
+    const roundBefore = battle.round;
+
+    performBattleAction(state, { type: "pass" }, lookup, createRng(5));
+
+    const log = battle.log.join("\n");
+    expect(log).toContain("你无法行动。");
+    expect(log).not.toContain("你按兵不动。");
+    expect(battle.round).toBe(roundBefore + 1);
+  });
+
+  it("pass 不触发逃跑判定（over 保持 null，日志无逃跑痕迹）", () => {
+    // settle 声明可逃，确保「若误走 flee 分支」会留下逃跑日志/结算
+    const template = makeTemplate();
+    const lookup = createLookup(template);
+    const state = createActiveWorldV2({ templateId: template.meta.id, playerName: "测试者", seed: 1 }, template, "w-pass");
+    state.battle = createBattle("ev-1", { enemies: [{ ref: "mob" }], canFlee: true }, state, lookup);
+
+    for (let i = 0; i < 3; i++) performBattleAction(state, { type: "pass" }, lookup, createRng(5 + i));
+
+    const log = state.battle!.log.join("\n");
+    expect(state.battle!.over).toBeNull();
+    expect(log).not.toContain("脱离战斗");
+    expect(log).not.toContain("逃跑失败");
+  });
+});

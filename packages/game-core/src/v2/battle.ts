@@ -572,6 +572,10 @@ export function performBattleAction(
       return;
     }
     battle.log.push(`${prefix} 逃跑失败！`);
+  } else if (command.type === "pass") {
+    // D-14「空过」：不消耗 MP / 道具 / 冷却，不掷逃跑判定，只留一行可见日志；
+    // 之后的友军/敌人行动与 roundEnd 照常执行 ⇒ 回合确实被消耗（与眩晕态的语义一致）。
+    battle.log.push(`${prefix} 你按兵不动。`);
   }
 
   if (!battle.over) {

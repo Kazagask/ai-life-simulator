@@ -125,6 +125,8 @@ const battleSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("skill"), skillId: z.string().min(1), targetInstanceId: z.string().optional() }),
   z.object({ type: z.literal("item"), itemId: z.string().min(1) }),
   z.object({ type: z.literal("flee") }),
+  // D-14：空过一回合（眩晕时引擎仍需一次命令提交来结束回合；UI 不再借 flee 顶上）
+  z.object({ type: z.literal("pass") }),
 ]);
 
 const useItemSchema = z.object({ itemId: z.string().min(1) });
