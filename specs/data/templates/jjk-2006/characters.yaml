@@ -173,6 +173,8 @@ characters:
     relationship: 15
     relations:
       - { to: npc-nanami, kind: friend, visibility: known, value: 75 }
+      # 灰原视你为朋友（同班同学；此前他是唯一没有 `to: player` 边的同班角色）
+      - { to: player, kind: friend, visibility: known }
 
   - id: npc-riko
     isEnemy: false
