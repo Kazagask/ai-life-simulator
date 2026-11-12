@@ -561,12 +561,25 @@ function EvaluationDimensionRow({ dim }: { dim: EvaluationDimensionView }) {
 /**
  * 五维人生评价（R2.6 / ADR-0016）。数据全部来自服务端投影 `snapshot.evaluation`：
  * 前端不重算分数、不推导等级、不自备 id→中文映射（`label` 缺失时回退 id）。
- * `dimensions` / `overall` 在评价尚未生成时缺省 —— 此时整个区块不渲染，
- * 面板保持只显示 summary + 命运偏离度的原样，不出现空白块或 `undefined`。
+ *
+ * **只在已结束 / 已归档时展示（D-10，用户 2026-11-12 裁决走 B）**：评价是「盖棺定论」，
+ * 跑动中整块不渲染 —— 不是折叠、也不是隐藏高度，是 DOM 里不出现。理由是实测该块净高
+ * 379px，挂在玩家卡下方会把本回合的动作区 / 转盘「继续」整块顶出首屏（docH 1594 vs 1190），
+ * 而「这一回合要做什么」的信息优先级高于过程评述。
+ *
+ * `dimensions` / `overall` 在评价尚未生成时缺省 —— 此时也不渲染，不出现空白块或 `undefined`。
  */
-function EvaluationBreakdown({ evaluation }: { evaluation: EvaluationView }) {
+function EvaluationBreakdown({
+  evaluation,
+  status,
+}: {
+  evaluation: EvaluationView;
+  status: V2Snapshot["status"];
+}) {
+  // status 缺省视为 running（与协议 §17 一致），因此缺省时不展示
+  const ended = status === "terminated" || status === "archived";
   const dims = evaluation.dimensions ?? [];
-  if (dims.length === 0) return null;
+  if (!ended || dims.length === 0) return null;
   return (
     <div className="eval-dims">
       <p className="eval-dims-title">评价分项</p>
@@ -634,7 +647,7 @@ function PlayerCard({ snapshot }: { snapshot: V2Snapshot }) {
         </div>
       )}
       <p className="eval-line">{snapshot.evaluation.summary}</p>
-      <EvaluationBreakdown evaluation={snapshot.evaluation} />
+      <EvaluationBreakdown evaluation={snapshot.evaluation} status={snapshot.status} />
     </section>
   );
 }
@@ -1521,7 +1534,7 @@ function StatsPanel({ snapshot }: { snapshot: V2Snapshot }) {
         <span className="chip">{snapshot.formattedTime}</span>
       </div>
       <p className="eval-line">{snapshot.evaluation.summary}</p>
-      <EvaluationBreakdown evaluation={snapshot.evaluation} />
+      <EvaluationBreakdown evaluation={snapshot.evaluation} status={snapshot.status} />
     </section>
   );
 }
