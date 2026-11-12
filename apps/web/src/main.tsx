@@ -754,10 +754,12 @@ function LifeTab({
 
   // 槽位唯一：一个轮次的事件区只呈现一个占位者。
   // 转盘（随机事件，服务端已结算）> 战斗 > 待决事件 > 自由行动（空槽）。
-  // 转盘标题沿用既有写法：拿 eventId 去本轮触发事件里找标题，找不到回退「随机事件」。
+  // 转盘标题随结果一起下发并持久化（D-16 / QA P2-2）：直接读 `wheel.title`，不再拿
+  // `eventId` 去本次响应的 `triggeredEvents` 反查——那条路只在「刚结算」时存在，
+  // 刷新后必然查空、标题回落「随机事件」。旧档物理上没有该字段，才回退「随机事件」。
   const wheelItems = wheels.map((wheel) => ({
     wheel,
-    title: (lastResult?.events ?? []).find((e) => e.id === wheel.eventId)?.title ?? "随机事件",
+    title: wheel.title ?? "随机事件",
   }));
   const occupant: SlotOccupant =
     wheelItems.length > 0
