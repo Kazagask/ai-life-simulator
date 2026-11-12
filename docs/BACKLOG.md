@@ -13,7 +13,7 @@
 | 关系图前端面板 | **已接（ADR-0019，2026-11-12）** | 人物页改为可展开 `NpcCard`：关系（方向 + 称谓 + 可见性 + 数值）、状态、生命周期三块。D-05 遗留关闭。 |
 | 跨模板验证（阶段 8） | DEFERRED | 目前只有 `jjk-2006` 一个模板，无法验证引擎与世界观的解耦程度。 |
 | R3 时间穿越 | DEFERRED | ADR-0005 已留 seam，未实现。 |
-| NPC 生死状态 | **已实现（ADR-0020）** | `V2Npc.lifecycle` 三态 + `setNpcLifecycle` 效果 + `npcState` 条件 + 默认判活三处；人物面板显示「已故 / 失联 · 阵亡」。**遗留**：`birthTime`/`ageAt` 派生未做（年龄仍静态），战斗参战 ref 判活跳过未做（当前不可达）。 |
+| NPC 生死状态 | **已实现（ADR-0020 / ADR-0021）** | 三态 `lifecycle` + `setNpcLifecycle` + `npcState` 条件 + 默认判活（自主行动 / 关系写入 / **战斗参战**）；`birthTime` 年龄派生已做；面板显示具体原因（阵亡/失踪/叛逃）。**剩余缺口**：`spawnNpc` 未实现 ⇒ `birthTime` 只有建世界期一个写入点；链上战斗被整条跳过时链可能悬空（ADR 已承认，另立项）；`projectNpc()` 单一判定入口未抽。 |
 
 > 以上属"主要模块建设"，剩余四项建议按此顺序推进：**AI 叙事层 → NPC 自主行动（含生死建模）→ 跨模板验证 → R3**。
 > 理由：关系面板只消费已有投影、成本最低且立刻可见；AI 叙事层是产品差异点；后两项依赖前两项的数据形状稳定。
@@ -49,7 +49,7 @@
 | B-08 | `storyChapter` 只有数字，无章节中文名 | 投影 | 模板无章节名表，不自造；需要则模板加字段 |
 | B-09 | 服务端其它路由 schema（choose / useItem / equip 等）仍手写 | `apps/server` | 服务端独占入参、无第二份真源 ⇒ 无漂移风险，仅一致性问题 |
 | B-10 | e2e 脚本躺在 `data/_aishot/`、`data/` 全目录被 gitignore | 工程 | 建议迁到可入库的 `tests/e2e/`（截图仍不入库） |
-| B-12 | **NPC `birthTime` / `ageAt` 派生未做**（ADR-0012 决策 4 欠账） | `packages/game-core` | NPC 年龄仍是 `identity.age` 静态快照；改为出生时间派生会牵动玩家侧（退役 `playerAgeAtStart`）、`CalendarAdapter.ageAt` 与存档迁移，属独立一刀 |
+| B-12 | ~~NPC `birthTime` / `ageAt` 派生~~ **已实现（ADR-0021）** | `packages/game-core` | `V2Npc.birthTime`（可选，读侧按 `toMinutes(-age)` 反推）+ 投影期 `ageAt` 现算（年差口径）；同时修了 `CalendarAdapter` 负分钟（原 `Math.max(0,…)` 钳位导致 `toMinutes(-15y)` 静默返回 0）。遗留：玩家侧仍用 `playerAgeAtStart + elapsedYears`，未统一（ADR-0021 明确不做）。 |
 | B-11 | `apps/web` 无任何自动化测试（仓库本就没有 web 测试基建） | 工程 | 前端回归全靠可复跑脚本 + 截图，成本偏高 |
 
 ## 4. 环境 / 工具链坑（不改产品代码也应知道）
