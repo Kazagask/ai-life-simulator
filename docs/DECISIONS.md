@@ -538,3 +538,25 @@ NPC 现无任何存活状态：死亡/失联的 NPC 照样被效用评分选中�
   `hasFired` 挡住重复入队；`readyN` 保留作章节前置语义。
 - **护栏**：`playthrough.test.ts` 新增 `chapterFires` 计数（读 append-only `eventFires`），
   断言每局每章 ≤1。已做变异验证（剥掉 `once` 后 seed 1 立刻报 `ch2×2, ch3×2, ch4×2`）。
+
+### ADR-0016 补记 D-10（评价展示时机 = 前端渲染门，非服务端过滤）
+
+- **用户裁决**（2026-11-12）：五维评价**只在结局/归档展示**，跑动中不显示。
+- **实现位置**：`apps/web/src/main.tsx` 的 `EvaluationBreakdown` 加 `status` 门
+  （`status !== "terminated" && status !== "archived"` ⇒ 整块 `return null`，不挂载）。
+- **必须知道的边界**：服务端在 `running` 态**仍然下发** `evaluation.dimensions`
+  （引擎每快照实时算，属事实层）。也就是说这是一个**客户端渲染门**，不是服务端过滤。
+  由此带来两个后果，后续改动请留意：
+  1. 任何**第二客户端**（另一个前端、脚本、调试工具）拿到的仍是五维，若产品要求
+     「跑动中绝不可见」，需要在服务端 `projectSnapshotV2` 按 `status` 过滤，
+     而不是靠每个客户端各自加门。
+  2. 该门只影响「何时展示」，不影响「展示什么」——结局/归档页五维与 API 逐字段一致，
+     已由 QA `G5–G8` 断言。
+- **安全性依据**：评价只读过程信号、不含结局类型（`life-evaluation.ts` 既有约束）；
+  QA 对照实验（`JJK-V2-ACCEPTANCE.md` §10.8）证明：同 seed、同创角、之后走向不同结局，
+  **开局时刻五维逐字段相同** ⇒ 提前可见不泄露走向。故当前「服务端仍下发」不构成信息泄露，
+  只是展示策略问题。
+- **归档边界**（QA §10.15 实测）：未终止即归档 ⇒ `POST /archive` 返回 409 `not_terminated`，
+  「已归档但未终止」在 API 层不可达；归档态 `GET`、幂等 `POST /archive` 的
+  `archive.snapshot.evaluation`、record 层 `archive.evaluation` 三者同值；归档后
+  `POST /turns` 返回 409 `terminated`（只读门禁正常）。
