@@ -951,6 +951,18 @@ describe("V2 引擎 · R2.6 关系图谱模板接入", () => {
     expect(has("npc-gojo", "npc-shoko", "colleague")).toBe(true);
     expect(has("npc-shoko", "npc-geto", "colleague")).toBe(true);
     expect(has("npc-yuta", "npc-gojo", "mentor")).toBe(true);
+    // NPC → 玩家 的初始边（「NPC 视你为 X」面板的来源）。方向：kind 属于 from 一侧，
+    // 故「夜蛾视你为弟子」= disciple（不是 mentor）；必须显式 known 且不带 value。
+    expect(has("npc-yaga", "player", "disciple")).toBe(true);
+    expect(has("npc-gojo", "player", "disciple")).toBe(true);
+    expect(has("npc-nanami", "player", "colleague")).toBe(true);
+    expect(has("npc-shoko", "player", "colleague")).toBe(true);
+    expect(has("npc-geto", "player", "friend")).toBe(true);
+    expect(
+      state.relations
+        .filter((e) => e.to === "player")
+        .every((e) => e.visibility === "known" && e.value === undefined),
+    ).toBe(true);
   });
 
   it("断代亲属（gap）端到端查询得确定性粗称谓，不猜代数", () => {
@@ -992,6 +1004,8 @@ describe("V2 引擎 · R2.6 关系图谱模板接入", () => {
     // 任何 NPC 的 relations 都不得出现指向未登场者的行（id 不外泄）
     expect(view.npcs.some((n) => n.relations.some((r) => r.withId === "npc-yuta"))).toBe(false);
     expect(JSON.stringify(view)).not.toContain("npc-yuta");
+    // 反面：NPC → 玩家 的初始边必须照常上屏（面板要能显示「五条悟视你为弟子」）
+    expect(gojo.relations.some((r) => r.withId === "player" && r.kind === "disciple")).toBe(true);
     // 引擎侧 graph 事实不变（只改投影期）：边仍在 state 里，模板作者可继续用条件读它
     expect(
       state.relations.some((e) => e.from === "npc-gojo" && e.to === "npc-yuta" && e.kind === "relative"),

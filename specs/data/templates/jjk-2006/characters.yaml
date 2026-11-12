@@ -3,6 +3,14 @@
 # 阵容按原作时间线铺开：2006 高专（夜蛾/五条/夏油/硝子/七海/灰原/理子/甚尔）
 # → 2017 咒术回战 0（乙骨）→ 2018 本篇（虎杖/伏黑/钉崎/真人/漏瑚/羂索/宿傩）。
 # 玩家是 2006 年入学的一年生 —— 七海与灰原的同班同学，五条与夏油的学弟/学妹。
+#
+# 关于 `to: player` 的初始边（2026-11-12 修复「面板看不到 NPC 视你为 X」）：
+#   * 边语义仍是「`to` 是 `from` 的 kind」⇒ 要表达「夜蛾视你为弟子」必须写
+#     `{ from: npc-yaga, to: player, kind: disciple }`；写成 `mentor` 会读成
+#     「你视夜蛾为师父」（方向反了，见 npc-yaga 下的历史坑注释）。
+#   * 必须显式 `visibility: known`：缺省是 `unknown`，会被投影过滤掉（R-OP-05）。
+#   * **省略 `value`**：人物卡片已有 `relationship` 标量 chip，两处关系值会同卡自相矛盾；
+#     且模板里 `{ relation: npc-x, gte: N }` 条件走的是标量形态，不写 value 才不会改变既有分支。
 characters:
   # ══════════════ 2006 · 东京咒术高专 ══════════════
 
@@ -32,6 +40,8 @@ characters:
       # 不是 mentor。原写成 mentor 会读成「五条/七海是夜蛾的师父」（2026-11-12 面板验收发现）。
       - { to: npc-gojo, kind: disciple, visibility: known, value: 80 }
       - { to: npc-nanami, kind: disciple, visibility: known, value: 70 }
+      # 夜蛾视你为弟子（玩家是他名下的一年生）
+      - { to: player, kind: disciple, visibility: known }
 
   - id: npc-gojo
     isEnemy: false
@@ -61,6 +71,8 @@ characters:
       - { to: npc-yaga, kind: mentor, visibility: known, value: 80 }
       - { to: npc-yuta, kind: relative, visibility: known, value: 20, gap: true }
       - { to: npc-megumi, kind: disciple, visibility: known, value: 50 }
+      # 五条视你为弟子（学弟/学妹，名义上的带教关系）
+      - { to: player, kind: disciple, visibility: known }
 
   - id: npc-geto
     isEnemy: false
@@ -86,6 +98,8 @@ characters:
     relations:
       - { to: npc-gojo, kind: friend, visibility: known, value: 70 }
       - { to: npc-shoko, kind: colleague, visibility: known, value: 60 }
+      # 夏油视你为朋友
+      - { to: player, kind: friend, visibility: known }
 
   - id: npc-shoko
     isEnemy: false
@@ -110,6 +124,8 @@ characters:
     relations:
       - { to: npc-gojo, kind: colleague, visibility: known, value: 60 }
       - { to: npc-geto, kind: colleague, visibility: known, value: 60 }
+      # 硝子视你为同僚（同为高专的人，医务室的常客）
+      - { to: player, kind: colleague, visibility: known }
 
   - id: npc-nanami
     isEnemy: false
@@ -133,6 +149,8 @@ characters:
     relations:
       - { to: npc-haibara, kind: friend, visibility: known, value: 75 }
       - { to: npc-yaga, kind: mentor, visibility: known, value: 70 }
+      # 七海视你为同僚（同年入学的同班同学）
+      - { to: player, kind: colleague, visibility: known }
 
   - id: npc-haibara
     isEnemy: false
