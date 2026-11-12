@@ -212,4 +212,25 @@ export function resolveEventNarrative(
   return flavor !== undefined && flavor !== "" ? flavor : event.narrative;
 }
 
+/**
+ * 合并两次响应的事件 flavor（R2.7 / T-S3：GET / 409 刷新路径补齐）。
+ *
+ * flavor 是 fire-and-forget 产物，常到「下一轮 / 刷新」才出现，所以要把后续响应
+ * 带回的键**补进**既有 map，而不是整体替换。规则：
+ *  - `next` 为 `undefined` / `{}` / 只含空串 ⇒ 原样返回 `prev`（**同一引用**，
+ *    调用方据此跳过 setState ⇒ 字段缺失时 UI 与改前逐字一致、且不多一次重渲染）；
+ *  - 否则新值覆盖同键旧值、保留旧键；空串是无效值（与 `resolveEventNarrative`
+ *    同语义），不写入、也不覆盖已有的有效文案，避免回退响应把 LLM 文案抹掉。
+ * 纯函数：不修改入参。
+ */
+export function mergeEventFlavors(
+  prev: EventFlavorMap | undefined,
+  next: EventFlavorMap | undefined,
+): EventFlavorMap | undefined {
+  if (next === undefined) return prev;
+  const valid = Object.entries(next).filter(([, text]) => text !== "");
+  if (valid.length === 0) return prev;
+  return { ...(prev ?? {}), ...Object.fromEntries(valid) };
+}
+
 export type { V2Snapshot, BattleCommand, WheelResultView, EndingView };

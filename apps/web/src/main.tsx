@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { CloudSession } from "@tencent-ai/workbuddy-cloud-sdk";
 import "./style.css";
-import { api, resolveEventNarrative } from "./api";
+import { api, mergeEventFlavors, resolveEventNarrative } from "./api";
 import type {
   BattleCommand,
   EndingView,
@@ -127,6 +127,27 @@ interface LastResult {
    * 纯瞬态、只供当次渲染消费；不进 localStorage、不进 records.ts 人生档案、刷新即失。
    */
   eventFlavors?: EventFlavorMap;
+}
+
+/**
+ * 把 `GET /api/worlds/:id`（含 409 冲突刷新）带回的 eventFlavors 合并进既有 lastResult
+ * （R2.7 / T-S3 补齐）：flavor 是 fire-and-forget，常到下一轮 / 刷新才出现，这两条刷新
+ * 路径此前只保留 `res.snapshot`，会把已生成的 LLM 展示文案丢掉。
+ *
+ * 三条护栏（零回归底线）：
+ *  ① `prev === null` ⇒ 原样返回 null：页面刷新 / 新世界**绝不凭空造出** lastResult（保住 D-09）；
+ *  ② `prev.turnIndex !== turnIndex` ⇒ 原样返回 prev：避免切换世界后把上一局事件与 flavor 错位拼接；
+ *  ③ 合并无变化（`undefined` / `{}` / 全空串）⇒ 返回同一引用，React 跳过重渲染，
+ *     字段缺失时 UI 与改前逐字一致。
+ */
+function withMergedFlavors(
+  prev: LastResult | null,
+  nextFlavors: EventFlavorMap | undefined,
+  turnIndex: number,
+): LastResult | null {
+  if (prev === null || prev.turnIndex !== turnIndex) return prev;
+  const merged = mergeEventFlavors(prev.eventFlavors, nextFlavors);
+  return merged === prev.eventFlavors ? prev : { ...prev, eventFlavors: merged };
 }
 
 // ---------- 本轮转盘结果（D-03 / D-09） ----------
@@ -273,7 +294,12 @@ function App() {
     if (!worldId) return;
     api
       .getWorld(worldId)
-      .then((res) => setSnapshot(res.snapshot))
+      .then((res) => {
+        setSnapshot(res.snapshot);
+        // 刷新可能带回异步生成的 flavor：只在已有 lastResult 且轮次一致时补进 map；
+        // prev === null（首次挂载 / 页面刷新）时原样返回 null，不制造瞬态结果。
+        setLastResult((prev) => withMergedFlavors(prev, res.eventFlavors, res.snapshot.turnIndex));
+      })
       .catch(() => {
         // localStorage 里的 worldId 已失效（存档被删 / 坏档被跳过）：
         // 回到列表并提示，而不是静默吞掉（R-PS-04 / design §3.8）
@@ -348,6 +374,8 @@ function App() {
             try {
               const fresh = await api.getWorld(wid);
               setSnapshot(fresh.snapshot);
+              // 409 静默刷新同样补 flavor：与 [worldId] 刷新路径共用一套护栏。
+              setLastResult((prev) => withMergedFlavors(prev, fresh.eventFlavors, fresh.snapshot.turnIndex));
             } catch {
               /* 刷新失败则忽略，保留当前画面 */
             }
