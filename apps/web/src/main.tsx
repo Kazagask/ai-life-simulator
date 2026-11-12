@@ -6,7 +6,7 @@ import { api } from "./api";
 import type { BattleCommand, EndingView, TemplateSummary, V2Snapshot, WheelResultView, WorldSummary } from "./api";
 import { bootstrapAuth, signOutOfWorkBuddy, signInWithWorkBuddy, userDisplayName } from "./auth";
 import { cloud } from "./cloud";
-import { deleteLifeRecord, listLifeRecords, saveLifeRecord } from "./records";
+import { deleteLifeRecord, listLifeRecords, saveLifeRecord, shouldAutoArchive } from "./records";
 import type { LifeRecordRow } from "./records";
 
 // ---------- 工具 ----------
@@ -171,8 +171,10 @@ function App() {
   const [session, setSession] = useState<CloudSession | null>(null);
   const [authReady, setAuthReady] = useState(false);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
-  // 自动写档案的去重表：只为省请求，正确性由唯一索引 (owner_id, world_id) 兜底。
-  const savedWorldsRef = React.useRef<Set<string>>(new Set());
+  // 自动写档案的**状态跃迁基线**：每个 worldId 上一次见到的 status（见下方 effect）。
+  // 不是「去重表」——按快照存在与否去重会在「登录回跳整页重载」时必然补写一次，
+  // 而 ADR-0025 决策 8 明文禁止登录回跳后自动补写。
+  const lastStatusRef = React.useRef<Map<string, string>>(new Map());
   // 竞态锁：React state 同帧不生效，双击会双发请求（第二个撞 409）——用 ref 同步判断
   const busyRef = React.useRef(false);
   const worldIdRef = React.useRef<string | null>(worldId);
@@ -202,24 +204,36 @@ function App() {
   }, []);
 
   /**
-   * 结局产生时写一次云端档案（ADR-0025 决策 8）。
+   * 结局**产生的那一刻**写一次云端档案（ADR-0025 决策 8）。
    *
-   * 触发条件全部在**事件/副作用**里判断，不在 render 里写数据：已登录 + 状态为
-   * `terminated` / `archived` + 有结局投影。未登录**不写、不弹窗、不打断结算**。
-   * 云不可用只降级档案功能：失败静默（`records.ts` 内已按 stage + code/status 记日志），
-   * 绝不进 `error` 通道，也绝不影响 `/api/**` 游戏主链路。
+   * 判据是**状态跃迁** `running → terminated|archived`，不是「快照已经是终态」：
+   * 后者在三种「不是结局产生」的场景里都会误写一次 ——
+   *   ① 未登录打完一局 → 点登录 → 回跳整页重载（session 非空 + 快照已终止）；
+   *   ② 已登录刷新一个已终止的旧局；
+   *   ③ 已登录从列表打开一个早已终止的旧局。
+   * 这三种都是**补写**，决策 8 明确要求改成由玩家在档案页显式点「把这局存进档案」。
+   *
+   * 实现：每个 `worldId` 记一条「上次见到的 status」基线。
+   * - 首次挂载该 worldId（prev === undefined）⇒ 只写基线，**不落库**；
+   * - 同一挂载期内从 `running` 走到终态 ⇒ 写 1 次；
+   * - 已是终态再进 effect（登录、刷新、切页签、重渲染）⇒ 不写。
+   *
+   * `status` 缺省按协议视为 `running`（V2Snapshot.status 可选），否则旧存档 / 老服务端
+   * 会把「running → 结局」这条唯一该写的跃迁判成 undefined → terminated 而漏写。
+   *
+   * 调用点全部在副作用里（不在 render 里写数据）；失败静默：`records.ts` 内只按
+   * stage + code/status 记日志，绝不进 `error` 通道，也不影响 `/api/**` 主链路。
    */
   useEffect(() => {
-    if (!session || !snapshot) return;
-    const wid = snapshot.worldId;
-    if (savedWorldsRef.current.has(wid)) return;
-    if (snapshot.status !== "terminated" && snapshot.status !== "archived") return;
-    if (!snapshot.ending) return;
-    savedWorldsRef.current.add(wid);
-    void saveLifeRecord(snapshot, session.user.name ?? null).then((res) => {
-      // 失败就把去重键放回去：玩家手动点「把这局存进档案」或下一次快照变化时可以重试。
-      if (res.status === "error") savedWorldsRef.current.delete(wid);
-    });
+    if (!snapshot) return;
+    const status = snapshot.status ?? "running";
+    const prev = lastStatusRef.current.get(snapshot.worldId);
+    // 先更新基线：即使这次不写（未登录 / 无结局），也记住「我已经见过这个状态」，
+    // 避免后续一次无关的 session 或快照变化把旧终态误判成刚发生的跃迁。
+    lastStatusRef.current.set(snapshot.worldId, status);
+    const write = shouldAutoArchive({ prev, status, hasEnding: snapshot.ending != null, signedIn: session !== null });
+    if (!write) return;
+    void saveLifeRecord(snapshot);
   }, [session, snapshot]);
 
   useEffect(() => {
@@ -378,10 +392,10 @@ function App() {
       const finalSnapshot = res.archive?.snapshot ?? (await api.getWorld(wid)).snapshot;
       setSnapshot(finalSnapshot);
       // 手动归档是**玩家显式动作**：用归档态再写一次（同一 worldId，status 变 archived）。
-      // 这里刻意**不查** savedWorldsRef —— 上一轮 terminated 已经写过一行，正是要靠这次
+      // 这里刻意**不走**状态跃迁判据 —— 上一轮 terminated 已经写过一行，正是要靠这次
       // upsert 撞唯一索引把它更新成 archived（幂等验证点）。云失败不影响归档本身。
       if (session && finalSnapshot.ending) {
-        void saveLifeRecord(finalSnapshot, session.user.name ?? null);
+        void saveLifeRecord(finalSnapshot);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -425,6 +439,8 @@ function App() {
           templates={templates}
           worlds={worlds}
           error={error}
+          authReady={authReady}
+          session={session}
           onCreated={handleCreated}
           onOpen={openWorld}
           onDelete={deleteWorld}
@@ -564,6 +580,8 @@ function SetupScreen({
   templates,
   worlds,
   error,
+  authReady,
+  session,
   onCreated,
   onOpen,
   onDelete,
@@ -571,6 +589,10 @@ function SetupScreen({
   templates: TemplateSummary[];
   worlds: WorldSummary[];
   error: string | null;
+  /** 启动期登录态是否已判定（未判定时不给按钮，避免点两下） */
+  authReady: boolean;
+  /** 当前会话；首屏只用来显示「已登录 / 未登录」，不参与任何游戏判定 */
+  session: CloudSession | null;
   onCreated: (id: string, snapshot: V2Snapshot) => void;
   onOpen: (id: string) => void;
   onDelete: (id: string) => void;
@@ -580,7 +602,27 @@ function SetupScreen({
   const [openingId, setOpeningId] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  // 登录/退出是云端动作：单独一套状态，失败只在这里出一句话，不影响建局表单的校验文案
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
   const openings = templates[0]?.openings ?? [];
+
+  const login = async () => {
+    setAuthBusy(true);
+    setAuthError(null);
+    const failed = await signInWithWorkBuddy();
+    setAuthBusy(false);
+    // 成功时整页已经跳去授权页，走不到这里
+    if (failed) setAuthError(failed);
+  };
+
+  const logout = async () => {
+    setAuthBusy(true);
+    setAuthError(null);
+    const failed = await signOutOfWorkBuddy();
+    setAuthBusy(false);
+    if (failed) setAuthError(failed);
+  };
 
   const start = async () => {
     if (!name.trim()) {
@@ -612,6 +654,18 @@ function SetupScreen({
         <p className="eyebrow">AI LIFE SIMULATOR · DEMO</p>
         <h1>人生模拟器</h1>
         <p className="muted">世界不会因你停下。你的故事，从这里开始。</p>
+        {/* 首屏就要能登录：新玩家还没建局也能先登录，不必先打一局才找得到入口（ADR-0025 决策 5） */}
+        <div className="row">
+          <span className="muted" style={{ margin: 0 }}>
+            {!authReady ? "正在确认登录状态…" : session ? `已登录：${userDisplayName(session.user)}` : "未登录"}
+          </span>
+          {authReady && (
+            <button className="ghost" disabled={authBusy} onClick={session ? logout : login}>
+              {authBusy ? "请稍候…" : session ? "退出" : "用 WorkBuddy 登录"}
+            </button>
+          )}
+        </div>
+        {authError && <p className="error-text">{authError}</p>}
       </header>
 
       {templates.map((t) => (
@@ -2537,7 +2591,7 @@ function RecordsTab({ authReady, session }: { authReady: boolean; session: Cloud
     setNotice(null);
     try {
       const { snapshot } = await api.getWorld(currentWorldId);
-      const result = await saveLifeRecord(snapshot, session.user.name ?? null);
+      const result = await saveLifeRecord(snapshot);
       if (result.status === "saved") {
         setNotice("已把这局存进人生档案。");
         setReload((n) => n + 1);

@@ -15,6 +15,9 @@ export interface AuthBootstrapResult {
   error: string | null;
 }
 
+/** 回调带 `error` 时的专用文案：玩家在授权页取消 / 授权未通过，不是「入口点错」。 */
+const AUTHORIZATION_NOT_COMPLETED = "授权未完成：你取消了登录，或授权未通过。";
+
 /** 回调 / 登录失败的玩家文案：先按稳定 `kind` 分支，再看 HTTP status，最后才兜底。 */
 function authFailureText(error: CloudError | null): string {
   if (!error) return "登录未完成，请重试。";
@@ -43,14 +46,19 @@ async function readSession(stage: string): Promise<CloudSession | null> {
 }
 
 /**
- * 清掉 OAuth 回调留在地址栏上的三个参数。
+ * 清掉 OAuth 回调留在地址栏上的参数。
  *
- * **只删 `code` / `state` / `provider`**，其余 query 一律保留（`?sharecode=` 是本应用
- * 过外部门禁的凭据）。绝不能 `location.href = "/"` 或只写回 `pathname`：那样 sharecode
- * 当场丢失，页面在 JS 之前就被拦下。
+ * **只删回调自己的键**（`code` / `state` / `provider` / `error` / `error_description`），
+ * 其余 query 一律保留（`?sharecode=` 是本应用过外部门禁的凭据）。绝不能
+ * `location.href = "/"` 或只写回 `pathname`：那样 sharecode 当场丢失，页面在 JS 之前就被拦下。
+ *
+ * `error` / `error_description` 必须一起删：玩家拒绝授权时回调只有这两个键，
+ * 留着会让**每次刷新**都重走同一条失败分支、重弹同一条提示。
  */
 function clearCallbackParams(url: URL): void {
-  for (const key of ["code", "state", "provider"]) url.searchParams.delete(key);
+  for (const key of ["code", "state", "provider", "error", "error_description"]) {
+    url.searchParams.delete(key);
+  }
   history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
@@ -67,7 +75,8 @@ function clearCallbackParams(url: URL): void {
 export async function bootstrapAuth(): Promise<AuthBootstrapResult> {
   try {
     const url = new URL(location.href);
-    const hasCallback = url.searchParams.has("code") || url.searchParams.has("error");
+    const hasError = url.searchParams.has("error");
+    const hasCallback = url.searchParams.has("code") || hasError;
 
     if (!hasCallback) return { session: await readSession("auth:startup"), error: null };
 
@@ -76,7 +85,12 @@ export async function bootstrapAuth(): Promise<AuthBootstrapResult> {
       // 不是本应用的登录方式（或回调缺 provider）：停在未登录态，提示可关闭的一条话。
       clearCallbackParams(url);
       logCloudFailure("auth:callback-provider", null);
-      return { session: null, error: "授权回调缺少有效的登录方式，请重新登录。" };
+      // 带 error 的回调已是「授权被拒/未通过」的终局：不能复用「缺少登录方式」这句话，
+      // 否则玩家会以为自己点错了入口，实际上是他自己在授权页点了取消。
+      return {
+        session: null,
+        error: hasError ? AUTHORIZATION_NOT_COMPLETED : "授权回调缺少有效的登录方式，请重新登录。",
+      };
     }
 
     if (typeof cloud.auth.handleWorkBuddyCallback !== "function") {
@@ -88,9 +102,10 @@ export async function bootstrapAuth(): Promise<AuthBootstrapResult> {
     const { data, error } = await cloud.auth.handleWorkBuddyCallback();
     if (error) {
       logCloudFailure("auth:callback-exchange", error);
-      // 失败的 code 已是一次性消耗品，留着只会在刷新时反复报错：清掉三个参数即可重试登录。
+      // 失败的 code 已是一次性消耗品，留着只会在刷新时反复报错：清掉回调参数即可重试登录。
       clearCallbackParams(url);
-      return { session: null, error: authFailureText(error) };
+      // 带 error 的回调本身就是「授权未完成」，比泛化的「登录未完成，请重试」准确。
+      return { session: null, error: hasError ? AUTHORIZATION_NOT_COMPLETED : authFailureText(error) };
     }
     if (data) {
       // 成功：先清 URL 再进游戏，否则下一次刷新会用已消耗的 code 再兑换一次。
@@ -121,8 +136,10 @@ export async function signInWithWorkBuddy(): Promise<string | null> {
   try {
     const back = new URL(location.href);
     back.pathname = "/";
-    // 不转发回调参数：残留的 code / state 会和这次登录撞车。
-    for (const key of ["code", "state", "provider"]) back.searchParams.delete(key);
+    // 不转发回调参数：残留的 code / state / error 会和这次登录撞车。
+    for (const key of ["code", "state", "provider", "error", "error_description"]) {
+      back.searchParams.delete(key);
+    }
 
     const { data, error } = await cloud.auth.signInWithOAuth({
       provider: "workbuddy",
