@@ -428,6 +428,25 @@ button {
   color: var(--muted);
 }
 
+/*
+ * 引擎限制下的禁用态（D-08 / D-12）：按钮仍可见、仍带原因文案，
+ * 只用降透明度提示不可点，信息本身不靠颜色传达（原因写在 span 与下方提示行里）。
+ */
+.action:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.action.flee:disabled {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+
+.battle-limit-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--danger) 80%, var(--muted));
+}
+
 .action-detail {
   margin-top: 12px;
   display: flex;

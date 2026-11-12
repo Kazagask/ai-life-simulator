@@ -1232,20 +1232,33 @@ function BattlePanel({
               <button
                 key={item.itemId}
                 className="action"
-                disabled={busy}
+                // D-08：canUseItems 由投影层用与引擎**同一个**控制判定算出，
+                // 前端不自己查 status id；false ⇒ 引擎必然以 bound_items 拒绝，先禁用。
+                disabled={busy || !b.player.canUseItems}
+                aria-disabled={busy || !b.player.canUseItems}
                 onClick={() => onBattle({ type: "item", itemId: item.itemId })}
               >
                 <strong>{item.name} ×{item.count}</strong>
-                <span>使用道具</span>
+                <span>{b.player.canUseItems ? "使用道具" : "受制于人，用不了道具"}</span>
               </button>
             ))}
-            {b.player.canFlee && (
-              <button className="action flee" disabled={busy} onClick={() => onBattle({ type: "flee" })}>
-                <strong>逃跑</strong>
-                <span>尝试脱离战斗</span>
-              </button>
-            )}
+            {/*
+              D-12：逃跑按钮常显但按 canFlee 禁用。
+              旧实现直接不渲染按钮，玩家会以为「没有逃跑这个选项」；现在给按钮 + 原因，
+              原因用文字写在按钮上（不只靠置灰/颜色），并加 aria-disabled 供读屏器识别。
+            */}
+            <button
+              className="action flee"
+              disabled={busy || !b.player.canFlee}
+              aria-disabled={busy || !b.player.canFlee}
+              onClick={() => onBattle({ type: "flee" })}
+            >
+              <strong>逃跑</strong>
+              <span>{b.player.canFlee ? "尝试脱离战斗" : "退路已被封死"}</span>
+            </button>
           </div>
+          {!b.player.canFlee && <p className="battle-limit-hint">此战无法逃离：局势不允许脱身。</p>}
+          {!b.player.canUseItems && <p className="battle-limit-hint">你被束缚住了：本回合无法使用道具。</p>}
           <p className="muted target-hint">点击敌人选择目标（默认最前者）</p>
         </>
       )}
