@@ -1,20 +1,24 @@
-# JJK Demo 世界模板 · events.yaml
-# 事件三段式：trigger（触发） -> kind（类型） -> settle（结算）。
+# JJK 世界模板 · events.yaml（第一部分：开局创建 / 日常 / 行动钩子 / 遭遇）
 #
-# ── 本模板的设计骨架（2006 学年 · 五章 + 终章） ────────────────────────────
-# 1) 开局：ev-opening-wheel 由 opening handoff 直挂。13 步「命数转盘」逐步定下
-#    家族 / 资质 / 生得术式 / 术式应用 / 咒具 / 战斗风格 / 性格 / 师承 / 动机 /
-#    代价 / 人设 / 预兆 / 命定一转（最后一步是真的转盘）。每一步都给真实机制后果。
-# 2) 日常：pool 事件（概率或权重抽一）——点名、食堂、夜谈、五条翘课、夏油的思想、
-#    硝子治疗、切磋、委托、都市传说、黑闪/领域/反转觉醒、黑市换咒具。
-# 3) 行动钩子：巡逻/探索各挂一个「遭遇转盘」（random），结果直连战斗或奖励；
-#    交往挂一个「今天和谁过」的选择事件。
-# 4) 主线：chapter flag 驱动的五章链（星浆体 → 夏油叛逃 → 百鬼夜行 → 涩谷 → 终章），
-#    章与章之间用 advanceTo 跳月，剧情跨一年。
-# 5) 结局：由 flag 与属性在终止时决胜（见 endings.yaml）。
+# ══════════════════════════════════════════════════════════════════════════
+# 2026-11-12 重做：按原作时间线做一条十二年的人生
+#   2006 春 入学（与七海、灰原同班；五条、夏油是二年生学长）
+#   2006 夏 怀玉 · 星浆体护卫（天内理子 / 伏黑甚尔）
+#   2007 夏 玉折 · 苦夏（夏油杰叛逃，可拦下）
+#   2017 冬 咒术回战 0 · 百鬼夜行（乙骨忧太 / 夏油来袭）
+#   2018 夏 起首 · 少年院（虎杖吞下手指）
+#   2018.10.31 涩谷事变（五条被封印 / 宿傩夷平涩谷）
+#   2018.11 死灭回游（宿傩夺舍伏黑）
+#   2018.12.24 新宿决战（人外魔境）
+#   2019 初 落幕（十二年后，你二十七岁）
 #
-# 设计纪律：转盘负责「命」，玩家负责「选择」。转盘的每个结果都必须落到
-# 技能 / 装备 / 补正 / 关系 / flag 上，不能只写一段文案。
+# 因果纪律：每个关键选择都落成 flag，下一章的门、选项的出现条件、结局判定都读它。
+#   savedRiko → 夏油是否还对人类抱有希望 → 能否拦下他
+#   getoStayed / getoGone → 2017 百鬼夜行的敌人是「夏油」还是「羂索」
+#   moleClue（少年院发现的线索）→ 涩谷能否提前拆掉狱门疆
+#   gojoSealed → 死灭回游是否发生、新宿决战的阵容
+# 命运纪律：转盘负责「命」（术式、资质、命定一转、每章的处境），玩家负责「选择」。
+# ══════════════════════════════════════════════════════════════════════════
 
 events:
   # ══════════════════════════════════════════════════════════════
@@ -23,7 +27,7 @@ events:
 
   - id: ev-opening-wheel
     title: 命数转盘 · 开局
-    narrative: 2006 年，东京咒术高专。命运的转盘在你面前停下——这一生的形貌，由此落定。
+    narrative: 2006 年，东京咒术高专。你站在一间空教室里，桌上摆着一台不知谁留下的旧转盘。它自己转了起来。
     trigger:
       source: chain
     kind: normal
@@ -35,49 +39,48 @@ events:
             effects:
               - { type: startChain, chainId: chain-creation }
 
+  # ---------- 第一步：性别 ----------
+
   - id: ev-w01
-    title: 出身
-    narrative: 你从哪里来？这决定了你第一眼看到的咒术界长什么样。
+    title: 性别
+    narrative: 转盘的第一格是一面镜子。镜子里的人还没有脸——你可以决定它长什么样。
     trigger:
       source: chain
     kind: normal
     settle:
       normal:
         options:
-          - id: opt-w01-1
-            text: 东京·普通上班族家庭
+          - id: opt-w01-m
+            text: 男性
             effects:
-              - { type: setFlag, id: w01, value: 都内平民 }
-              - { type: adjustAttribute, attribute: luck, value: 2 }
+              - { type: setIdentity, gender: male }
+              - { type: setFlag, id: w01, value: 男 }
+            nextEventId: ev-w02
+          - id: opt-w01-f
+            text: 女性
+            effects:
+              - { type: setIdentity, gender: female }
+              - { type: setFlag, id: w01, value: 女 }
+            nextEventId: ev-w02
+          - id: opt-w01-n
+            text: 无性别
+            effects:
+              - { type: setIdentity, gender: agender }
+              - { type: setFlag, id: w01, value: 无性别 }
+            nextEventId: ev-w02
+          - id: opt-w01-x
+            text: 男娘
+            effects:
+              - { type: setIdentity, gender: femboy }
+              - { type: setFlag, id: w01, value: 男娘 }
               - { type: adjustMood, value: 4 }
             nextEventId: ev-w02
-          - id: opt-w01-2
-            text: 京都·御三家分家
-            effects:
-              - { type: setFlag, id: w01, value: 御三家分家 }
-              - { type: adjustAttribute, attribute: cursedEnergy, value: 3 }
-              - { type: adjustAttribute, attribute: reputation, value: 8 }
-              - { type: grantItem, itemId: item-grade1-tool, count: 1 }
-            nextEventId: ev-w02
-          - id: opt-w01-3
-            text: 东北乡下·孤儿院
-            effects:
-              - { type: setFlag, id: w01, value: 乡下孤儿 }
-              - { type: adjustAttribute, attribute: physique, value: 3 }
-              - { type: adjustAttribute, attribute: reputation, value: -5 }
-              - { type: adjustMood, value: -4 }
-            nextEventId: ev-w02
-          - id: opt-w01-4
-            text: 海外归国·随父母调职来日
-            effects:
-              - { type: setFlag, id: w01, value: 归国子女 }
-              - { type: adjustAttribute, attribute: intellect, value: 3 }
-              - { type: adjustAttribute, attribute: luck, value: 1 }
-            nextEventId: ev-w02
+
+  # ---------- 第二步：年龄与出身 ----------
 
   - id: ev-w02
-    title: 咒力资质
-    narrative: 体检室的白炽灯下，你的咒力在仪器里显示出形状。
+    title: 年龄与出身
+    narrative: 第二格是你的来处。你多大了，从哪儿来，家里有没有人知道「咒术」这两个字。
     trigger:
       source: chain
     kind: normal
@@ -85,38 +88,48 @@ events:
       normal:
         options:
           - id: opt-w02-1
-            text: 咒力压倒性地多——多到仪器在发抖
+            text: 十五岁 · 东京都内的普通上班族家庭
             effects:
-              - { type: setFlag, id: w02, value: 庞大咒力 }
-              - { type: adjustAttribute, attribute: cursedEnergy, value: 6 }
-              - { type: applyStatus, status: cursed-quality, stacks: 1 }
+              - { type: setIdentity, age: 15 }
+              - { type: setFlag, id: w02, value: 都内平民 }
+              - { type: setFlag, id: origin, value: civilian }
+              - { type: adjustAttribute, attribute: luck, value: 2 }
+              - { type: adjustMood, value: 4 }
             nextEventId: ev-w03
           - id: opt-w02-2
-            text: 均衡而稳定，教科书式的术师底子
+            text: 十五岁 · 地方咒术家族的分家
             effects:
-              - { type: setFlag, id: w02, value: 均衡 }
+              - { type: setIdentity, age: 15 }
+              - { type: setFlag, id: w02, value: 分家 }
+              - { type: setFlag, id: origin, value: branch-family }
               - { type: adjustAttribute, attribute: cursedEnergy, value: 3 }
-              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustAttribute, attribute: reputation, value: 6 }
             nextEventId: ev-w03
           - id: opt-w02-3
-            text: 咒力稀薄，却精确得像手术刀
+            text: 十六岁 · 非术师家庭，比别人晚一年才被找到
             effects:
-              - { type: setFlag, id: w02, value: 精密 }
-              - { type: adjustAttribute, attribute: cursedEnergy, value: -2 }
-              - { type: adjustAttribute, attribute: intellect, value: 4 }
-              - { type: adjustAttribute, attribute: agility, value: 3 }
+              - { type: setIdentity, age: 16 }
+              - { type: setFlag, id: w02, value: 晚一年 }
+              - { type: setFlag, id: origin, value: civilian-late }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustMood, value: 4 }
             nextEventId: ev-w03
           - id: opt-w02-4
-            text: 几乎没有咒力——但肉体在叫嚣
+            text: 十五岁 · 从孤儿院出来，被高专的人领走
             effects:
-              - { type: setFlag, id: w02, value: 天与咒缚 }
-              - { type: applyStatus, status: heavenly-restriction, stacks: 1 }
-              - { type: unlockSkill, skillId: sk-heavenly-body }
+              - { type: setIdentity, age: 15 }
+              - { type: setFlag, id: w02, value: 孤儿 }
+              - { type: setFlag, id: origin, value: orphan }
+              - { type: adjustAttribute, attribute: physique, value: 2 }
+              - { type: adjustMood, value: -8 }
+              - { type: setFlag, id: orphan, value: true }
             nextEventId: ev-w03
 
+  # ---------- 第三步：咒力资质 ----------
+
   - id: ev-w03
-    title: 生得术式
-    narrative: 生得术式是与生俱来的烙印。你伸出手，它回应了你。
+    title: 咒力资质
+    narrative: 第三格是量尺。夜蛾把你按在椅子上，用一根黑绳量你的咒力——绳子的刻度停在哪儿，你这辈子就从哪儿起跑。
     trigger:
       source: chain
     kind: normal
@@ -124,78 +137,116 @@ events:
       normal:
         options:
           - id: opt-w03-1
-            text: 十种影法术——影子在脚下翻涌
+            text: 几乎测不出。绳子上只亮了最底下那一格
             effects:
-              - { type: setFlag, id: w03, value: 十种影法术 }
-              - { type: unlockSkill, skillId: sk-ten-shadow }
+              - { type: setFlag, id: w03, value: 四级 }
+              - { type: setFlag, id: aptitude, value: 四级 }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 1 }
+              - { type: adjustMood, value: -2 }
             nextEventId: ev-w04
           - id: opt-w03-2
-            text: 赤血操术——血液在皮下变成刀
+            text: 二级相当。够用，但撑不起大场面
             effects:
-              - { type: setFlag, id: w03, value: 赤血操术 }
-              - { type: unlockSkill, skillId: sk-red-blood }
+              - { type: setFlag, id: w03, value: 二级 }
+              - { type: setFlag, id: aptitude, value: 二级 }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 5 }
             nextEventId: ev-w04
           - id: opt-w03-3
-            text: 雷电术式——指尖有雷在爬
+            text: 一级胚子。夜蛾的手指在绳子上停了一秒
             effects:
-              - { type: setFlag, id: w03, value: 雷电术式 }
-              - { type: unlockSkill, skillId: sk-thunder }
+              - { type: setFlag, id: w03, value: 一级 }
+              - { type: setFlag, id: aptitude, value: 一级 }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 9 }
+              - { type: adjustAttribute, attribute: reputation, value: 4 }
             nextEventId: ev-w04
           - id: opt-w03-4
-            text: 火焰术式——呼吸都是灼的
+            text: 特级胚子。绳子烧断了
             effects:
-              - { type: setFlag, id: w03, value: 火焰术式 }
-              - { type: unlockSkill, skillId: sk-flame }
-            nextEventId: ev-w04
-          - id: opt-w03-5
-            text: 刍灵咒法——人偶在你掌心成形
-            effects:
-              - { type: setFlag, id: w03, value: 刍灵咒法 }
-              - { type: unlockSkill, skillId: sk-doll-curse }
-            nextEventId: ev-w04
-          - id: opt-w03-6
-            text: 十划咒法——你看见万物 3:7 的裂缝
-            effects:
-              - { type: setFlag, id: w03, value: 十划咒法 }
-              - { type: unlockSkill, skillId: sk-7-3 }
+              - { type: setFlag, id: w03, value: 特级 }
+              - { type: setFlag, id: aptitude, value: 特级 }
+              - { type: setFlag, id: marked, value: true }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 15 }
+              - { type: adjustAttribute, attribute: reputation, value: 10 }
+              - { type: adjustMood, value: -4 }
             nextEventId: ev-w04
 
+  # ---------- 第四步：生得术式 ----------
+
   - id: ev-w04
-    title: 术式的应用
-    narrative: 同样的术式，有人用来杀人，有人用来救人。你的手偏向了哪一边？
+    title: 生得术式
+    narrative: 第四格是术式。生得术式是生下来就写在你身体里的东西，一辈子只会有一个——除了某些不该存在的例外。
     trigger:
       source: chain
     kind: normal
     settle:
       normal:
         options:
-          - id: opt-w04-1
-            text: 把术式推到「领域」的边界
+          - id: opt-w04-shadow
+            text: 十种影法术 —— 影子里养着十只式神
             effects:
-              - { type: setFlag, id: w04, value: 领域潜质 }
-              - { type: setFlag, id: domainPotential, value: true }
-              - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
+              - { type: setFlag, id: w04, value: 十种影法术 }
+              - { type: setFlag, id: tech, value: shadow }
+              - { type: applyStatus, status: tech-ten-shadow, stacks: 1 }
+              - { type: unlockSkill, skillId: sk-ten-shadow }
+              - { type: unlockSkill, skillId: sk-ten-nue }
+              - { type: unlockSkill, skillId: sk-ten-mahoraga }
             nextEventId: ev-w05
-          - id: opt-w04-2
-            text: 学反转术式——先救自己，才能救别人
+          - id: opt-w04-blood
+            text: 赤血操术 —— 血从皮肤下出来就是刀
             effects:
-              - { type: setFlag, id: w04, value: 反转 }
-              - { type: unlockSkill, skillId: sk-reverse-attack }
-              - { type: setFlag, id: hasReverseMastered, value: true }
-              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: setFlag, id: w04, value: 赤血操术 }
+              - { type: setFlag, id: tech, value: blood }
+              - { type: applyStatus, status: tech-red-blood, stacks: 1 }
+              - { type: unlockSkill, skillId: sk-red-blood }
+              - { type: unlockSkill, skillId: sk-blood-cage }
+              - { type: unlockSkill, skillId: sk-blood-hardening }
             nextEventId: ev-w05
-          - id: opt-w04-3
-            text: 磨「黑闪」——把一切都压进那一瞬
+          - id: opt-w04-doll
+            text: 刍灵咒法 —— 一根钉子就能要人的命
             effects:
-              - { type: setFlag, id: w04, value: 黑闪亲和 }
-              - { type: setFlag, id: blackFlashAptitude, value: true }
-              - { type: adjustAttribute, attribute: physique, value: 2 }
-              - { type: adjustAttribute, attribute: agility, value: 2 }
+              - { type: setFlag, id: w04, value: 刍灵咒法 }
+              - { type: setFlag, id: tech, value: doll }
+              - { type: applyStatus, status: tech-doll, stacks: 1 }
+              - { type: unlockSkill, skillId: sk-doll-curse }
+              - { type: unlockSkill, skillId: sk-doll-nail }
+              - { type: unlockSkill, skillId: sk-doll-trance }
+            nextEventId: ev-w05
+          - id: opt-w04-thunder
+            text: 雷电 —— 你出手总比对手快半拍
+            effects:
+              - { type: setFlag, id: w04, value: 雷电 }
+              - { type: setFlag, id: tech, value: thunder }
+              - { type: applyStatus, status: tech-thunder, stacks: 1 }
+              - { type: unlockSkill, skillId: sk-thunder }
+              - { type: unlockSkill, skillId: sk-thunder-spear }
+              - { type: unlockSkill, skillId: sk-thunder-field }
+            nextEventId: ev-w05
+          - id: opt-w04-speech
+            text: 咒言 —— 你说出的话会成为规则
+            effects:
+              - { type: setFlag, id: w04, value: 咒言 }
+              - { type: setFlag, id: tech, value: speech }
+              - { type: applyStatus, status: tech-speech, stacks: 1 }
+              - { type: unlockSkill, skillId: sk-cursed-speech }
+              - { type: unlockSkill, skillId: sk-speech-command }
+              - { type: unlockSkill, skillId: sk-speech-seal }
+            nextEventId: ev-w05
+          - id: opt-w04-null
+            text: 没有术式 —— 你身上一点咒力都没有
+            effects:
+              - { type: setFlag, id: w04, value: 无术式 }
+              - { type: setFlag, id: tech, value: none }
+              - { type: applyStatus, status: heavenly-restriction, stacks: 1 }
+              - { type: unlockSkill, skillId: sk-heavenly-body }
+              - { type: unlockSkill, skillId: sk-heavenly-rush }
+              - { type: adjustAttribute, attribute: physique, value: 6 }
             nextEventId: ev-w05
 
+  # ---------- 第五步：术式的应用 ----------
+
   - id: ev-w05
-    title: 咒具
-    narrative: 兵器库里落着灰。管理员说：挑一件趁手的，它会跟你一辈子。
+    title: 术式的应用
+    narrative: 术式只是原料。真正的分岔在于你把它往哪个方向拧——有人一辈子停在“能用”，有人摸到了领域的边。
     trigger:
       source: chain
     kind: normal
@@ -203,33 +254,43 @@ events:
       normal:
         options:
           - id: opt-w05-1
-            text: 天逆鉾——能刺穿术式的矛
+            text: 领域 —— 你想让一片空间只听你的话
             effects:
-              - { type: setFlag, id: w05, value: 天逆鉾 }
-              - { type: grantItem, itemId: eq-ten-spear, count: 1 }
+              - { type: setFlag, id: w05, value: 领域 }
+              - { type: setFlag, id: domainApt, value: true }
+              - { type: unlockSkill, skillId: sk-domain-expansion }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 3 }
             nextEventId: ev-w06
           - id: opt-w05-2
-            text: 万里锁——无限伸缩的锁链
+            text: 反转术式 —— 你想学会把伤口合上
             effects:
-              - { type: setFlag, id: w05, value: 万里锁 }
-              - { type: grantItem, itemId: eq-bancho, count: 1 }
+              - { type: setFlag, id: w05, value: 反转 }
+              - { type: setFlag, id: reverseApt, value: true }
+              - { type: unlockSkill, skillId: sk-reverse-heal }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
             nextEventId: ev-w06
           - id: opt-w05-3
-            text: 释魂刀——刀刃能切到灵魂
+            text: 黑闪 —— 你想打出那一击，哪怕只有一次
             effects:
-              - { type: setFlag, id: w05, value: 释魂刀 }
-              - { type: grantItem, itemId: eq-shakujin, count: 1 }
+              - { type: setFlag, id: w05, value: 黑闪 }
+              - { type: setFlag, id: blackFlashApt, value: true }
+              - { type: unlockSkill, skillId: sk-black-flash }
+              - { type: adjustAttribute, attribute: physique, value: 2 }
             nextEventId: ev-w06
           - id: opt-w05-4
-            text: 黑绳——专门绞杀术式的那根绳
+            text: 还没想好 —— 先把一招练到不会忘
             effects:
-              - { type: setFlag, id: w05, value: 黑绳 }
-              - { type: grantItem, itemId: eq-kurobuna, count: 1 }
+              - { type: setFlag, id: w05, value: 未定 }
+              - { type: unlockSkill, skillId: sk-curtain }
+              - { type: unlockSkill, skillId: sk-cursed-strike }
+              - { type: adjustAttribute, attribute: luck, value: 2 }
             nextEventId: ev-w06
 
+  # ---------- 第六步：咒具 ----------
+
   - id: ev-w06
-    title: 战斗风格
-    narrative: 第一次实战课。五条靠在墙边看你，嘴里叼着棒棒糖。
+    title: 咒具
+    narrative: 第六格是武器架。高专的库房里躺着几件特级咒具——每一件都有人为它死过。
     trigger:
       source: chain
     kind: normal
@@ -237,30 +298,36 @@ events:
       normal:
         options:
           - id: opt-w06-1
-            text: 贴身肉搏——拳头比术式快
+            text: 天逆鉾 —— 贯穿一切，能强制解除术式
             effects:
-              - { type: setFlag, id: w06, value: 体术 }
-              - { type: adjustAttribute, attribute: physique, value: 4 }
-              - { type: adjustAttribute, attribute: agility, value: 2 }
+              - { type: setFlag, id: w06, value: 天逆鉾 }
+              - { type: grantItem, itemId: eq-ten-spear, count: 1 }
             nextEventId: ev-w07
           - id: opt-w06-2
-            text: 远程轰击——站在安全距离把地形抹平
+            text: 万里锁 —— 无限伸缩，远近皆宜
             effects:
-              - { type: setFlag, id: w06, value: 术式炮台 }
-              - { type: adjustAttribute, attribute: cursedEnergy, value: 4 }
-              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: setFlag, id: w06, value: 万里锁 }
+              - { type: grantItem, itemId: eq-bancho, count: 1 }
             nextEventId: ev-w07
           - id: opt-w06-3
-            text: 先算再打——用三成力换十成效果
+            text: 释魂刀 —— 切割灵魂，对咒灵尤其致命
             effects:
-              - { type: setFlag, id: w06, value: 战术 }
-              - { type: adjustAttribute, attribute: intellect, value: 3 }
-              - { type: adjustAttribute, attribute: luck, value: 2 }
+              - { type: setFlag, id: w06, value: 释魂刀 }
+              - { type: grantItem, itemId: eq-shakujin, count: 1 }
+            nextEventId: ev-w07
+          - id: opt-w06-4
+            text: 空手 —— 别人的兵器用着不顺手
+            effects:
+              - { type: setFlag, id: w06, value: 空手 }
+              - { type: adjustAttribute, attribute: agility, value: 3 }
+              - { type: grantItem, itemId: item-first-aid, count: 1 }
             nextEventId: ev-w07
 
+  # ---------- 第七步：战斗风格 ----------
+
   - id: ev-w07
-    title: 性格
-    narrative: 教官让你在三十五秒内介绍自己。你怎么说，别人就怎么记住你。
+    title: 战斗风格
+    narrative: 第七格照出你以后在战场上的样子。不是想成为的样子，是只剩一口气时会变成的样子。
     trigger:
       source: chain
     kind: normal
@@ -268,31 +335,40 @@ events:
       normal:
         options:
           - id: opt-w07-1
-            text: 冷静、少话、把事情做完
+            text: 体术流 —— 贴上去，打在能打中的地方
             effects:
-              - { type: setFlag, id: w07, value: 冷静 }
-              - { type: setFlag, id: trait-calm, value: true }
-              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: setFlag, id: w07, value: 体术 }
+              - { type: adjustAttribute, attribute: physique, value: 4 }
+              - { type: unlockSkill, skillId: sk-cursed-strike }
             nextEventId: ev-w08
           - id: opt-w07-2
-            text: 热血、先冲、边打边想办法
+            text: 术式流 —— 拉开距离，让它在你手里成型
             effects:
-              - { type: setFlag, id: w07, value: 热血 }
-              - { type: setFlag, id: trait-hot, value: true }
-              - { type: adjustAttribute, attribute: physique, value: 2 }
-              - { type: adjustMood, value: 5 }
+              - { type: setFlag, id: w07, value: 术式 }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 4 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
             nextEventId: ev-w08
           - id: opt-w07-3
-            text: 狡黠、爱开玩笑、永远藏着后手
+            text: 支援流 —— 别人打，你负责让别人活下来
             effects:
-              - { type: setFlag, id: w07, value: 狡黠 }
-              - { type: setFlag, id: trait-sly, value: true }
-              - { type: adjustAttribute, attribute: luck, value: 3 }
+              - { type: setFlag, id: w07, value: 支援 }
+              - { type: adjustAttribute, attribute: intellect, value: 3 }
+              - { type: unlockSkill, skillId: sk-investigation }
+            nextEventId: ev-w08
+          - id: opt-w07-4
+            text: 独狼流 —— 你不想指望任何人，也不想被任何人指望
+            effects:
+              - { type: setFlag, id: w07, value: 独狼 }
+              - { type: setFlag, id: lone, value: true }
+              - { type: adjustAttribute, attribute: agility, value: 4 }
+              - { type: adjustMood, value: -3 }
             nextEventId: ev-w08
 
+  # ---------- 第八步：性格 ----------
+
   - id: ev-w08
-    title: 师承
-    narrative: 高专把你分给了谁？这可能比术式更能决定你变成什么样的人。
+    title: 性格
+    narrative: 第八格是别人眼里的你。你还没开口，教室里的人已经对你有了判断。
     trigger:
       source: chain
     kind: normal
@@ -300,38 +376,44 @@ events:
       normal:
         options:
           - id: opt-w08-1
-            text: 五条悟——天才的阴影很大，也很亮
+            text: 温和 —— 会有人愿意坐到你旁边
             effects:
-              - { type: setFlag, id: w08, value: 五条 }
-              - { type: adjustRelation, npcId: npc-gojo, value: 12 }
-              - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
+              - { type: setFlag, id: w08, value: 温和 }
+              - { type: adjustMood, value: 6 }
+              - { type: adjustRelation, npcId: npc-geto, value: 4 }
+              - { type: adjustRelation, npcId: npc-nanami, value: 3 }
+              - { type: adjustRelation, npcId: npc-haibara, value: 3 }
             nextEventId: ev-w09
           - id: opt-w08-2
-            text: 夏油杰——温柔的人教你什么是「正确」
+            text: 尖锐 —— 你说话不太好听，但没人敢走神
             effects:
-              - { type: setFlag, id: w08, value: 夏油 }
-              - { type: adjustRelation, npcId: npc-geto, value: 12 }
-              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: setFlag, id: w08, value: 尖锐 }
+              - { type: adjustAttribute, attribute: reputation, value: 4 }
+              - { type: adjustRelation, npcId: npc-nanami, value: -2 }
+              - { type: adjustRelation, npcId: npc-gojo, value: 4 }
             nextEventId: ev-w09
           - id: opt-w08-3
-            text: 家入硝子——先学会活下来
+            text: 沉默 —— 你更愿意听
             effects:
-              - { type: setFlag, id: w08, value: 硝子 }
-              - { type: adjustRelation, npcId: npc-shoko, value: 12 }
-              - { type: adjustAttribute, attribute: physique, value: 1 }
-              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: setFlag, id: w08, value: 沉默 }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustAttribute, attribute: luck, value: 1 }
             nextEventId: ev-w09
           - id: opt-w08-4
-            text: 七海建人——把术师当成一份工作来做好
+            text: 有点疯 —— 别人退的时候你会往前一步
             effects:
-              - { type: setFlag, id: w08, value: 七海 }
-              - { type: adjustRelation, npcId: npc-nanami, value: 12 }
-              - { type: adjustAttribute, attribute: agility, value: 2 }
+              - { type: setFlag, id: w08, value: 疯 }
+              - { type: setFlag, id: reckless, value: true }
+              - { type: adjustAttribute, attribute: agility, value: 3 }
+              - { type: adjustMood, value: 4 }
+              - { type: adjustAttribute, attribute: reputation, value: -2 }
             nextEventId: ev-w09
 
+  # ---------- 第九步：引路人（师承） ----------
+
   - id: ev-w09
-    title: 入校的动机
-    narrative: 你为什么站在这里？这个问题会在最坏的时刻回来找你。
+    title: 引路人
+    narrative: 第九格不是「师父」——高专没有师徒制。这一格写的是：谁会在你走错路的时候，多看你一眼。
     trigger:
       source: chain
     kind: normal
@@ -339,39 +421,43 @@ events:
       normal:
         options:
           - id: opt-w09-1
-            text: 报仇——有一头咒灵，你记得它的样子
+            text: 夜蛾正道 —— 班主任。他会骂你，也会替你挡事
             effects:
-              - { type: setFlag, id: w09, value: 复仇 }
-              - { type: setFlag, id: motivation, value: revenge }
-              - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
-              - { type: applyStatus, status: resolved, stacks: 1 }
+              - { type: setFlag, id: w09, value: 夜蛾 }
+              - { type: setFlag, id: mentor, value: yaga }
+              - { type: adjustRelation, npcId: npc-yaga, value: 15 }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
             nextEventId: ev-w10
           - id: opt-w09-2
-            text: 守护——不想再看见有人被咒灵拖走
+            text: 五条悟 —— 学长。教你打架，也教你不上课
             effects:
-              - { type: setFlag, id: w09, value: 守护 }
-              - { type: setFlag, id: motivation, value: protect }
-              - { type: adjustMood, value: 6 }
-              - { type: applyStatus, status: resolved, stacks: 1 }
+              - { type: setFlag, id: w09, value: 五条 }
+              - { type: setFlag, id: mentor, value: gojo }
+              - { type: adjustRelation, npcId: npc-gojo, value: 14 }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 3 }
             nextEventId: ev-w10
           - id: opt-w09-3
-            text: 野心——我要站到咒术界的顶上
+            text: 夏油杰 —— 学长。他讲的道理你听得进去
             effects:
-              - { type: setFlag, id: w09, value: 野心 }
-              - { type: setFlag, id: motivation, value: ambition }
-              - { type: adjustAttribute, attribute: reputation, value: 5 }
+              - { type: setFlag, id: w09, value: 夏油 }
+              - { type: setFlag, id: mentor, value: geto }
+              - { type: adjustRelation, npcId: npc-geto, value: 14 }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
             nextEventId: ev-w10
           - id: opt-w09-4
-            text: 好奇——我只是想知道，咒力到底是什么
+            text: 家入硝子 —— 校医。她只教你一件事：怎么活着回来
             effects:
-              - { type: setFlag, id: w09, value: 好奇 }
-              - { type: setFlag, id: motivation, value: curiosity }
-              - { type: adjustAttribute, attribute: intellect, value: 3 }
+              - { type: setFlag, id: w09, value: 硝子 }
+              - { type: setFlag, id: mentor, value: shoko }
+              - { type: adjustRelation, npcId: npc-shoko, value: 14 }
+              - { type: unlockSkill, skillId: sk-curtain }
             nextEventId: ev-w10
 
+  # ---------- 第十步：动机 ----------
+
   - id: ev-w10
-    title: 代价
-    narrative: 转盘不会只给不拿。它要收走一样东西。
+    title: 动机
+    narrative: 第十格问的是「为什么」。这个答案不会写在你的档案上，但会写在每一次你选择往前而不是往后的瞬间。
     trigger:
       source: chain
     kind: normal
@@ -379,38 +465,43 @@ events:
       normal:
         options:
           - id: opt-w10-1
-            text: 名声——出生于不光彩的家族
+            text: 因为有人需要被救
             effects:
-              - { type: setFlag, id: w10, value: 名声 }
-              - { type: adjustAttribute, attribute: reputation, value: -12 }
-              - { type: adjustAttribute, attribute: cursedEnergy, value: 3 }
+              - { type: setFlag, id: w10, value: 救人 }
+              - { type: setFlag, id: motive, value: save }
+              - { type: adjustMood, value: 6 }
+              - { type: adjustRelation, npcId: npc-haibara, value: 4 }
             nextEventId: ev-w11
           - id: opt-w10-2
-            text: 身体——小时候的病留下了根
+            text: 因为我想变强，强到没人能决定我的命
             effects:
-              - { type: setFlag, id: w10, value: 身体 }
-              - { type: adjustAttribute, attribute: physique, value: -3 }
-              - { type: adjustAttribute, attribute: intellect, value: 3 }
+              - { type: setFlag, id: w10, value: 变强 }
+              - { type: setFlag, id: motive, value: strong }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 3 }
+              - { type: adjustRelation, npcId: npc-gojo, value: 4 }
             nextEventId: ev-w11
           - id: opt-w10-3
-            text: 心——你很难真正对谁敞开心
+            text: 因为我想知道人为什么会变成咒灵
             effects:
-              - { type: setFlag, id: w10, value: 心 }
-              - { type: adjustMood, value: -14 }
-              - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
-              - { type: adjustAttribute, attribute: luck, value: 2 }
+              - { type: setFlag, id: w10, value: 求知 }
+              - { type: setFlag, id: motive, value: truth }
+              - { type: adjustAttribute, attribute: intellect, value: 3 }
+              - { type: adjustRelation, npcId: npc-geto, value: 4 }
             nextEventId: ev-w11
           - id: opt-w10-4
-            text: 什么都不给——你把代价推回给命运
+            text: 因为我没有别的地方可去
             effects:
-              - { type: setFlag, id: w10, value: 无 }
-              - { type: applyStatus, status: cursed-mark, stacks: 1 }
-              - { type: adjustAttribute, attribute: luck, value: 4 }
+              - { type: setFlag, id: w10, value: 活命 }
+              - { type: setFlag, id: motive, value: survive }
+              - { type: adjustAttribute, attribute: luck, value: 2 }
+              - { type: adjustMood, value: -4 }
             nextEventId: ev-w11
 
+  # ---------- 第十一步：代价 ----------
+
   - id: ev-w11
-    title: 人设
-    narrative: 转盘还顺便决定了一件事：你说话的样子。
+    title: 代价
+    narrative: 第十一格是账单。命数转盘从不做慈善——你得到的每一样东西，都从别的地方扣。
     trigger:
       source: chain
     kind: normal
@@ -418,61 +509,49 @@ events:
       normal:
         options:
           - id: opt-w11-1
-            text: 开口就是名台词，中二得理直气壮
+            text: 天与咒缚 —— 用全部咒力，换一具超越常识的肉体
+            visibleWhen:
+              - { flag: tech, eq: none }
             effects:
-              - { type: setFlag, id: w11, value: 名台词 }
-              - { type: adjustMood, value: 5 }
+              - { type: setFlag, id: w11, value: 天与 }
+              - { type: applyStatus, status: heavenly-restriction, stacks: 1 }
+              - { type: adjustAttribute, attribute: physique, value: 6 }
             nextEventId: ev-w12
           - id: opt-w11-2
-            text: 话少，但每句都补刀
+            text: 旧伤 —— 入学前那次事故，肋骨没长好
             effects:
-              - { type: setFlag, id: w11, value: 毒舌 }
-              - { type: adjustAttribute, attribute: intellect, value: 1 }
-              - { type: adjustAttribute, attribute: reputation, value: 2 }
+              - { type: setFlag, id: w11, value: 旧伤 }
+              - { type: applyStatus, status: injured-sim, stacks: 1 }
+              - { type: adjustAttribute, attribute: physique, value: 2 }
             nextEventId: ev-w12
           - id: opt-w11-3
-            text: 永远在笑，谁都摸不透
+            text: 印记 —— 你出生时身上就有一道像缝合线的疤
             effects:
-              - { type: setFlag, id: w11, value: 笑面 }
-              - { type: adjustAttribute, attribute: luck, value: 2 }
+              - { type: setFlag, id: w11, value: 印记 }
+              - { type: setFlag, id: marked, value: true }
+              - { type: applyStatus, status: cursed-mark, stacks: 1 }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
+            nextEventId: ev-w12
+          - id: opt-w11-4
+            text: 名声 —— 上面已经把你的名字写进了名单
+            effects:
+              - { type: setFlag, id: w11, value: 名声 }
+              - { type: adjustAttribute, attribute: reputation, value: 12 }
+              - { type: adjustMood, value: -4 }
+            nextEventId: ev-w12
+          - id: opt-w11-5
+            text: 没有代价 —— 转盘这次什么都没扣
+            effects:
+              - { type: setFlag, id: w11, value: 无 }
+              - { type: adjustAttribute, attribute: luck, value: 3 }
+              - { type: adjustMood, value: 6 }
             nextEventId: ev-w12
 
-  - id: ev-w12
-    title: 预兆
-    narrative: 入学前夜，你做了一个梦。醒来时只记得一种感觉。
-    trigger:
-      source: chain
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-w12-1
-            text: 悬在半空的身影与染血的长廊
-            effects:
-              - { type: setFlag, id: w12, value: 梦魇 }
-              - { type: applyStatus, status: sp-omen, stacks: 1 }
-              - { type: setFlag, id: omen, value: 梦魇 }
-            nextEventId: ev-w13
-          - id: opt-w12-2
-            text: 有人在你身后说「活下去」
-            effects:
-              - { type: setFlag, id: w12, value: 贵人 }
-              - { type: setFlag, id: omen, value: 贵人 }
-              - { type: adjustMood, value: 8 }
-              - { type: adjustAttribute, attribute: luck, value: 2 }
-            nextEventId: ev-w13
-          - id: opt-w12-3
-            text: 一片没有影子的白色，安静得可怕
-            effects:
-              - { type: setFlag, id: w12, value: 空白 }
-              - { type: setFlag, id: omen, value: 空白 }
-              - { type: adjustAttribute, attribute: intellect, value: 2 }
-            nextEventId: ev-w13
+  # ---------- 第十二步：命定一转（真转盘） ----------
 
-  # 最后一步：真的转一次（kind: random 的链步会即时结算并收束链）
-  - id: ev-w13
+  - id: ev-w12
     title: 命定一转
-    narrative: 转盘最后一次转动。它不再问你想要什么，只告诉你命运已经决定的那部分。
+    narrative: 最后你亲手转了一次。指针在八格之间绕了三圈才慢下来——这一格，就是命。
     trigger:
       source: chain
     kind: random
@@ -483,1293 +562,2443 @@ events:
             - label: 天赐的咒力
               weight: 2
               effects:
-                - { type: setFlag, id: w13, value: 天赐 }
-                - { type: adjustAttribute, attribute: cursedEnergy, value: 5 }
+                - { type: setFlag, id: w12, value: 天赐 }
+                - { type: adjustAttribute, attribute: cursedEnergy, value: 7 }
+              nextEventId: ev-w13
+
             - label: 幸运女神的偏爱
               weight: 3
               effects:
-                - { type: setFlag, id: w13, value: 幸运 }
+                - { type: setFlag, id: w12, value: 幸运 }
                 - { type: applyStatus, status: blessed, stacks: 1 }
                 - { type: grantItem, itemId: item-mp-candy, count: 2 }
+              nextEventId: ev-w13
+
             - label: 一具好身体
               weight: 3
               effects:
-                - { type: setFlag, id: w13, value: 身体 }
+                - { type: setFlag, id: w12, value: 身体 }
                 - { type: applyStatus, status: special-physique, stacks: 1 }
+              nextEventId: ev-w13
+
             - label: 一件旧遗物
               weight: 2
               effects:
-                - { type: setFlag, id: w13, value: 遗物 }
-                - { type: grantItem, itemId: item-curse-tool, count: 1 }
+                - { type: setFlag, id: w12, value: 遗物 }
+                - { type: grantItem, itemId: eq-cursed-blade, count: 1 }
                 - { type: grantItem, itemId: item-first-aid, count: 2 }
+              nextEventId: ev-w13
+
+            - label: 第二个术式
+              weight: 1
+              effects:
+                - { type: setFlag, id: w12, value: 第二术式 }
+                - { type: setFlag, id: secondTech, value: true }
+                - { type: applyStatus, status: multi-technique, stacks: 1 }
+                - { type: unlockSkill, skillId: sk-cursed-strike }
+              nextEventId: ev-w13
+
             - label: 旧伤复发
               weight: 1
               effects:
-                - { type: setFlag, id: w13, value: 旧伤 }
+                - { type: setFlag, id: w12, value: 旧伤 }
                 - { type: applyStatus, status: injured-sim, stacks: 1 }
+              nextEventId: ev-w13
+
             - label: 被诅咒的印记
               weight: 1
               effects:
-                - { type: setFlag, id: w13, value: 印记 }
+                - { type: setFlag, id: w12, value: 印记 }
                 - { type: applyStatus, status: cursed-mark, stacks: 1 }
+              nextEventId: ev-w13
 
-  # ══════════════════════════════════════════════════════════════
-  # 二、日常事件池（每轮按权重抽一 / 按概率独立触发）
-  # ══════════════════════════════════════════════════════════════
-
-  # 今日运势：真正的「转盘」感，幸运属性会影响吉凶权重
-  - id: ev-daily-fortune
-    title: 命数转盘 · 今日运势
-    narrative: 宿舍桌上那台老式转盘自己转了起来——咒术师的迷信，有时候并不可笑。
-    trigger:
-      source: pool
-      probability: 0.25
-      cooldown: { value: 3, unit: day }
-      priority: 6
-      # 开局 13 步是瞬时仪式（timeCost 全 0），用时间闸挡住日常池插入
-      conditions:
-        - { time: { gte: { value: 1, unit: hour } } }
-    kind: random
-    settle:
-      random:
-        wheel:
-          segments:
-            - label: 大吉
-              weight: 1
-              weightBy: { luck: 0.25 }
-              effects:
-                - { type: applyStatus, status: blessed, stacks: 1 }
-                - { type: adjustMood, value: 6 }
-            - label: 中吉
+            - label: 平顺
               weight: 3
               effects:
-                - { type: adjustMood, value: 3 }
-                - { type: adjustAttribute, attribute: reputation, value: 1 }
-            - label: 平
-              weight: 6
-              effects:
-                - { type: adjustMood, value: 1 }
-            - label: 小凶
-              weight: 3
-              weightBy: { luck: -0.15 }
-              effects:
-                - { type: adjustMood, value: -3 }
-            - label: 大凶
-              weight: 1
-              weightBy: { luck: -0.2 }
-              effects:
-                - { type: applyStatus, status: cursed-mark, stacks: 1 }
-                - { type: adjustMood, value: -6 }
+                - { type: setFlag, id: w12, value: 平顺 }
+                - { type: adjustMood, value: 8 }
+                - { type: grantItem, itemId: item-mp-candy, count: 1 }
+              nextEventId: ev-w13
 
-  - id: ev-daily-class
-    title: 课堂点名
-    narrative: 教官在黑板上画着咒力回路，忽然回头点你的名字。
-    trigger:
-      source: pool
-      weight: 5
-      cooldown: { value: 3, unit: day }
-      conditions:
-        - { random: 0.03 }
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-class-answer
-            text: 站起来，把回路图一路补完
-            effects:
-              - { type: adjustAttribute, attribute: intellect, value: 1 }
-              - { type: adjustMood, value: 3 }
-          - id: opt-class-bluff
-            text: 硬着头皮糊弄过去
-            effects:
-              - { type: adjustMood, value: -2 }
-              - { type: adjustAttribute, attribute: luck, value: 1 }
+  # ---------- 第十三步：入学式 ----------
 
-  - id: ev-daily-cafeteria
-    title: 食堂
-    narrative: 中午的食堂只有三张桌子，坐哪张，今天就跟谁一起过。
-    trigger:
-      source: pool
-      weight: 6
-      cooldown: { value: 3, unit: day }
-      conditions:
-        - { random: 0.03 }
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-cafe-gojo
-            text: 坐到五条那桌，听他吹牛
-            effects:
-              - { type: adjustRelation, npcId: npc-gojo, value: 4 }
-              - { type: adjustMood, value: 4 }
-          - id: opt-cafe-geto
-            text: 坐到夏油那桌，听他说些正经的
-            effects:
-              - { type: adjustRelation, npcId: npc-geto, value: 4 }
-              - { type: adjustAttribute, attribute: intellect, value: 1 }
-          - id: opt-cafe-shoko
-            text: 和硝子蹲在楼梯间
-            effects:
-              - { type: adjustRelation, npcId: npc-shoko, value: 4 }
-              - { type: adjustResource, resource: hp, value: 5 }
-          - id: opt-cafe-alone
-            text: 一个人吃，把饭钱省下来
-            effects:
-              - { type: adjustMood, value: -1 }
-              - { type: grantItem, itemId: item-mp-candy, count: 1 }
-
-  - id: ev-daily-night
-    title: 宿舍夜谈
-    narrative: 熄灯后，隔壁床铺翻了个身：「喂，你怕死吗？」
-    trigger:
-      source: pool
-      weight: 4
-      cooldown: { value: 5, unit: day }
-      conditions:
-        - { random: 0.03 }
-        - { relation: npc-nanami, gte: 8 }
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-night-honest
-            text: 老实说怕
-            effects:
-              - { type: adjustRelation, npcId: npc-nanami, value: 6 }
-              - { type: adjustMood, value: 5 }
-          - id: opt-night-bravado
-            text: 嘴硬说不怕
-            effects:
-              - { type: adjustRelation, npcId: npc-nanami, value: 2 }
-              - { type: adjustAttribute, attribute: reputation, value: 1 }
-
-  - id: ev-daily-geto
-    title: 夏油的思想
-    narrative: 夏油把一叠任务报告摊在桌上，指尖敲着最后一行：「为什么总是我们替他们收拾？」
-    trigger:
-      source: pool
-      weight: 4
-      cooldown: { value: 4, unit: day }
-      conditions:
-        - { random: 0.03 }
-        - { flag: chapter, lte: 2 }
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-geto-agree
-            text: 顺着他的话往下想
-            effects:
-              - { type: adjustRelation, npcId: npc-geto, value: 6 }
-              - { type: adjustFlag, id: doubt, value: 1 }
-              - { type: applyStatus, status: doubt, stacks: 1 }
-              - { type: adjustMood, value: -3 }
-          - id: opt-geto-argue
-            text: 反驳他——「这就是这份工作的意义」
-            effects:
-              - { type: adjustRelation, npcId: npc-geto, value: -3 }
-              - { type: setFlag, id: getoArgument, value: true }
-              - { type: adjustMood, value: 2 }
-          - id: opt-geto-listen
-            text: 只听，不表态
-            effects:
-              - { type: adjustRelation, npcId: npc-geto, value: 2 }
-              - { type: adjustAttribute, attribute: intellect, value: 1 }
-
-  - id: ev-daily-gojo
-    title: 五条拉你翘课
-    narrative: 五条从窗户翻进来：「今天的课没意思。走，带你去见见真正有意思的东西。」
-    trigger:
-      source: pool
-      weight: 4
-      cooldown: { value: 4, unit: day }
-      conditions:
-        - { random: 0.03 }
-        - { relation: npc-gojo, gte: 10 }
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-gojo-follow
-            text: 跟着他翻窗出去
-            effects:
-              - { type: adjustRelation, npcId: npc-gojo, value: 8 }
-              - { type: adjustMood, value: 6 }
-              - { type: adjustAttribute, attribute: luck, value: 1 }
-          - id: opt-gojo-stay
-            text: 留下把课上完
-            effects:
-              - { type: adjustRelation, npcId: npc-gojo, value: -2 }
-              - { type: adjustAttribute, attribute: intellect, value: 1 }
-              - { type: adjustMood, value: 1 }
-
-  - id: ev-daily-shoko
-    title: 硝子的处理室
-    narrative: 硝子掐了烟，掀开你的衣角看了一眼：「又搞成这样。坐下。」
-    trigger:
-      source: pool
-      weight: 3
-      cooldown: { value: 4, unit: day }
-      conditions:
-        - { random: 0.03 }
-        - { status: injured-sim, present: true }
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-shoko-cure
-            text: 老老实实让她治
-            effects:
-              - { type: cureStatus, status: injured-sim }
-              - { type: adjustResource, resource: hp, value: 20 }
-              - { type: adjustRelation, npcId: npc-shoko, value: 5 }
-          - id: opt-shoko-joke
-            text: 开玩笑说「小伤而已」
-            effects:
-              - { type: adjustRelation, npcId: npc-shoko, value: 2 }
-              - { type: adjustMood, value: 2 }
-
-  - id: ev-daily-spar
-    title: 训练场切磋
-    narrative: 训练场的木人桩旁，七海把外套叠得整整齐齐：「来都来了。打一场？」
-    trigger:
-      source: pool
-      weight: 4
-      cooldown: { value: 5, unit: day }
-      conditions:
-        - { random: 0.03 }
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-spar-nanami
-            text: 跟七海打一场
-            nextEventId: ev-spar-nanami
-          - id: opt-spar-solo
-            text: 自己对着木人桩练
-            effects:
-              - { type: adjustAttribute, attribute: physique, value: 1 }
-              - { type: adjustAttribute, attribute: agility, value: 1 }
-          - id: opt-spar-watch
-            text: 坐在场边看别人打
-            effects:
-              - { type: adjustMood, value: 3 }
-              - { type: adjustAttribute, attribute: intellect, value: 1 }
-
-  - id: ev-spar-nanami
-    title: 切磋 · 七海建人
-    narrative: 七海把咒力压在最低：「三成力。别死。」
+  - id: ev-w13
+    title: 入学式
+    narrative: 2006 年 4 月 3 日，东京咒术高专。樱花落在你肩上。夜蛾站在讲台上，念到你的名字时抬了一下眼。「从今天起，你是咒术师了。」他说完停了两秒，「——前提是你能活到毕业。」
     trigger:
       source: chain
-    kind: combat
-    settle:
-      combat:
-        enemies:
-          - { ref: npc-nanami, levelScale: 0.25 }
-        canFlee: true
-        fleeCheck: { preset: opposed, attacker: agility, defender: agility, baseChance: 0.8 }
-        onVictory:
-          effects:
-            - { type: adjustRelation, npcId: npc-nanami, value: 6 }
-            - { type: adjustAttribute, attribute: physique, value: 1 }
-            - { type: adjustFlag, id: battleWins, value: 1 }
-            - { type: adjustMood, value: 4 }
-        onDefeat:
-          effects:
-            - { type: adjustRelation, npcId: npc-nanami, value: 3 }
-            - { type: adjustMood, value: -3 }
-
-  - id: ev-daily-exorcism
-    title: 一份委托
-    narrative: 公告栏上钉着一张新的委托单：居民区连续七天夜里有异响。报酬不高，危险等级未标注。
-    trigger:
-      source: pool
-      weight: 5
-      cooldown: { value: 4, unit: day }
-      conditions:
-        - { random: 0.03 }
     kind: normal
     settle:
       normal:
         options:
-          - id: opt-exorcism-take
-            text: 接下委托，去现场
+          - id: opt-w13-begin
+            text: 站起来，答「到」
             effects:
-              - { type: setFlag, id: tookMission, value: true }
-            nextEventId: ev-combat-grade2
-          - id: opt-exorcism-pass
-            text: 把委托让给别人
-            effects:
-              - { type: adjustMood, value: -1 }
-              - { type: adjustAttribute, attribute: reputation, value: -1 }
-
-  - id: ev-daily-rumor
-    title: 都市传说
-    narrative: 便利店的店员压低声音：「旧校舍那边，晚上有东西在走。你们高专，管这个的吧？」
-    trigger:
-      source: pool
-      weight: 3
-      cooldown: { value: 6, unit: day }
-      conditions:
-        - { random: 0.03 }
-        - { flag: rumor, ne: true }
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-rumor-investigate
-            text: 记下位置，找机会去看看
-            effects:
-              - { type: setFlag, id: rumor, value: true }
-              - { type: grantItem, itemId: item-talisman, count: 1 }
-              - { type: adjustAttribute, attribute: intellect, value: 1 }
-          - id: opt-rumor-ignore
-            text: 当没听见
-            effects:
-              - { type: adjustMood, value: -1 }
-
-  - id: ev-daily-blackflash
-    title: 那一瞬的误差
-    narrative: 又一次战斗结束之后，你反复回想那个瞬间——如果再早百万分之一秒，会发生什么？
-    trigger:
-      source: pool
-      weight: 3
-      cooldown: { value: 8, unit: day }
-      conditions:
-        - { random: 0.03 }
-        - { flag: battleWins, gte: 2 }
-        - { flag: hasBlackFlash, ne: true }
-        - { flag: blackFlashAptitude, eq: true }
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-bf-train
-            text: 把那个瞬间拆开、重来、再重来
-            effects:
-              - { type: unlockSkill, skillId: sk-black-flash }
-              - { type: setFlag, id: hasBlackFlash, value: true }
-              - { type: applyStatus, status: black-flash, stacks: 1 }
-              - { type: adjustMood, value: 10 }
-          - id: opt-bf-drop
-            text: 算了，那不是人能抓住的东西
-            effects:
-              - { type: adjustMood, value: -2 }
-
-  - id: ev-daily-domain
-    title: 领域的影子
-    narrative: 打坐时，你第一次「看见」了自己的领域：一片尚未成形的法则，在咒力深处缓慢呼吸。
-    trigger:
-      source: pool
-      weight: 3
-      cooldown: { value: 10, unit: day }
-      conditions:
-        - { random: 0.03 }
-        - { flag: domainPotential, eq: true }
-        - { flag: hasDomain, ne: true }
-        - { attribute: cursedEnergy, gte: 24 }
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-domain-open
-            text: 把全部咒力压进去，让它成型
-            effects:
-              - { type: unlockSkill, skillId: sk-domain-expansion }
-              - { type: setFlag, id: hasDomain, value: true }
-              - { type: adjustAttribute, attribute: cursedEnergy, value: 3 }
-              - { type: adjustMood, value: 12 }
-          - id: opt-domain-wait
-            text: 还不到时候
-            effects:
-              - { type: adjustAttribute, attribute: intellect, value: 1 }
-
-  - id: ev-daily-reverse
-    title: 反转的精度
-    narrative: 硝子说，反转术式的门槛不是咒力，是「想活下去」的精度。你决定再试一次。
-    trigger:
-      source: pool
-      weight: 3
-      cooldown: { value: 10, unit: day }
-      conditions:
-        - { random: 0.03 }
-        - { flag: hasReverseMastered, ne: true }
-        - { attribute: intellect, gte: 9 }
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-reverse-master
-            text: 静下心，把咒力一寸寸翻正
-            effects:
-              - { type: applyStatus, status: reverse-mastered, stacks: 1 }
-              - { type: setFlag, id: hasReverseMastered, value: true }
-              - { type: adjustMood, value: 8 }
-          - id: opt-reverse-stop
-            text: 试到一半就放弃
-            effects:
-              - { type: adjustResource, resource: mp, value: -5 }
-
-  - id: ev-daily-merchant
-    title: 黑市来人
-    narrative: 一个戴墨镜的男人在校门口拦住你：「听说你手上有点好东西。换不换？」
-    trigger:
-      source: pool
-      weight: 2
-      cooldown: { value: 8, unit: day }
-      conditions:
-        - { random: 0.03 }
-        - { inventory: item-curse-tool, gte: 1 }
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-merchant-trade
-            text: 用残刃换一件咒具
-            effects:
-              - { type: removeItem, itemId: item-curse-tool, count: 1 }
-              - { type: grantItem, itemId: eq-shakujin, count: 1 }
-              - { type: adjustMood, value: 3 }
-          - id: opt-merchant-refuse
-            text: 不换，转身就走
-            effects:
-              - { type: adjustMood, value: -1 }
+              - { type: setFlag, id: creationDone, value: true }
+              - { type: setFlag, id: era, value: 1 }
+              - { type: setFlag, id: chapter, value: 1 }
+              - { type: setFlag, id: ready1, value: true }
+              - { type: setFlag, id: studentYear, value: 2006 }
+              - { type: adjustMood, value: 6 }
+              - { type: advanceTo, value: { value: 92, unit: day } }
+              - { type: log, text: 2006 年 4 月 3 日 · 入学式。你的十二年从这里开始。 , visibility: public }
 
   # ══════════════════════════════════════════════════════════════
-  # 三、行动钩子：巡逻 / 探索 / 交往
+  # 二、日常（按时代分段：era 1 = 2006 学生 / era 2 = 2007–2016 术师 / era 3 = 2018 东京）
+  #     每个日常都带前置条件：人死了、走了、时代过了，事件就不再出现。
+  # ══════════════════════════════════════════════════════════════
+
+  # ---------- era 1 · 2006 高专一年生 ----------
+
+  - id: ev-d-class
+    title: 咒骸课
+    narrative: 夜蛾把一具没缝完的布偶扔在讲台上。「让它动。做不到就下课。」教室里一片安静。
+    trigger:
+      source: pool
+      probability: 0.045
+      priority: 10
+      cooldown: { value: 4, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 1 }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-dc-1
+            text: 把咒力灌进布偶的关节
+            effects:
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 1 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: adjustRelation, npcId: npc-yaga, value: 2 }
+          - id: opt-dc-2
+            text: 拆开布偶，看它里面怎么缝的
+            effects:
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: grantItem, itemId: item-talisman, count: 1 }
+              - { type: adjustRelation, npcId: npc-yaga, value: 1 }
+          - id: opt-dc-3
+            text: 抄七海的答案
+            effects:
+              - { type: adjustMood, value: 3 }
+              - { type: adjustRelation, npcId: npc-nanami, value: 3 }
+
+  - id: ev-d-canteen
+    title: 食堂的三张桌子
+    narrative: 高专食堂只有三张桌子。一张坐着五条和夏油，一张是七海和灰原，还有一张没人坐。
+    trigger:
+      source: pool
+      probability: 0.05
+      priority: 10
+      cooldown: { value: 3, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 1 }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ct-1
+            text: 坐到五条那桌，听他们讲任务
+            effects:
+              - { type: adjustRelation, npcId: npc-gojo, value: 3 }
+              - { type: adjustRelation, npcId: npc-geto, value: 2 }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 1 }
+          - id: opt-ct-2
+            text: 坐到七海和灰原那桌
+            effects:
+              - { type: adjustRelation, npcId: npc-nanami, value: 3 }
+              - { type: adjustRelation, npcId: npc-haibara, value: 3 }
+              - { type: adjustMood, value: 4 }
+          - id: opt-ct-3
+            text: 一个人坐
+            effects:
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: adjustMood, value: -2 }
+              - { type: setFlag, id: aloneCount, value: 1 }
+
+  - id: ev-d-gojo
+    title: 五条学长翘课了
+    narrative: 五条从窗户翻进来，把书包扔在你桌上。「今天天气这么好，上课是犯罪。走不走？」
+    trigger:
+      source: pool
+      probability: 0.04
+      priority: 10
+      cooldown: { value: 6, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 1 }
+        - { flag: gojoGone, ne: true }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-gj-1
+            text: 跟他走
+            effects:
+              - { type: adjustRelation, npcId: npc-gojo, value: 5 }
+              - { type: adjustAttribute, attribute: agility, value: 2 }
+              - { type: adjustMood, value: 6 }
+              - { type: adjustAttribute, attribute: reputation, value: -1 }
+          - id: opt-gj-2
+            text: 留下来上课
+            effects:
+              - { type: adjustRelation, npcId: npc-yaga, value: 3 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+          - id: opt-gj-3
+            text: 问他「你为什么这么强」
+            effects:
+              - { type: adjustRelation, npcId: npc-gojo, value: 3 }
+              - { type: setFlag, id: askedGojo, value: true }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
+
+  - id: ev-d-geto
+    title: 夏油学长的道理
+    narrative: 夏油坐在台阶上，手里捏着一只刚吞下去的咒灵留下的残渣。「你说，」他忽然问，「我们保护的这些人，真的值得吗？」
+    trigger:
+      source: pool
+      probability: 0.045
+      priority: 10
+      cooldown: { value: 5, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 1 }
+        - { flag: getoGone, ne: true }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-gt-1
+            text: 「值得。总有人值得。」
+            effects:
+              - { type: adjustRelation, npcId: npc-geto, value: 4 }
+              - { type: setFlag, id: answeredGeto, value: true }
+              - { type: adjustMood, value: 4 }
+          - id: opt-gt-2
+            text: 「我不知道。但我不想变成不保护任何人的人。」
+            effects:
+              - { type: adjustRelation, npcId: npc-geto, value: 2 }
+              - { type: adjustFlag, id: getoDoubt, value: -1 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+          - id: opt-gt-3
+            text: 什么都不说，陪他坐着
+            effects:
+              - { type: adjustRelation, npcId: npc-geto, value: 3 }
+              - { type: adjustFlag, id: getoDoubt, value: 1 }
+              - { type: adjustMood, value: -2 }
+
+  - id: ev-d-shoko
+    title: 医务室的灯
+    narrative: 硝子把剪刀往桌上一扔。「又是你。说吧，这次哪儿断了。」她头都没抬。
+    trigger:
+      source: pool
+      probability: 0.04
+      priority: 10
+      cooldown: { value: 4, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 1 }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sk-1
+            text: 让她把伤治好
+            effects:
+              - { type: cureStatus, status: injured-sim }
+              - { type: cureStatus, status: exhausted }
+              - { type: adjustResource, resource: hp, value: 40 }
+              - { type: adjustRelation, npcId: npc-shoko, value: 3 }
+          - id: opt-sk-2
+            text: 问她反转术式怎么练
+            effects:
+              - { type: adjustRelation, npcId: npc-shoko, value: 2 }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: setFlag, id: askedReverse, value: true }
+          - id: opt-sk-3
+            text: 只要一支止痛药就走
+            effects:
+              - { type: grantItem, itemId: item-first-aid, count: 1 }
+              - { type: adjustMood, value: -1 }
+
+  - id: ev-d-spar
+    title: 训练场的切磋
+    narrative: 七海把外套脱下来叠好，放在场地边缘。「三分钟。」他说，「我不会放水，你也不用。」
+    trigger:
+      source: pool
+      probability: 0.05
+      priority: 10
+      cooldown: { value: 4, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 1 }
+        - { flag: nanamiGone, ne: true }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sp-1
+            text: 认真打
+            effects:
+              - { type: adjustAttribute, attribute: physique, value: 2 }
+              - { type: adjustAttribute, attribute: agility, value: 1 }
+              - { type: adjustRelation, npcId: npc-nanami, value: 3 }
+              - { type: adjustMood, value: -2 }
+          - id: opt-sp-2
+            text: 用术式压他
+            effects:
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
+              - { type: adjustRelation, npcId: npc-nanami, value: 1 }
+          - id: opt-sp-3
+            text: 打完一起去吃拉面
+            effects:
+              - { type: adjustRelation, npcId: npc-nanami, value: 4 }
+              - { type: adjustMood, value: 6 }
+
+  - id: ev-d-haibara
+    title: 灰原的便当
+    narrative: 灰原把一个巨大的便当盒拍在你桌上。「我妈做的太多了！」他笑得像夏天，「你不吃我就得自己吃完。」
+    trigger:
+      source: pool
+      probability: 0.04
+      priority: 10
+      cooldown: { value: 5, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 1 }
+        - { flag: haibaraDead, ne: true }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-hb-1
+            text: 吃
+            effects:
+              - { type: adjustRelation, npcId: npc-haibara, value: 4 }
+              - { type: adjustMood, value: 6 }
+              - { type: adjustResource, resource: hp, value: 15 }
+          - id: opt-hb-2
+            text: 问他为什么想当术师
+            effects:
+              - { type: adjustRelation, npcId: npc-haibara, value: 3 }
+              - { type: setFlag, id: haibaraWhy, value: true }
+              - { type: adjustMood, value: 3 }
+          - id: opt-hb-3
+            text: 分一半给七海
+            effects:
+              - { type: adjustRelation, npcId: npc-haibara, value: 2 }
+              - { type: adjustRelation, npcId: npc-nanami, value: 3 }
+
+  - id: ev-d-mission
+    title: 第一份委托
+    narrative: 公告栏上钉着一张新的委托单：某栋公寓的二级咒灵。报酬栏写着一个让你心跳加速的数字。
+    trigger:
+      source: pool
+      probability: 0.04
+      priority: 10
+      cooldown: { value: 6, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 1 }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ms-1
+            text: 接下它
+            effects:
+              - { type: adjustFlag, id: missionsCompleted, value: 1 }
+              - { type: adjustAttribute, attribute: reputation, value: 2 }
+              - { type: adjustMood, value: -3 }
+
+  - id: ev-d-rumor
+    title: 都市传说
+    narrative: 灰原压低声音说，最近有个「会说话的缝合线」在涩谷一带出现。七海说那是谣言。你想起自己身上的那道疤。
+    trigger:
+      source: pool
+      probability: 0.03
+      priority: 10
+      cooldown: { value: 8, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 1 }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-rm-1
+            text: 去查
+            effects:
+              - { type: adjustFlag, id: truthBits, value: 1 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: adjustMood, value: -3 }
+          - id: opt-rm-2
+            text: 当成谣言
+            effects:
+              - { type: adjustMood, value: 2 }
+
+  - id: ev-d-market
+    title: 黑市
+    narrative: 有人在 school 后面的巷子里卖咒具。卖家戴着口罩，只收现金，不问来历。
+    trigger:
+      source: pool
+      probability: 0.03
+      priority: 10
+      cooldown: { value: 10, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 1 }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-mk-1
+            text: 买一把便宜的游云
+            effects:
+              - { type: grantItem, itemId: eq-cursed-blade, count: 1 }
+              - { type: adjustMood, value: 2 }
+          - id: opt-mk-2
+            text: 什么都不买，记住这个地方
+            effects:
+              - { type: setFlag, id: knowsMarket, value: true }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+
+  # ---------- era 2 · 2007–2016 独当一面的术师 ----------
+
+  - id: ev-d2-solo
+    title: 一个人的祓除
+    narrative: 没有学长，没有班主任。委托单上只有地址和一句「一级以下」。你站在门口，第一次觉得自己的影子有点小。
+    trigger:
+      source: pool
+      probability: 0.06
+      priority: 10
+      cooldown: { value: 4, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 2 }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-so-1
+            text: 按流程来：先布帐，再确认退路
+            effects:
+              - { type: adjustFlag, id: missionsCompleted, value: 1 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: adjustAttribute, attribute: reputation, value: 2 }
+          - id: opt-so-2
+            text: 直接进去打完收工
+            effects:
+              - { type: adjustFlag, id: missionsCompleted, value: 2 }
+              - { type: adjustAttribute, attribute: physique, value: 1 }
+              - { type: adjustMood, value: -2 }
+
+  - id: ev-d2-kouhai
+    title: 带新人
+    narrative: 高专派来一个刚入学的孩子，眼睛亮得像当年的灰原。他叫你「前辈」的时候，你愣了一下。
+    trigger:
+      source: pool
+      probability: 0.04
+      priority: 10
+      cooldown: { value: 8, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 2 }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-kh-1
+            text: 认真教他
+            effects:
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustMood, value: 5 }
+              - { type: setFlag, id: hasKouhai, value: true }
+          - id: opt-kh-2
+            text: 让他跟着看，别插手
+            effects:
+              - { type: adjustFlag, id: missionsCompleted, value: 1 }
+              - { type: adjustMood, value: -2 }
+          - id: opt-kh-3
+            text: 把他赶回去
+            effects:
+              - { type: adjustMood, value: -4 }
+              - { type: setFlag, id: pushedAway, value: true }
+
+  - id: ev-d2-overtime
+    title: 加班
+    narrative: 处理完第七只咒灵时，天已经亮了。便利店的关东煮刚好上架。你想起七海说过的话：术师是没有加班的，只有还没死。
+    trigger:
+      source: pool
+      probability: 0.045
+      priority: 10
+      cooldown: { value: 6, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 2 }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ot-1
+            text: 吃完再回去
+            effects:
+              - { type: adjustMood, value: 6 }
+              - { type: adjustResource, resource: hp, value: 20 }
+          - id: opt-ot-2
+            text: 直接回去继续工作
+            effects:
+              - { type: adjustAttribute, attribute: reputation, value: 2 }
+              - { type: applyStatus, status: exhausted, stacks: 1 }
+
+  - id: ev-d2-grave
+    title: 扫墓
+    narrative: 墓园在山的背面。你把带来的那束花放下，站了一会儿，发现自己已经不太记得他的声音了。
+    trigger:
+      source: pool
+      probability: 0.04
+      priority: 10
+      cooldown: { value: 12, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 2 }
+        - { flag: hasGrave, eq: true }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-gv-1
+            text: 说说话
+            effects:
+              - { type: adjustMood, value: 8 }
+              - { type: adjustFlag, id: resolveDepth, value: 1 }
+          - id: opt-gv-2
+            text: 只是站着
+            effects:
+              - { type: adjustMood, value: -4 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+
+  - id: ev-d2-investigate
+    title: 追查
+    narrative: 最近三年，失踪的术师有十一个。档案室里的纸堆得比人高，而每一份都被盖了同一个章：「已结案」。
+    trigger:
+      source: pool
+      probability: 0.035
+      priority: 10
+      cooldown: { value: 10, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 2 }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-iv-1
+            text: 一份一份翻
+            effects:
+              - { type: adjustFlag, id: truthBits, value: 2 }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustMood, value: -3 }
+          - id: opt-iv-2
+            text: 去找五条问
+            visibleWhen:
+              - { flag: gojoGone, ne: true }
+            effects:
+              - { type: adjustRelation, npcId: npc-gojo, value: 3 }
+              - { type: adjustFlag, id: truthBits, value: 1 }
+          - id: opt-iv-3
+            text: 合上档案
+            effects:
+              - { type: adjustMood, value: 2 }
+
+  - id: ev-d2-train
+    title: 一个人的训练
+    narrative: 训练场空着。你把同一个动作重复了四百次，直到身体先于意识记住它。
+    trigger:
+      source: pool
+      probability: 0.05
+      priority: 10
+      cooldown: { value: 5, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 2 }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-tr-1
+            text: 练术式
+            effects:
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
+          - id: opt-tr-2
+            text: 练体术
+            effects:
+              - { type: adjustAttribute, attribute: physique, value: 2 }
+              - { type: adjustAttribute, attribute: agility, value: 1 }
+
+  # ---------- era 3 · 2018 东京 ----------
+
+  - id: ev-d3-yuji
+    title: 虎杖的胃口
+    narrative: 虎杖端着第五碗饭坐下来。「前辈，你当年也是一年级就出任务吗？」他嘴里塞满东西，眼睛却很认真。
+    trigger:
+      source: pool
+      probability: 0.05
+      priority: 10
+      cooldown: { value: 5, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 3 }
+        - { flag: yujiJoined, eq: true }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-yj-1
+            text: 告诉他实话：会死人
+            effects:
+              - { type: adjustRelation, npcId: npc-yuji, value: 4 }
+              - { type: adjustMood, value: -3 }
+              - { type: setFlag, id: warnedYuji, value: true }
+          - id: opt-yj-2
+            text: 说「你会没事的」
+            effects:
+              - { type: adjustRelation, npcId: npc-yuji, value: 3 }
+              - { type: adjustMood, value: 3 }
+          - id: opt-yj-3
+            text: 抢他一块炸鸡
+            effects:
+              - { type: adjustRelation, npcId: npc-yuji, value: 5 }
+              - { type: adjustMood, value: 6 }
+
+  - id: ev-d3-megumi
+    title: 伏黑的任务
+    narrative: 伏黑把一份任务书递给你。「这个案子我一个人处理不了。」他顿了顿，「……不是说我弱。」
+    trigger:
+      source: pool
+      probability: 0.045
+      priority: 10
+      cooldown: { value: 6, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 3 }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-mg-1
+            text: 一起去
+            effects:
+              - { type: adjustRelation, npcId: npc-megumi, value: 5 }
+              - { type: adjustFlag, id: missionsCompleted, value: 1 }
+          - id: opt-mg-2
+            text: 问他关于他父亲的事
+            visibleWhen:
+              - { flag: metToji, eq: true }
+            effects:
+              - { type: adjustRelation, npcId: npc-megumi, value: -2 }
+              - { type: adjustFlag, id: truthBits, value: 1 }
+              - { type: adjustMood, value: -3 }
+          - id: opt-mg-3
+            text: 让他自己上，你在后手
+            effects:
+              - { type: adjustRelation, npcId: npc-megumi, value: 2 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+
+  - id: ev-d3-nobara
+    title: 钉崎的购物
+    narrative: 钉崎拽着你的袖子穿过涩谷的人群。「前辈你品味太差了。」她说，「今天必须改造一下。」
+    trigger:
+      source: pool
+      probability: 0.04
+      priority: 10
+      cooldown: { value: 7, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 3 }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-nb-1
+            text: 随她挑
+            effects:
+              - { type: adjustRelation, npcId: npc-nobara, value: 5 }
+              - { type: adjustMood, value: 7 }
+          - id: opt-nb-2
+            text: 说「我很忙」
+            effects:
+              - { type: adjustRelation, npcId: npc-nobara, value: -3 }
+              - { type: adjustMood, value: -2 }
+
+  - id: ev-d3-yuta
+    title: 乙骨的训练
+    narrative: 乙骨在训练场摔了第十七次。里香站在场边，安静地看着他。他爬起来，又摆好了架势。
+    trigger:
+      source: pool
+      probability: 0.04
+      priority: 10
+      cooldown: { value: 8, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 3 }
+        - { flag: yutaGone, ne: true }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-yt-1
+            text: 教他怎么用体重
+            effects:
+              - { type: adjustRelation, npcId: npc-yuta, value: 5 }
+              - { type: adjustAttribute, attribute: physique, value: 1 }
+          - id: opt-yt-2
+            text: 问他里香是什么
+            effects:
+              - { type: adjustRelation, npcId: npc-yuta, value: 3 }
+              - { type: adjustFlag, id: truthBits, value: 1 }
+
+  - id: ev-d3-eve
+    title: 万圣节前夜
+    narrative: 涩谷的街上到处是装扮成怪物的人。真正的怪物还没来。你站在人群里，忽然觉得这份热闹很薄。
+    trigger:
+      source: pool
+      probability: 0.05
+      priority: 10
+      cooldown: { value: 20, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 3 }
+        - { flag: chapter, eq: 5 }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ev-1
+            text: 提前布一层帐
+            effects:
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: setFlag, id: shibuyaPrep, value: true }
+              - { type: grantItem, itemId: item-talisman, count: 2 }
+          - id: opt-ev-2
+            text: 什么都不做，过完这一晚
+            effects:
+              - { type: adjustMood, value: 8 }
+
+  # ══════════════════════════════════════════════════════════════
+  # 三、行动钩子（巡逻 / 探索 / 交往）
   # ══════════════════════════════════════════════════════════════
 
   - id: ev-patrol-wheel
-    title: 巡逻遭遇
-    narrative: 结界边缘的夜色里，总有东西在动。转盘决定你今晚遇见什么。
+    title: 巡逻 · 命数
+    narrative: 结界薄弱的地方总在移动。你沿着线索走了一天，风里有一点铁锈味。
     trigger:
       source: action-hook
       onActionId: patrol
+      conditions:
+        - { flag: creationDone, eq: true }
     kind: random
     settle:
       random:
         wheel:
           segments:
-            - label: 无事发生
-              weight: 5
+            - label: 什么也没遇见，只是走了一天
+              weight: 26
+              weightBy: { luck: 2 }
               effects:
-                - { type: adjustMood, value: 2 }
-            - label: 二级咒灵
-              weight: 4
+                - { type: adjustMood, value: 3 }
+            - label: 二级咒灵 · 从排水口爬出来
+              weight: 18
               nextEventId: ev-combat-grade2
-            - label: 诅咒师
-              weight: 2
+            - label: 诅咒师 · 正在给咒灵喂东西
+              weight: 10
               nextEventId: ev-combat-curse-user
-            - label: 咒具残骸
-              weight: 2
+            - label: 一枚咒具残骸
+              weight: 8
+              weightBy: { luck: 1.5 }
               effects:
-                - { type: grantItem, itemId: item-curse-tool, count: 1 }
+                - { type: grantItem, itemId: item-mp-candy, count: 1 }
                 - { type: adjustAttribute, attribute: intellect, value: 1 }
-            - label: 平民求救
-              weight: 3
+            - label: 平民被咒灵追着跑
+              weight: 14
               effects:
-                - { type: setFlag, id: helpedSomeone, value: true }
-                - { type: adjustAttribute, attribute: reputation, value: 2 }
-                - { type: adjustMood, value: 5 }
-            - label: 一级咒灵
-              weight: 1
-              weightBy: { reputation: -0.01 }
+                - { type: adjustAttribute, attribute: reputation, value: 3 }
+                - { type: adjustMood, value: 4 }
+                - { type: adjustFlag, id: savedCivilians, value: 1 }
+            - label: 一级咒灵 · 它已经等了你很久
+              weight: 6
+              weightBy: { luck: -1 }
               nextEventId: ev-combat-grade1
 
   - id: ev-explore-wheel
-    title: 探索遭遇
-    narrative: 你把咒力压到最低，推开了那扇不该被推开的门。
+    title: 探索 · 命数
+    narrative: 废弃校舍、地下道、被封锁的隧道。你撬开一扇门，灰尘在光里浮着。
     trigger:
       source: action-hook
       onActionId: explore
+      conditions:
+        - { flag: creationDone, eq: true }
     kind: random
     settle:
       random:
         wheel:
           segments:
-            - label: 空手而归
-              weight: 3
+            - label: 空空的地下室
+              weight: 22
+              weightBy: { luck: 2 }
               effects:
                 - { type: adjustMood, value: -2 }
-            - label: 旧书与笔记
-              weight: 3
-              effects:
                 - { type: adjustAttribute, attribute: intellect, value: 1 }
-                - { type: grantItem, itemId: item-talisman, count: 1 }
-            - label: 埋着的咒具
-              weight: 2
+            - label: 一堆旧委托书 · 有一份被撕掉了名字
+              weight: 14
+              weightBy: { intellect: 1 }
               effects:
-                - { type: grantItem, itemId: eq-bancho, count: 1 }
-                - { type: adjustMood, value: 4 }
-            - label: 咒灵巢穴
-              weight: 2
+                - { type: adjustFlag, id: truthBits, value: 1 }
+                - { type: adjustAttribute, attribute: intellect, value: 1 }
+            - label: 一只受伤的咒灵幼体
+              weight: 12
+              effects:
+                - { type: adjustMood, value: 3 }
+                - { type: adjustAttribute, attribute: cursedEnergy, value: 1 }
+            - label: 二级咒灵 · 巢就在里面
+              weight: 20
+              nextEventId: ev-combat-grade2
+            - label: 特级咒物的碎片
+              weight: 5
+              weightBy: { luck: 2 }
+              effects:
+                - { type: grantItem, itemId: eq-cursed-blade, count: 1 }
+                - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
+            - label: 一级咒灵 · 你踩到了它的领域边缘
+              weight: 7
               nextEventId: ev-combat-grade1
-            - label: 陷阱
-              weight: 1
-              effects:
-                - { type: applyStatus, status: injured-sim, stacks: 1 }
-                - { type: adjustMood, value: -4 }
-            - label: 前人的遗言
-              weight: 2
-              effects:
-                - { type: setFlag, id: exploreLore, value: true }
-                - { type: adjustAttribute, attribute: intellect, value: 1 }
-                - { type: adjustMood, value: -1 }
 
   - id: ev-social-hook
     title: 今天和谁过
-    narrative: 难得的空白时间。你掏出手机，翻着通讯录。
+    narrative: 一天的空闲。你翻了翻手机，通讯录里的人比你以为的多。
     trigger:
       source: action-hook
       onActionId: socialize
+      conditions:
+        - { flag: creationDone, eq: true }
     kind: normal
     settle:
       normal:
         options:
-          - id: opt-social-gojo
-            text: 找五条悟
+          - id: opt-sc-1
+            text: 找五条
+            visibleWhen:
+              - { flag: gojoGone, ne: true }
             effects:
-              - { type: adjustRelation, npcId: npc-gojo, value: 8 }
+              - { type: adjustRelation, npcId: npc-gojo, value: 4 }
+              - { type: adjustMood, value: 5 }
+          - id: opt-sc-2
+            text: 找夏油
+            visibleWhen:
+              - { flag: getoGone, ne: true }
+            effects:
+              - { type: adjustRelation, npcId: npc-geto, value: 4 }
               - { type: adjustMood, value: 4 }
-          - id: opt-social-geto
-            text: 找夏油杰
+              - { type: adjustFlag, id: getoDoubt, value: -1 }
+          - id: opt-sc-3
+            text: 找七海
+            visibleWhen:
+              - { flag: nanamiGone, ne: true }
             effects:
-              - { type: adjustRelation, npcId: npc-geto, value: 8 }
+              - { type: adjustRelation, npcId: npc-nanami, value: 4 }
+              - { type: adjustMood, value: 5 }
+          - id: opt-sc-4
+            text: 找灰原
+            visibleWhen:
+              - { flag: haibaraDead, ne: true }
+              - { flag: era, eq: 1 }
+            effects:
+              - { type: adjustRelation, npcId: npc-haibara, value: 5 }
+              - { type: adjustMood, value: 7 }
+          - id: opt-sc-5
+            text: 找硝子
+            effects:
+              - { type: adjustRelation, npcId: npc-shoko, value: 3 }
+              - { type: adjustResource, resource: hp, value: 25 }
               - { type: adjustMood, value: 3 }
-              - { type: setFlag, id: getoTalks, value: true }
-          - id: opt-social-shoko
-            text: 找家入硝子
+          - id: opt-sc-6
+            text: 找虎杖他们
+            visibleWhen:
+              - { flag: era, eq: 3 }
+              - { flag: yujiJoined, eq: true }
             effects:
-              - { type: adjustRelation, npcId: npc-shoko, value: 8 }
-              - { type: adjustResource, resource: hp, value: 10 }
-          - id: opt-social-nanami
-            text: 找七海建人
-            effects:
-              - { type: adjustRelation, npcId: npc-nanami, value: 8 }
-              - { type: adjustAttribute, attribute: intellect, value: 1 }
-          - id: opt-social-haibara
-            text: 找灰原雄
-            effects:
-              - { type: adjustRelation, npcId: npc-haibara, value: 8 }
+              - { type: adjustRelation, npcId: npc-yuji, value: 4 }
+              - { type: adjustRelation, npcId: npc-megumi, value: 3 }
+              - { type: adjustRelation, npcId: npc-nobara, value: 3 }
               - { type: adjustMood, value: 6 }
 
   # ══════════════════════════════════════════════════════════════
-  # 四、战斗事件
+  # 四、遭遇战（巡逻 / 探索转盘落到战斗时进入）
   # ══════════════════════════════════════════════════════════════
 
   - id: ev-combat-grade2
-    title: 二级咒灵
-    narrative: 月光下，一头由怨念凝成的兽影从墙里挤出来。它很饿。
+    title: 遭遇 · 二级咒灵
+    narrative: 它从墙里挤出来，形状像一件被穿坏的衣服。你后退半步，它就往前一寸。
     trigger:
       source: chain
     kind: combat
     settle:
       combat:
         enemies:
-          - { ref: enemy-grade2-curse, levelScale: 0.3 }
-        canFlee: true
-        fleeCheck: { preset: opposed, attacker: agility, defender: agility, baseChance: 0.7 }
-        onVictory:
-          effects:
-            - { type: adjustFlag, id: battleWins, value: 1 }
-            - { type: adjustAttribute, attribute: reputation, value: 3 }
-            - { type: adjustMood, value: 5 }
-            - { type: grantItem, itemId: item-first-aid, count: 1 }
-        onDefeat:
-          effects:
-            - { type: adjustMood, value: -6 }
-            - { type: adjustAttribute, attribute: reputation, value: -1 }
-        onFlee:
-          effects:
-            - { type: adjustMood, value: -2 }
-
-  - id: ev-combat-curse-user
-    title: 诅咒师
-    narrative: 「高专的小鬼？」阴影里走出一个人，刀上缠着咒力，「正好，拿你试试新术式。」
-    trigger:
-      source: chain
-    kind: combat
-    settle:
-      combat:
-        enemies:
-          - { ref: enemy-curse-user, levelScale: 0.35 }
+          - { ref: enemy-grade2-curse, levelScale: 0.7 }
         canFlee: true
         fleeCheck: { preset: opposed, attacker: agility, defender: agility, baseChance: 0.6 }
         onVictory:
           effects:
-            - { type: adjustFlag, id: battleWins, value: 1 }
-            - { type: adjustAttribute, attribute: reputation, value: 5 }
-            - { type: grantItem, itemId: item-grade2-tool, count: 1 }
-        onDefeat:
-          effects:
-            - { type: adjustMood, value: -8 }
-            - { type: adjustAttribute, attribute: reputation, value: -2 }
-
-  - id: ev-combat-grade1
-    title: 一级咒灵
-    narrative: 空气忽然变重了。你抬起头，看见十几只手从天花板垂下来。
-    trigger:
-      source: chain
-    kind: combat
-    settle:
-      combat:
-        enemies:
-          - { ref: enemy-grade1-curse, levelScale: 0.3 }
-        canFlee: true
-        fleeCheck: { preset: opposed, attacker: agility, defender: agility, baseChance: 0.5 }
-        onVictory:
-          effects:
-            - { type: adjustFlag, id: battleWins, value: 1 }
-            - { type: adjustAttribute, attribute: reputation, value: 8 }
-            - { type: adjustMood, value: 8 }
-            - { type: grantItem, itemId: item-mp-candy, count: 2 }
-        onDefeat:
-          effects:
-            - { type: adjustMood, value: -10 }
-            - { type: adjustAttribute, attribute: reputation, value: -3 }
-
-  # ══════════════════════════════════════════════════════════════
-  # 五、第一章：星浆体（chapter 1 → 2）
-  # ══════════════════════════════════════════════════════════════
-
-  - id: ev-ch1-call
-    title: 第一章 · 星浆体
-    narrative: 五条把你叫到走廊尽头，语气罕见地正经：「有个少女，要在后天之前被安全送到天元那里。你来不来？」
-    trigger:
-      source: pool
-      probability: 1
-      priority: 100
-      once: true
-      conditions:
-        - { flag: chapter, eq: 1 }
-        - { flag: ready1, eq: true }
-        - { time: { gte: { value: 2, unit: day } } }
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-ch1-accept
-            text: 「我去。」
-            effects:
-              - { type: setFlag, id: spJoined, value: true }
-              - { type: setFlag, id: ready1, value: false }
-              - { type: setFlag, id: chapter, value: 2 }
-              - { type: startChain, chainId: chain-sp }
-          - id: opt-ch1-decline
-            text: 「这次我不去。」
-            effects:
-              - { type: setFlag, id: ready1, value: false }
-              - { type: setFlag, id: spDeclined, value: true }
-              - { type: setFlag, id: ready2, value: true }
-              - { type: adjustMood, value: -6 }
-              - { type: setFlag, id: chapter, value: 2 }
-              - { type: advanceTo, value: { value: 60, unit: day } }
-              - { type: adjustRelation, npcId: npc-gojo, value: -6 }
-
-  - id: ev-sp-meet
-    title: 天内里子
-    narrative: 少女把书包抱在胸前，努力装出不怕的样子：「你们……真的是来保护我的？」
-    trigger:
-      source: chain
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-sp-reassure
-            text: 蹲下来，跟她平视：「是。我们会把你送到你想去的地方。」
-            effects:
-              - { type: adjustRelation, npcId: npc-riko, value: 15 }
-              - { type: adjustMood, value: 5 }
-              - { type: setFlag, id: rikoBond, value: true }
-            nextEventId: ev-sp-vigil
-          - id: opt-sp-formal
-            text: 公事公办地说明护送流程
-            effects:
-              - { type: adjustRelation, npcId: npc-riko, value: 4 }
-              - { type: adjustAttribute, attribute: intellect, value: 1 }
-            nextEventId: ev-sp-vigil
-
-  - id: ev-sp-vigil
-    title: 同化前夜
-    narrative: 结界外的雨下了一整夜。五条靠在门边：「明天会有人来杀她。你打算怎么守？」
-    trigger:
-      source: chain
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-sp-watch
-            text: 通宵警戒，把每一道咒力波动都记下来
-            effects:
-              - { type: setFlag, id: spAware, value: true }
-              - { type: adjustResource, resource: hp, value: -8 }
-              - { type: adjustAttribute, attribute: intellect, value: 1 }
-            nextEventId: ev-sp-ambush
-          - id: opt-sp-sleep
-            text: 按五条的安排轮班，先睡一觉
-            effects:
-              - { type: adjustResource, resource: hp, value: 15 }
-              - { type: adjustMood, value: 2 }
-            nextEventId: ev-sp-ambush
-          - id: opt-sp-ask
-            text: 问里子：她自己想去哪里
-            effects:
-              - { type: adjustRelation, npcId: npc-riko, value: 10 }
-              - { type: setFlag, id: rikoBond, value: true }
-              - { type: setFlag, id: spAware, value: true }
-            nextEventId: ev-sp-ambush
-
-  - id: ev-sp-ambush
-    title: 伏击 · 天与暴君
-    narrative: 雨停的瞬间，走廊尽头的窗碎了。没有咒力，没有预警——只有一个浑身是伤的男人，和一把不该存在的刀。
-    trigger:
-      source: chain
-    kind: combat
-    settle:
-      combat:
-        enemies:
-          - { ref: enemy-toji, levelScale: 0.5 }
-        canFlee: true
-        fleeCheck: { preset: opposed, attacker: agility, defender: agility, baseChance: 0.55 }
-        onVictory:
-          effects:
-            - { type: setFlag, id: tojiBeaten, value: true }
-            - { type: adjustFlag, id: battleWins, value: 2 }
-            - { type: adjustAttribute, attribute: reputation, value: 10 }
-            - { type: adjustMood, value: 6 }
-          nextEventId: ev-sp-outcome
+            - { type: adjustFlag, id: missionsCompleted, value: 1 }
+            - { type: adjustAttribute, attribute: cursedEnergy, value: 1 }
+            - { type: adjustAttribute, attribute: reputation, value: 2 }
+            - { type: adjustMood, value: 3 }
         onDefeat:
           effects:
             - { type: applyStatus, status: exhausted, stacks: 1 }
-            - { type: adjustMood, value: -10 }
-          nextEventId: ev-sp-outcome
+            - { type: adjustMood, value: -8 }
         onFlee:
           effects:
-            - { type: setFlag, id: spFled, value: true }
+            - { type: adjustMood, value: -4 }
+
+  - id: ev-combat-curse-user
+    title: 遭遇 · 诅咒师
+    narrative: 他蹲在咒灵旁边，手里拿着勺子。「哦，」他站起来，「你也是来抢的？」
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-curse-user, levelScale: 0.8 }
+        canFlee: true
+        fleeCheck: { preset: opposed, attacker: agility, defender: agility, baseChance: 0.6 }
+        onVictory:
+          effects:
+            - { type: adjustAttribute, attribute: reputation, value: 4 }
+            - { type: adjustFlag, id: truthBits, value: 1 }
+            - { type: grantItem, itemId: item-first-aid, count: 1 }
+        onDefeat:
+          effects:
+            - { type: applyStatus, status: exhausted, stacks: 1 }
             - { type: adjustMood, value: -8 }
-          nextEventId: ev-sp-outcome
 
-  - id: ev-sp-outcome
-    title: 同化的十字路口
-    narrative: 里子站在天元的门前。她回头看你，什么也没说。
-    trigger:
-      source: chain
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-sp-let-canon
-            text: 按规矩，把她送进去
-            effects:
-              - { type: setFlag, id: spOutcome, value: canon }
-              - { type: setFlag, id: chapter, value: 2 }
-              - { type: adjustMood, value: -10 }
-              - { type: adjustAttribute, attribute: reputation, value: 4 }
-              - { type: advanceTo, value: { value: 60, unit: day } }
-            nextEventId: ev-sp-after
-          - id: opt-sp-save
-            text: 牵起她的手，转身就跑
-            visibleWhen:
-              - { flag: spAware, eq: true }
-            effects:
-              - { type: setFlag, id: spOutcome, value: saved }
-              - { type: setFlag, id: rikoSaved, value: true }
-              - { type: setFlag, id: chapter, value: 2 }
-              - { type: grantItem, itemId: item-riko-ribbon, count: 1 }
-              - { type: adjustMood, value: 12 }
-              - { type: adjustAttribute, attribute: reputation, value: -10 }
-              - { type: advanceTo, value: { value: 60, unit: day } }
-              - { type: addRelationEdge, fromId: npc-riko, toId: player, kind: friend, visibility: known, value: 60 }
-            nextEventId: ev-sp-after
-          - id: opt-sp-witness
-            text: 什么也做不了，只是看着
-            visibleWhen:
-              - { flag: spAware, ne: true }
-            effects:
-              - { type: setFlag, id: spOutcome, value: canon }
-              - { type: setFlag, id: chapter, value: 2 }
-              - { type: adjustMood, value: -14 }
-              - { type: advanceTo, value: { value: 60, unit: day } }
-            nextEventId: ev-sp-after
-
-  - id: ev-sp-after
-    title: 第一章 · 余烬
-    narrative: 那之后，高专沉默了很久。五条开始一个人训练到深夜，夏油开始一个人出任务。
-    trigger:
-      source: chain
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-sp-after-ack
-            text: 把那一夜记在心里
-            effects:
-              - { type: adjustMood, value: -3 }
-              - { type: setFlag, id: chapter, value: 2 }
-              - { type: setFlag, id: ready2, value: true }
-
-  # ══════════════════════════════════════════════════════════════
-  # 六、第二章：夏油叛逃（chapter 2 → 3）
-  # ══════════════════════════════════════════════════════════════
-
-  - id: ev-ch2-crisis
-    title: 第二章 · 村庄
-    narrative: 一个村庄的村民把两个女孩关进笼子里。夏油站在笼前，很久没有说话。
-    trigger:
-      source: pool
-      probability: 1
-      priority: 100
-      once: true
-      conditions:
-        - { flag: chapter, eq: 2 }
-        - { flag: ready2, eq: true }
-        - { time: { gte: { value: 60, unit: day } } }
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-ch2-go
-            text: 「夏油，我们该回高专了。」
-            effects:
-              - { type: setFlag, id: ready2, value: false }
-              - { type: setFlag, id: chapter, value: 3 }
-              - { type: startChain, chainId: chain-geto }
-          - id: opt-ch2-wait
-            text: 站在原地，看他会做什么
-            effects:
-              - { type: setFlag, id: ready2, value: false }
-              - { type: setFlag, id: chapter, value: 3 }
-              - { type: adjustFlag, id: doubt, value: 1 }
-              - { type: startChain, chainId: chain-geto }
-
-  - id: ev-geto-talk
-    title: 笼子前的对话
-    narrative: 「你数过吗？」夏油的声音很轻，「我们救过的人，和他们伤害过的人。」
-    trigger:
-      source: chain
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-geto-talk-reach
-            text: 「那就改变它，而不是放弃它。」
-            visibleWhen:
-              - { relation: npc-geto, gte: 18 }
-            effects:
-              - { type: adjustRelation, npcId: npc-geto, value: 10 }
-              - { type: setFlag, id: getoReached, value: true }
-              - { type: adjustMood, value: -4 }
-            nextEventId: ev-geto-choice
-          - id: opt-geto-talk-neutral
-            text: 「先救人。别的以后再说。」
-            effects:
-              - { type: adjustRelation, npcId: npc-geto, value: 2 }
-            nextEventId: ev-geto-choice
-          - id: opt-geto-talk-doubt
-            text: 说不出口。你也在想同一个问题。
-            effects:
-              - { type: adjustFlag, id: doubt, value: 1 }
-              - { type: applyStatus, status: doubt, stacks: 1 }
-            nextEventId: ev-geto-choice
-
-  - id: ev-geto-choice
-    title: 抉择
-    narrative: 夏油背对着你，手插在口袋里：「我要走另一条路了。你要跟来，还是拦我？」
-    trigger:
-      source: chain
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-geto-stop
-            text: 拦下他——用拳头，也用你们这些年的关系
-            visibleWhen:
-              - { relation: npc-geto, gte: 18 }
-            effects:
-              - { type: setFlag, id: getoStopped, value: true }
-            nextEventId: ev-geto-fight
-          - id: opt-geto-let-go
-            text: 让开。你拦不住一个已经想清楚的人。
-            effects:
-              - { type: setFlag, id: getoLeft, value: true }
-              - { type: adjustMood, value: -12 }
-            nextEventId: ev-geto-canon
-          - id: opt-geto-join
-            text: 跟上去。「这条路，我陪你走。」
-            effects:
-              - { type: setFlag, id: joinedCurse, value: true }
-              - { type: adjustAttribute, attribute: reputation, value: -30 }
-              - { type: adjustAttribute, attribute: cursedEnergy, value: 5 }
-              - { type: applyStatus, status: resolved, stacks: 1 }
-            nextEventId: ev-geto-join
-
-  - id: ev-geto-fight
-    title: 与夏油杰一战
-    narrative: 「你果然还是这样。」夏油笑了，咒灵从他影子里涌出来，「那就让我看看，你的正确有多重。」
+  - id: ev-combat-grade1
+    title: 遭遇 · 一级咒灵
+    narrative: 空气先变了。你的咒力在皮肤上收紧，像被谁握了一下。它从阴影里走出来，比房子还高。
     trigger:
       source: chain
     kind: combat
     settle:
       combat:
         enemies:
-          - { ref: enemy-geto, levelScale: 0.5 }
-        allies:
-          - { ref: npc-gojo, levelScale: 0.5 }
-        canFlee: false
+          - { ref: enemy-grade1-curse, levelScale: 0.75 }
+        canFlee: true
+        fleeCheck: { preset: opposed, attacker: agility, defender: agility, baseChance: 0.6 }
         onVictory:
           effects:
-            - { type: setFlag, id: getoSaved, value: true }
-            - { type: adjustMood, value: 10 }
-            - { type: adjustAttribute, attribute: reputation, value: 12 }
-            - { type: adjustFlag, id: battleWins, value: 2 }
-          nextEventId: ev-geto-after
-        onDefeat:
-          effects:
-            - { type: applyStatus, status: exhausted, stacks: 1 }
-            - { type: adjustMood, value: -10 }
-            - { type: setFlag, id: getoLeft, value: true }
-          nextEventId: ev-geto-canon
-
-  - id: ev-geto-canon
-    title: 第二章 · 叛逃
-    narrative: 那一夜之后，夏油杰成了通缉犯。高专的名单上，他的名字被划掉了。
-    trigger:
-      source: chain
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-geto-canon-ack
-            text: 接受这件事
-            effects:
-              - { type: adjustMood, value: -6 }
-              - { type: setFlag, id: chapter, value: 3 }
-              - { type: setFlag, id: ready3, value: true }
-              - { type: advanceTo, value: { value: 180, unit: day } }
-
-  - id: ev-geto-join
-    title: 第二章 · 同行
-    narrative: 你跟着夏油走进那条没有回头路的小巷。身后，高专的钟声响了一次。
-    trigger:
-      source: chain
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-geto-join-ack
-            text: 不回头
-            effects:
-              - { type: adjustFlag, id: doubt, value: 2 }
-              - { type: setFlag, id: chapter, value: 3 }
-              - { type: setFlag, id: ready3, value: true }
-              - { type: advanceTo, value: { value: 180, unit: day } }
-              - { type: adjustRelation, npcId: npc-gojo, value: -20 }
-              - { type: adjustRelation, npcId: npc-geto, value: 25 }
-
-  - id: ev-geto-after
-    title: 第二章 · 挽留
-    narrative: 夏油被押回高专的那天，五条站在门口很久。最后他只说了一句：「谢谢。」
-    trigger:
-      source: chain
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-geto-after-ack
-            text: 「他还有救。」
-            effects:
-              - { type: adjustMood, value: 8 }
-              - { type: adjustRelation, npcId: npc-gojo, value: 10 }
-              - { type: adjustRelation, npcId: npc-geto, value: 15 }
-              - { type: setFlag, id: chapter, value: 3 }
-              - { type: setFlag, id: ready3, value: true }
-              - { type: advanceTo, value: { value: 180, unit: day } }
-
-  # ══════════════════════════════════════════════════════════════
-  # 七、第三章：百鬼夜行（chapter 3 → 4）
-  # ══════════════════════════════════════════════════════════════
-
-  - id: ev-ch3-night
-    title: 第三章 · 百鬼夜行
-    narrative: 12 月 24 日，新宿与京都同时落下「帐」。上千头咒灵涌上街头——有人在等这一天很久了。
-    trigger:
-      source: pool
-      probability: 1
-      priority: 100
-      once: true
-      conditions:
-        - { flag: chapter, eq: 3 }
-        - { flag: ready3, eq: true }
-        - { time: { gte: { value: 180, unit: day } } }
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-night-defend
-            text: 守住高专——那里有不能失守的东西
-            effects:
-              - { type: setFlag, id: ready3, value: false }
-              - { type: setFlag, id: chapter, value: 4 }
-              - { type: setFlag, id: nightLine, value: 高专 }
-              - { type: startChain, chainId: chain-night }
-          - id: opt-night-hunt
-            text: 冲进新宿，直接找发号施令的那个人
-            effects:
-              - { type: setFlag, id: ready3, value: false }
-              - { type: setFlag, id: chapter, value: 4 }
-              - { type: setFlag, id: nightLine, value: 新宿 }
-              - { type: startChain, chainId: chain-night }
-
-  - id: ev-night-prologue
-    title: 百鬼夜行之夜
-    narrative: 街上的咒灵像潮水。乙骨握紧刀，回头看你：「前辈，拜托了。」
-    trigger:
-      source: chain
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-night-together
-            text: 和乙骨并肩，把这条街守住
-            effects:
-              - { type: adjustRelation, npcId: npc-yuta, value: 12 }
-              - { type: adjustMood, value: 4 }
-            nextEventId: ev-night-fight
-          - id: opt-night-solo
-            text: 让乙骨去护住平民，你独自迎战
-            effects:
-              - { type: adjustAttribute, attribute: reputation, value: 5 }
-              - { type: setFlag, id: nightSolo, value: true }
-            nextEventId: ev-night-fight
-
-  - id: ev-night-fight
-    title: 百鬼夜行 · 决战
-    narrative: 咒灵的浪潮在街口分开。夏油杰站在那里，身后是整座城市的恶意。
-    trigger:
-      source: chain
-    kind: combat
-    settle:
-      combat:
-        enemies:
-          - { ref: enemy-geto, levelScale: 0.55 }
-          - { ref: enemy-grade1-curse, levelScale: 0.2 }
-        allies:
-          - { ref: npc-yuta, levelScale: 0.65 }
-        canFlee: false
-        onVictory:
-          effects:
-            - { type: setFlag, id: nightSurvived, value: true }
-            - { type: adjustAttribute, attribute: reputation, value: 12 }
-            - { type: adjustFlag, id: battleWins, value: 2 }
-            - { type: adjustMood, value: 10 }
-          nextEventId: ev-night-after
-        onDefeat:
-          # 败北不是死亡：被乙骨拖出战场，代价是声望与士气（死亡只留给涩谷终战）
-          effects:
-            - { type: applyStatus, status: exhausted, stacks: 1 }
-            - { type: setFlag, id: nightLost, value: true }
-            - { type: adjustMood, value: -14 }
-            - { type: adjustAttribute, attribute: reputation, value: -6 }
-          nextEventId: ev-night-after
-
-  - id: ev-night-after
-    title: 第三章 · 圣诞前夜
-    narrative: 天亮之前，帐撤了。街区恢复了安静，好像什么都没发生过。
-    trigger:
-      source: chain
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-night-after-ack
-            text: 帮忙清点伤亡
-            effects:
-              - { type: adjustAttribute, attribute: reputation, value: 4 }
-              - { type: setFlag, id: chapter, value: 4 }
-              - { type: setFlag, id: ready4, value: true }
-              - { type: advanceTo, value: { value: 300, unit: day } }
-
-  # ══════════════════════════════════════════════════════════════
-  # 八、第四章：涩谷（chapter 4 → 5）
-  # ══════════════════════════════════════════════════════════════
-
-  - id: ev-ch4-shibuya
-    title: 第四章 · 涩谷事变
-    narrative: 万圣夜的涩谷被人流塞满。然后「帐」落了下来，把几十万人关在里面。
-    trigger:
-      source: pool
-      probability: 1
-      priority: 100
-      once: true
-      conditions:
-        - { flag: chapter, eq: 4 }
-        - { flag: ready4, eq: true }
-        - { time: { gte: { value: 300, unit: day } } }
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-shibuya-in
-            text: 随队突入地下
-            effects:
-              - { type: setFlag, id: ready4, value: false }
-              - { type: setFlag, id: chapter, value: 5 }
-              - { type: startChain, chainId: chain-shibuya }
-          - id: opt-shibuya-out
-            text: 留在外围，疏散人群
-            effects:
-              - { type: adjustAttribute, attribute: reputation, value: 8 }
-              - { type: setFlag, id: ready4, value: false }
-              - { type: setFlag, id: chapter, value: 5 }
-              - { type: setFlag, id: ready5, value: true }
-              - { type: advanceTo, value: { value: 360, unit: day } }
-
-  - id: ev-shibuya-prologue
-    title: 涩谷 · 地下五层
-    narrative: 站台灯忽明忽暗。漏瑚的业火在上面烧，真人的手指在下面数着什么。
-    trigger:
-      source: chain
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-shibuya-ready
-            text: 把咒力拉到极限，先手
-            effects:
-              - { type: applyStatus, status: resolved, stacks: 1 }
-              - { type: adjustResource, resource: mp, value: 20 }
-            nextEventId: ev-shibuya-fight
-          - id: opt-shibuya-careful
-            text: 先布帐，稳住阵脚
-            effects:
-              - { type: applyStatus, status: veil, stacks: 1 }
-              - { type: adjustResource, resource: hp, value: 15 }
-            nextEventId: ev-shibuya-fight
-
-  - id: ev-shibuya-fight
-    title: 涩谷 · 五层之战
-    narrative: 火与人形同时扑来。你没有退路，身后就是还没撤离的人群。
-    trigger:
-      source: chain
-    kind: combat
-    settle:
-      combat:
-        enemies:
-          - { ref: enemy-jogo, levelScale: 0.28 }
-          - { ref: enemy-mahito, levelScale: 0.28 }
-        allies:
-          - { ref: npc-gojo, levelScale: 0.7 }
-          - { ref: npc-nanami, levelScale: 0.45 }
-        canFlee: false
-        onVictory:
-          effects:
-            - { type: setFlag, id: shibuyaSurvived, value: true }
-            - { type: adjustAttribute, attribute: reputation, value: 20 }
-            - { type: adjustFlag, id: battleWins, value: 3 }
-            - { type: adjustMood, value: 12 }
-            - { type: grantItem, itemId: item-mp-candy, count: 3 }
-          nextEventId: ev-shibuya-after
+            - { type: adjustFlag, id: missionsCompleted, value: 2 }
+            - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
+            - { type: adjustAttribute, attribute: reputation, value: 6 }
+            - { type: adjustMood, value: 6 }
         onDefeat:
           effects:
             - { type: applyStatus, status: injured-sim, stacks: 1 }
-            - { type: adjustMood, value: -15 }
-          nextEventId: ev-shibuya-after
-
-  - id: ev-shibuya-after
-    title: 第四章 · 黎明
-    narrative: 第一缕光落进涩谷的废墟。你从瓦砾里站起来，数着还站着的人。
-    trigger:
-      source: chain
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-shibuya-after-ack
-            text: 把这一夜写进报告
-            effects:
-              - { type: adjustMood, value: -2 }
-              - { type: setFlag, id: chapter, value: 5 }
-              - { type: setFlag, id: ready5, value: true }
-              - { type: advanceTo, value: { value: 360, unit: day } }
+            - { type: adjustMood, value: -10 }
+# JJK 世界模板 · events.yaml（第二部分：第一~四章 · 2006 星浆体 / 2007 苦夏 / 2017 百鬼夜行 / 2018 少年院）
 
   # ══════════════════════════════════════════════════════════════
-  # 九、第五章：终章（chapter 5 → 6）
+  # 五、第一章 · 怀玉（2006 年 8 月 · 星浆体护卫）
   # ══════════════════════════════════════════════════════════════
 
-  - id: ev-ch5-finale
-    title: 终章 · 你成为了谁
-    narrative: 一年过去了。校长把一份文件推到你面前：「该写总结了。你打算怎么介绍自己？」
+  - id: ev-ch1-gate
+    title: 第一章 · 星浆体
+    narrative: 2006 年 8 月 8 日。夜蛾把一份没有编号的文件拍在桌上：天内理子，十四岁，星浆体。三天后她要在薨星宫与天元同化。护卫由五条和夏油负责——他问你要不要跟去。
     trigger:
       source: pool
       probability: 1
       priority: 100
       once: true
       conditions:
-        - { flag: chapter, eq: 5 }
-        - { flag: ready5, eq: true }
-        - { time: { gte: { value: 360, unit: day } } }
+        - { flag: creationDone, eq: true }
+        - { flag: chapter, eq: 1 }
+        - { flag: ready1, eq: true }
+        - { flag: spDone, ne: true }
+        - { status: injured-sim, present: false }
+        - { status: exhausted, present: false }
+        - { time: { gte: { value: 215, unit: day } } }
     kind: normal
     settle:
       normal:
         options:
-          - id: opt-finale-special
-            text: 「特级术师。」——你已经走到能用实力说话的位置
-            visibleWhen:
-              - { attribute: cursedEnergy, gte: 28 }
+          - id: opt-ch1-join
+            text: 跟去。你想看看真正的任务长什么样
             effects:
-              - { type: setFlag, id: specialGrade, value: true }
-              - { type: setFlag, id: ready5, value: false }
-              - { type: setFlag, id: finalChoice, value: 特级 }
-              - { type: setFlag, id: chapter, value: 6 }
-              - { type: adjustAttribute, attribute: reputation, value: 15 }
-            nextEventId: ev-epilogue
-          - id: opt-finale-guardian
-            text: 「守护者。」——把身边的人一个个带回来
-            effects:
-              - { type: setFlag, id: ready5, value: false }
-              - { type: setFlag, id: finalChoice, value: 守护 }
-              - { type: setFlag, id: chapter, value: 6 }
-              - { type: adjustMood, value: 6 }
-            nextEventId: ev-epilogue
-          - id: opt-finale-leave
-            text: 「前术师。」——递交退学申请
-            effects:
-              - { type: setFlag, id: leaveJujutsu, value: true }
-              - { type: setFlag, id: ready5, value: false }
-              - { type: setFlag, id: finalChoice, value: 离开 }
-              - { type: setFlag, id: chapter, value: 6 }
+              - { type: setFlag, id: ready1, value: false }
+              - { type: setFlag, id: chapter, value: 2 }
+              - { type: setFlag, id: spJoined, value: true }
               - { type: adjustMood, value: 4 }
-            nextEventId: ev-epilogue
-          - id: opt-finale-fate
-            text: 合上文件：「让转盘决定吧。」
+            nextEventId: ev-sp-01
+          - id: opt-ch1-stay
+            text: 留在学校。一年生不该上这种场面
             effects:
-              - { type: setFlag, id: ready5, value: false }
-              - { type: setFlag, id: finalChoice, value: 转盘 }
-              - { type: setFlag, id: chapter, value: 6 }
-              - { type: adjustAttribute, attribute: luck, value: 5 }
-            nextEventId: ev-epilogue
+              - { type: setFlag, id: ready1, value: false }
+              - { type: setFlag, id: chapter, value: 2 }
+              - { type: setFlag, id: spJoined, value: false }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+            nextEventId: ev-sp-00
 
-  - id: ev-epilogue
-    title: 终章 · 落幕之前
-    narrative: 走出办公楼的时候，天正在下雪。有人在校门口等你，也有人已经不在了。
+  - id: ev-sp-00
+    title: 留守
+    narrative: 他们走后的第二天，高专安静得不像话。第三天下午，你的手机震了一下——是五条发来的，只有四个字：「出事了。」
     trigger:
       source: chain
     kind: normal
     settle:
       normal:
         options:
-          - id: opt-epilogue-ack
-            text: 走进雪里
+          - id: opt-sp0-go
+            text: 冲出去
             effects:
-              - { type: setFlag, id: chapter, value: 6 }
-              - { type: setFlag, id: storyDone, value: true }
-              - { type: advanceTo, value: { value: 415, unit: day } }
+              - { type: setFlag, id: spLate, value: true }
+              - { type: adjustMood, value: -6 }
+            nextEventId: ev-sp-03
+          - id: opt-sp0-wait
+            text: 守住学校——这里不能也空了
+            effects:
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustRelation, npcId: npc-yaga, value: 4 }
+            nextEventId: ev-sp-05b
+
+  - id: ev-sp-01
+    title: 队伍
+    narrative: 理子比照片上更小。她抱着一个帆布包，努力把下巴抬得很高。「我不需要人保护。」她说。五条在旁边笑得很大声。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sp1-body
+            text: 贴身跟着她。一步都不离开
+            effects:
+              - { type: setFlag, id: spRole, value: body }
+              - { type: setFlag, id: rikoBond, value: true }
+              - { type: adjustRelation, npcId: npc-riko, value: 10 }
               - { type: adjustMood, value: 3 }
-              - { type: log, text: 一学年结束。你的选择已经写完了自己的结局。, visibility: public }
+            nextEventId: ev-sp-02
+          - id: opt-sp1-scout
+            text: 走在外圈。你想先看见要来的人
+            effects:
+              - { type: setFlag, id: spRole, value: scout }
+              - { type: adjustAttribute, attribute: agility, value: 1 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+            nextEventId: ev-sp-02
+          - id: opt-sp1-mole
+            text: 先查一件事：盘星教怎么知道路线的
+            effects:
+              - { type: setFlag, id: spRole, value: mole }
+              - { type: setFlag, id: moleHint, value: true }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustRelation, npcId: npc-geto, value: 3 }
+            nextEventId: ev-sp-02
+
+  - id: ev-sp-02
+    title: 薨星宫前夜
+    narrative: 同化定在明天中午。今晚是最后一夜。理子坐在台阶上，把帆布包抱在膝盖上，一动不动。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sp2-vigil
+            text: 通宵警戒
+            effects:
+              - { type: setFlag, id: spAware, value: true }
+              - { type: adjustMood, value: -5 }
+              - { type: applyStatus, status: exhausted, stacks: 1 }
+            nextEventId: ev-sp-03
+          - id: opt-sp2-talk
+            text: 陪她说说话
+            effects:
+              - { type: setFlag, id: rikoBond, value: true }
+              - { type: setFlag, id: rikoWish, value: true }
+              - { type: adjustRelation, npcId: npc-riko, value: 12 }
+              - { type: adjustMood, value: 5 }
+            nextEventId: ev-sp-03
+          - id: opt-sp2-sleep
+            text: 睡一觉。明天需要力气
+            effects:
+              - { type: adjustResource, resource: hp, value: 30 }
+              - { type: adjustResource, resource: mp, value: 20 }
+            nextEventId: ev-sp-03
+
+  - id: ev-sp-03
+    title: 术师杀手
+    narrative: 他进来的时候没有声音。没有咒力，没有预兆——只有一把刀从背后穿进五条的胸口。夏油喊了一声，你才意识到自己已经在发抖。
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-toji, levelScale: 1.15 }
+        allies:
+          - { ref: npc-geto, levelScale: 0.9 }
+        canFlee: false
+        onVictory:
+          effects:
+            - { type: setFlag, id: tojiBeaten, value: true }
+            - { type: setFlag, id: metToji, value: true }
+            - { type: adjustAttribute, attribute: reputation, value: 5 }
+            - { type: adjustMood, value: 4 }
+          nextEventId: ev-sp-04
+        onDefeat:
+          effects:
+            - { type: setFlag, id: metToji, value: true }
+            - { type: applyStatus, status: injured-sim, stacks: 1 }
+            - { type: adjustMood, value: -12 }
+          nextEventId: ev-sp-04
+
+  - id: ev-sp-04
+    title: 台阶上的一瞬间
+    narrative: 甚尔已经越过防线。理子站在薨星宫的台阶上，白色的裙子被风吹起来。你只有一瞬间——真的只有一瞬间。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sp4-shield
+            text: 挡在她身前
+            visibleWhen:
+              - { flag: spAware, eq: true }
+              - { attribute: physique, gte: 8 }
+            effects:
+              - { type: setFlag, id: savedRiko, value: true }
+              - { type: applyStatus, status: injured-sim, stacks: 1 }
+              - { type: adjustAttribute, attribute: reputation, value: 8 }
+              - { type: adjustMood, value: -6 }
+            nextEventId: ev-sp-05a
+          - id: opt-sp4-push
+            text: 扑向甚尔，把他撞开
+            effects:
+              - { type: setFlag, id: spHurt, value: true }
+              - { type: applyStatus, status: injured-sim, stacks: 1 }
+              - { type: adjustAttribute, attribute: physique, value: 2 }
+              - { type: adjustMood, value: -14 }
+            nextEventId: ev-sp-05b
+          - id: opt-sp4-freeze
+            text: 动不了
+            effects:
+              - { type: setFlag, id: froze, value: true }
+              - { type: adjustMood, value: -18 }
+            nextEventId: ev-sp-05b
+
+  - id: ev-sp-05a
+    title: 她活着
+    narrative: 子弹打进了你的肩膀。理子在你身后，呼吸声大得像在喊。她活着。但天元还在薨星宫深处等——同化意味着「天内理子」这个人从此不存在。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sp5a-sacrifice
+            text: 送她去同化。这是她生下来的意义
+            effects:
+              - { type: setFlag, id: rikoSacrificed, value: true }
+              - { type: setFlag, id: savedRiko, value: false }
+              - { type: adjustFlag, id: getoDoubt, value: 2 }
+              - { type: adjustMood, value: -14 }
+              - { type: log, text: 天内理子在同化中消失。 , visibility: public }
+            nextEventId: ev-sp-06
+          - id: opt-sp5a-escape
+            text: 带她走。让天元自己想办法
+            effects:
+              - { type: setFlag, id: rikoEscaped, value: true }
+              - { type: setFlag, id: tenjinEvolved, value: true }
+              - { type: adjustRelation, npcId: npc-riko, value: 20 }
+              - { type: adjustRelation, npcId: npc-geto, value: 8 }
+              - { type: adjustFlag, id: getoDoubt, value: -3 }
+              - { type: adjustAttribute, attribute: reputation, value: -6 }
+              - { type: adjustMood, value: 8 }
+              - { type: log, text: 你带走了星浆体。天元被迫独自进化。 , visibility: public }
+            nextEventId: ev-sp-06
+
+  - id: ev-sp-05b
+    title: 鼓掌
+    narrative: 她死在台阶上。一枪，很轻的一声。甚尔收起枪走了，像干完一件普通的活。薨星宫外，盘星教的信徒们开始鼓掌——他们在为「星浆体没有同化」欢呼。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sp5b-chase
+            text: 去追甚尔
+            effects:
+              - { type: setFlag, id: rikoDead, value: true }
+              - { type: adjustAttribute, attribute: agility, value: 2 }
+              - { type: adjustMood, value: -10 }
+            nextEventId: ev-sp-06
+          - id: opt-sp5b-geto
+            text: 站到夏油旁边。他一句话都没说
+            effects:
+              - { type: setFlag, id: rikoDead, value: true }
+              - { type: adjustRelation, npcId: npc-geto, value: 8 }
+              - { type: adjustFlag, id: getoDoubt, value: 3 }
+              - { type: adjustMood, value: -12 }
+            nextEventId: ev-sp-06
+          - id: opt-sp5b-alone
+            text: 一个人走开
+            effects:
+              - { type: setFlag, id: rikoDead, value: true }
+              - { type: setFlag, id: hasGrave, value: true }
+              - { type: applyStatus, status: grief, stacks: 1 }
+              - { type: adjustMood, value: -16 }
+            nextEventId: ev-sp-06
+
+  - id: ev-sp-06
+    title: 那年夏天结束了
+    narrative: 五条活了下来——他说是「反转术式」，语气轻松得像在讲别人的事，然后他一个人去把甚尔解决了。夏油开始不吃饭。八月的最后一天，高专的蝉声忽然就停了。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sp6-go
+            text: 把这件事收进心里
+            effects:
+              - { type: setFlag, id: spDone, value: true }
+              - { type: setFlag, id: ready2, value: true }
+              - { type: setFlag, id: chapter, value: 3 }
+              - { type: adjustMood, value: -4 }
+              - { type: advanceTo, value: { value: 518, unit: day } }
+              - { type: log, text: 2006 年夏 · 怀玉篇结束。 , visibility: public }
+
+  # ══════════════════════════════════════════════════════════════
+  # 六、第二章 · 玉折（2007 年 6 月 · 苦夏）
+  # ══════════════════════════════════════════════════════════════
+
+  - id: ev-ch2-gate
+    title: 第二章 · 苦夏
+    narrative: 2007 年 6 月 15 日。梅雨。夏油已经两周没来上课了。今天的委托单上写着一个村子：全体村民失踪。
+    trigger:
+      source: pool
+      probability: 1
+      priority: 100
+      once: true
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: chapter, eq: 3 }
+        - { flag: ready2, eq: true }
+        - { flag: bsDone, ne: true }
+        - { status: injured-sim, present: false }
+        - { status: exhausted, present: false }
+        - { time: { gte: { value: 526, unit: day } } }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ch2-take
+            text: 接下这份委托
+            effects:
+              - { type: setFlag, id: ready2, value: false }
+              - { type: setFlag, id: chapter, value: 4 }
+            nextEventId: ev-bs-01
+          - id: opt-ch2-find
+            text: 先去找夏油。你有点不安
+            visibleWhen:
+              - { relation: npc-geto, gte: 14 }
+              - { flag: getoGone, ne: true }
+            effects:
+              - { type: setFlag, id: ready2, value: false }
+              - { type: setFlag, id: chapter, value: 4 }
+              - { type: setFlag, id: lookedForGeto, value: true }
+            nextEventId: ev-bs-00
+
+  - id: ev-bs-00
+    title: 三天没回来的人
+    narrative: 宿舍里没人。桌上摊着一本翻到一半的书，茶杯里的茶早就冷了。你去问夜蛾，他沉默了很久，说：「夏油最近在看一些……不太好的东西。」
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-bs0-follow
+            text: 沿着委托单上的地址追过去
+            effects:
+              - { type: setFlag, id: followedGeto, value: true }
+              - { type: setFlag, id: spAware, value: true }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+            nextEventId: ev-bs-01
+          - id: opt-bs0-report
+            text: 把这件事报告给夜蛾
+            effects:
+              - { type: adjustRelation, npcId: npc-yaga, value: 4 }
+              - { type: adjustAttribute, attribute: reputation, value: 3 }
+              - { type: adjustRelation, npcId: npc-geto, value: -6 }
+            nextEventId: ev-bs-01
+
+  - id: ev-bs-01
+    title: 一百一十二
+    narrative: 村子里没有人。一百一十二具尸体被整整齐齐地排在广场上，没有一具是完整的。两个女孩缩在竹笼里发抖。夏油站在广场中央，袈裟上全是血。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-bs1-stop
+            text: 「夏油学长。住手。」
+            effects:
+              - { type: setFlag, id: bsConfront, value: true }
+              - { type: adjustRelation, npcId: npc-geto, value: 2 }
+              - { type: adjustMood, value: -12 }
+            nextEventId: ev-bs-02
+          - id: opt-bs1-help
+            text: 帮他把笼子里的女孩放出来
+            effects:
+              - { type: setFlag, id: helpedGeto, value: true }
+              - { type: adjustRelation, npcId: npc-geto, value: 6 }
+              - { type: adjustFlag, id: getoDoubt, value: 2 }
+              - { type: adjustMood, value: -14 }
+            nextEventId: ev-bs-02
+          - id: opt-bs1-leave
+            text: 转身就走
+            effects:
+              - { type: setFlag, id: walkedAway, value: true }
+              - { type: applyStatus, status: grief, stacks: 1 }
+              - { type: adjustMood, value: -16 }
+            nextEventId: ev-bs-02
+
+  - id: ev-bs-02
+    title: 对峙
+    narrative: 「他们虐杀了两个术师的孩子。」夏油说得很平静，「而这里的村民，就是咒灵诞生的土壤。你说，我杀的是人，还是诅咒？」他没有看你，像在问自己。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-bs2-stop
+            text: 「跟我回去。就算你现在是对的，也不该一个人站在这里。」
+            visibleWhen:
+              - { relation: npc-geto, gte: 20 }
+              - { flag: getoDoubt, lte: 2 }
+            effects:
+              - { type: setFlag, id: getoStayed, value: true }
+              - { type: adjustRelation, npcId: npc-geto, value: 15 }
+              - { type: adjustFlag, id: getoDoubt, value: -4 }
+              - { type: adjustMood, value: 6 }
+            nextEventId: ev-bs-03a
+          - id: opt-bs2-listen
+            text: 听他说完
+            effects:
+              - { type: setFlag, id: getoGone, value: true }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustFlag, id: getoDoubt, value: 3 }
+              - { type: adjustMood, value: -10 }
+            nextEventId: ev-bs-03b
+          - id: opt-bs2-report
+            text: 通知高层
+            effects:
+              - { type: setFlag, id: getoGone, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 8 }
+              - { type: adjustRelation, npcId: npc-geto, value: -25 }
+              - { type: adjustRelation, npcId: npc-gojo, value: -6 }
+              - { type: adjustMood, value: -12 }
+            nextEventId: ev-bs-03c
+          - id: opt-bs2-join
+            text: 「……我跟你走。」
+            effects:
+              - { type: setFlag, id: defected, value: true }
+              - { type: setFlag, id: getoGone, value: true }
+              - { type: adjustRelation, npcId: npc-geto, value: 20 }
+              - { type: adjustRelation, npcId: npc-gojo, value: -30 }
+              - { type: adjustAttribute, attribute: reputation, value: -25 }
+              - { type: setFlag, id: ready3, value: true }
+              - { type: setFlag, id: chapter, value: 5 }
+            nextEventId: ev-bs-05
+
+  - id: ev-bs-03a
+    title: 你把他留下了
+    narrative: 你们在村口的石阶上坐到天亮。他一句话都没说，你也没说。太阳出来的时候，他把沾血的袈裟脱下来，扔进沟里。「……我大概疯了。」他说，「谢谢你没让我一个人疯完。」
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-bs3a-go
+            text: 跟他一起回高专
+            effects:
+              - { type: setFlag, id: getoStayed, value: true }
+              - { type: adjustRelation, npcId: npc-geto, value: 10 }
+              - { type: adjustRelation, npcId: npc-gojo, value: 5 }
+              - { type: adjustAttribute, attribute: reputation, value: 5 }
+              - { type: adjustMood, value: 8 }
+            nextEventId: ev-bs-05
+
+  - id: ev-bs-03b
+    title: 苦夏
+    narrative: 他说完了。最后他说：「我没办法再保护那些人了。我没办法。」然后他转身走进雨里。你没有追——事后你无数次想起这一步，每次都记不清自己当时到底在想什么。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-bs3b-ack
+            text: 站在雨里，看着他走远
+            effects:
+              - { type: setFlag, id: getoGone, value: true }
+              - { type: applyStatus, status: grief, stacks: 1 }
+              - { type: adjustMood, value: -14 }
+              - { type: setFlag, id: hasGrave, value: true }
+            nextEventId: ev-bs-05
+
+  - id: ev-bs-03c
+    title: 通报
+    narrative: 高层的回复只有一个字：「准」。三天后，夏油杰被列为特级诅咒师，格杀勿论。五条来找你，什么也没说，只是看了你很久。「你做得对。」他最后说。听起来像在说服自己。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-bs3c-go
+            text: 「……我知道。」
+            effects:
+              - { type: setFlag, id: getoGone, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 6 }
+              - { type: adjustMood, value: -12 }
+              - { type: setFlag, id: reportedGeto, value: true }
+            nextEventId: ev-bs-05
+
+  - id: ev-bs-03d
+    title: 同一条路
+    narrative: 你跟着他走了。盘星教的钱、咒灵、信徒，像一条黑色的河。你不会后悔——但夜里醒来时，总会想起高专食堂的三张桌子。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-bs3d-go
+            text: 走下去
+            effects:
+              - { type: setFlag, id: defected, value: true }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 6 }
+              - { type: adjustMood, value: -8 }
+            nextEventId: ev-bs-05
+
+  - id: ev-bs-05
+    title: 灰原
+    narrative: 2007 年 12 月，灰原雄在一次任务中战死。报告上写着「遭遇特级咒灵，殉职」。七海在葬礼上没有哭，只是把手里的伞握断了。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-bs5-see
+            text: 去看他最后一眼
+            effects:
+              - { type: setFlag, id: haibaraDead, value: true }
+              - { type: setFlag, id: hasGrave, value: true }
+              - { type: applyStatus, status: grief, stacks: 1 }
+              - { type: adjustMood, value: -14 }
+              - { type: adjustRelation, npcId: npc-nanami, value: 6 }
+            nextEventId: ev-bs-04
+          - id: opt-bs5-deny
+            text: 去现场。你不信「特级咒灵」这四个字
+            effects:
+              - { type: setFlag, id: haibaraDead, value: true }
+              - { type: setFlag, id: hasGrave, value: true }
+              - { type: setFlag, id: truthBits, value: 2 }
+              - { type: applyStatus, status: grief, stacks: 1 }
+              - { type: adjustMood, value: -18 }
+            nextEventId: ev-bs-04
+
+  - id: ev-bs-04
+    title: 十年
+    narrative: 接下来的十年过得很快。快到你后来回想时，只剩几个画面：夏天的训练场、冬天的墓园、某次任务结束后便利店的灯。你从一个一年生，变成了别人口中的「前辈」。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-bs4-front
+            text: 一直在前线。用任务填满每一年
+            effects:
+              - { type: setFlag, id: montage, value: front }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 9 }
+              - { type: adjustAttribute, attribute: physique, value: 4 }
+              - { type: adjustAttribute, attribute: reputation, value: 12 }
+              - { type: adjustFlag, id: missionsCompleted, value: 20 }
+            nextEventId: ev-bs-06
+          - id: opt-bs4-teach
+            text: 留在高专，带一届又一届的新人
+            effects:
+              - { type: setFlag, id: montage, value: teach }
+              - { type: adjustAttribute, attribute: intellect, value: 5 }
+              - { type: setFlag, id: hasKouhai, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 8 }
+              - { type: adjustMood, value: 6 }
+            nextEventId: ev-bs-06
+          - id: opt-bs4-study
+            text: 钻进档案室，研究咒灵、咒物与那个「缝合线」
+            effects:
+              - { type: setFlag, id: montage, value: study }
+              - { type: setFlag, id: truthBits, value: 4 }
+              - { type: adjustAttribute, attribute: intellect, value: 7 }
+              - { type: applyStatus, status: resolved, stacks: 1 }
+            nextEventId: ev-bs-06
+          - id: opt-bs4-leave
+            text: 离开咒术界几年。去过普通人的日子
+            effects:
+              - { type: setFlag, id: montage, value: leave }
+              - { type: setFlag, id: leftJujutsu, value: true }
+              - { type: adjustMood, value: 14 }
+              - { type: adjustAttribute, attribute: reputation, value: -12 }
+              - { type: adjustAttribute, attribute: luck, value: 4 }
+            nextEventId: ev-bs-06
+
+  - id: ev-bs-06
+    title: 2017 年 12 月
+    narrative: 2017 年 12 月。东京的天空比十年前更亮，也更冷。高专的通讯频道里在传同一件事：有人要来抢一件东西，而那个人穿着袈裟。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-bs6-go
+            text: 回高专
+            effects:
+              - { type: setFlag, id: bsDone, value: true }
+              - { type: setFlag, id: era, value: 2 }
+              - { type: setFlag, id: ready3, value: true }
+              - { type: setFlag, id: chapter, value: 5 }
+              - { type: advanceTo, value: { value: 4352, unit: day } }
+              - { type: log, text: 2007–2017 · 十年。（选择决定了你成为什么样的人） , visibility: public }
+# JJK 世界模板 · events.yaml（第三部分：第五章~终章 · 2017 百鬼夜行 / 2018 涩谷 / 死灭回游 / 新宿决战）
+
+  # ══════════════════════════════════════════════════════════════
+  # 七、第三章 · 百鬼夜行（2017 年 12 月 24 日 · 咒术回战 0）
+  # ══════════════════════════════════════════════════════════════
+
+  - id: ev-ch3-gate
+    title: 第三章 · 百鬼夜行
+    narrative: 2017 年 12 月 24 日，平安夜。高专的结界在十九点整被撕开。上百只咒灵从新宿方向涌来，而它们的指挥者，穿了一件你很熟悉的袈裟。
+    trigger:
+      source: pool
+      probability: 1
+      priority: 100
+      once: true
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: chapter, eq: 5 }
+        - { flag: ready3, eq: true }
+        - { flag: npDone, ne: true }
+        - { status: injured-sim, present: false }
+        - { status: exhausted, present: false }
+        - { time: { gte: { value: 4370, unit: day } } }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ch3-school
+            text: 回高专。防线在那里
+            effects:
+              - { type: setFlag, id: ready3, value: false }
+              - { type: setFlag, id: chapter, value: 6 }
+              - { type: setFlag, id: npLine, value: school }
+            nextEventId: ev-np-01
+          - id: opt-ch3-city
+            text: 去新宿。先救街上的人
+            effects:
+              - { type: setFlag, id: ready3, value: false }
+              - { type: setFlag, id: chapter, value: 6 }
+              - { type: setFlag, id: npLine, value: city }
+              - { type: adjustAttribute, attribute: reputation, value: 3 }
+            nextEventId: ev-np-01
+
+  - id: ev-np-01
+    title: 咒灵百鬼
+    narrative: 它们从地铁口、从便利店的玻璃门、从你脚下的排水沟里出来。有人在你身后尖叫。你第一次意识到，一百只咒灵同时出现在一条街上是什么声音。
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-grade1-curse, levelScale: 0.6 }
+          - { ref: enemy-grade2-curse, levelScale: 0.8 }
+        canFlee: false
+        onVictory:
+          effects:
+            - { type: adjustFlag, id: missionsCompleted, value: 3 }
+            - { type: adjustAttribute, attribute: reputation, value: 5 }
+          nextEventId: ev-np-02
+        onDefeat:
+          effects:
+            - { type: applyStatus, status: injured-sim, stacks: 1 }
+            - { type: adjustMood, value: -10 }
+          nextEventId: ev-np-02
+
+  - id: ev-np-02
+    title: 穿袈裟的人
+    narrative: 他站在十字路口正中。咒灵像潮水一样绕过他。你隔着一条街看清了他的脸。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-np2-kenjaku
+            text: 「那不是夏油。」
+            visibleWhen:
+              - { flag: getoStayed, eq: true }
+            effects:
+              - { type: setFlag, id: npFoe, value: kenjaku }
+              - { type: adjustFlag, id: truthBits, value: 1 }
+            nextEventId: ev-np-02b
+          - id: opt-np2-geto
+            text: 「……学长。」
+            visibleWhen:
+              - { flag: getoStayed, ne: true }
+            effects:
+              - { type: setFlag, id: npFoe, value: geto }
+              - { type: adjustMood, value: -10 }
+            nextEventId: ev-np-02a
+
+  - id: ev-np-02a
+    title: 十一年
+    narrative: 「好久不见。」夏油说。他的额头有一道缝合的疤，笑起来的时候那道疤没有动。「你长大了。」他说完抬起了手，身后一百只咒灵同时张开了嘴。
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-geto-parade, levelScale: 0.85 }
+        allies:
+          - { ref: npc-yuta, levelScale: 0.7 }
+        canFlee: false
+        onVictory:
+          effects:
+            - { type: setFlag, id: npBeatGeto, value: true }
+            - { type: adjustAttribute, attribute: reputation, value: 8 }
+          nextEventId: ev-np-03b
+        onDefeat:
+          effects:
+            - { type: setFlag, id: npBeatGeto, value: false }
+            - { type: applyStatus, status: injured-sim, stacks: 1 }
+          nextEventId: ev-np-03b
+
+  - id: ev-np-02b
+    title: 皮
+    narrative: 夏油就站在你左边，脸色比雪还白。街对面那个「夏油」笑了，抬手把额上的缝合线扯开——里面不是头骨，是一枚棋子一样的东西。
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-kenjaku, levelScale: 0.8 }
+        allies:
+          - { ref: npc-geto, levelScale: 0.85 }
+          - { ref: npc-yuta, levelScale: 0.6 }
+        canFlee: false
+        onVictory:
+          effects:
+            - { type: setFlag, id: kenjakuSeen, value: true }
+            - { type: adjustFlag, id: truthBits, value: 3 }
+            - { type: adjustAttribute, attribute: reputation, value: 6 }
+          nextEventId: ev-np-03a
+        onDefeat:
+          effects:
+            - { type: setFlag, id: kenjakuSeen, value: true }
+            - { type: applyStatus, status: injured-sim, stacks: 1 }
+          nextEventId: ev-np-03a
+
+  - id: ev-np-03a
+    title: 缝合线
+    narrative: 那具身体倒下去，从额头的缝里滑出来一枚带着牙的、像脑一样的东西。它落在地上，居然还在说话：「这具身体我用了十年。你们把它弄坏了。」
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-np3a-ask
+            text: 追问它是什么
+            effects:
+              - { type: setFlag, id: kenjakuKnown, value: true }
+              - { type: adjustFlag, id: truthBits, value: 3 }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustMood, value: -6 }
+            nextEventId: ev-np-04
+          - id: opt-np3a-let
+            text: 把它交给五条
+            effects:
+              - { type: adjustRelation, npcId: npc-gojo, value: 5 }
+              - { type: adjustMood, value: -4 }
+            nextEventId: ev-np-04
+
+  - id: ev-np-03b
+    title: 处决
+    narrative: 五条来了。他站在夏油面前，很久没有说话。然后他抬起手，指尖凝起一点光。「最后有什么想说的吗。」他问，声音很轻。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-np3b-block
+            text: 挡在他们中间
+            visibleWhen:
+              - { relation: npc-geto, gte: 15 }
+            effects:
+              - { type: setFlag, id: savedGeto, value: true }
+              - { type: adjustRelation, npcId: npc-gojo, value: -8 }
+              - { type: adjustRelation, npcId: npc-geto, value: 10 }
+              - { type: adjustAttribute, attribute: reputation, value: -6 }
+              - { type: adjustMood, value: 4 }
+            nextEventId: ev-np-04
+          - id: opt-np3b-turn
+            text: 转过身去
+            effects:
+              - { type: setFlag, id: gojoKilledGeto, value: true }
+              - { type: applyStatus, status: grief, stacks: 1 }
+              - { type: adjustMood, value: -16 }
+            nextEventId: ev-np-04
+          - id: opt-np3b-self
+            text: 「让我来。」
+            effects:
+              - { type: setFlag, id: playerKilledGeto, value: true }
+              - { type: applyStatus, status: grief, stacks: 1 }
+              - { type: adjustAttribute, attribute: reputation, value: 5 }
+              - { type: adjustMood, value: -24 }
+            nextEventId: ev-np-04
+
+  - id: ev-np-04
+    title: 平安夜之后
+    narrative: 街上的人在收拾碎玻璃。有人在哭，有人在拍照。凌晨三点，高专的走廊一片狼藉。没有人知道那枚「东西」最后去了哪里。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-np4-go
+            text: 收拾残局
+            effects:
+              - { type: setFlag, id: npDone, value: true }
+              - { type: setFlag, id: era, value: 3 }
+              - { type: setFlag, id: ready4, value: true }
+              - { type: setFlag, id: chapter, value: 7 }
+              - { type: adjustMood, value: -4 }
+              - { type: advanceTo, value: { value: 4531, unit: day } }
+              - { type: log, text: 2017 年 12 月 24 日 · 百鬼夜行结束。 , visibility: public }
+
+  # ══════════════════════════════════════════════════════════════
+  # 八、第四章 · 少年院（2018 年 6 月）
+  # ══════════════════════════════════════════════════════════════
+
+  - id: ev-ch4-gate
+    title: 第四章 · 少年院
+    narrative: 2018 年 6 月 10 日。一个叫虎杖悠仁的少年吞下了一根手指——特级咒物，两面宿傩的。他现在坐在高专的会客室里，还在为「晚饭吃什么」发愁。上面要你带一年级去少年院确认现场。
+    trigger:
+      source: pool
+      probability: 1
+      priority: 100
+      once: true
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: chapter, eq: 7 }
+        - { flag: ready4, eq: true }
+        - { flag: jvDone, ne: true }
+        - { status: injured-sim, present: false }
+        - { status: exhausted, present: false }
+        - { time: { gte: { value: 4538, unit: day } } }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ch4-lead
+            text: 亲自带他们去
+            effects:
+              - { type: setFlag, id: ready4, value: false }
+              - { type: setFlag, id: chapter, value: 8 }
+              - { type: setFlag, id: jvLead, value: true }
+            nextEventId: ev-jv-01
+          - id: opt-ch4-home
+            text: 留在学校查一件事：现场的情报是谁泄出去的
+            effects:
+              - { type: setFlag, id: ready4, value: false }
+              - { type: setFlag, id: chapter, value: 8 }
+              - { type: setFlag, id: jvHome, value: true }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+            nextEventId: ev-jv-00
+
+  - id: ev-jv-00
+    title: 档案室
+    narrative: 你翻了三天通讯记录。有一条从高专内部打出去的电话，接收方是「与幸吉」——京都校的二年级生。记录如下：「狱门疆的运输路线，已经确认。」
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-jv0-go
+            text: 把这条记下来，暂时不声张
+            effects:
+              - { type: setFlag, id: moleClue, value: true }
+              - { type: setFlag, id: yujiHurt, value: true }
+              - { type: adjustFlag, id: truthBits, value: 3 }
+              - { type: adjustMood, value: -4 }
+            nextEventId: ev-jv-02
+          - id: opt-jv0-report
+            text: 立刻上报
+            effects:
+              - { type: setFlag, id: moleClue, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 5 }
+              - { type: adjustRelation, npcId: npc-yaga, value: 3 }
+            nextEventId: ev-jv-02
+
+  - id: ev-jv-01
+    title: 少年院地下
+    narrative: 地下那间屋子的墙上全是干掉的黑色。虎杖走在最前面，伏黑在后面叫他的名字，钉崎已经把手伸进包里了。然后那东西动了。
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-curse-womb, levelScale: 0.95 }
+        allies:
+          - { ref: npc-yuji, levelScale: 0.8 }
+          - { ref: npc-megumi, levelScale: 0.7 }
+          - { ref: npc-nobara, levelScale: 0.6 }
+        canFlee: false
+        onVictory:
+          effects:
+            - { type: setFlag, id: yujiJoined, value: true }
+            - { type: adjustAttribute, attribute: reputation, value: 5 }
+          nextEventId: ev-jv-02
+        onDefeat:
+          effects:
+            - { type: setFlag, id: yujiJoined, value: true }
+            - { type: setFlag, id: yujiHurt, value: true }
+            - { type: applyStatus, status: injured-sim, stacks: 1 }
+          nextEventId: ev-jv-02
+
+  - id: ev-jv-02
+    title: 手指
+    narrative: 特级咒胎还没死透。虎杖的右手少了两根手指，血一直在流。他抬头看了看你，然后把手伸向自己的嘴——嘴里咬着那根从咒胎身上掉下来的、像指骨的东西。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-jv2-stop
+            text: 拦住他
+            effects:
+              - { type: setFlag, id: stoppedYuji, value: true }
+              - { type: setFlag, id: yujiJoined, value: true }
+              - { type: adjustRelation, npcId: npc-yuji, value: 6 }
+              - { type: adjustMood, value: -4 }
+            nextEventId: ev-jv-03
+          - id: opt-jv2-let
+            text: 让他吞
+            effects:
+              - { type: setFlag, id: sukunaAwake, value: true }
+              - { type: setFlag, id: yujiJoined, value: true }
+              - { type: adjustRelation, npcId: npc-yuji, value: 3 }
+              - { type: adjustMood, value: -10 }
+            nextEventId: ev-jv-03
+          - id: opt-jv2-eat
+            text: 把手指抢过来，自己吞下去
+            visibleWhen:
+              - { flag: secondTech, eq: true }
+            effects:
+              - { type: setFlag, id: yujiJoined, value: true }
+              - { type: setFlag, id: playerAteFinger, value: true }
+              - { type: setFlag, id: sukunaAwake, value: true }
+              - { type: unlockSkill, skillId: sk-dismantle }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 8 }
+              - { type: applyStatus, status: multi-technique, stacks: 1 }
+              - { type: adjustRelation, npcId: npc-yuji, value: -4 }
+              - { type: adjustMood, value: -16 }
+            nextEventId: ev-jv-03
+
+  - id: ev-jv-03
+    title: 符纸
+    narrative: 收拾现场时，你在走廊尽头捡到一张符纸。高专制式，但编队代码不对——这是给「外人」用的通行符。你把它塞进口袋，谁也没说。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-jv3-go
+            text: 把符纸收好
+            effects:
+              - { type: setFlag, id: moleClue, value: true }
+              - { type: setFlag, id: jvDone, value: true }
+              - { type: setFlag, id: ready5, value: true }
+              - { type: setFlag, id: chapter, value: 9 }
+              - { type: adjustFlag, id: truthBits, value: 1 }
+              - { type: advanceTo, value: { value: 4674, unit: day } }
+              - { type: log, text: 2018 年 6 月 · 少年院事件。 , visibility: public }
+
+  # ══════════════════════════════════════════════════════════════
+  # 九、第五章 · 涩谷事变（2018 年 10 月 31 日）
+  # ══════════════════════════════════════════════════════════════
+
+  - id: ev-ch5-gate
+    title: 第五章 · 涩谷事变
+    narrative: 2018 年 10 月 31 日，二十点四十分。涩谷站周边被一层巨大的「帐」罩住，数万普通人被困在里面。高层批准五条悟单独进场——其余人分组支援。你分到的是哪一组？
+    trigger:
+      source: pool
+      probability: 1
+      priority: 100
+      once: true
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: chapter, eq: 9 }
+        - { flag: ready5, eq: true }
+        - { flag: shDone, ne: true }
+        - { status: injured-sim, present: false }
+        - { status: exhausted, present: false }
+        - { time: { gte: { value: 4680, unit: day } } }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ch5-ground
+            text: 地上一组。先把人带出去
+            effects:
+              - { type: setFlag, id: ready5, value: false }
+              - { type: setFlag, id: chapter, value: 10 }
+              - { type: setFlag, id: shLine, value: ground }
+              - { type: adjustAttribute, attribute: reputation, value: 4 }
+            nextEventId: ev-sh-01
+          - id: opt-ch5-under
+            text: 地下一组。跟着五条下站台
+            effects:
+              - { type: setFlag, id: ready5, value: false }
+              - { type: setFlag, id: chapter, value: 10 }
+              - { type: setFlag, id: shLine, value: under }
+            nextEventId: ev-sh-01
+
+  - id: ev-sh-01
+    title: 三条路
+    narrative: 帐里没有信号。人群推着你往前。左边是挤满人的地下入口，右边是着火的百货公司，正前方，一只咒灵正在把一辆巴士举过头顶。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sh1-save
+            text: 先救巴士里的人
+            effects:
+              - { type: setFlag, id: shSaved, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 8 }
+              - { type: adjustMood, value: 6 }
+              - { type: adjustFlag, id: savedCivilians, value: 3 }
+            nextEventId: ev-sh-02a
+          - id: opt-sh1-hunt
+            text: 冲向那只举着巴士的咒灵
+            effects:
+              - { type: setFlag, id: shAggressive, value: true }
+              - { type: adjustAttribute, attribute: physique, value: 2 }
+            nextEventId: ev-sh-02b
+
+  - id: ev-sh-02a
+    title: 火山
+    narrative: 你把最后一个人推出巴士的时候，地面开始烫。一个矮小的身影站在车顶上，头顶的火山口在缓缓张开。「别挡路，小鬼。」
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-jogo, levelScale: 0.85 }
+        canFlee: false
+        onVictory:
+          effects:
+            - { type: setFlag, id: beatJogo, value: true }
+            - { type: adjustAttribute, attribute: reputation, value: 10 }
+          nextEventId: ev-sh-03
+        onDefeat:
+          effects:
+            - { type: applyStatus, status: injured-sim, stacks: 1 }
+          nextEventId: ev-sh-03
+
+  - id: ev-sh-02b
+    title: 真人
+    narrative: 巴士被扔到街对面。那个举车的东西转过头来——它有一张孩子的脸，正歪着头看你，像在挑一件玩具。「你看起来，」它说，「很好玩。」
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-mahito, levelScale: 0.85 }
+        canFlee: false
+        onVictory:
+          effects:
+            - { type: setFlag, id: beatMahito, value: true }
+            - { type: adjustAttribute, attribute: reputation, value: 10 }
+          nextEventId: ev-sh-03
+        onDefeat:
+          effects:
+            - { type: applyStatus, status: injured-sim, stacks: 1 }
+          nextEventId: ev-sh-03
+
+  - id: ev-sh-03
+    title: 狱门疆
+    narrative: 地下传来一声闷响，整条街的玻璃同时碎了。五条站在那里，手里捧着一个方块——不，是他被那个方块吞进去了。一个额上有缝合线的人在做手势。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sh3-disarm
+            text: 按你查到的那条线索，拆掉封印阵
+            visibleWhen:
+              - { flag: moleClue, eq: true }
+            effects:
+              - { type: setFlag, id: savedGojo, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 15 }
+              - { type: adjustMood, value: 16 }
+              - { type: adjustFlag, id: truthBits, value: 3 }
+              - { type: log, text: 你提前拆掉了狱门疆的封印阵。五条悟没有被封印。 , visibility: public }
+            nextEventId: ev-sh-04
+          - id: opt-sh3-rush
+            text: 冲上去，抢那个方块
+            effects:
+              - { type: setFlag, id: gojoSealed, value: true }
+              - { type: applyStatus, status: injured-sim, stacks: 1 }
+              - { type: adjustMood, value: -18 }
+            nextEventId: ev-sh-04
+          - id: opt-sh3-civ
+            text: 先带人撤离。这一刻你救不了他
+            effects:
+              - { type: setFlag, id: gojoSealed, value: true }
+              - { type: setFlag, id: shSaved, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 6 }
+              - { type: adjustFlag, id: savedCivilians, value: 4 }
+              - { type: adjustMood, value: -14 }
+            nextEventId: ev-sh-04
+
+  - id: ev-sh-04
+    title: 伏魔御厨子
+    narrative: 二十三点十四分。一个不该出现的领域在涩谷中心展开——没有边界，只有一千四百米半径的、不断重复的斩击。领域的主人踩着人头走出来，四只手，两双眼。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sh4-save
+            text: 冲进领域边缘，把人拖出来
+            effects:
+              - { type: setFlag, id: shibuyaSurvived, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 12 }
+              - { type: adjustFlag, id: savedCivilians, value: 5 }
+              - { type: applyStatus, status: injured-sim, stacks: 1 }
+              - { type: adjustMood, value: 4 }
+            nextEventId: ev-sh-05
+          - id: opt-sh4-hold
+            text: 挡在避难通道口
+            effects:
+              - { type: setFlag, id: shibuyaSurvived, value: true }
+              - { type: setFlag, id: heldLine, value: true }
+              - { type: adjustAttribute, attribute: physique, value: 3 }
+              - { type: applyStatus, status: injured-sim, stacks: 1 }
+              - { type: adjustMood, value: -6 }
+            nextEventId: ev-sh-05
+          - id: opt-sh4-flee
+            text: 撤出去。这已经不是你能处理的东西
+            effects:
+              - { type: setFlag, id: shibuyaSurvived, value: false }
+              - { type: setFlag, id: fledShibuya, value: true }
+              - { type: adjustMood, value: -20 }
+            nextEventId: ev-sh-05
+
+  - id: ev-sh-05
+    title: 天亮之前
+    narrative: 十一月一日凌晨。涩谷站前的十字路口被削掉了一层。消防车的水浇在烧焦的地面上，蒸汽一直升到天亮。有人在清点人数——数字比预期少很多，但比最坏的情况好。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sh5-go
+            text: 在废墟里找人
+            effects:
+              - { type: setFlag, id: shDone, value: true }
+              - { type: setFlag, id: ready6, value: true }
+              - { type: setFlag, id: chapter, value: 11 }
+              - { type: adjustMood, value: -6 }
+              - { type: advanceTo, value: { value: 4694, unit: day } }
+              - { type: log, text: 2018 年 10 月 31 日 · 涩谷事变。 , visibility: public }
+
+  # ══════════════════════════════════════════════════════════════
+  # 十、第六章 · 死灭回游（2018 年 11 月）
+  # ══════════════════════════════════════════════════════════════
+
+  - id: ev-ch6-gate
+    title: 第六章 · 死灭回游
+    narrative: 2018 年 11 月 20 日。十个结界在日本各地张开，规则写在里面：杀术师得分，分数可以换规则。他们叫它「死灭回游」。高专要派人进去——以玩家的身份。
+    trigger:
+      source: pool
+      probability: 1
+      priority: 100
+      once: true
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: chapter, eq: 11 }
+        - { flag: ready6, eq: true }
+        - { flag: cgDone, ne: true }
+        - { status: injured-sim, present: false }
+        - { status: exhausted, present: false }
+        - { time: { gte: { value: 4700, unit: day } } }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ch6-in
+            text: 进去。规则也是可以被改的
+            effects:
+              - { type: setFlag, id: ready6, value: false }
+              - { type: setFlag, id: chapter, value: 12 }
+              - { type: setFlag, id: cgJoined, value: true }
+            nextEventId: ev-cg-01
+          - id: opt-ch6-out
+            text: 留在外面。总得有人在规则之外
+            effects:
+              - { type: setFlag, id: ready6, value: false }
+              - { type: setFlag, id: chapter, value: 12 }
+              - { type: setFlag, id: cgJoined, value: false }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+            nextEventId: ev-cg-01
+
+  - id: ev-cg-01
+    title: 结界里
+    narrative: 结界内的天空是灰的。路牌上的字被改成了看不懂的符号。三十步外，一个术师正蹲在地上数手指——他刚刚杀了人，正在算分数。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-cg1-kill
+            text: 动手。分数能换规则
+            visibleWhen:
+              - { flag: cgJoined, eq: true }
+            effects:
+              - { type: setFlag, id: cgPath, value: kill }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 4 }
+              - { type: adjustAttribute, attribute: reputation, value: -6 }
+              - { type: adjustMood, value: -12 }
+            nextEventId: ev-cg-02
+          - id: opt-cg1-save
+            text: 先把被关在里面的普通人放出去
+            effects:
+              - { type: setFlag, id: cgPath, value: save }
+              - { type: adjustAttribute, attribute: reputation, value: 8 }
+              - { type: adjustFlag, id: savedCivilians, value: 4 }
+              - { type: adjustMood, value: 6 }
+            nextEventId: ev-cg-02
+          - id: opt-cg1-rule
+            text: 找规则的漏洞。规则一定有漏洞
+            effects:
+              - { type: setFlag, id: cgPath, value: rule }
+              - { type: adjustFlag, id: truthBits, value: 3 }
+              - { type: adjustAttribute, attribute: intellect, value: 3 }
+            nextEventId: ev-cg-02
+
+  - id: ev-cg-02
+    title: 分数
+    narrative: 你还没走完一条街，就被拦住了。对方身上挂着七个人的分数，笑得很客气。「新人？我教你这里的规矩。」
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-curse-user, levelScale: 1.1 }
+          - { ref: enemy-grade1-curse, levelScale: 0.5 }
+        canFlee: true
+        fleeCheck: { preset: opposed, attacker: agility, defender: agility, baseChance: 0.6 }
+        onVictory:
+          effects:
+            - { type: adjustAttribute, attribute: reputation, value: 6 }
+            - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
+          nextEventId: ev-cg-03
+        onDefeat:
+          effects:
+            - { type: applyStatus, status: injured-sim, stacks: 1 }
+            - { type: adjustMood, value: -10 }
+          nextEventId: ev-cg-03
+
+  - id: ev-cg-03
+    title: 夺舍
+    narrative: 结界深处传来一阵不属于人类的咒力波动。伏黑惠倒在地上，嘴里被塞进一根手指——他正在被吞掉。旁边站着的那个人，四只手，正在笑。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-cg3-stop
+            text: 冲上去，把手指从他嘴里挖出来
+            effects:
+              - { type: setFlag, id: triedToSaveMegumi, value: true }
+              - { type: applyStatus, status: injured-sim, stacks: 1 }
+              - { type: adjustAttribute, attribute: physique, value: 3 }
+              - { type: adjustMood, value: -14 }
+            nextEventId: ev-cg-04
+          - id: opt-cg3-flee
+            text: 退。你现在打不过他
+            effects:
+              - { type: setFlag, id: megumiTaken, value: true }
+              - { type: adjustMood, value: -18 }
+            nextEventId: ev-cg-04
+          - id: opt-cg3-deal
+            text: 「我身体里也有你的东西。谈谈？」
+            visibleWhen:
+              - { flag: secondTech, eq: true }
+            effects:
+              - { type: setFlag, id: dealtWithSukuna, value: true }
+              - { type: unlockSkill, skillId: sk-cleaves }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 10 }
+              - { type: adjustMood, value: -20 }
+              - { type: log, text: 你与诅咒之王做了一笔交易。 , visibility: public }
+            nextEventId: ev-cg-04
+
+  - id: ev-cg-04
+    title: 十二月
+    narrative: 十二月初，结界开始收缩。所有人的目光都转向同一个日子：十二月二十四日。有人要在那天把所有事情结束掉。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-cg4-go
+            text: 准备去新宿
+            effects:
+              - { type: setFlag, id: cgDone, value: true }
+              - { type: setFlag, id: ready7, value: true }
+              - { type: setFlag, id: chapter, value: 13 }
+              - { type: advanceTo, value: { value: 4728, unit: day } }
+              - { type: log, text: 2018 年 11 月 · 死灭回游。 , visibility: public }
+
+  # ══════════════════════════════════════════════════════════════
+  # 十一、第七章 · 新宿决战（2018 年 12 月 24 日）
+  # ══════════════════════════════════════════════════════════════
+
+  - id: ev-ch7-gate
+    title: 第七章 · 新宿决战
+    narrative: 2018 年 12 月 24 日。新宿。半径两公里的居民已经疏散完毕。这不是一场能赢的战斗——但必须有人站在这里。
+    trigger:
+      source: pool
+      probability: 1
+      priority: 100
+      once: true
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: chapter, eq: 13 }
+        - { flag: ready7, eq: true }
+        - { flag: sjDone, ne: true }
+        - { status: injured-sim, present: false }
+        - { status: exhausted, present: false }
+        - { time: { gte: { value: 4736, unit: day } } }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ch7-front
+            text: 站到最前面
+            effects:
+              - { type: setFlag, id: ready7, value: false }
+              - { type: setFlag, id: chapter, value: 14 }
+              - { type: setFlag, id: sjPost, value: front }
+              - { type: adjustAttribute, attribute: reputation, value: 8 }
+            nextEventId: ev-sj-01
+          - id: opt-ch7-back
+            text: 守后方。把还能救的人救下来
+            effects:
+              - { type: setFlag, id: ready7, value: false }
+              - { type: setFlag, id: chapter, value: 14 }
+              - { type: setFlag, id: sjPost, value: back }
+              - { type: adjustFlag, id: savedCivilians, value: 3 }
+            nextEventId: ev-sj-01
+
+  - id: ev-sj-01
+    title: 决战前夜
+    narrative: 二十三点五十分。咒术师们站成一排。有人手在抖，有人闭着眼。远处那个身影抬起了一只手——「那就开始吧。」
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sj1-gojo
+            text: 五条站在你旁边
+            visibleWhen:
+              - { flag: gojoSealed, ne: true }
+            effects:
+              - { type: setFlag, id: withGojo, value: true }
+              - { type: adjustRelation, npcId: npc-gojo, value: 8 }
+              - { type: adjustMood, value: 8 }
+            nextEventId: ev-sj-02
+          - id: opt-sj1-alone
+            text: 没有五条。你们只能靠自己
+            visibleWhen:
+              - { flag: gojoSealed, eq: true }
+            effects:
+              - { type: setFlag, id: withGojo, value: false }
+              - { type: adjustMood, value: -8 }
+              - { type: setFlag, id: noGojo, value: true }
+            nextEventId: ev-sj-02
+
+  - id: ev-sj-02
+    title: 人外魔境
+    narrative: 他动了。第一道「解」切开了三百米外的大楼。第二道「捌」贴着你的耳朵过去。你听见自己的心跳，比任何一次都响。
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-sukuna, levelScale: 0.62 }
+        allies:
+          - { ref: npc-gojo, levelScale: 1.0 }
+          - { ref: npc-yuji, levelScale: 0.8 }
+        canFlee: false
+        onVictory:
+          effects:
+            - { type: setFlag, id: beatSukuna, value: true }
+            - { type: adjustAttribute, attribute: reputation, value: 20 }
+            - { type: adjustMood, value: 12 }
+          nextEventId: ev-sj-03
+        onDefeat:
+          effects:
+            - { type: setFlag, id: beatSukuna, value: false }
+            - { type: setFlag, id: finalEnd, value: hero-death }
+            - { type: applyStatus, status: injured-sim, stacks: 1 }
+            - { type: adjustMood, value: -18 }
+          nextEventId: ev-sj-04
+
+  - id: ev-sj-03
+    title: 终结
+    narrative: 天快亮了。烟尘里有人还站着，有人已经躺下了。命运之轮在你面前最后一次停下——这一次，它写的是「此后」。
+    trigger:
+      source: chain
+    kind: random
+    settle:
+      random:
+        wheel:
+          segments:
+            - label: 你活下来了，还站着
+              weight: 20
+              weightBy: { physique: 1 }
+              effects:
+                - { type: setFlag, id: finalEnd, value: survived }
+                - { type: adjustMood, value: 10 }
+              nextEventId: ev-sj-04
+            - label: 你活下来了，但咒力回路断了
+              weight: 8
+              effects:
+                - { type: setFlag, id: finalEnd, value: lost }
+                - { type: applyStatus, status: exhausted, stacks: 1 }
+                - { type: adjustMood, value: -8 }
+              nextEventId: ev-sj-04
+            - label: 你救下了所有人，代价是自己没走出来
+              weight: 7
+              effects:
+                - { type: setFlag, id: finalEnd, value: hero-death }
+                - { type: adjustAttribute, attribute: reputation, value: 30 }
+              nextEventId: ev-sj-04
+            - label: 你成了特级
+              weight: 5
+              weightBy: { cursedEnergy: 1 }
+              effects:
+                - { type: setFlag, id: finalEnd, value: special }
+                - { type: adjustAttribute, attribute: reputation, value: 20 }
+                - { type: adjustMood, value: 12 }
+              nextEventId: ev-sj-04
+            - label: 你成了传说
+              weight: 3
+              weightBy: { reputation: 1 }
+              effects:
+                - { type: setFlag, id: finalEnd, value: legend }
+                - { type: adjustAttribute, attribute: reputation, value: 35 }
+                - { type: adjustMood, value: 14 }
+              nextEventId: ev-sj-04
+            - label: 你活下来了，然后离开了咒术界
+              weight: 12
+              effects:
+                - { type: setFlag, id: finalEnd, value: retire }
+                - { type: adjustMood, value: 8 }
+              nextEventId: ev-sj-04
+            - label: 你跟着那个人的脚印走了
+              weight: 6
+              effects:
+                - { type: setFlag, id: finalEnd, value: defected }
+                - { type: setFlag, id: defected, value: true }
+                - { type: adjustAttribute, attribute: cursedEnergy, value: 8 }
+                - { type: adjustMood, value: -10 }
+              nextEventId: ev-sj-04
+            - label: 你活下来了，也什么都没了
+              weight: 9
+              effects:
+                - { type: setFlag, id: finalEnd, value: lost-all }
+                - { type: adjustMood, value: -14 }
+              nextEventId: ev-sj-04
+
+  - id: ev-sj-04
+    title: 此后
+    narrative: 2019 年 1 月 5 日。新宿的废墟被围上了围栏，围栏上贴着「重建中」。你在便利店买了一罐热的咖啡，站在路边喝完，然后把空罐丢进回收箱。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sj4-end
+            text: 抬起头，继续走
+            effects:
+              - { type: cureStatus, status: injured-sim }
+              - { type: cureStatus, status: exhausted }
+              - { type: setFlag, id: sjDone, value: true }
+              - { type: setFlag, id: storyDone, value: true }
+              - { type: setFlag, id: chapter, value: 15 }
+              - { type: advanceTo, value: { value: 4752, unit: day } }
+              - { type: log, text: 2019 年 1 月 · 落幕。 , visibility: public }
 
 # ══════════════════════════════════════════════════════════════
 # 事件链定义
+#   除创建链外，剧情章节用 nextEventId 串成事件流（每条 ≥4 步、含分支），
+#   不再声明为 Chain —— 章节推进由 chapter / readyN 门闩控制，避免重复触发。
 # ══════════════════════════════════════════════════════════════
 chains:
   - id: chain-creation
@@ -1789,46 +3018,3 @@ chains:
       - { eventId: ev-w11, advanceWhen: onSettle }
       - { eventId: ev-w12, advanceWhen: onSettle }
       - { eventId: ev-w13, advanceWhen: onSettle }
-
-  - id: chain-sp
-    startEventId: ev-sp-meet
-    pauseWhenHidden: false
-    steps:
-      - { eventId: ev-sp-meet, advanceWhen: onSettle }
-      - { eventId: ev-sp-vigil, advanceWhen: onSettle }
-      - { eventId: ev-sp-ambush, advanceWhen: onSettle }
-      - { eventId: ev-sp-outcome, advanceWhen: onSettle }
-      - { eventId: ev-sp-after, advanceWhen: onSettle }
-
-  - id: chain-geto
-    startEventId: ev-geto-talk
-    pauseWhenHidden: false
-    steps:
-      - { eventId: ev-geto-talk, advanceWhen: onSettle }
-      - { eventId: ev-geto-choice, advanceWhen: onSettle }
-      - { eventId: ev-geto-fight, advanceWhen: onSettle }
-      - { eventId: ev-geto-canon, advanceWhen: onSettle }
-      - { eventId: ev-geto-join, advanceWhen: onSettle }
-      - { eventId: ev-geto-after, advanceWhen: onSettle }
-
-  - id: chain-night
-    startEventId: ev-night-prologue
-    pauseWhenHidden: false
-    steps:
-      - { eventId: ev-night-prologue, advanceWhen: onSettle }
-      - { eventId: ev-night-fight, advanceWhen: onSettle }
-      - { eventId: ev-night-after, advanceWhen: onSettle }
-
-  - id: chain-shibuya
-    startEventId: ev-shibuya-prologue
-    pauseWhenHidden: false
-    steps:
-      - { eventId: ev-shibuya-prologue, advanceWhen: onSettle }
-      - { eventId: ev-shibuya-fight, advanceWhen: onSettle }
-      - { eventId: ev-shibuya-after, advanceWhen: onSettle }
-
-  - id: chain-finale
-    startEventId: ev-epilogue
-    pauseWhenHidden: false
-    steps:
-      - { eventId: ev-epilogue, advanceWhen: onSettle }

@@ -184,6 +184,18 @@ export const EffectSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("adjustResource"), resource: z.enum(["hp", "mp"]), value: z.number() }).strict(),
   z.object({ type: z.literal("adjustMood"), value: z.number() }).strict(),
   /**
+   * 改写玩家身份（性别 / 起始年龄）。供「开局角色创建」在事件里定下性别与年龄——
+   * 二者原本只能由 world.yaml 的 playerTemplate 静态声明，无法由玩家选择。
+   * 改年龄时同步重置 playerAgeAtStart，保证之后按公历推进的年龄仍然正确。
+   */
+  z
+    .object({
+      type: z.literal("setIdentity"),
+      gender: z.string().min(1).optional(),
+      age: z.number().int().nonnegative().optional(),
+    })
+    .strict(),
+  /**
    * 关系调整（R2.6 / ADR-0014）。两种形态互斥，引擎侧校验：
    * ① 旧形态（兼容）：`{ npcId, value }` —— 调整 NPC→玩家 标量 `npc.relationship`。
    * ② 关系边形态：`{ fromId, toId, kind, value }` —— 对边值做增量调整；

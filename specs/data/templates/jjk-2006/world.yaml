@@ -2,8 +2,8 @@
 # 元信息、历法、性别枚举、心情档位、状态栏、属性/资源、回复与判定默认值。
 meta:
   id: jjk-2006
-  name: 咒术回战 · 命数转盘
-  description: 2006 年春，你转动命数转盘成为咒术高专的一年生。术式、咒具、师承与代价都由转盘定下；此后一年，星浆体、叛逃、百鬼夜行与涩谷会依次找上门——你要活到亲手写下结局的那天。
+  name: 咒术回战 · 命数十二年
+  description: 2006 年春，你转动命数转盘，成为东京咒术高专的一年生——七海建人与灰原雄的同班同学，五条悟与夏油杰的学弟学妹。此后十二年，怀玉、玉折、百鬼夜行、涩谷、死灭回游、新宿决战会依次找上门。你要活到亲手写下结局的那天。
   startYear: 2006
   engineProtocol: v2
 
@@ -116,12 +116,25 @@ actions:
     label: 休息
     description: 回宿舍休整，恢复 HP/MP。
     duration: { value: 1, unit: day }
+  # 战败后的恢复手段：把「受伤 / 力竭」真正治好，否则下一章会因带伤而被拒之门外。
+  - id: recuperate
+    label: 疗养
+    description: 去医务室躺两天。治好伤势与力竭，但这两天什么也做不了。
+    duration: { value: 2, unit: day }
+    effects:
+      - { type: cureStatus, status: injured-sim }
+      - { type: cureStatus, status: exhausted }
+      - { type: adjustResource, resource: hp, value: 30 }
+      - { type: adjustResource, resource: mp, value: 20 }
+      - { type: adjustMood, value: 4 }
 
 # NPC 自主行动（触发式 + 效用评分；goalMatch/traitAffinity 对应角色的 private.goals/traits）
 npcActions:
+  # 角色创建（命数转盘 13 步 + 入学式）期间冻结所有 NPC 自主行动；
+  # 否则玩家还在选出身时，History 里已经在刷「某 NPC 找同伴闲聊」。
   - id: npc-train
     summary: "{name} 独自打熬咒力。"
-    trigger: { probability: 0.25, cooldownTurns: 2 }
+    trigger: { probability: 0.25, cooldownTurns: 2 , conditions: [{ flag: creationDone, eq: true }] }
     utility:
       base: 1
       goalMatch: [become-stronger]
@@ -130,7 +143,7 @@ npcActions:
       - { type: adjustRelation, npcId: __self__, value: 1 }
   - id: npc-mission
     summary: "{name} 接下了一项祓除任务。"
-    trigger: { probability: 0.2, requireKnowledge: [missions] }
+    trigger: { probability: 0.2, requireKnowledge: [missions] , conditions: [{ flag: creationDone, eq: true }] }
     utility:
       base: 1
       traitAffinity: [diligent, vigilant]
@@ -138,7 +151,7 @@ npcActions:
       - { type: adjustFlag, id: missionsCompleted, value: 1 }
   - id: npc-socialize
     summary: "{name} 找同伴闲聊。"
-    trigger: { probability: 0.3 }
+    trigger: { probability: 0.3 , conditions: [{ flag: creationDone, eq: true }] }
     utility:
       base: 1
       traitAffinity: [caring, confident]

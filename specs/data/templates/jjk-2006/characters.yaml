@@ -1,6 +1,36 @@
-# JJK Demo 世界模板 · characters.yaml
-# NPC 与敌人角色；玩家由 playerTemplate + 创建输入生成。
+# JJK 世界模板 · characters.yaml
+#
+# 阵容按原作时间线铺开：2006 高专（夜蛾/五条/夏油/硝子/七海/灰原/理子/甚尔）
+# → 2017 咒术回战 0（乙骨）→ 2018 本篇（虎杖/伏黑/钉崎/真人/漏瑚/羂索/宿傩）。
+# 玩家是 2006 年入学的一年生 —— 七海与灰原的同班同学，五条与夏油的学弟/学妹。
 characters:
+  # ══════════════ 2006 · 东京咒术高专 ══════════════
+
+  - id: npc-yaga
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 夜蛾正道
+      age: 34
+      gender: male
+      description: 一年生班主任，一级术师。沉默、魁梧、会缝布偶，也会在你偷懒时把布偶扔到你脸上。
+    mood: { value: 55 }
+    attributes: { cursedEnergy: 30, intellect: 9, physique: 8, agility: 6, reputation: 35 }
+    skills: [sk-puppet, sk-basic-strike]
+    public:
+      personality: 严厉、护短，从不把「保护学生」四个字说出口。
+      knownGoals: [把学生活着送出高专]
+    private:
+      secrets: [他在秘密制造一种能自我判断的咒骸]
+      goals: [protect-students]
+      traits: [stern, caring]
+      combatHints:
+        skillWeights: { sk-puppet: 4, sk-basic-strike: 1 }
+    relationship: 8
+    relations:
+      - { to: npc-gojo, kind: mentor, visibility: known, value: 80 }
+      - { to: npc-nanami, kind: mentor, visibility: known, value: 70 }
+
   - id: npc-gojo
     isEnemy: false
     visibility: public
@@ -8,31 +38,27 @@ characters:
       name: 五条悟
       age: 17
       gender: male
-      description: 白发的天才特级术师，言行张扬，实力深不可测。
-    mood: { value: 75 }
-    attributes: { cursedEnergy: 100, intellect: 9, physique: 9, agility: 9, reputation: 90 }
-    skills: [sk-gojo-blue, sk-gojo-red, sk-domain-void]
+      description: 二年生，五条家的六眼。全世界最强的两个咒术师之一，也是最吵的那个。
+    mood: { value: 80 }
+    attributes: { cursedEnergy: 120, intellect: 10, physique: 9, agility: 11, reputation: 60 }
+    skills: [sk-gojo-blue, sk-gojo-red, sk-domain-empty, sk-basic-strike]
     statuses: [six-eyes]
     public:
-      personality: 轻浮不定，以强者的姿态俯瞰咒术界。
-      knownGoals:
-        - 培养能改变咒术界的学生
-        - 让强者的傲慢不再主宰界内秩序
+      personality: 轻浮、自大、随时在开玩笑。真的危险时，他会站在最前面。
+      knownGoals: [把咒术界翻过来]
     private:
-      knowledge: [jujutsu, missions, rumor-star-plasma]
-      goals: [become-stronger, protect-students]
-      traits: [diligent, confident, vigilant]
+      secrets: [他正在摸索「反转术式」能不能治别人]
+      goals: [become-strongest, protect-students]
+      traits: [confident, playful]
       combatHints:
-        skillWeights: { sk-gojo-blue: 3, sk-gojo-red: 2, sk-domain-void: 1 }
-      secrets:
-        - 知晓世界线偏差的存在，并暗中观察它的走向
-    relationship: 0
+        skillWeights: { sk-gojo-blue: 4, sk-gojo-red: 3, sk-domain-empty: 1 }
+    relationship: 10
     relations:
       - { to: npc-geto, kind: friend, visibility: known, value: 70 }
       - { to: npc-shoko, kind: colleague, visibility: known, value: 60 }
-      - { to: npc-yuta, kind: disciple, visibility: known, value: 80 }
-      # 原作：五条称乙骨为「远亲」（同出菅原道真一脉），代数不可考 ⇒ gap 只出粗称谓
-      - { to: npc-yuta, kind: relative, visibility: known, gap: true }
+      - { to: npc-yaga, kind: mentor, visibility: known, value: 80 }
+      - { to: npc-yuta, kind: relative, visibility: known, value: 20, gap: true }
+      - { to: npc-megumi, kind: disciple, visibility: known, value: 50 }
 
   - id: npc-geto
     isEnemy: false
@@ -41,21 +67,20 @@ characters:
       name: 夏油杰
       age: 17
       gender: male
-      description: 沉静自律的高专学生，以正义自持，深受同伴信任。
-    mood: { value: 65 }
-    attributes: { cursedEnergy: 80, intellect: 8, physique: 7, agility: 6, reputation: 60 }
-    skills: [sk-gather-curses, sk-uzumaki]
+      description: 二年生，咒灵操术。总是笑着讲道理，讲的道理越来越重。
+    mood: { value: 62 }
+    attributes: { cursedEnergy: 48, intellect: 10, physique: 8, agility: 7, reputation: 40 }
+    skills: [sk-gather-curses, sk-uzumaki, sk-basic-strike]
     public:
-      personality: 温和有礼，语调永远不疾不徐。
-      knownGoals:
-        - 建立由术师保护普通人的秩序
+      personality: 温和、讲道理，把「咒术师是为了保护非术师而存在」当成信条。
+      knownGoals: [守护弱者]
     private:
-      knowledge: [jujutsu, missions]
-      goals: [establish-order]
-      traits: [calm, idealistic, diligent]
-      secrets:
-        - 对"非术师"的失望正在悄悄积累
-    relationship: 0
+      secrets: [他最近开始觉得，自己吞下的每一只咒灵都是人的怨念]
+      goals: [protect-weak]
+      traits: [caring, thoughtful]
+      combatHints:
+        skillWeights: { sk-gather-curses: 3, sk-uzumaki: 2 }
+    relationship: 10
     relations:
       - { to: npc-gojo, kind: friend, visibility: known, value: 70 }
       - { to: npc-shoko, kind: colleague, visibility: known, value: 60 }
@@ -67,43 +92,104 @@ characters:
       name: 家入硝子
       age: 17
       gender: female
-      description: 高专的治疗师预备生，慵懒随性，烟不离手。
-    mood: { value: 55 }
-    attributes: { cursedEnergy: 60, intellect: 8, physique: 4, agility: 5, reputation: 40 }
+      description: 二年生，反转术式。高专唯一的医生，也是唯一能在五条和夏油之间插话的人。
+    mood: { value: 60 }
+    attributes: { cursedEnergy: 26, intellect: 9, physique: 5, agility: 6, reputation: 30 }
+    skills: [sk-reverse-heal, sk-basic-strike]
     public:
-      personality: 慵懒毒舌，但对同伴的伤势从不含糊。
-      knownGoals:
-        - 成为独当一面的反转术师
+      personality: 冷淡、嘴毒，医务室的灯永远为你留着。
+      knownGoals: [少死几个人]
     private:
-      knowledge: [jujutsu, medical]
-      goals: [become-healer]
-      traits: [lazy, caring]
-    relationship: 0
+      secrets: [她一直在偷偷记录每个同学的咒力回路]
+      traits: [blunt, caring]
+      combatHints:
+        skillWeights: { sk-reverse-heal: 3, sk-basic-strike: 1 }
+    relationship: 8
     relations:
       - { to: npc-gojo, kind: colleague, visibility: known, value: 60 }
       - { to: npc-geto, kind: colleague, visibility: known, value: 60 }
 
-  - id: npc-riko
+  - id: npc-nanami
     isEnemy: false
     visibility: public
     identity:
-      name: 天内里子
+      name: 七海建人
+      age: 15
+      gender: male
+      description: 你的一年生同班同学。十划咒法，永远在算「这件事值不值得做」。
+    mood: { value: 58 }
+    attributes: { cursedEnergy: 26, intellect: 9, physique: 7, agility: 7, reputation: 15 }
+    skills: [sk-7-3, sk-basic-strike]
+    public:
+      personality: 克制、讲规则，会在你乱来之后冷静地把你骂一顿。
+      knownGoals: [毕业，然后想清楚要不要继续当术师]
+    private:
+      traits: [diligent, reserved]
+      combatHints:
+        skillWeights: { sk-7-3: 3, sk-basic-strike: 2 }
+    relationship: 12
+    relations:
+      - { to: npc-haibara, kind: friend, visibility: known, value: 75 }
+      - { to: npc-yaga, kind: mentor, visibility: known, value: 70 }
+
+  - id: npc-haibara
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 灰原雄
+      age: 15
+      gender: male
+      description: 你的一年生同班同学。嗓门大、饭量大、笑起来像夏天。
+    mood: { value: 78 }
+    attributes: { cursedEnergy: 20, intellect: 6, physique: 8, agility: 6, reputation: 10 }
+    skills: [sk-basic-strike, sk-cursed-strike]
+    public:
+      personality: 直率、热血，把「术师要保护人」当成理所当然的事。
+      knownGoals: [成为能独当一面的术师]
+    private:
+      traits: [cheerful, brave]
+      combatHints:
+        skillWeights: { sk-basic-strike: 3, sk-cursed-strike: 2 }
+    relationship: 15
+    relations:
+      - { to: npc-nanami, kind: friend, visibility: known, value: 75 }
+
+  - id: npc-riko
+    isEnemy: false
+    visibility: hidden
+    identity:
+      name: 天内理子
       age: 14
       gender: female
-      description: 被选为天元同化容器的"星浆体"，一名向往普通生活的女中学生。
-    mood: { value: 60 }
-    attributes: { cursedEnergy: 3, intellect: 6, physique: 3, agility: 4, reputation: 10 }
+      description: 星浆体。命中注定要与天元同化，本人却只想再去一次海边。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 0, intellect: 7, physique: 3, agility: 4, reputation: 0 }
+    skills: []
     public:
-      personality: 开朗直率，珍惜平凡日常，对天元同化心有不甘。
-      knownGoals:
-        - 在天元同化之前，尽量像普通少女一样生活
+      personality: 嘴硬、倔，会在最害怕的时候故作镇定。
     private:
-      knowledge: [school]
-      goals: [live-ordinary-life]
-      traits: [cheerful, determined]
+      secrets: [她知道同化意味着「天内理子」这个人从此消失]
     relationship: 0
-    relations:
-      - { to: npc-gojo, kind: friend, visibility: known, value: 40 }
+
+  - id: enemy-toji
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 伏黑甚尔
+      age: 31
+      gender: male
+      description: 天与咒缚的完成形。零咒力，靠一具肉身杀穿术师界，人称「术师杀手」。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 0, intellect: 7, physique: 16, agility: 15, reputation: 20 }
+    skills: [sk-heavenly-body, sk-weapon-cleave]
+    public:
+      personality: 懒散、赌钱、只认报酬。动手时没有任何多余动作。
+    private:
+      combatHints:
+        skillWeights: { sk-heavenly-body: 3, sk-weapon-cleave: 2 }
+    relationship: -60
+
+  # ══════════════ 2017 · 咒术回战 0 ══════════════
 
   - id: npc-yuta
     isEnemy: false
@@ -112,252 +198,267 @@ characters:
       name: 乙骨忧太
       age: 16
       gender: male
-      description: 被五条悟寄予厚望的特级咒术师，咒力总量深不可测。
-    mood: { value: 65 }
-    attributes: { cursedEnergy: 95, intellect: 7, physique: 5, agility: 6, reputation: 70 }
-    skills: [sk-cursed-strike, sk-reverse-heal]
+      description: 2017 年入学的一年生。身后跟着特级过咒怨灵「里香」，本人却温吞得像张纸。
+    mood: { value: 45 }
+    attributes: { cursedEnergy: 55, intellect: 8, physique: 7, agility: 7, reputation: 25 }
+    skills: [sk-rika, sk-cursed-strike, sk-basic-strike]
     public:
-      personality: 温和腼腆，为守护同伴而战。
-      knownGoals:
-        - 保护同伴
-        - 结束夏油杰发动的百鬼夜行
+      personality: 自卑、温柔，为了别人可以把自己折断。
     private:
-      knowledge: [jujutsu, missions]
-      goals: [protect-comrades]
-      traits: [kind, determined]
+      secrets: [他相信里香是被自己诅咒的，不是反过来]
+      traits: [gentle, selfless]
       combatHints:
-        skillWeights: { sk-cursed-strike: 3, sk-reverse-heal: 1 }
-    relationship: 0
+        skillWeights: { sk-rika: 3, sk-cursed-strike: 2 }
+    relationship: 5
     relations:
       - { to: npc-gojo, kind: mentor, visibility: known, value: 80 }
 
-  # 敌人角色（供战斗事件引用；可 levelScale 缩放）
-  - id: enemy-grade2-curse
-    isEnemy: true
-    visibility: public
-    identity:
-      name: 二级咒灵
-      age: 0
-      gender: agender
-      description: 由都市负面情绪凝成的二级咒灵，形如扭曲的兽影。
-    mood: { value: 50 }
-    attributes: { cursedEnergy: 40, intellect: 2, physique: 7, agility: 6, reputation: 0 }
-    skills: [sk-curse-bite, sk-curse-wail]
-    public:
-      personality: 只会循着恐惧捕食。
-    private:
-      combatHints:
-        skillWeights: { sk-curse-bite: 5, sk-curse-wail: 2 }
-    relationship: -100
-
-  - id: enemy-curse-larva
-    isEnemy: true
-    visibility: public
-    identity:
-      name: 咒灵幼虫
-      age: 0
-      gender: agender
-      description: 刚成形不久的弱小咒灵，行动迟缓但数量常成群。
-    mood: { value: 50 }
-    attributes: { cursedEnergy: 15, intellect: 1, physique: 3, agility: 3, reputation: 0 }
-    skills: [sk-curse-wail]
-    public:
-      personality: 本能地畏惧咒力。
-    private:
-      combatHints:
-        skillWeights: { sk-curse-wail: 5 }
-    relationship: -100
-
-  - id: enemy-miguel
-    isEnemy: true
-    visibility: public
-    identity:
-      name: 米格尔
-      age: 27
-      gender: male
-      description: 夏油杰雇佣的国外咒术师，以注入咒力的特制「黑绳」缠斗见长。
-    mood: { value: 60 }
-    attributes: { cursedEnergy: 18, intellect: 5, physique: 45, agility: 40, reputation: 0 }
-    skills: [sk-miguel-strike]
-    public:
-      personality: 嘴上不饶人，却信守契约。
-    private:
-      combatHints:
-        skillWeights: { sk-miguel-strike: 5 }
-    relationship: -100
-
-  - id: enemy-geto
+  - id: enemy-geto-parade
     isEnemy: true
     visibility: public
     identity:
       name: 夏油杰
-      age: 27
+      age: 28
       gender: male
-      description: 发动百鬼夜行的特级诅咒师，以咒灵操术统御万千咒灵。
+      description: 十一年不见的学长。穿着袈裟，额上有缝合的疤，身后是整支诅咒师与咒灵。
     mood: { value: 55 }
-    attributes: { cursedEnergy: 30, intellect: 8, physique: 8, agility: 7, reputation: 0 }
-    skills: [sk-gather-curses, sk-uzumaki]
+    attributes: { cursedEnergy: 62, intellect: 10, physique: 8, agility: 8, reputation: 60 }
+    skills: [sk-gather-curses, sk-uzumaki, sk-curse-user-blade]
+    statuses: [absorbed-curses]
     public:
-      personality: 曾经的理想主义者，如今只剩冰冷的执念。
+      personality: 还是那样笑着，只是笑的时候眼睛不动了。
     private:
       combatHints:
-        skillWeights: { sk-gather-curses: 3, sk-uzumaki: 4 }
-    relationship: -100
+        skillWeights: { sk-gather-curses: 2, sk-uzumaki: 3, sk-curse-user-blade: 2 }
+    relationship: -50
 
-  # ---------- 2006 学年追加：同窗、诅咒师与特级咒灵 ----------
+  # ══════════════ 2018 · 本篇 ══════════════
 
-  - id: npc-nanami
+  - id: npc-yuji
     isEnemy: false
     visibility: public
     identity:
-      name: 七海建人
-      age: 17
+      name: 虎杖悠仁
+      age: 15
       gender: male
-      description: 一丝不苟的同班同学，衬衫扣到最上面一颗。理性得近乎冷淡。
-    mood: { value: 60 }
-    attributes: { cursedEnergy: 55, intellect: 8, physique: 6, agility: 7, reputation: 30 }
-    skills: [sk-7-3, sk-basic-strike]
+      description: 2018 年入学的一年生。吞下宿傩的手指还活着，全日本只有这一个。
+    mood: { value: 70 }
+    attributes: { cursedEnergy: 32, intellect: 6, physique: 12, agility: 9, reputation: 10 }
+    skills: [sk-divergent-fist, sk-basic-strike]
     public:
-      personality: 冷静务实，把「术师是狗屎工作」挂在嘴边，却从不缺席。
-      knownGoals:
-        - 成为一名可靠的大人
+      personality: 直、快、善良得有点笨。跑得比谁都快，因为他要去救人。
+      knownGoals: [救下眼前的人]
     private:
-      knowledge: [jujutsu, missions]
-      goals: [protect-comrades, become-stronger]
-      traits: [calm, diligent]
+      secrets: [他体内住着诅咒之王]
+      traits: [brave, kind]
       combatHints:
-        skillWeights: { sk-7-3: 4, sk-basic-strike: 2 }
-    relationship: 0
+        skillWeights: { sk-divergent-fist: 3, sk-basic-strike: 2 }
+    relationship: 10
     relations:
-      - { to: npc-haibara, kind: friend, visibility: known, value: 65 }
-      - { to: npc-gojo, kind: colleague, visibility: known, value: 40 }
+      - { to: npc-gojo, kind: mentor, visibility: known, value: 70 }
 
-  - id: npc-haibara
+  - id: npc-megumi
     isEnemy: false
     visibility: public
     identity:
-      name: 灰原雄
-      age: 17
+      name: 伏黑惠
+      age: 15
       gender: male
-      description: 永远在笑的同班同学，嗓门大，心更大。
-    mood: { value: 80 }
-    attributes: { cursedEnergy: 45, intellect: 5, physique: 7, agility: 6, reputation: 20 }
-    skills: [sk-basic-strike, sk-cursed-strike]
+      description: 2018 年入学的一年生。十种影法术的继承者，甚尔的儿子，也是你学长敌人的儿子。
+    mood: { value: 52 }
+    attributes: { cursedEnergy: 30, intellect: 8, physique: 7, agility: 8, reputation: 12 }
+    skills: [sk-ten-shadow, sk-ten-nue, sk-basic-strike]
     public:
-      personality: 阳光、直率、行动力过剩。
-      knownGoals:
-        - 保护好身边的每一个人
+      personality: 冷静、别扭，把「我不想救所有人」挂在嘴边，做的却全是救人的事。
     private:
-      knowledge: [jujutsu, missions]
-      goals: [protect-comrades]
-      traits: [cheerful, diligent]
+      secrets: [他不知道父亲是谁]
+      traits: [calm, stubborn]
       combatHints:
-        skillWeights: { sk-basic-strike: 3, sk-cursed-strike: 2 }
-    relationship: 0
+        skillWeights: { sk-ten-shadow: 3, sk-ten-nue: 2 }
+    relationship: 5
     relations:
-      - { to: npc-nanami, kind: friend, visibility: known, value: 65 }
+      - { to: enemy-toji, kind: father, visibility: known, value: 5 }
+      - { to: npc-gojo, kind: mentor, visibility: known, value: 60 }
 
-  # 伏黑甚尔：零咒力的「天与暴君」
-  - id: enemy-toji
-    isEnemy: true
+  - id: npc-nobara
+    isEnemy: false
     visibility: public
     identity:
-      name: 伏黑甚尔
-      age: 30
-      gender: male
-      description: 没有一丝咒力的男人。正因为没有，他的肉体强得不像人。
-    mood: { value: 50 }
-    attributes: { cursedEnergy: 0, intellect: 7, physique: 60, agility: 55, reputation: 0 }
-    skills: [sk-heavenly-body, sk-weapon-cleave]
+      name: 钉崎野蔷薇
+      age: 15
+      gender: female
+      description: 2018 年入学的一年生。刍灵咒法，从乡下来，带着一根钉子和一肚子火。
+    mood: { value: 68 }
+    attributes: { cursedEnergy: 24, intellect: 7, physique: 6, agility: 8, reputation: 8 }
+    skills: [sk-doll-curse, sk-doll-nail, sk-basic-strike]
     public:
-      personality: 慵懒、市侩，谈到钱时眼睛才会亮。
+      personality: 直率、好胜，绝不承认自己害怕。
     private:
+      traits: [bold, proud]
       combatHints:
-        skillWeights: { sk-weapon-cleave: 3, sk-heavenly-body: 4 }
-      secrets:
-        - 受雇于某个出价更高的买家
-    relationship: -100
-
-  - id: enemy-grade1-curse
-    isEnemy: true
-    visibility: public
-    identity:
-      name: 一级咒灵
-      age: 0
-      gender: agender
-      description: 由一片街区十余年的恐惧凝成的一级咒灵，形如多手的巨影。
-    mood: { value: 50 }
-    attributes: { cursedEnergy: 90, intellect: 3, physique: 12, agility: 8, reputation: 0 }
-    skills: [sk-curse-crush, sk-curse-wail]
-    public:
-      personality: 不交谈，只碾压。
-    private:
-      combatHints:
-        skillWeights: { sk-curse-crush: 4, sk-curse-wail: 2 }
-    relationship: -100
-
-  - id: enemy-curse-user
-    isEnemy: true
-    visibility: public
-    identity:
-      name: 诅咒师
-      age: 25
-      gender: male
-      description: 把术式卖给雇主的自由诅咒师，笑起来没有温度。
-    mood: { value: 55 }
-    attributes: { cursedEnergy: 60, intellect: 6, physique: 8, agility: 7, reputation: 0 }
-    skills: [sk-curse-user-blade, sk-curse-wail]
-    public:
-      personality: 只认钱，不讲道理。
-    private:
-      combatHints:
-        skillWeights: { sk-curse-user-blade: 4, sk-curse-wail: 1 }
-    relationship: -100
+        skillWeights: { sk-doll-curse: 3, sk-doll-nail: 2 }
+    relationship: 5
 
   - id: enemy-jogo
     isEnemy: true
     visibility: public
     identity:
       name: 漏瑚
-      age: 0
-      gender: agender
-      description: 火山化身的一级咒灵，坚信咒灵才是真正的人类。
+      age: 300
+      gender: male
+      description: 特级咒灵，火山之形。他坚信咒灵才是真正的人类，而人类该被烧干净。
     mood: { value: 60 }
-    attributes: { cursedEnergy: 120, intellect: 6, physique: 10, agility: 9, reputation: 0 }
-    skills: [sk-flame, sk-curse-wail]
+    attributes: { cursedEnergy: 46, intellect: 8, physique: 9, agility: 8, reputation: 45 }
+    skills: [sk-flame, sk-curse-crush]
+    statuses: [enrage]
     public:
-      personality: 傲慢、暴烈，对人类的憎恶近乎信仰。
+      personality: 傲慢、急躁，被叫「小不点」会当场炸掉半条街。
     private:
       combatHints:
-        skillWeights: { sk-flame: 4, sk-curse-wail: 1 }
-    relationship: -100
+        skillWeights: { sk-flame: 2, sk-curse-crush: 3 }
+    relationship: -70
 
   - id: enemy-mahito
     isEnemy: true
     visibility: public
     identity:
       name: 真人
-      age: 0
-      gender: agender
-      description: 从人类对彼此的憎恶里诞生的特级咒灵，触碰灵魂的形状。
+      age: 1
+      gender: male
+      description: 特级咒灵，人类对人类的憎恶所生。他的术式能改写灵魂的形状。
     mood: { value: 65 }
-    attributes: { cursedEnergy: 100, intellect: 7, physique: 9, agility: 11, reputation: 0 }
+    attributes: { cursedEnergy: 40, intellect: 8, physique: 7, agility: 9, reputation: 35 }
     skills: [sk-impurity, sk-curse-bite]
     public:
-      personality: 孩子气的残忍，把改造人类当成游戏。
+      personality: 好奇、孩子气，把人类当作可以随便捏的黏土。
+    private:
+      secrets: [他在找「灵魂」到底在哪里]
+      combatHints:
+        skillWeights: { sk-impurity: 3, sk-curse-bite: 2 }
+    relationship: -70
+
+  - id: enemy-kenjaku
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 羂索
+      age: 1000
+      gender: male
+      description: 千年前的诅咒师，靠换脑活着。他布了一个横跨千年的局，你们全在局里。
+    mood: { value: 55 }
+    attributes: { cursedEnergy: 58, intellect: 12, physique: 7, agility: 8, reputation: 30 }
+    skills: [sk-gather-curses, sk-uzumaki, sk-impurity, sk-curse-user-blade]
+    statuses: [kenjaku, absorbed-curses]
+    public:
+      personality: 礼貌、好奇，说话像在写论文。
+    private:
+      secrets: [他真正的目的是让全人类的咒力「进化」]
+      combatHints:
+        skillWeights: { sk-gather-curses: 2, sk-uzumaki: 2, sk-impurity: 3, sk-curse-user-blade: 2 }
+    relationship: -80
+
+  - id: enemy-sukuna
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 两面宿傩
+      age: 1000
+      gender: male
+      description: 诅咒之王。四手四眼，把「解」与「捌」当作呼吸一样使用。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 72, intellect: 11, physique: 12, agility: 11, reputation: 100 }
+    skills: [sk-dismantle, sk-cleaves, sk-fuga, sk-domain-malevolent]
+    statuses: [cursed-king]
+    public:
+      personality: 纯粹的恶，且乐在其中。他看你，就像看一只会走路的蚂蚁。
     private:
       combatHints:
-        skillWeights: { sk-impurity: 4, sk-curse-bite: 2 }
+        skillWeights: { sk-dismantle: 4, sk-cleaves: 3, sk-fuga: 1, sk-domain-malevolent: 1 }
     relationship: -100
 
+  # ══════════════ 杂兵 ══════════════
 
+  - id: enemy-grade2-curse
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 二级咒灵
+      age: 3
+      gender: agender
+      description: 从某栋公寓的怨念里长出来的东西。形状不稳定，但牙很硬。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 12, intellect: 2, physique: 6, agility: 5, reputation: 0 }
+    skills: [sk-curse-bite]
+    public:
+      personality: 只有食欲。
+    private:
+      combatHints:
+        skillWeights: { sk-curse-bite: 1 }
+    relationship: -50
+
+  - id: enemy-grade1-curse
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 一级咒灵
+      age: 12
+      gender: agender
+      description: 一级。它已经学会了等，学会了在你转身的时候动手。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 30, intellect: 5, physique: 8, agility: 6, reputation: 0 }
+    skills: [sk-curse-crush, sk-curse-wail]
+    public:
+      personality: 沉默，耐心。
+    private:
+      combatHints:
+        skillWeights: { sk-curse-crush: 3, sk-curse-wail: 2 }
+    relationship: -60
+
+  - id: enemy-curse-user
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 诅咒师
+      age: 30
+      gender: male
+      description: 用术式杀人换钱的家伙。他不恨你，只是你值几个钱。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 20, intellect: 6, physique: 6, agility: 7, reputation: 0 }
+    skills: [sk-curse-user-blade, sk-basic-strike]
+    public:
+      personality: 干脆，务实。
+    private:
+      combatHints:
+        skillWeights: { sk-curse-user-blade: 3, sk-basic-strike: 1 }
+    relationship: -40
+
+  - id: enemy-curse-womb
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 特级咒胎
+      age: 1
+      gender: agender
+      description: 少年院地下那间屋子里孵化了不知多久的东西。它还没长完，但已经不需要长完了。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 38, intellect: 3, physique: 11, agility: 7, reputation: 0 }
+    skills: [sk-curse-crush, sk-curse-bite, sk-curse-wail]
+    public:
+      personality: 没有。
+    private:
+      combatHints:
+        skillWeights: { sk-curse-crush: 3, sk-curse-bite: 2, sk-curse-wail: 1 }
+    relationship: -80
+
+# ══════════════ 玩家初始模板 ══════════════
+# 只给「一个新生应有的东西」：一具身体、一门基础体术、一个急救包。
+# 术式 / 咒具 / 战斗风格 / 补正全部由开局的命数转盘决定（旧 demo 的遗留技能与护符已清空）。
 playerTemplate:
   identity:
-    age: 16
+    age: 15
     gender: female
   mood: 60
-  attributes: { cursedEnergy: 8, intellect: 7, physique: 6, agility: 6, luck: 6, reputation: 0 }
-  skills: [sk-basic-strike, sk-cursed-speech, sk-cursed-strike, sk-reverse-heal, sk-investigation]
+  attributes: { cursedEnergy: 5, intellect: 6, physique: 5, agility: 5, luck: 5, reputation: 0 }
+  skills: [sk-basic-strike]
   items:
-    - { itemId: item-first-aid, count: 2 }
-    - { itemId: eq-watcher-charm, count: 1 }
+    - { itemId: item-first-aid, count: 1 }

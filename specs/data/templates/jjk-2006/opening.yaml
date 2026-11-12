@@ -1,22 +1,21 @@
-# JJK-2006 开局分域（协议 V2.1 §16 · R-OP-01..06）
+# JJK 开局分域（协议 V2.1 §16 · R-OP-01..06）
 #
 # 两个开局都把「命数转盘」当成第一个待决事件（ev-opening-wheel，chain 源、不属于任何链）。
-# 玩家创建世界后的第一个画面就是转盘；选「转动命数转盘」进入 13 步角色创建。
-# 差异保留在「起点关系 + 起始 flag」两处，不新增世界状态结构。
+# 创建世界后的第一个画面就是转盘；13 步里定下性别、年龄、资质、术式、咒具、引路人……
+# 差异只体现在「起点关系 + 起始 flag」，不新增世界状态结构。
 #
-# worldSetup.flags.chapter = 1 是主线章节机的起点：五章触发器用
-# `{ flag: chapter, eq: N } + time.gte` 门控，章与章之间用 advanceTo 跳月。
+# 时间线锚点由事件自己用 advanceTo 推进（入学式 → 2006-04-03），
+# 这两个开局只负责把 chapter/ready1 摆到起始位、把玩家关系铺好。
 
 - openingId: op-2006-tokyo
-  name: 2006 · 东京高专
-  description: 以东京咒术高专一年生的身份入学。转盘停下的那一刻，你的一生就这样开始了。
+  name: 2006 · 东京高专一年生
+  description: 以东京咒术高专一年生的身份入学。你与七海建人、灰原雄同班，五条悟与夏油杰是比你高一届的学长。十二年后，你会站在新宿的废墟上。
   entryConditions: []
   steps:
     - { id: step-enter-tokyo, kind: required }
   characterSetup:
     effects:
       - { type: grantItem, itemId: item-first-aid, count: 1 }
-      - { type: grantItem, itemId: item-mp-candy, count: 1 }
     flags:
       openingPath: tokyo
   worldSetup:
@@ -24,17 +23,44 @@
       openingDone: true
       chapter: 1
       ready1: true
+      era: 1
+      spDone: false
+      bsDone: false
+      npDone: false
+      jvDone: false
+      shDone: false
+      cgDone: false
+      sjDone: false
+      getoGone: false
+      haibaraDead: false
+      gojoGone: false
+      nanamiGone: false
+      yutaGone: false
+      yujiJoined: false
+      getoStayed: false
+      savedRiko: false
+      savedGojo: false
+      gojoSealed: false
+      shibuyaSurvived: false
+      defected: false
+      moleClue: false
   npcSetup:
     relations:
-      - { npcId: npc-gojo, value: 5, source: 入学引导 }
-      - { npcId: npc-shoko, value: 3, source: 同班同学 }
+      - { npcId: npc-nanami, value: 8, source: 同班同学 }
+      - { npcId: npc-haibara, value: 10, source: 同班同学 }
+      - { npcId: npc-yaga, value: 6, source: 班主任 }
+      - { npcId: npc-gojo, value: 4, source: 学长 }
+      - { npcId: npc-geto, value: 4, source: 学长 }
+      - { npcId: npc-shoko, value: 3, source: 校医 }
     visibility:
       npc-riko: unknown
       npc-yuta: unknown
+      npc-yuji: unknown
+      enemy-toji: unknown
   eventPools: []
   objectives:
     flags:
-      objective: 活过这一年，然后写下自己的结局
+      objective: 活过这十二年，然后写下自己的结局
   choices: {}
   completionConditions:
     - { flag: openingDone, eq: true }
@@ -43,14 +69,15 @@
     schedule: []
 
 - openingId: op-2006-kyoto
-  name: 2006 · 京都校交流
-  description: 作为京都校交流生来到东京，起点关系和别人不太一样，但转盘是一样的。
+  name: 2006 · 京都校交流生
+  description: 作为京都校的交流生来到东京。你比别人更早认识夏油杰，也更早知道御三家的规矩。转盘是一样的，但起点的关系不一样。
   entryConditions: []
   steps:
     - { id: step-enter-kyoto, kind: required }
   characterSetup:
     effects:
       - { type: grantItem, itemId: item-first-aid, count: 1 }
+      - { type: adjustAttribute, attribute: reputation, value: 5 }
     flags:
       openingPath: kyoto
   worldSetup:
@@ -58,13 +85,36 @@
       openingDone: true
       chapter: 1
       ready1: true
+      era: 1
+      spDone: false
+      bsDone: false
+      npDone: false
+      jvDone: false
+      shDone: false
+      cgDone: false
+      sjDone: false
+      getoGone: false
+      haibaraDead: false
+      gojoGone: false
+      nanamiGone: false
+      yutaGone: false
+      yujiJoined: false
+      getoStayed: false
+      savedRiko: false
+      savedGojo: false
+      gojoSealed: false
+      shibuyaSurvived: false
+      defected: false
+      moleClue: false
   npcSetup:
     relations:
-      - { npcId: npc-geto, value: 6, source: 交流生接待 }
-      - { npcId: npc-nanami, value: 4, source: 同期交流 }
+      - { npcId: npc-geto, value: 10, source: 交流生接待 }
+      - { npcId: npc-gojo, value: 2, source: 传闻 }
+      - { npcId: npc-nanami, value: 3, source: 同期交流 }
+      - { npcId: npc-yaga, value: 4, source: 交流负责人 }
     visibility:
-      npc-gojo: unknown
       npc-riko: unknown
+      npc-yuta: unknown
   eventPools: []
   objectives: {}
   choices:

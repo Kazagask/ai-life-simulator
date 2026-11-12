@@ -40,18 +40,11 @@ describe("V2 引擎 · 模板加载", () => {
     const template = loadJjkTemplate();
     expect(template.meta.id).toBe("jjk-2006");
     expect(template.events.length).toBeGreaterThan(5);
-    expect(template.skills.some((s) => s.id === "sk-domain-void")).toBe(true);
-    expect(template.chains?.map((c) => c.id)).toEqual([
-      "chain-creation",
-      "chain-sp",
-      "chain-geto",
-      "chain-night",
-      "chain-shibuya",
-      "chain-finale",
-    ]);
+    expect(template.skills.some((s) => s.id === "sk-domain-empty")).toBe(true);
+    expect(template.chains?.map((c) => c.id)).toEqual(["chain-creation"]);
   });
 
-  it("咒术转盘开局：入口事件 + 13 步创建链 + 五章主线链", () => {
+  it("命数转盘：13 步创建链（含性别与年龄）+ 七章主线", () => {
     const template = loadJjkTemplate();
     // 入口事件：chain 源 normal 事件，由 opening handoff 直推待决队列首
     const entry = template.events.find((e) => e.id === "ev-opening-wheel");
@@ -61,14 +54,49 @@ describe("V2 引擎 · 模板加载", () => {
     expect(chain).toBeDefined();
     expect(chain?.startEventId).toBe("ev-w01");
     expect(chain?.steps.length).toBe(13);
-    const wheelEvents = template.events.filter((e) => /^ev-w\d{2}$/.test(e.id));
+    const wheelEvents = template.events.filter((e) => /^ev-w(0[1-9]|1[0-3])$/.test(e.id));
     expect(wheelEvents.length).toBe(13);
-    // 前 12 步为选择，最后一步是真的转盘（random）——转盘负责「命」
-    for (const e of wheelEvents.slice(0, 12)) expect(e.kind).toBe("normal");
-    expect(template.events.find((e) => e.id === "ev-w13")?.kind).toBe("random");
+    // 前 11 步为选择，第 12 步是真的转盘（random），第 13 步是入学式
+    for (const e of wheelEvents.slice(0, 11)) expect(e.kind).toBe("normal");
+    expect(template.events.find((e) => e.id === "ev-w12")?.kind).toBe("random");
+    expect(template.events.find((e) => e.id === "ev-w13")?.kind).toBe("normal");
+    // 性别与年龄由玩家在事件里定下（setIdentity），不是模板写死
+    const genderStep = template.events.find((e) => e.id === "ev-w01");
+    const genderEffects =
+      genderStep?.kind === "normal" ? genderStep.settle.normal.options.flatMap((o) => o.effects ?? []) : [];
+    expect(genderEffects.some((e) => e.type === "setIdentity")).toBe(true);
+    const ageStep = template.events.find((e) => e.id === "ev-w02");
+    const ageEffects = ageStep?.kind === "normal" ? ageStep.settle.normal.options.flatMap((o) => o.effects ?? []) : [];
+    expect(ageEffects.some((e) => e.type === "setIdentity" && e.age !== undefined)).toBe(true);
+    // 七章主线：七个章节 gate（priority 100 + once），内容按原作时间线
+    const gates = template.events.filter((e) => e.trigger.source === "pool" && e.trigger.priority === 100);
+    expect(gates.map((g) => g.id)).toEqual([
+      "ev-ch1-gate",
+      "ev-ch2-gate",
+      "ev-ch3-gate",
+      "ev-ch4-gate",
+      "ev-ch5-gate",
+      "ev-ch6-gate",
+      "ev-ch7-gate",
+    ]);
+    // 时间线锚定原作：星浆体 2006-08 → 苦夏 2007-06 → 百鬼 2017-12 → 涩谷 2018-10 → 新宿 2018-12
+    const gateDay = (id: string): number => {
+      const g = template.events.find((e) => e.id === id);
+      const cond = g?.trigger.conditions?.find((c) => "time" in c && c.time.gte) as
+        | { time: { gte: { value: number; unit: string } } }
+        | undefined;
+      return cond?.time.gte.value ?? -1;
+    };
+    expect(gateDay("ev-ch1-gate")).toBe(215);
+    expect(gateDay("ev-ch2-gate")).toBe(526);
+    expect(gateDay("ev-ch3-gate")).toBe(4370);
+    expect(gateDay("ev-ch5-gate")).toBe(4680);
+    expect(gateDay("ev-ch7-gate")).toBe(4736);
     // 世界观资产（角色/技能/物品/补正）保留
     expect(template.characters.some((c) => c.id === "npc-riko")).toBe(true);
     expect(template.characters.some((c) => c.id === "enemy-jogo")).toBe(true);
+    expect(template.characters.some((c) => c.id === "enemy-kenjaku")).toBe(true);
+    expect(template.characters.some((c) => c.id === "npc-nanami")).toBe(true);
   });
 });
 
@@ -101,7 +129,7 @@ describe("V2 引擎 · 补正与六眼", () => {
       const s = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 42 }, template, "w-dmg");
       s.battle = createBattle(
         "ev-curse-ambush",
-        { enemies: [{ ref: "enemy-curse-larva", levelScale: 1 }], canFlee: false },
+        { enemies: [{ ref: "enemy-grade2-curse", levelScale: 1 }], canFlee: false },
         s,
         lookup,
       );
@@ -160,9 +188,10 @@ describe("V2 引擎 · advanceTime 绝对/相对时间推进", () => {
       expect(skill.applyStatus?.[0]?.status).toBe("stun");
       expect(skill.damage?.[0]?.preset).toBe("scaled");
     }
-    expect(template.playerTemplate?.skills).toContain("sk-cursed-speech");
-    // 主角已强化：初始咒力高于默认值
-    expect(template.playerTemplate?.attributes.cursedEnergy).toBeGreaterThan(5);
+    // 旧 demo 遗留已清：新生只带一门基础体术，术式由命数转盘决定
+    expect(template.playerTemplate?.skills).toEqual(["sk-basic-strike"]);
+    expect(template.playerTemplate?.attributes.cursedEnergy).toBe(5);
+    expect(template.playerTemplate?.items?.map((i) => i.itemId)).toEqual(["item-first-aid"]);
   });
 });
 
@@ -831,32 +860,64 @@ describe("V2 引擎 · 咒术转盘开局链", () => {
       const ev = template.events.find((e) => e.id === pend.eventId);
       if (!ev || ev.kind !== "normal") break;
       let optId = ev.settle.normal.options[0].id;
-      if (ev.title === "生得术式") {
-        const o = ev.settle.normal.options.find((x) => x.text.includes("影法术"));
+      const pickByText = (needle: string) => {
+        const o = ev.settle.normal.options.find((x) => x.text.includes(needle));
         if (o) optId = o.id;
-      } else if (ev.title === "咒具") {
-        const o = ev.settle.normal.options.find((x) => x.text.includes("天逆"));
-        if (o) optId = o.id;
-      } else if (ev.title === "咒力资质") {
-        const o = ev.settle.normal.options.find((x) => x.text.includes("肉体在叫嚣"));
-        if (o) optId = o.id;
+      };
+      switch (ev.title) {
+        case "性别":
+          pickByText("女性");
+          break;
+        case "年龄与出身":
+          pickByText("十五岁 · 东京都内");
+          break;
+        case "咒力资质":
+          pickByText("绳子烧断了");
+          break;
+        case "生得术式":
+          pickByText("影法术");
+          break;
+        case "术式的应用":
+          pickByText("领域");
+          break;
+        case "咒具":
+          pickByText("天逆");
+          break;
+        case "引路人":
+          pickByText("夜蛾正道");
+          break;
+        case "代价":
+          // 第一个选项（天与咒缚）只在「无术式」时可选，这里选一个恒可选的
+          pickByText("没有代价");
+          break;
+        default:
+          break;
       }
       chooseOptionV2(state, { optionId: optId }, template, lookup);
     }
 
-    // 链收束（最后一步 ev-w13 是真转盘：random 即时结算，链随之完成）
+    // 创建链收束（ev-w12 是真转盘：random 即时结算；ev-w13 入学式收尾）
     expect(state.chains.find((c) => c.id === "chain-creation")?.status).toBe("completed");
-    // 获取技能（生得术式 → 十种影法术）
+    // 性别 / 年龄由玩家在事件里定下（setIdentity 生效）
+    expect(state.player.gender).toBe("female");
+    expect(state.playerAgeAtStart).toBe(15);
+    // 术式 = 补正 + 多技能（不是单个技能）
+    expect(state.player.statuses.some((s) => s.statusId === "tech-ten-shadow")).toBe(true);
     expect(state.player.skills).toContain("sk-ten-shadow");
-    // 获取技能（天与咒缚 → 天与暴君体术）
-    expect(state.player.skills).toContain("sk-heavenly-body");
-    // 获取装备（咒具 → 天逆鉾）
+    expect(state.player.skills).toContain("sk-ten-nue");
+    expect(state.player.skills).toContain("sk-domain-expansion");
+    // 咒具真的进背包
     expect((state.player.inventory["eq-ten-spear"] ?? 0) > 0).toBe(true);
-    // 获取补正（天与咒缚 → heavenly-restriction）
-    expect(state.player.statuses.some((s) => s.statusId === "heavenly-restriction")).toBe(true);
-    // 全量标记覆盖（13 步创建链每一步都留下 wNN）
-    const wheelCount = template.events.filter((e) => /^ev-w\d{2}$/.test(e.id)).length;
-    for (let i = 1; i <= wheelCount; i++) {
+    // 入学式：时间跳到 2006-04-03（第 92 天），冻结解除，进入第一章
+    expect(state.flags.creationDone).toBe(true);
+    expect(state.flags.era).toBe(1);
+    expect(state.flags.chapter).toBe(1);
+    expect(state.flags.ready1).toBe(true);
+    expect(Math.round(state.worldTime / 1440)).toBe(92);
+    // 全量标记覆盖（每一步都留下 wNN）
+    const wheelCount = template.events.filter((e) => /^ev-w(0[1-9]|1[0-3])$/.test(e.id)).length;
+    expect(wheelCount).toBe(13);
+    for (let i = 1; i <= 12; i++) {
       expect(state.flags[`w${String(i).padStart(2, "0")}`]).toBeDefined();
     }
   });

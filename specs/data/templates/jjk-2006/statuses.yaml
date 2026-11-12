@@ -1,8 +1,191 @@
-# JJK Demo 世界模板 · statuses.yaml
+# JJK 世界模板 · statuses.yaml
+#
 # 补正（buff/debuff 统称）：单定义双面（simulation / combat，至少其一）。
 # 转换规则为引擎固定逻辑：进战斗激活 combat 面（缺省休眠不消失）；
 # 战斗结束存续 simulation 面（仅 combat 面则清除）；战斗中 duration.turns 不递减。
+#
+# 2026-11-12：生得术式改为「角色级补正」（tech-*）。术式不是技能列表，
+# 而是给角色带来持续属性加成 + 战斗增幅的**身份**，技能只是它的外显。
 statuses:
+  # ══════════════ 生得术式（角色级、永久；一人可持有多个） ══════════════
+
+  - id: tech-ten-shadow
+    name: 术式·十种影法术
+    description: 影子里的十种式神。你与它们共享同一片阴影——影子越多，你的咒力越沉。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 4, intellect: 1 }
+    combat:
+      damageDealt: 0.1
+    visibility: known
+
+  - id: tech-red-blood
+    name: 术式·赤血操术
+    description: 血液即武器。加茂家的血脉，越失血越锋利。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 2, physique: 4 }
+    combat:
+      hitChance: 0.05
+    visibility: known
+
+  - id: tech-doll
+    name: 术式·刍灵咒法
+    description: 以草人与钉子代替自己承受因果。你比谁都清楚「名字」有多重。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 3, luck: 3 }
+    combat:
+      damageDealt: 0.08
+    visibility: known
+
+  - id: tech-thunder
+    name: 术式·雷电
+    description: 咒力以雷的形态存在。出手总是比别人快半步。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 3, agility: 4 }
+    combat:
+      hitChance: 0.08
+    visibility: known
+
+  - id: tech-speech
+    name: 术式·咒言
+    description: 说出的话成为规则。代价是喉咙一直在渗血。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 3, intellect: 4 }
+    combat:
+      damageDealt: 0.08
+    visibility: known
+
+  # 多重术式：极罕见的体质，一人持有两个生得术式（宿傩、羂索、以及玩家的隐藏分支）
+  - id: multi-technique
+    name: 多重术式
+    description: 你的身体里不止一个术式。这在咒术史上是「不该出现」的东西。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 6 }
+    visibility: known
+
+  # ══════════════ 领域 / 黑闪（战斗域） ══════════════
+
+  - id: domain-active
+    name: 领域展开
+    description: 你的法则覆盖了这片空间。攻击必中、伤害放大，敌人的防御被压到最低——但只撑三回合。
+    duration: { turns: 3 }
+    stacking: unique
+    combat:
+      hitChance: 0.3
+      damageDealt: 0.6
+      damageTaken: -0.25
+      battleRounds: 3
+    visibility: known
+
+  - id: domain-pin
+    name: 领域压制
+    description: 被卷进别人的领域。术式被压制，身体像陷在泥里。
+    duration: { turns: 3 }
+    stacking: refresh
+    combat:
+      damageTaken: 0.35
+      hitChance: -0.25
+      battleRounds: 3
+    visibility: known
+
+  - id: black-flash
+    name: 黑闪
+    description: 咒力与物理打击在百万分之一秒的偏差内重合。下一击会被这层余韵放大。
+    duration: { turns: 1 }
+    stacking: refresh
+    combat:
+      damageDealt: 0.5
+      battleRounds: 1
+    visibility: known
+
+  # ══════════════ 角色级特质（原作人物） ══════════════
+
+  - id: six-eyes
+    name: 六眼
+    description: 五条家相传的眼睛。看穿咒力的流动，以近乎零损耗运转咒力。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 20, agility: 10, intellect: 10 }
+    combat:
+      hitChance: 0.2
+      damageDealt: 0.3
+    visibility: known
+
+  - id: cursed-king
+    name: 诅咒之王
+    description: 两面宿傩。千年之前让整个咒术界跪下的存在。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 60 }
+    combat:
+      damageDealt: 0.25
+      damageTaken: -0.2
+    visibility: known
+
+  - id: kenjaku
+    name: 千年术师
+    description: 换过无数具身体的诅咒师。他记得每一个死在他手里的人的名字。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 12, intellect: 8 }
+    combat:
+      damageDealt: 0.15
+    visibility: known
+
+  - id: heavenly-restriction
+    name: 天与咒缚
+    description: 出生时就被拿走全部咒力，换来的是一具超越常识的肉体。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: -8, physique: 20, agility: 12 }
+    visibility: known
+
+  - id: special-physique
+    name: 特殊体质
+    description: 生来异于常人的躯体，能承受别人承受不了的咒力。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { physique: 8, cursedEnergy: 6 }
+    visibility: known
+
+  - id: reverse-mastered
+    name: 反转术式·精通
+    description: 以正向咒力重构肉体。只要还有一口气，就能把伤口合上。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 6 }
+    combat:
+      damageDealt: 0.15
+    visibility: known
+
+  - id: resolved
+    name: 觉悟
+    description: 你已经想清楚要为什么而战。咒力因此凝实。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 5 }
+    visibility: known
+
+  # ══════════════ 负面状态 ══════════════
+
   - id: curse-poison
     name: 咒毒
     description: 咒灵的毒素侵蚀身体。
@@ -34,18 +217,68 @@ statuses:
     visibility: known
 
   - id: injured-sim
-    name: 轻伤
-    description: 身上添了几处擦伤与扭伤。
-    duration: { turns: 2 }
+    name: 重伤
+    description: 骨头裂了，咒力回路也在漏。再挨一次，就真的站不起来了。
+    duration: { turns: 3 }
     stacking: refresh
     simulation:
-      attributeModifiers: { agility: -2 }
+      attributeModifiers: { agility: -3, physique: -2 }
       moodDeltaPerTurn: -2
     cureConditions:
       - { restTurns: 2 }
     visibility: known
 
-  # ---- 仅战斗面的控制类补正（战斗结束自动清除） ----
+  - id: exhausted
+    name: 力竭
+    description: 咒力见底，连抬手都费劲。
+    duration: { turns: 2 }
+    stacking: refresh
+    simulation:
+      attributeModifiers: { agility: -3, physique: -2 }
+      moodDeltaPerTurn: -1
+    visibility: known
+
+  - id: grief
+    name: 丧失
+    description: 有人死了，而你还活着。这件事会跟着你很久。
+    duration: { turns: 8 }
+    stacking: stack
+    simulation:
+      attributeModifiers: { intellect: -1 }
+      moodDeltaPerTurn: -2
+    visibility: known
+
+  - id: doubt
+    name: 动摇
+    description: 你开始怀疑「保护非术师」这条准则是否站得住脚。
+    duration: { turns: 6 }
+    stacking: stack
+    simulation:
+      attributeModifiers: { intellect: -1 }
+      moodDeltaPerTurn: -1
+    visibility: known
+
+  - id: cursed-mark
+    name: 厄运缠身
+    description: 转盘的大凶格留下了印记。走路都会踩到咒灵的巢。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { luck: -4 }
+      moodDeltaPerTurn: -1
+    visibility: known
+
+  - id: blessed
+    name: 大吉
+    description: 转盘停在最吉利的一格。今天做什么都顺手。
+    duration: { turns: 3 }
+    stacking: refresh
+    simulation:
+      attributeModifiers: { luck: 3 }
+      moodDeltaPerTurn: 1
+    visibility: known
+
+  # ══════════════ 战斗控制类（战斗结束自动清除） ══════════════
 
   - id: stun
     name: 眩晕
@@ -77,107 +310,6 @@ statuses:
       battleRounds: 2
     visibility: known
 
-  # ---- 夏油杰的咒灵储备（代替召唤物系统的可叠层补正） ----
-
-  - id: absorbed-curses
-    name: 收集咒灵
-    description: 已吞下的咒灵储备。数量越多，旋涡的献祭威力越大。
-    duration: { turns: 5 }      # 仅 combat 面：战斗结束自动清除，符合"无召唤物系统"的临时性
-    stacking: stack
-    combat: {}                   # 纯计数储备，无战斗修正；层数由 sk-gather-curses 叠加、sk-uzumaki 献祭消耗
-    visibility: known
-
-  # ---- 隐藏补正（仅引擎可见，如敌方增益） ----
-
-  - id: enrage
-    name: 狂化
-    description: 咒灵被激怒，攻击性暴增。
-    duration: { turns: 2 }
-    stacking: refresh
-    combat:
-      damageDealt: 0.3
-      battleRounds: 2
-    visibility: hidden
-
-  # ---- 供状态栏自定义区块演示的正面补正 ----
-
-  - id: cursed-quality
-    name: 咒力质感
-    description: 你的咒力呈现出与众不同的质感。
-    duration: { untilCured: true }
-    stacking: unique
-    simulation:
-      attributeModifiers: { cursedEnergy: 2 }
-    visibility: known
-
-  # ---- 五条悟的六眼（永久正面补正，双面都生效） ----
-
-  - id: six-eyes
-    name: 六眼
-    description: 五条家相传的「六眼」，能看穿咒力的流动，以近乎零损耗运转咒力。
-    duration: { untilCured: true }
-    stacking: unique
-    simulation:
-      attributeModifiers: { cursedEnergy: 20, agility: 10, intellect: 10 }
-    combat:
-      hitChance: 0.2
-      damageDealt: 0.3
-    visibility: known
-
-  # ---- 来自「咒术转盘」的角色特质补正（角色创建维度的具象化，非随机事件内容） ----
-
-  - id: heavenly-restriction
-    name: 天与咒缚
-    description: 以咒力为代价换得的肉体极致。咒力近乎干涸，肉身却超越凡人。
-    duration: { untilCured: true }
-    stacking: unique
-    simulation:
-      attributeModifiers: { cursedEnergy: -8, physique: 20, agility: 12 }
-    visibility: known
-
-  - id: special-physique
-    name: 特殊体质
-    description: 生来异于常人的躯体，或在危机中觉醒的容器之躯。
-    duration: { untilCured: true }
-    stacking: unique
-    simulation:
-      attributeModifiers: { physique: 10, cursedEnergy: 5 }
-    visibility: known
-
-  - id: black-flash
-    name: 黑闪
-    description: 咒力与物理打击在百万分之一秒的偏差内重合，释放远超常理的一击。
-    duration: { turns: 1 }
-    stacking: refresh
-    combat:
-      damageDealt: 0.5
-      battleRounds: 1
-    visibility: known
-
-  - id: domain-active
-    name: 领域展开
-    description: 生得术式的升华——在领域内，你的法则即是绝对。
-    duration: { turns: 2 }
-    stacking: unique
-    combat:
-      hitChance: 0.2
-      damageDealt: 0.3
-      battleRounds: 2
-    visibility: known
-
-  - id: reverse-mastered
-    name: 反转术式·精通
-    description: 以正向咒力重构肉体，近乎不死的再生之力。
-    duration: { untilCured: true }
-    stacking: unique
-    simulation:
-      attributeModifiers: { cursedEnergy: 8 }
-    combat:
-      damageDealt: 0.2
-    visibility: known
-
-  # ---------- 2006 学年追加：转盘的吉凶与心境 ----------
-
   - id: veil
     name: 帐护
     description: 一层薄薄的咒力帐裹住身体，攻击会被挡掉一部分。
@@ -188,61 +320,20 @@ statuses:
       battleRounds: 2
     visibility: known
 
-  - id: blessed
-    name: 大吉
-    description: 转盘停在最吉利的一格。今天做什么都顺手。
-    duration: { turns: 3 }
-    stacking: refresh
-    simulation:
-      attributeModifiers: { luck: 3 }
-      moodDeltaPerTurn: 1
-    visibility: known
-
-  - id: cursed-mark
-    name: 厄运缠身
-    description: 转盘的大凶格留下了印记。走路都会踩到咒灵的巢。
-    duration: { untilCured: true }
-    stacking: unique
-    simulation:
-      attributeModifiers: { luck: -4 }
-      moodDeltaPerTurn: -1
-    visibility: known
-
-  - id: doubt
-    name: 动摇
-    description: 你开始怀疑「保护非术师」这条准则是否站得住脚。
-    duration: { turns: 6 }
-    stacking: stack
-    simulation:
-      attributeModifiers: { intellect: -1 }
-      moodDeltaPerTurn: -1
-    visibility: known
-
-  - id: sp-omen
-    name: 梦魇
-    description: 反复出现的噩梦：一个被悬在半空的身影，和一条染血的长廊。
+  - id: absorbed-curses
+    name: 收集咒灵
+    description: 已吞下的咒灵储备。数量越多，旋涡的献祭威力越大。
     duration: { turns: 5 }
-    stacking: refresh
-    simulation:
-      moodDeltaPerTurn: -2
-      attributeModifiers: { intellect: -1 }
+    stacking: stack
+    combat: {}
     visibility: known
 
-  - id: resolved
-    name: 觉悟
-    description: 你已经想清楚要为什么而战。咒力因此凝实。
-    duration: { untilCured: true }
-    stacking: unique
-    simulation:
-      attributeModifiers: { cursedEnergy: 4 }
-    visibility: known
-
-  - id: exhausted
-    name: 力竭
-    description: 咒力见底，连抬手都费劲。
+  - id: enrage
+    name: 狂化
+    description: 咒灵被激怒，攻击性暴增。
     duration: { turns: 2 }
     stacking: refresh
-    simulation:
-      attributeModifiers: { agility: -3, physique: -2 }
-      moodDeltaPerTurn: -1
-    visibility: known
+    combat:
+      damageDealt: 0.3
+      battleRounds: 2
+    visibility: hidden

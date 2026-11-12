@@ -1,10 +1,18 @@
-# JJK Demo 世界模板 · skills.yaml
-# 战斗技能（消耗/命中/伤害/治疗/施加补正/冷却）与通用技能（解锁选项/效率/熟练度）。
+# JJK 世界模板 · skills.yaml
+#
+# 设计原则（2026-11-12 重做）：
+# - 生得术式不是「一个技能」，而是一整套能力：术式补正（见 statuses.yaml）+ 2–3 个技能
+#   + 1 个领域展开。角色可以同时持有多个术式（宿傩、羂索、以及玩家的隐藏分支）。
+# - 引擎没有「暴击」机制，因此黑闪不做随机暴击，改为**会心窗口**：
+#   一记必中的重击 + 给自身挂 1 回合的伤害增幅补正（damageDealt），下一击才是真正的黑闪。
+# - 领域展开用补正实现：自身大幅增幅 + 全体敌人「领域压制」（受伤增加、命中下降），限 3 回合。
 skills:
+  # ────────────────────────────── 通用 ──────────────────────────────
+
   - id: sk-basic-strike
     kind: combat
     name: 体术打击
-    description: 不依赖咒力的基础体术。
+    description: 不依赖咒力的基础体术。任何一个咒术师的第一课。
     cost: { mp: 0 }
     target: enemy
     hitCheck: { preset: opposed, attacker: agility, defender: agility, baseChance: 0.7 }
@@ -16,12 +24,12 @@ skills:
   - id: sk-cursed-strike
     kind: combat
     name: 咒力斩击
-    description: 将咒力凝聚于刃上斩出一击，可能灼伤对手。
+    description: 把咒力凝在拳锋或刃上，一击夹带灼烧。
     cost: { mp: 10 }
     target: enemy
     hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.6 }
     damage:
-      - { preset: scaled, base: 10, scaleBy: cursedEnergy, multiplier: 1.5 }
+      - { preset: scaled, base: 10, scaleBy: cursedEnergy, multiplier: 1.2 }
     applyStatus:
       - { status: cursed-burn, chance: 0.3 }
     cooldownTurns: 1
@@ -29,74 +37,436 @@ skills:
 
   - id: sk-reverse-heal
     kind: combat
-    name: 反转术式·初阶
-    description: 以正向咒力修复自身伤势。
+    name: 反转术式·治疗
+    description: 负负得正。把两股负向咒力相乘，造出能重建血肉的正向能量。
     cost: { mp: 15 }
     target: self
     heal:
-      - { preset: scaled, base: 10, scaleBy: cursedEnergy, multiplier: 0.8 }
+      - { preset: scaled, base: 12, scaleBy: cursedEnergy, multiplier: 0.9 }
     cooldownTurns: 2
     usableInBattle: true
+
+  - id: sk-curtain
+    kind: combat
+    name: 简易领域·帐
+    description: 不追求必中，只求不被秒。薄薄一层帐，挡掉一部分伤害。
+    cost: { mp: 10 }
+    target: self
+    heal:
+      - { preset: scaled, base: 6, scaleBy: cursedEnergy, multiplier: 0.4 }
+    applyStatus:
+      - { status: veil, chance: 1.0, stacks: 1, onSelf: true }
+    cooldownTurns: 3
+    usableInBattle: true
+
+  # 黑闪：不是随机暴击，而是「会心窗口」——这一击必中且重，窗口留给下一击
+  - id: sk-black-flash
+    kind: combat
+    name: 黑闪
+    description: 物理打击与咒力在百万分之一秒的误差内重合。这一击之后，咒力的运转会短暂地变得异常顺滑——真正的杀招是下一击。
+    cost: { mp: 16 }
+    target: enemy
+    damage:
+      - { preset: scaled, base: 16, scaleBy: cursedEnergy, multiplier: 1.4 }
+    applyStatus:
+      - { status: black-flash, chance: 1.0, stacks: 1, onSelf: true }
+    cooldownTurns: 4
+    usableInBattle: true
+
+  - id: sk-investigation
+    kind: general
+    name: 调查
+    description: 系统地搜集与核查线索。能问出别人问不出的东西。
+    unlocksOptions: [opt-investigate]
+    proficiency: { maxLevel: 5, growthPerUse: 1 }
+
+  - id: sk-curse-knowledge
+    kind: general
+    name: 咒理知识
+    description: 对咒灵习性、术式构造与结界原理的书本理解。
+    unlocksOptions: [opt-examine-curse]
+    efficiency: { key: study, bonus: 0.2 }
+    proficiency: { maxLevel: 5, growthPerUse: 1 }
+
+  # ────────────────────── 领域展开（术式共通的顶点） ──────────────────────
+
+  - id: sk-domain-expansion
+    kind: combat
+    name: 领域展开
+    description: 把生得术式推到极致，用自己的法则覆盖一片空间。领域内你的攻击必中且被放大，敌人的防御被压到最低——但它只撑得住三个回合。
+    cost: { mp: 50 }
+    target: all_enemies
+    damage:
+      - { preset: scaled, base: 26, scaleBy: cursedEnergy, multiplier: 1.0 }
+    applyStatus:
+      - { status: domain-active, chance: 1.0, stacks: 1, onSelf: true }
+      - { status: domain-pin, chance: 1.0, stacks: 1 }
+    cooldownTurns: 99
+    usableInBattle: true
+
+  # ────────────────────── 生得术式 ①：十种影法术 ──────────────────────
+
+  - id: sk-ten-shadow
+    kind: combat
+    name: 影法术·玉犬
+    description: 从影子里唤出式神。第一只总是玉犬——它咬住的地方，影子会跟着缠上去。
+    cost: { mp: 10 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.65 }
+    damage:
+      - { preset: scaled, base: 11, scaleBy: cursedEnergy, multiplier: 1.0 }
+    applyStatus:
+      - { status: bind, chance: 0.35 }
+    cooldownTurns: 1
+    usableInBattle: true
+
+  - id: sk-ten-nue
+    kind: combat
+    name: 影法术·鵺
+    description: 影中飞出的黑色羽翼，抓着对手直冲上天再摔下来。
+    cost: { mp: 14 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.7 }
+    damage:
+      - { preset: scaled, base: 14, scaleBy: cursedEnergy, multiplier: 1.2 }
+    applyStatus:
+      - { status: stun, chance: 0.3 }
+    cooldownTurns: 2
+    usableInBattle: true
+
+  - id: sk-ten-mahoraga
+    kind: combat
+    name: 影法术·八握剑异戒神将魔虚罗
+    description: 十种影法术的最后一手。它出现时，你已经在拿命换时间了——但它会适应对手的一切。
+    cost: { mp: 40 }
+    target: enemy
+    damage:
+      - { preset: scaled, base: 45, scaleBy: cursedEnergy, multiplier: 1.6 }
+    applyStatus:
+      - { status: exhausted, chance: 1.0, stacks: 1, onSelf: true }
+    cooldownTurns: 99
+    usableInBattle: true
+
+  # ────────────────────── 生得术式 ②：赤血操术 ──────────────────────
+
+  - id: sk-red-blood
+    kind: combat
+    name: 赤血操术·刃
+    description: 把血抽成薄刃。加茂家的血脉术式，代价是你自己也在失血。
+    cost: { mp: 8 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.65 }
+    damage:
+      - { preset: scaled, base: 12, scaleBy: cursedEnergy, multiplier: 1.1 }
+    applyStatus:
+      - { status: curse-poison, chance: 0.4 }
+    cooldownTurns: 1
+    usableInBattle: true
+
+  - id: sk-blood-cage
+    kind: combat
+    name: 赤血操术·牢
+    description: 血液在半空凝固成笼，把对手关在里面慢慢收紧。
+    cost: { mp: 12 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.6 }
+    damage:
+      - { preset: scaled, base: 8, scaleBy: cursedEnergy, multiplier: 0.8 }
+    applyStatus:
+      - { status: bind, chance: 0.7 }
+    cooldownTurns: 3
+    usableInBattle: true
+
+  - id: sk-blood-hardening
+    kind: combat
+    name: 赤血操术·壳
+    description: 血液在皮肤下凝成硬壳。疼，但能活。
+    cost: { mp: 10 }
+    target: self
+    heal:
+      - { preset: scaled, base: 8, scaleBy: cursedEnergy, multiplier: 0.5 }
+    applyStatus:
+      - { status: veil, chance: 1.0, stacks: 1, onSelf: true }
+    cooldownTurns: 3
+    usableInBattle: true
+
+  # ────────────────────── 生得术式 ③：刍灵咒法 ──────────────────────
+
+  - id: sk-doll-curse
+    kind: combat
+    name: 刍灵咒法·钉
+    description: 一根钉子、一个草人、一缕头发。剩下的交给因果。
+    cost: { mp: 9 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.65 }
+    damage:
+      - { preset: scaled, base: 10, scaleBy: cursedEnergy, multiplier: 1.0 }
+    applyStatus:
+      - { status: cursed-burn, chance: 0.4 }
+    cooldownTurns: 1
+    usableInBattle: true
+
+  - id: sk-doll-nail
+    kind: combat
+    name: 刍灵咒法·共鸣
+    description: 敲下第二根钉子——同一具身体上的伤口会一起裂开。
+    cost: { mp: 12 }
+    target: enemy
+    damage:
+      - { preset: scaled, base: 16, scaleBy: cursedEnergy, multiplier: 1.1 }
+    cooldownTurns: 2
+    usableInBattle: true
+
+  - id: sk-doll-trance
+    kind: combat
+    name: 刍灵咒法·恍惚
+    description: 草人替你承受了一部分「被看见」这件事。对手会短暂地找不到你。
+    cost: { mp: 10 }
+    target: enemy
+    applyStatus:
+      - { status: stun, chance: 0.55 }
+    cooldownTurns: 3
+    usableInBattle: true
+
+  # ────────────────────── 生得术式 ④：雷电 ──────────────────────
+
+  - id: sk-thunder
+    kind: combat
+    name: 雷电·枪
+    description: 咒力在掌心压成一道雷，掷出去时空气会先一步炸开。
+    cost: { mp: 12 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.6 }
+    damage:
+      - { preset: scaled, base: 13, scaleBy: cursedEnergy, multiplier: 1.2 }
+    applyStatus:
+      - { status: stun, chance: 0.3 }
+    cooldownTurns: 2
+    usableInBattle: true
+
+  - id: sk-thunder-spear
+    kind: combat
+    name: 雷电·贯
+    description: 把雷压成一条直线。它不追求范围，只追求从这一头穿到那一头。
+    cost: { mp: 16 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.7 }
+    damage:
+      - { preset: scaled, base: 22, scaleBy: cursedEnergy, multiplier: 1.3 }
+    cooldownTurns: 3
+    usableInBattle: true
+
+  - id: sk-thunder-field
+    kind: combat
+    name: 雷电·域
+    description: 不等领域成型，先让整片地面的空气带电。踩进来的人都会慢半拍。
+    cost: { mp: 14 }
+    target: all_enemies
+    damage:
+      - { preset: scaled, base: 9, scaleBy: cursedEnergy, multiplier: 0.7 }
+    applyStatus:
+      - { status: stun, chance: 0.35 }
+    cooldownTurns: 3
+    usableInBattle: true
+
+  # ────────────────────── 生得术式 ⑤：咒言 ──────────────────────
 
   - id: sk-cursed-speech
     kind: combat
-    name: 咒言术
-    description: 以咒力加持的话语命令现实，束缚甚至击退对手。
-    cost: { mp: 15 }
+    name: 咒言·命
+    description: 用咒力加持一句话，让它成为现实。喉咙会先一步流血。
+    cost: { mp: 13 }
     target: enemy
     hitCheck: { preset: opposed, attacker: cursedEnergy, defender: cursedEnergy, baseChance: 0.6 }
     damage:
-      - { preset: scaled, base: 14, scaleBy: cursedEnergy, multiplier: 1.3 }
+      - { preset: scaled, base: 14, scaleBy: cursedEnergy, multiplier: 1.2 }
     applyStatus:
-      - { status: stun, chance: 0.4 }
+      - { status: stun, chance: 0.45 }
     cooldownTurns: 2
     usableInBattle: true
 
-  # ---------- 五条悟 kit ----------
+  - id: sk-speech-command
+    kind: combat
+    name: 咒言·止
+    description: 「停。」——一个字，对手的肌肉会先于意志服从。
+    cost: { mp: 16 }
+    target: enemy
+    applyStatus:
+      - { status: seal, chance: 0.8 }
+    cooldownTurns: 3
+    usableInBattle: true
+
+  - id: sk-speech-seal
+    kind: combat
+    name: 咒言·封
+    description: 把对手的术式名字从世界上暂时抹掉。它还在，但叫不出来。
+    cost: { mp: 18 }
+    target: all_enemies
+    applyStatus:
+      - { status: seal, chance: 0.6 }
+    cooldownTurns: 4
+    usableInBattle: true
+
+  # ────────────────────── 生得术式 ⑥：无术式（天与咒缚） ──────────────────────
+
+  - id: sk-heavenly-body
+    kind: combat
+    name: 天与暴君
+    description: 没有咒力，只有能把术师按进墙里的身体。你打的不是咒力，是骨头。
+    cost: { mp: 0 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: physique, defender: agility, baseChance: 0.8 }
+    damage:
+      - { preset: scaled, base: 22, scaleBy: physique, multiplier: 1.2 }
+    cooldownTurns: 0
+    usableInBattle: true
+
+  - id: sk-heavenly-rush
+    kind: combat
+    name: 天与·贯手
+    description: 一步踏进对手的怀里，五指并拢贯进去。术式在这种距离没有意义。
+    cost: { mp: 0 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: physique, defender: physique, baseChance: 0.75 }
+    damage:
+      - { preset: scaled, base: 30, scaleBy: physique, multiplier: 1.4 }
+    cooldownTurns: 3
+    usableInBattle: true
+
+  # ────────────────────── 五条悟 / 七海建人 kit ──────────────────────
 
   - id: sk-gojo-blue
     kind: combat
     name: 术式顺转·苍
-    description: 造出负的咒力漩涡将目标吸引撕裂，稳定而致命。
-    cost: { mp: 20 }
+    description: 造出负的咒力漩涡，把目标吸进去撕裂。
+    cost: { mp: 18 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.7 }
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.75 }
     damage:
-      - { preset: scaled, base: 15, scaleBy: cursedEnergy, multiplier: 0.8 }
+      - { preset: scaled, base: 18, scaleBy: cursedEnergy, multiplier: 0.9 }
     cooldownTurns: 1
     usableInBattle: true
 
   - id: sk-gojo-red
     kind: combat
     name: 术式反转·赫
-    description: 咒力反转的排斥爆发，威力远超顺转。
-    cost: { mp: 35 }
+    description: 把「苍」反转成排斥。爆发力远超顺转，五条自己都嫌它太张扬。
+    cost: { mp: 32 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.6 }
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.65 }
     damage:
-      - { preset: scaled, base: 30, scaleBy: cursedEnergy, multiplier: 1.2 }
+      - { preset: scaled, base: 34, scaleBy: cursedEnergy, multiplier: 1.3 }
     cooldownTurns: 2
     usableInBattle: true
 
-  - id: sk-domain-void
+  - id: sk-domain-empty
     kind: combat
     name: 领域展开·无量空处
-    description: 将无限制的咒力信息灌入领域内一切对象——必中全体，令人无法行动。
-    cost: { mp: 60 }
-    target: all_enemies            # 必中全体（hitCheck 省略 = 必中）
+    description: 把「无限」的信息灌进领域内所有生物的大脑。他们什么都能看见，所以什么都做不了。
+    cost: { mp: 55 }
+    target: all_enemies
     damage:
-      - { preset: scaled, base: 40, scaleBy: cursedEnergy, multiplier: 1.0 }
+      - { preset: scaled, base: 30, scaleBy: cursedEnergy, multiplier: 1.0 }
     applyStatus:
-      - { status: stun, chance: 1.0, stacks: 1 }
-    cooldownTurns: 99              # V0.1 用长冷却近似"每场战斗一次"；独占机制见 OPEN_QUESTIONS
+      - { status: domain-active, chance: 1.0, stacks: 1, onSelf: true }
+      - { status: domain-pin, chance: 1.0, stacks: 1 }
+      - { status: stun, chance: 0.9 }
+    cooldownTurns: 99
     usableInBattle: true
 
-  # ---------- 夏油杰 kit（无召唤物系统：咒灵以补正代替） ----------
+  - id: sk-7-3
+    kind: combat
+    name: 十划咒法·比率
+    description: 把目标按 3:7 切开——在那一刻，那 30% 就是绝对的弱点。
+    cost: { mp: 8 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.75 }
+    damage:
+      - { preset: fixed, value: 20 }
+    cooldownTurns: 2
+    usableInBattle: true
+
+  # ────────────────────── 敌人 / NPC kit ──────────────────────
+
+  - id: sk-curse-bite
+    kind: combat
+    name: 诅咒撕咬
+    description: 以扭曲的颚撕咬猎物。
+    cost: { mp: 0 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: physique, defender: agility, baseChance: 0.6 }
+    damage:
+      - { preset: scaled, base: 7, scaleBy: physique, multiplier: 0.9 }
+    cooldownTurns: 0
+    usableInBattle: true
+
+  - id: sk-curse-wail
+    kind: combat
+    name: 诅咒尖啸
+    description: 凝聚怨念的音波，冲击所有对手。
+    cost: { mp: 5 }
+    target: all_enemies
+    damage:
+      - { preset: fixed, value: 7 }
+    cooldownTurns: 2
+    usableInBattle: true
+
+  - id: sk-curse-crush
+    kind: combat
+    name: 咒力碾压
+    description: 一级咒灵凝成的巨大质量，直接把猎物压进地面。
+    cost: { mp: 12 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.65 }
+    damage:
+      - { preset: scaled, base: 16, scaleBy: cursedEnergy, multiplier: 1.2 }
+    applyStatus:
+      - { status: bind, chance: 0.35 }
+    cooldownTurns: 1
+    usableInBattle: true
+
+  - id: sk-curse-user-blade
+    kind: combat
+    name: 缚咒斩
+    description: 把咒力凝在刀锋上，专斩术师的咒力回路。
+    cost: { mp: 8 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.7 }
+    damage:
+      - { preset: scaled, base: 12, scaleBy: cursedEnergy, multiplier: 1.1 }
+    applyStatus:
+      - { status: cursed-burn, chance: 0.3 }
+    cooldownTurns: 1
+    usableInBattle: true
+
+  - id: sk-weapon-cleave
+    kind: combat
+    name: 咒具·断刃
+    description: 特级咒具挥出的斩击，连术式都能一并斩断。
+    cost: { mp: 5 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: physique, defender: physique, baseChance: 0.7 }
+    damage:
+      - { preset: fixed, value: 30 }
+    cooldownTurns: 2
+    usableInBattle: true
+
+  - id: sk-puppet
+    kind: combat
+    name: 咒骸·袭击
+    description: 夜蛾缝在布偶里的咒力骨架，从暗处扑上来。
+    cost: { mp: 8 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.7 }
+    damage:
+      - { preset: scaled, base: 12, scaleBy: cursedEnergy, multiplier: 1.0 }
+    cooldownTurns: 1
+    usableInBattle: true
 
   - id: sk-gather-curses
     kind: combat
     name: 咒灵操术·收集
-    description: 以咒力降伏并吞下弱小咒灵，为自身积蓄咒灵储备（可叠层）。
+    description: 吞下弱小咒灵，化为储备。储备越多，旋涡越大。
     cost: { mp: 10 }
     target: enemy
     hitCheck: { preset: opposed, attacker: cursedEnergy, defender: cursedEnergy, baseChance: 0.6 }
@@ -110,275 +480,115 @@ skills:
   - id: sk-uzumaki
     kind: combat
     name: 旋涡
-    description: 将收集的咒灵合而为一，献祭它们释放出毁灭性的一击——献祭的数量决定威力。
+    description: 把收集的咒灵揉成一团砸出去。献祭多少，就有多响。
     cost: { mp: 25 }
     target: enemy
     hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.6 }
     damage:
       - { preset: stack-scaled, base: 10, perStack: 15, status: absorbed-curses }
-    consumeStatus: { status: absorbed-curses }   # 献祭 = 失去全部收集的咒灵
-    cooldownTurns: 2
-    usableInBattle: true
-
-  # ---------- 咒灵敌人技能 ----------
-
-  - id: sk-curse-bite
-    kind: combat
-    name: 诅咒撕咬
-    description: 以扭曲的颚撕咬猎物。
-    cost: { mp: 0 }
-    target: enemy
-    hitCheck: { preset: opposed, attacker: physique, defender: agility, baseChance: 0.6 }
-    damage:
-      - { preset: scaled, base: 8, scaleBy: physique, multiplier: 1.0 }
-    cooldownTurns: 0
-    usableInBattle: true
-
-  - id: sk-curse-wail
-    kind: combat
-    name: 诅咒尖啸
-    description: 释放凝聚怨念的音波，冲击所有对手。
-    cost: { mp: 5 }
-    target: all_enemies
-    damage:
-      - { preset: fixed, value: 6 }
-    cooldownTurns: 2
-    usableInBattle: true
-
-  - id: sk-miguel-strike
-    kind: combat
-    name: 黑绳·打切
-    description: 以注入咒力的黑绳抽打目标，力道惊人。
-    cost: { mp: 10 }
-    target: enemy
-    hitCheck: { preset: opposed, attacker: physique, defender: agility, baseChance: 0.6 }
-    damage:
-      - { preset: scaled, base: 12, scaleBy: physique, multiplier: 1.0 }
-    cooldownTurns: 0
-    usableInBattle: true
-
-  - id: sk-investigation
-    kind: general
-    name: 调查
-    description: 系统地搜集与核查线索。
-    unlocksOptions: [opt-investigate]
-    proficiency: { maxLevel: 5, growthPerUse: 1 }
-
-  - id: sk-curse-knowledge
-    kind: general
-    name: 咒理知识
-    description: 对咒灵习性与术式构造的书本理解。
-    unlocksOptions: [opt-examine-curse]
-    efficiency: { key: study, bonus: 0.2 }
-    proficiency: { maxLevel: 5, growthPerUse: 1 }
-
-  # ---------- 来自「咒术转盘·生得术式」维度的术式库（角色创建维度的具象化，非随机事件） ----------
-
-  - id: sk-ten-shadow
-    kind: combat
-    name: 十种影法术
-    description: 伏黑惠的式神召唤——以影子搏动的十种式神压制对手。
-    cost: { mp: 12 }
-    target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.65 }
-    damage:
-      - { preset: scaled, base: 12, scaleBy: cursedEnergy, multiplier: 1.1 }
-    applyStatus:
-      - { status: bind, chance: 0.4 }
-    cooldownTurns: 1
-    usableInBattle: true
-
-  - id: sk-red-blood
-    kind: combat
-    name: 赤血操术
-    description: 加茂家的血脉术式，操控自身的血液化作利刃与牢笼。
-    cost: { mp: 10 }
-    target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.6 }
-    damage:
-      - { preset: scaled, base: 10, scaleBy: cursedEnergy, multiplier: 1.0 }
-    applyStatus:
-      - { status: curse-poison, chance: 0.5 }
+    consumeStatus: { status: absorbed-curses }
     cooldownTurns: 2
     usableInBattle: true
 
   - id: sk-impurity
     kind: combat
     name: 无为转变
-    description: 真人的术式——触碰灵魂的形，将对手扭曲成畸形。
+    description: 触碰灵魂的形，把对手改造成另一种东西。人类对它来说只是素材。
     cost: { mp: 14 }
     target: enemy
     hitCheck: { preset: opposed, attacker: cursedEnergy, defender: intellect, baseChance: 0.6 }
     damage:
-      - { preset: scaled, base: 11, scaleBy: cursedEnergy, multiplier: 1.0 }
+      - { preset: scaled, base: 13, scaleBy: cursedEnergy, multiplier: 1.1 }
     applyStatus:
-      - { status: stun, chance: 0.35 }
-    cooldownTurns: 2
-    usableInBattle: true
-
-  - id: sk-7-3
-    kind: combat
-    name: 十划咒法
-    description: 七海建人的术式，于 3:7 处制造出绝对弱点。
-    cost: { mp: 8 }
-    target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.7 }
-    damage:
-      - { preset: fixed, value: 22 }
-    cooldownTurns: 2
-    usableInBattle: true
-
-  - id: sk-doll-curse
-    kind: combat
-    name: 刍灵咒法
-    description: 钉崎野蔷薇的诅咒人偶，以发针钉死对手的命。
-    cost: { mp: 9 }
-    target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.6 }
-    damage:
-      - { preset: scaled, base: 9, scaleBy: cursedEnergy, multiplier: 1.0 }
-    applyStatus:
-      - { status: cursed-burn, chance: 0.4 }
-    cooldownTurns: 1
-    usableInBattle: true
-
-  - id: sk-thunder
-    kind: combat
-    name: 雷电术式
-    description: 鹿紫云一式的术式，将咒力化作撕裂长空的雷霆。
-    cost: { mp: 13 }
-    target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.6 }
-    damage:
-      - { preset: scaled, base: 13, scaleBy: cursedEnergy, multiplier: 1.2 }
-    applyStatus:
-      - { status: stun, chance: 0.3 }
+      - { status: stun, chance: 0.4 }
     cooldownTurns: 2
     usableInBattle: true
 
   - id: sk-flame
     kind: combat
-    name: 火焰术式
-    description: 漏瑚的术式，喷涌而出的火山业火将目标吞没。
-    cost: { mp: 12 }
-    target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.6 }
+    name: 火山·業火
+    description: 漏瑚的术式。地面裂开，火从地底涌上来。
+    cost: { mp: 14 }
+    target: all_enemies
     damage:
-      - { preset: scaled, base: 12, scaleBy: cursedEnergy, multiplier: 1.1 }
+      - { preset: scaled, base: 14, scaleBy: cursedEnergy, multiplier: 0.9 }
     applyStatus:
       - { status: cursed-burn, chance: 0.5 }
     cooldownTurns: 2
     usableInBattle: true
 
-  - id: sk-domain-expansion
+  - id: sk-dismantle
     kind: combat
-    name: 领域展开
-    description: 将生得术式升华至极致——在领域内必中且支配法则。
-    cost: { mp: 50 }
-    target: all_enemies
+    name: 解
+    description: 无形的斩击，把空间连同其上的东西一起切开。
+    cost: { mp: 10 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.7 }
     damage:
-      - { preset: scaled, base: 35, scaleBy: cursedEnergy, multiplier: 1.0 }
-    applyStatus:
-      - { status: domain-active, chance: 1.0, stacks: 1, onSelf: true }
-      - { status: stun, chance: 0.8 }
-    cooldownTurns: 99
+      - { preset: fixed, value: 34 }
+    cooldownTurns: 1
     usableInBattle: true
 
-  - id: sk-reverse-attack
+  - id: sk-cleaves
     kind: combat
-    name: 反转术式·攻击型
-    description: 将正向咒力凝为利刃，既修复自身亦贯穿敌手。
+    name: 捌
+    description: 与「解」不同，它按咒力量自动调整强度——所以对术师更狠。
     cost: { mp: 18 }
     target: enemy
     hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.65 }
     damage:
-      - { preset: scaled, base: 12, scaleBy: cursedEnergy, multiplier: 1.0 }
-    applyStatus:
-      - { status: reverse-mastered, chance: 1.0, stacks: 1, onSelf: true }
-    cooldownTurns: 3
-    usableInBattle: true
-
-  - id: sk-black-flash
-    kind: combat
-    name: 黑闪
-    description: 物理与咒力在百万分之一秒的偏差内重合——这一击，超越常理。
-    cost: { mp: 16 }
-    target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.7 }
-    damage:
-      - { preset: scaled, base: 20, scaleBy: cursedEnergy, multiplier: 1.5 }
-    applyStatus:
-      - { status: black-flash, chance: 1.0, stacks: 1, onSelf: true }
-    cooldownTurns: 4
-    usableInBattle: true
-
-  # ---------- 2006 学年追加：敌人与诅咒师 kit ----------
-
-  # 伏黑甚尔：天与咒缚的极致，没有咒力，只有碾压一切的肉体
-  - id: sk-heavenly-body
-    kind: combat
-    name: 天与暴君
-    description: 不依赖任何咒力的纯粹暴力，一记正拳足以打穿术师的防御。
-    cost: { mp: 0 }
-    target: enemy
-    hitCheck: { preset: opposed, attacker: physique, defender: agility, baseChance: 0.8 }
-    damage:
-      - { preset: scaled, base: 26, scaleBy: physique, multiplier: 1.2 }
-    cooldownTurns: 0
-    usableInBattle: true
-
-  - id: sk-weapon-cleave
-    kind: combat
-    name: 咒具·断刃
-    description: 以特级咒具挥出的斩击，连术式都能一并斩断。
-    cost: { mp: 5 }
-    target: enemy
-    hitCheck: { preset: opposed, attacker: physique, defender: physique, baseChance: 0.7 }
-    damage:
-      - { preset: fixed, value: 34 }
+      - { preset: scaled, base: 26, scaleBy: cursedEnergy, multiplier: 1.5 }
     cooldownTurns: 2
     usableInBattle: true
 
-  # 一级咒灵：压迫感来自纯粹的质量
-  - id: sk-curse-crush
+  - id: sk-fuga
     kind: combat
-    name: 咒力碾压
-    description: 一级咒灵凝成的巨大质量，直接把猎物压进地面。
-    cost: { mp: 12 }
-    target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.65 }
+    name: 火虞法
+    description: 指向天空的火焰，落下来时整条街都在烧。
+    cost: { mp: 22 }
+    target: all_enemies
     damage:
-      - { preset: scaled, base: 18, scaleBy: cursedEnergy, multiplier: 1.4 }
+      - { preset: fixed, value: 26 }
     applyStatus:
-      - { status: bind, chance: 0.35 }
-    cooldownTurns: 1
+      - { status: cursed-burn, chance: 0.6 }
+    cooldownTurns: 3
     usableInBattle: true
 
-  # 诅咒师：用术式杀人的人类
-  - id: sk-curse-user-blade
+  # 宿傩的领域：伏魔御厨子
+  - id: sk-domain-malevolent
     kind: combat
-    name: 缚咒斩
-    description: 把咒力凝在刀锋上，专斩术师的咒力回路。
+    name: 领域展开·伏魔御厨子
+    description: 无边界的神龛。领域内一切都被「解」与「捌」反复切割，没有死角。
+    cost: { mp: 40 }
+    target: all_enemies
+    damage:
+      - { preset: fixed, value: 40 }
+    applyStatus:
+      - { status: domain-active, chance: 1.0, stacks: 1, onSelf: true }
+      - { status: domain-pin, chance: 1.0, stacks: 1 }
+    cooldownTurns: 99
+    usableInBattle: true
+
+  - id: sk-rika
+    kind: combat
+    name: 里香·暴走
+    description: 乙骨忧太身后的那个「她」。特级过咒怨灵的重量，从来不讲道理。
+    cost: { mp: 20 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.7 }
+    damage:
+      - { preset: scaled, base: 24, scaleBy: cursedEnergy, multiplier: 1.3 }
+    cooldownTurns: 2
+    usableInBattle: true
+
+  - id: sk-divergent-fist
+    kind: combat
+    name: 逕庭拳
+    description: 虎杖悠仁的打击：咒力的抵达比拳头慢半拍，于是同一处被打两次。
     cost: { mp: 8 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.7 }
+    hitCheck: { preset: opposed, attacker: physique, defender: agility, baseChance: 0.75 }
     damage:
-      - { preset: scaled, base: 14, scaleBy: cursedEnergy, multiplier: 1.2 }
-    applyStatus:
-      - { status: cursed-burn, chance: 0.3 }
-    cooldownTurns: 1
-    usableInBattle: true
-
-  # 玩家的成长型增益：以咒力换取护体，适合应对特级
-  - id: sk-curtain
-    kind: combat
-    name: 简易领域·帐
-    description: 以咒力编织一层帐，削弱来袭的伤害并稳住心神。
-    cost: { mp: 10 }
-    target: self
-    heal:
-      - { preset: scaled, base: 6, scaleBy: cursedEnergy, multiplier: 0.5 }
-    applyStatus:
-      - { status: veil, chance: 1.0, stacks: 1, onSelf: true }
-    cooldownTurns: 3
+      - { preset: scaled, base: 14, scaleBy: physique, multiplier: 1.2 }
+    cooldownTurns: 2
     usableInBattle: true

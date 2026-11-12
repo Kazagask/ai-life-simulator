@@ -43,7 +43,7 @@ function play(seed: number, openingIdx: number) {
   const base = createWorldV2({ templateId: "jjk-2006", playerName: `探针${seed}`, seed }, template, `probe-${seed}`);
   const { state: opened, run } = runOpening(base, openings[openingIdx], { ...createRunnerContext(seed), lookup });
   const state = handoff(opened, run, lookup);
-  const acts = ["train", "socialize", "patrol", "explore", "study", "rest"];
+  const acts = ["train", "socialize", "patrol", "explore", "study", "rest", "recuperate"];
   let guard = 0;
   let chapters: unknown[] = [];
   let picks = 0;
@@ -53,7 +53,10 @@ function play(seed: number, openingIdx: number) {
     if (state.battle && !state.battle.over) {
       const cap = maxHp(state.player, template);
       const heal = state.player.inventory["item-first-aid"] ?? 0;
-      if (state.player.hp < cap * 0.45 && heal > 0) {
+      const bound = state.battle.player.statuses.some((s) =>
+        lookup.status(s.statusId)?.combat?.control?.includes("cannot_use_items"),
+      );
+      if (state.player.hp < cap * 0.45 && heal > 0 && !bound) {
         battleActionV2(state, { type: "item", itemId: "item-first-aid" }, template, lookup, pipeline);
       } else {
         const cds = state.battle.player.skillCooldowns;
@@ -74,7 +77,14 @@ function play(seed: number, openingIdx: number) {
       const ctx = { state, lookup, rng: () => 0.5 };
       const opts = ev.settle.normal.options.filter((o) => checkAllConditions(o.visibleWhen, ctx));
       // 有「牵起她的手」这类剧情选项时偏向选择（覆盖 secret 线），否则按 seed 轮换
-      const story = opts.find((o) => /牵起她的手|拦下他|跟上去/.test(o.text));
+      const preferred = [
+        /跟去/, /贴身/, /通宵警戒/, /陪她说说话/, /挡在她身前/, /带她走/,
+        /跟我回去/, /拦住|拦下/, /回高专/, /拆掉封印阵/, /冲进领域/, /挡在避难通道口/,
+        /把手指抢过来/, /追查|查一件事|查内鬼/, /先救|把人带出去/,
+      ];
+      const story =
+        preferred.map((re) => opts.find((o) => re.test(o.text))).find((o) => o !== undefined) ??
+        opts.find((o) => /转动命数转盘/.test(o.text));
       const chosen = story ?? opts[(seed + picks++) % opts.length];
       chooseOptionV2(state, { optionId: chosen.id }, template, lookup, pipeline);
       continue;
@@ -109,7 +119,7 @@ function play(seed: number, openingIdx: number) {
     ce: state.player.attributes.cursedEnergy,
     rep: state.player.attributes.reputation,
     skills: state.player.skills.length,
-    keys: ["rikoSaved", "getoSaved", "joinedCurse", "shibuyaSurvived", "specialGrade", "leaveJujutsu", "storyDone"]
+    keys: ["savedRiko", "getoStayed", "savedGojo", "shibuyaSurvived", "finalEnd", "defected", "storyDone"]
       .filter((k) => state.flags[k] !== undefined)
       .join(","),
   };
@@ -118,47 +128,35 @@ function play(seed: number, openingIdx: number) {
 
 
 describe("咒术转盘 · 整局回归（固定种子的自动通关）", () => {
-  const KNOWN_ENDINGS = new Set([
-    "end-death",
-    "end-secret-savior",
-    "end-geto-saved",
-    "end-riko-saved",
-    "end-shibuya-hero",
-    "end-curse-lord",
-    "end-special-grade",
-    "end-guardian",
-    "end-leave",
-    "end-long-life",
-    "end-retire",
-    "end-ordinary",
-  ]);
+  const KNOWN_ENDINGS = new Set(endings.endings.map((e) => e.endingId));
 
-  it("6 个种子 × 2 个开局都能收束，章节推进到至少第 3 章，结局在模板声明集合内", () => {
+  it("6 个种子 × 2 个开局都能收束，章节推进到至少第 3 章，结局在模板声明集合内", { timeout: 180000 }, () => {
     const rows = [];
     for (let seed = 1; seed <= 6; seed++) rows.push(play(seed, seed % 2));
     // 可读的对局摘要（回归失败时便于判断是哪条线走崩了）
     console.log(
       "playthrough:",
-      rows.map((r) => `s${r.seed} ${r.ending} day${r.day} t${r.turns} [${r.chapters}]`).join(" | "),
+      rows.map((r) => `s${r.seed} ${r.ending} day${r.day} t${r.turns} [${r.keys}]`).join(" | "),
     );
 
     for (const r of rows) {
       expect(r.ending, `seed ${r.seed} 应收束为结局`).not.toBe("(none)");
       expect(KNOWN_ENDINGS.has(r.ending), `seed ${r.seed} 结局未在模板声明：${r.ending}`).toBe(true);
-      expect(r.chapters.split("→").length, `seed ${r.seed} 章节推进不足：${r.chapters}`).toBeGreaterThanOrEqual(3);
-      expect(r.turns, `seed ${r.seed} 回合数异常`).toBeLessThan(600);
-      expect(r.day, `seed ${r.seed} 结束时间异常`).toBeGreaterThanOrEqual(60);
+      expect(r.chapters.split("→").length, `seed ${r.seed} 章节推进不足：${r.chapters}`).toBeGreaterThanOrEqual(8);
+      expect(r.turns, `seed ${r.seed} 回合数异常`).toBeLessThan(700);
+      // 按原作时间线：2018-10 涩谷（第 4686 天）之后才可能收束
+      expect(r.day, `seed ${r.seed} 结束时间异常`).toBeGreaterThanOrEqual(4300);
       // 章节触发器必须一局一次：`once` 挡掉「待决期间每轮 drain 重复入队」
       // （QA D-01：曾出现 ch5×4 / epilogue×4，而 chapter 数值变化看不出来）
       const dup = Object.entries(r.chapterFires).filter(([, n]) => n > 1);
       expect(dup, `seed ${r.seed} 章节事件重复触发：${JSON.stringify(dup)}（全量 ${JSON.stringify(r.chapterFires)}）`).toEqual([]);
-      expect(r.chapterFires["ev-ch1-call"], `seed ${r.seed} 第一章未触发`).toBe(1);
+      expect(r.chapterFires["ev-ch1-gate"], `seed ${r.seed} 第一章未触发`).toBe(1);
     }
     // 终局内容可达：至少一个种子活到涩谷并走完学年
     expect(rows.some((r) => r.keys.includes("shibuyaSurvived") || r.keys.includes("storyDone"))).toBe(true);
   });
 
-  it("D-06：满年局五维不再全部打满 100（有界饱和），overall 仍有区分度", () => {
+  it("D-06：满年局五维不再全部打满 100（有界饱和），overall 仍有区分度", { timeout: 180000 }, () => {
     const rows = [1, 2, 3, 4, 5, 6].map((seed) => play(seed, seed % 2));
     console.log(
       "evaluation:",

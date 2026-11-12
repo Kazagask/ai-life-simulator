@@ -16,7 +16,7 @@ combatAi:
       scoreWeights:
         sk-gojo-blue: 3
         sk-gojo-red: 2.5
-        sk-domain-void: 2
+        sk-domain-empty: 2
       conditions: []
 
     # 防御反击：血量健康时进攻，自身低血优先反转治疗（挂给 npc-yuta）

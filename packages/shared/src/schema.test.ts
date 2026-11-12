@@ -49,42 +49,51 @@ describe("世界模板协议 V2 Schema", () => {
     expect(world.genders.map((g) => g.id)).toContain("femboy");
     expect(world.mood.bands).toHaveLength(3);
     expect(world.statuses.map((s) => s.id)).toContain("curse-poison");
-    // 模板以「命数转盘」开局链为核心：13 步创建 + 五章主线链
+    // 命数转盘：13 步创建链（性别 / 出身年龄 / 资质 / 术式 / 应用 / 咒具 / 风格 /
+    // 性格 / 引路人 / 动机 / 代价 / 命定一转 / 入学式）
     const wheelEntry = world.events.find((e) => e.id === "ev-opening-wheel");
     expect(wheelEntry?.kind).toBe("normal");
     expect(wheelEntry?.trigger.source).toBe("chain");
     const creationChain = world.chains?.find((c) => c.id === "chain-creation");
     expect(creationChain?.steps).toHaveLength(13);
-    expect(world.chains?.map((c) => c.id)).toEqual([
-      "chain-creation",
-      "chain-sp",
-      "chain-geto",
-      "chain-night",
-      "chain-shibuya",
-      "chain-finale",
-    ]);
-    // 五章章节机：chapter 1..5 各有一个概率 1 的池触发器
-    for (let ch = 1; ch <= 5; ch++) {
-      expect(
-        world.events.some((e) => e.trigger.source === "pool" && e.trigger.conditions?.some((c) => "flag" in c && c.flag === "chapter" && c.eq === ch)),
-      ).toBe(true);
+    expect(world.chains?.map((c) => c.id)).toEqual(["chain-creation"]);
+
+    // 七章章节机：每个 gate 都是「概率 1 + once + priority 100」，且都要求「未受伤 / 未力竭」
+    const gates = world.events.filter((e) => e.trigger.source === "pool" && e.trigger.priority === 100);
+    expect(gates).toHaveLength(7);
+    for (const gate of gates) {
+      expect(gate.trigger.once).toBe(true);
+      expect(gate.trigger.conditions).toContainEqual({ status: "injured-sim", present: false });
+      expect(gate.trigger.conditions).toContainEqual({ status: "exhausted", present: false });
     }
+
+    // 转盘驱动的三类：命定一转 / 行动遭遇 / 终章结局轮
+    for (const id of ["ev-w12", "ev-patrol-wheel", "ev-explore-wheel", "ev-sj-03"]) {
+      expect(world.events.find((e) => e.id === id)?.kind, `${id} 必须是 random 轮盘`).toBe("random");
+    }
+    // 生得术式是「补正 + 多技能」，不是单个技能
+    for (const tech of ["tech-ten-shadow", "tech-red-blood", "tech-doll", "tech-thunder", "tech-speech"]) {
+      expect(world.statuses.some((s) => s.id === tech), `缺少术式补正 ${tech}`).toBe(true);
+    }
+    // 领域展开用补正确实现：自身增幅 + 全体敌人压制
+    const domain = world.skills.find((s) => s.id === "sk-domain-expansion");
+    expect(domain?.kind).toBe("combat");
+    if (domain?.kind === "combat") {
+      expect(domain.target).toBe("all_enemies");
+      expect(domain.applyStatus?.map((a) => a.status)).toEqual(["domain-active", "domain-pin"]);
+    }
+    // 多重术式：一人可持有两个术式（宿傩 / 羂索 / 玩家隐藏分支）
+    expect(world.statuses.some((s) => s.id === "multi-technique")).toBe(true);
+    expect(world.characters.find((c) => c.id === "enemy-sukuna")?.statuses).toContain("cursed-king");
     expect(world.attributes.order).toContain("luck");
 
-    // 主角技能 kits 扩展
-    const domainVoid = world.skills.find((s) => s.id === "sk-domain-void");
-    expect(domainVoid?.kind).toBe("combat");
-    if (domainVoid?.kind === "combat") {
-      expect(domainVoid.target).toBe("all_enemies");
-      expect(domainVoid.hitCheck).toBeUndefined(); // 省略命中判定 = 必中
-    }
-    const uzumaki = world.skills.find((s) => s.id === "sk-uzumaki");
-    if (uzumaki?.kind === "combat") {
-      expect(uzumaki.damage?.[0]?.preset).toBe("stack-scaled");
-      expect(uzumaki.consumeStatus?.status).toBe("absorbed-curses");
-    }
+    // 玩家不再持有旧 demo 遗留技能 / 装备
+    const playerSkillIds = world.playerTemplate?.skills ?? [];
+    expect(playerSkillIds).toEqual(["sk-basic-strike"]);
+    expect(world.equipment?.initialEquipment ?? []).toHaveLength(0);
+
     const gojo = world.characters.find((c) => c.id === "npc-gojo");
-    expect(gojo?.skills).toContain("sk-domain-void");
+    expect(gojo?.skills).toContain("sk-domain-empty");
   });
 
   it("拒绝：补正既无 simulation 面也无 combat 面", () => {
@@ -224,9 +233,9 @@ describe("世界模板协议 V2 Schema", () => {
 
   it("拒绝：combatHints.skillWeights 引用角色未持有的技能", () => {
     const world = loadJjkTemplate();
-    const larva = (world.characters as Array<Record<string, unknown>>).find((c) => c.id === "enemy-curse-larva");
-    ((larva as { private: { combatHints: Record<string, unknown> } }).private.combatHints).skillWeights = {
-      "sk-curse-bite": 5, // larva 未持有该技能
+    const sukuna = (world.characters as Array<Record<string, unknown>>).find((c) => c.id === "enemy-sukuna");
+    ((sukuna as { private: { combatHints: Record<string, unknown> } }).private.combatHints).skillWeights = {
+      "sk-curse-bite": 5, // 宿傩未持有该技能
     };
     expect(WorldTemplateV2Schema.safeParse(world).success).toBe(false);
   });
@@ -360,16 +369,17 @@ describe("结局 / 开局分域（jjk-2006 真实文件）", () => {
     expect(parsed.data.terminationConditions.length).toBeGreaterThan(0);
     expect(parsed.data.endings.some((e) => e.fallback)).toBe(true);
     expect(parsed.data.fallback).toBe("end-ordinary");
-    expect(parsed.data.deathRoute?.deathMode).toBe("direct");
+    // 本模板不设 deathRoute：死亡只由终章战败（finalEnd=hero-death）表达
+    expect(parsed.data.deathRoute).toBeUndefined();
     // ADR-0006：隐藏结局 = narrativeConfig.masked 存在；模板不再有 visibility 字段
-    const secret = parsed.data.endings.find((e) => e.endingId === "end-secret-savior");
+    const secret = parsed.data.endings.find((e) => e.endingId === "end-secret-thrice");
     expect(secret?.narrativeConfig.masked).toBeDefined();
     expect(secret?.triggerConditions.length).toBeGreaterThan(0);
-    // 五章主线 flag 都能兑现成结局：结局与玩法闭环（不出现「写了但拿不到」的结局）
+    // 主线 flag 都能兑现成结局（不出现「写了但拿不到」的结局）
     const flags = parsed.data.endings.flatMap((e) =>
       e.triggerConditions.flatMap((c) => ("flag" in c ? [c.flag] : [])),
     );
-    for (const flag of ["rikoSaved", "getoSaved", "joinedCurse", "shibuyaSurvived", "specialGrade", "leaveJujutsu"]) {
+    for (const flag of ["savedRiko", "getoStayed", "savedGojo", "shibuyaSurvived", "finalEnd", "defected"]) {
       expect(flags).toContain(flag);
     }
     const raw = readRaw("endings.yaml") as { endings: Array<Record<string, unknown>> };

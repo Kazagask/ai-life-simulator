@@ -337,6 +337,16 @@ export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefin
       case "adjustMood":
         state.player.mood = clamp(state.player.mood + effect.value, lookup.template.mood.min, lookup.template.mood.max);
         break;
+      case "setIdentity": {
+        // 开局创建链用：性别 / 起始年龄由玩家在事件里定下。
+        // 年龄必须同时写回 playerAgeAtStart，否则下一次按公历推进时会被旧基准覆盖。
+        if (effect.gender !== undefined) state.player.gender = effect.gender;
+        if (effect.age !== undefined) {
+          state.player.age = effect.age;
+          state.playerAgeAtStart = effect.age;
+        }
+        break;
+      }
       case "adjustRelation": {
         // 形态 ①（兼容）：NPC→玩家 标量
         if (effect.fromId === undefined && effect.toId === undefined) {
