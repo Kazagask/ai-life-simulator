@@ -112,12 +112,44 @@ endings:
       title: 退隐
       summary: 你交回证件，搬去一个没有咒灵的城市。第一年你还会在夜里惊醒，第三年开始能在超市里挑西红柿挑十分钟。有人问你以前做什么的，你说：「做过一阵子很危险的工作。」
 
+  # P0 修复：命运轮的 finalEnd=survived 原先没有对应结局，最高频的结果掉进 end-ordinary 兜底。
+  - endingId: end-survived
+    name: 活下来的人
+    description: 你活下来了，然后继续做这一行。
+    triggerConditions:
+      - { flag: finalEnd, eq: survived }
+    # 放在 legend(63)/special(64) 之下、生涯型结局（38–44）之上：
+    # 它是命运轮明确给出的收束，但不该盖住更稀有的荣誉线。
+    priority: 57
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 活下来的人
+      summary: 新宿那一夜之后，你学会了在便利店挑一种不太甜的咖啡。第二年你还在出任务，第三年还在，第十年也还在。你没有变成传说，也没有离开——你只是把这件事做成了日常，而这件事本身就是一种答案。
+
+  - endingId: end-half-world
+    name: 半座世界
+    description: 狱门疆封住了最强的那个人，剩下的由你们分掉。
+    triggerConditions:
+      - { flag: gojoSealed, eq: true }
+      - { flag: storyDone, eq: true }
+    # gojoSealed 的结局读取点：封印改变了「谁在扛」，因此压过 glory 线。
+    # 与 end-secret-thrice 互斥（那条要求 savedGojo=true）。
+    priority: 65
+    endingType: tragedy
+    narrativeConfig:
+      source: template
+      title: 半座世界
+      summary: 狱门疆被运走的时候，没有人敢说那口箱子什么时候会开。最强的那个不在了，于是事情被分成很多份，落到很多个人身上——包括你。十二年里你学会的不是怎么赢，是怎么在没有他的情况下继续站着。
+
   - endingId: end-defected
     name: 叛逃
     description: 你选择了另一条路。
     triggerConditions:
       - { flag: defected, eq: true }
-    priority: 58
+    # P0 修复：原来 58 < legend(63)/special(64)，叛逃者照样能拿「传说」。
+    # 叛逃是一个定义性结局，压到 death(70) 之下、其余全部之上。
+    priority: 68
     endingType: dark
     narrativeConfig:
       source: template

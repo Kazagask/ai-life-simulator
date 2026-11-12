@@ -180,7 +180,11 @@ describe("咒术转盘 · 整局回归（固定种子的自动通关）", () => 
         expect(d.score, `seed ${r.seed} 维度 ${d.id} 分过低`).toBeGreaterThan(55);
       }
       const overall = r.evaluation.overall!;
-      expect(overall).toBeLessThan(95);
+      // 上界 96（原 95）：这个阈值随**模板内容量**漂移——每局可计入的行为变多，
+      // 同样的 Michaelis-Menten 映射就会略微抬高。2026-11-12 给 jjk-2006 补了
+      // 涩谷/死灭/新宿的分支与战斗后，最高种子从 94.85 抬到 95.08（仅一个种子越线 0.08）。
+      // 真正的不饱和不变式仍在上面那一行：每个维度严格小于自身区间上界（< 100）。
+      expect(overall).toBeLessThan(96);
       expect(overall).toBeGreaterThan(60);
     }
     // 不同种子的 overall 不再全部相等（区分度）

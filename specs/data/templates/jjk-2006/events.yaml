@@ -1270,13 +1270,18 @@ events:
     narrative: 涩谷的街上到处是装扮成怪物的人。真正的怪物还没来。你站在人群里，忽然觉得这份热闹很薄。
     trigger:
       source: pool
-      probability: 0.05
+      # P0 修复：原条件 era==3 与 chapter==5 在时间线上互斥（设定 chapter 5 的事件同时把 era 设成 2，
+      # 之后 era 变 3 时 chapter 已经是 7），所以这条事件永远不会被抽中。
+      # 现在钉在「涩谷前夜」这个真实窗口：2018-10-25 起、涩谷收尾之前，且 chapter 停在 9（第四章已完、第五章未开）。
+      probability: 0.5
       priority: 10
       cooldown: { value: 20, unit: day }
       conditions:
         - { flag: creationDone, eq: true }
         - { flag: era, eq: 3 }
-        - { flag: chapter, eq: 5 }
+        - { flag: chapter, eq: 9 }
+        - { flag: shDone, ne: true }
+        - { time: { gte: { value: 4674, unit: day } } }
     kind: normal
     settle:
       normal:
@@ -1396,6 +1401,8 @@ events:
             text: 找五条
             visibleWhen:
               - { flag: gojoGone, ne: true }
+              # 死亡/被封印不诈尸：本事件跨全部 era，必须自己判活（战斗 ref 才有默认判活）。
+              - { npcState: { npcId: npc-gojo, state: alive } }
             effects:
               - { type: adjustRelation, npcId: npc-gojo, value: 4 }
               - { type: adjustMood, value: 5 }
@@ -1411,6 +1418,7 @@ events:
             text: 找七海
             visibleWhen:
               - { flag: nanamiGone, ne: true }
+              - { npcState: { npcId: npc-nanami, state: alive } }
             effects:
               - { type: adjustRelation, npcId: npc-nanami, value: 4 }
               - { type: adjustMood, value: 5 }
@@ -1419,6 +1427,7 @@ events:
             visibleWhen:
               - { flag: haibaraDead, ne: true }
               - { flag: era, eq: 1 }
+              - { npcState: { npcId: npc-haibara, state: alive } }
             effects:
               - { type: adjustRelation, npcId: npc-haibara, value: 5 }
               - { type: adjustMood, value: 7 }
@@ -1433,6 +1442,8 @@ events:
             visibleWhen:
               - { flag: era, eq: 3 }
               - { flag: yujiJoined, eq: true }
+              - { npcState: { npcId: npc-yuji, state: alive } }
+              - { npcState: { npcId: npc-megumi, state: alive } }
             effects:
               - { type: adjustRelation, npcId: npc-yuji, value: 4 }
               - { type: adjustRelation, npcId: npc-megumi, value: 3 }
@@ -1570,13 +1581,47 @@ events:
             effects:
               - { type: setFlag, id: spLate, value: true }
               - { type: adjustMood, value: -6 }
-            nextEventId: ev-sp-03
+            # 「没打」= 留守线上的你赶到时，五条已经躺在血里、甚尔已经越过防线：
+            # 你根本没有和他交手的机会，直接进悲剧线的台阶现场（ev-sp-04）。
+            # 这样第一章的战斗只属于「跟去」的那条线，胜负也才有意义。
+            nextEventId: ev-sp-04
           - id: opt-sp0-wait
             text: 守住学校——这里不能也空了
             effects:
               - { type: adjustAttribute, attribute: intellect, value: 2 }
               - { type: adjustRelation, npcId: npc-yaga, value: 4 }
-            nextEventId: ev-sp-05b
+            # 因果纪律：你不在薨星宫，就不能目击现场。这里走「事后才知道」的分支
+            # （ev-sp-00b），不跳到 ev-sp-05b 的现场细节里。
+            nextEventId: ev-sp-00b
+
+  # 留守线的收尾：全部信息都来自通报与事后转述，没有任何「你看着她死在台阶上」的细节。
+  - id: ev-sp-00b
+    title: 通报
+    narrative: 消息是分三次到的。第一次说「任务出了问题」，第二次说「五条重伤」，第三次只有一行编号和一句「星浆体未能完成同化」。没有人告诉你台阶上到底发生了什么，你也没有问。三天后，高专降了半旗。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sp0b-grave
+            text: 去薨星宫，在台阶下放一束花
+            effects:
+              - { type: setFlag, id: rikoDead, value: true }
+              - { type: setFlag, id: hasGrave, value: true }
+              - { type: applyStatus, status: grief, stacks: 1 }
+              - { type: adjustRelation, npcId: npc-nanami, value: 4 }
+              - { type: adjustMood, value: -14 }
+            nextEventId: ev-sp-06
+          - id: opt-sp0b-work
+            text: 留在学校，把这件事咽下去
+            effects:
+              - { type: setFlag, id: rikoDead, value: true }
+              - { type: setFlag, id: swallowedIt, value: true }
+              - { type: adjustAttribute, attribute: intellect, value: 3 }
+              - { type: adjustRelation, npcId: npc-yaga, value: 5 }
+              - { type: adjustMood, value: -16 }
+            nextEventId: ev-sp-06
 
   - id: ev-sp-01
     title: 队伍
@@ -1661,13 +1706,46 @@ events:
             - { type: setFlag, id: metToji, value: true }
             - { type: adjustAttribute, attribute: reputation, value: 5 }
             - { type: adjustMood, value: 4 }
-          nextEventId: ev-sp-04
+          # 因果纪律：第一章唯一的战斗，胜负必须改变后续——赢了由 ev-sp-04a 接，
+          # 你挡在台阶前、理子还有救；输了才走原来的悲剧线 ev-sp-04。
+          nextEventId: ev-sp-04a
         onDefeat:
           effects:
             - { type: setFlag, id: metToji, value: true }
+            - { type: setFlag, id: tojiBeaten, value: false }
             - { type: applyStatus, status: injured-sim, stacks: 1 }
             - { type: adjustMood, value: -12 }
           nextEventId: ev-sp-04
+
+  # 胜利线：甚尔没能越过你，因此「台阶上的一瞬间」由你决定。
+  - id: ev-sp-04a
+    title: 你把他挡住了
+    narrative: 他倒在地上的时候，脸上第一次有了表情——不是痛，是意外。你回过头，理子站在台阶上，白色的裙子被风吹起来，正看着你。她还在。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sp4a-shield
+            text: 挡在她身前
+            effects:
+              - { type: setFlag, id: savedRiko, value: true }
+              - { type: applyStatus, status: injured-sim, stacks: 1 }
+              - { type: adjustAttribute, attribute: reputation, value: 8 }
+              - { type: adjustRelation, npcId: npc-riko, value: 10 }
+              - { type: adjustMood, value: 6 }
+            nextEventId: ev-sp-05a
+          - id: opt-sp4a-chase
+            text: 先追上去，把甚尔彻底按住
+            effects:
+              - { type: setFlag, id: tojiCaptured, value: true }
+              - { type: adjustFlag, id: truthBits, value: 3 }
+              - { type: setFlag, id: metToji, value: true }
+              - { type: adjustAttribute, attribute: agility, value: 2 }
+              - { type: adjustMood, value: -4 }
+            # 代价：你去追人的那几分钟，盘星教的人从另一侧带走了她。
+            nextEventId: ev-sp-05b
 
   - id: ev-sp-04
     title: 台阶上的一瞬间
@@ -1784,6 +1862,17 @@ events:
               - { type: setFlag, id: ready2, value: true }
               - { type: setFlag, id: chapter, value: 3 }
               - { type: adjustMood, value: -4 }
+              - { type: advanceTo, value: { value: 518, unit: day } }
+              - { type: log, text: 2006 年夏 · 怀玉篇结束。 , visibility: public }
+          - id: opt-sp6-sit
+            text: 去找夏油，陪他把这个夏天坐完
+            effects:
+              - { type: setFlag, id: spDone, value: true }
+              - { type: setFlag, id: ready2, value: true }
+              - { type: setFlag, id: chapter, value: 3 }
+              - { type: adjustRelation, npcId: npc-geto, value: 7 }
+              - { type: adjustFlag, id: getoDoubt, value: -2 }
+              - { type: adjustMood, value: -1 }
               - { type: advanceTo, value: { value: 518, unit: day } }
               - { type: log, text: 2006 年夏 · 怀玉篇结束。 , visibility: public }
 
@@ -1929,9 +2018,9 @@ events:
               - { type: adjustRelation, npcId: npc-geto, value: 20 }
               - { type: adjustRelation, npcId: npc-gojo, value: -30 }
               - { type: adjustAttribute, attribute: reputation, value: -25 }
-              - { type: setFlag, id: ready3, value: true }
-              - { type: setFlag, id: chapter, value: 5 }
-            nextEventId: ev-bs-05
+            # P0 修复：叛逃不再是「跳去参加葬礼然后照旧当高专术师」。
+            # 入口接回原本无人指向的 ev-bs-03d（编号保留），由它带出叛逃专属线 ev-df-*。
+            nextEventId: ev-bs-03d
 
   - id: ev-bs-03a
     title: 你把他留下了
@@ -2003,7 +2092,178 @@ events:
               - { type: setFlag, id: defected, value: true }
               - { type: adjustAttribute, attribute: cursedEnergy, value: 6 }
               - { type: adjustMood, value: -8 }
-            nextEventId: ev-bs-05
+            nextEventId: ev-df-01
+          - id: opt-bs3d-ask
+            text: 先问清楚，他到底想做什么
+            effects:
+              - { type: setFlag, id: defected, value: true }
+              - { type: adjustFlag, id: truthBits, value: 2 }
+              - { type: adjustRelation, npcId: npc-geto, value: 4 }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustMood, value: -6 }
+            nextEventId: ev-df-01
+
+  # ══════════════════════════════════════════════════════════════
+  # 叛逃专属线（defected=true）· 2007 → 2017 → 2018
+  #   与高专线并行：不走 ev-bs-05（灰原葬礼）/ ev-bs-04（十年）/ ev-bs-06 / ev-ch3-gate，
+  #   因为一个被划掉名字的人不会站在哀悼的人群里，也不会「回高专」。
+  # ══════════════════════════════════════════════════════════════
+
+  - id: ev-df-01
+    title: 盘星教的日子
+    narrative: 信徒叫你「先生」。钱、咒灵、人脉，夏油一样一样交到你手上。第一次亲手处理掉一个来调查的术师时，你没有手抖——这件事本身让你抖了一下。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-df1-stay
+            text: 留下来。这条路你走到底
+            effects:
+              - { type: setFlag, id: defectedLine, value: stay }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 7 }
+              - { type: adjustAttribute, attribute: reputation, value: -8 }
+              - { type: adjustRelation, npcId: npc-geto, value: 8 }
+              - { type: adjustMood, value: -6 }
+            nextEventId: ev-df-02
+          - id: opt-df1-double
+            text: 留下来，但开始给自己留一条后路
+            effects:
+              - { type: setFlag, id: defectedLine, value: double }
+              - { type: setFlag, id: doubleAgent, value: true }
+              - { type: adjustAttribute, attribute: intellect, value: 3 }
+              - { type: adjustFlag, id: truthBits, value: 3 }
+              - { type: adjustMood, value: -4 }
+            nextEventId: ev-df-02
+          - id: opt-df1-solo
+            text: 跟夏油分开。你不想变成他
+            effects:
+              - { type: setFlag, id: defectedLine, value: solo }
+              - { type: adjustRelation, npcId: npc-geto, value: -20 }
+              - { type: adjustAttribute, attribute: reputation, value: -4 }
+              - { type: adjustAttribute, attribute: luck, value: 3 }
+              - { type: adjustMood, value: 4 }
+            nextEventId: ev-df-02
+
+  - id: ev-df-02
+    title: 十年 · 另一条路
+    narrative: 十年。高专的名册上，你的名字被一道红线划过，再没人提起。你成了一个传闻——「那个跟夏油走掉的家伙」。有人猜你死了，有人猜你才是盘星教真正的主人。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-df2-boss
+            text: 做盘星教的干部。让传闻再重一点
+            effects:
+              - { type: setFlag, id: dfRole, value: boss }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 10 }
+              - { type: adjustAttribute, attribute: reputation, value: -14 }
+              - { type: adjustMood, value: -4 }
+              # 世界事实不因玩家缺席而取消：2007 年 12 月灰原战死。
+              # 叛逃线拿不到葬礼（不走 ev-bs-05），只有旧频道里漏出来的一句话。
+              - { type: setFlag, id: haibaraDead, value: true }
+              - { type: setNpcLifecycle, npcId: npc-haibara, state: inactive, reasonCode: 阵亡 }
+              - { type: setFlag, id: hasGrave, value: true }
+            nextEventId: ev-df-03
+          - id: opt-df2-double
+            text: 做两面的人。情报卖给出价高的那一边
+            effects:
+              - { type: setFlag, id: dfRole, value: double }
+              - { type: adjustAttribute, attribute: intellect, value: 6 }
+              - { type: adjustFlag, id: truthBits, value: 4 }
+              - { type: adjustAttribute, attribute: luck, value: 4 }
+              # 同上：灰原的死在叛逃线里也是事实
+              - { type: setFlag, id: haibaraDead, value: true }
+              - { type: setNpcLifecycle, npcId: npc-haibara, state: inactive, reasonCode: 阵亡 }
+              - { type: setFlag, id: hasGrave, value: true }
+            nextEventId: ev-df-03
+          - id: opt-df2-hide
+            text: 躲起来。做几年普通人
+            effects:
+              - { type: setFlag, id: dfRole, value: hide }
+              - { type: setFlag, id: leftJujutsu, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: -10 }
+              - { type: adjustAttribute, attribute: luck, value: 4 }
+              - { type: adjustMood, value: 12 }
+              # 同上：灰原的死在叛逃线里也是事实
+              - { type: setFlag, id: haibaraDead, value: true }
+              - { type: setNpcLifecycle, npcId: npc-haibara, state: inactive, reasonCode: 阵亡 }
+              - { type: setFlag, id: hasGrave, value: true }
+            nextEventId: ev-df-03
+
+  - id: ev-df-03
+    title: 平安夜 · 另一边
+    narrative: 2017 年 12 月 24 日。上百只咒灵从新宿方向涌来，你在它们这一侧。高专的结界在远处亮起来，像一场不属于你的烟火。频道里有人在喊五条的名字。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-df3-raid
+            text: 跟着咒灵走。今晚之后，你就是高专的敌人
+            effects:
+              - { type: setFlag, id: defectedRaided, value: true }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 6 }
+              - { type: adjustAttribute, attribute: reputation, value: -10 }
+              - { type: adjustMood, value: -10 }
+            nextEventId: ev-df-04
+          - id: opt-df3-warn
+            text: 把今晚的路线传到高专的旧频道
+            effects:
+              - { type: setFlag, id: warnedJujutsu, value: true }
+              - { type: adjustFlag, id: truthBits, value: 3 }
+              - { type: adjustRelation, npcId: npc-gojo, value: 5 }
+              - { type: adjustAttribute, attribute: reputation, value: 4 }
+              - { type: adjustMood, value: -4 }
+            nextEventId: ev-df-04
+          - id: opt-df3-watch
+            text: 站在楼顶，谁也不帮
+            effects:
+              - { type: setFlag, id: watchedParade, value: true }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustMood, value: -8 }
+            nextEventId: ev-df-04
+
+  # 叛逃线跳过第四章（少年院）——你不在名册上，没人会派你去带一年级。
+  - id: ev-df-04
+    title: 2018 · 没有名册的一年
+    narrative: 2018 年。虎杖悠仁吞下手指的新闻在诅咒师之间传得比高专还快。你看着那张照片，忽然意识到自己已经十年没见过「一年级」这个词后面跟着的名字了。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-df4-go
+            text: 等着十月的到来。这次你会在场
+            effects:
+              - { type: setFlag, id: bsDone, value: true }
+              - { type: setFlag, id: npDone, value: true }
+              - { type: setFlag, id: jvDone, value: true }
+              - { type: setFlag, id: era, value: 3 }
+              - { type: setFlag, id: ready5, value: true }
+              - { type: setFlag, id: chapter, value: 9 }
+              - { type: adjustMood, value: -4 }
+              - { type: advanceTo, value: { value: 4680, unit: day } }
+              - { type: log, text: 2018 年 10 月 · 涩谷。 , visibility: public }
+          - id: opt-df4-hide
+            text: 换一座城市。这件事不该有你
+            effects:
+              - { type: setFlag, id: bsDone, value: true }
+              - { type: setFlag, id: npDone, value: true }
+              - { type: setFlag, id: jvDone, value: true }
+              - { type: setFlag, id: era, value: 3 }
+              - { type: setFlag, id: ready5, value: true }
+              - { type: setFlag, id: chapter, value: 9 }
+              - { type: setFlag, id: dfLeftTokyo, value: true }
+              - { type: adjustAttribute, attribute: luck, value: 3 }
+              - { type: adjustMood, value: 6 }
+              - { type: advanceTo, value: { value: 4680, unit: day } }
+              - { type: log, text: 2018 年 10 月 · 涩谷。 , visibility: public }
 
   - id: ev-bs-05
     title: 灰原
@@ -2100,6 +2360,19 @@ events:
               - { type: setFlag, id: era, value: 2 }
               - { type: setFlag, id: ready3, value: true }
               - { type: setFlag, id: chapter, value: 5 }
+              - { type: advanceTo, value: { value: 4352, unit: day } }
+              - { type: log, text: 2007–2017 · 十年。（选择决定了你成为什么样的人） , visibility: public }
+          - id: opt-bs6-grave
+            text: 先绕去墓园，再回高专
+            effects:
+              - { type: setFlag, id: bsDone, value: true }
+              - { type: setFlag, id: era, value: 2 }
+              - { type: setFlag, id: ready3, value: true }
+              - { type: setFlag, id: chapter, value: 5 }
+              - { type: setFlag, id: visitedGrave, value: true }
+              - { type: adjustRelation, npcId: npc-nanami, value: 6 }
+              - { type: adjustFlag, id: resolveDepth, value: 1 }
+              - { type: adjustMood, value: 5 }
               - { type: advanceTo, value: { value: 4352, unit: day } }
               - { type: log, text: 2007–2017 · 十年。（选择决定了你成为什么样的人） , visibility: public }
 # JJK 世界模板 · events.yaml（第三部分：第五章~终章 · 2017 百鬼夜行 / 2018 涩谷 / 死灭回游 / 新宿决战）
@@ -2328,6 +2601,21 @@ events:
               - { type: adjustMood, value: -4 }
               - { type: advanceTo, value: { value: 4531, unit: day } }
               - { type: log, text: 2017 年 12 月 24 日 · 百鬼夜行结束。 , visibility: public }
+          # 第二条选项：不同的去向与不同的收获（不是换文案）。
+          - id: opt-np4-trail
+            text: 先去追那枚「东西」。它不该就这么不见了
+            effects:
+              - { type: setFlag, id: npDone, value: true }
+              - { type: setFlag, id: era, value: 3 }
+              - { type: setFlag, id: ready4, value: true }
+              - { type: setFlag, id: chapter, value: 7 }
+              - { type: setFlag, id: kenjakuTrail, value: true }
+              - { type: adjustFlag, id: truthBits, value: 2 }
+              - { type: adjustAttribute, attribute: agility, value: 2 }
+              - { type: applyStatus, status: exhausted, stacks: 1 }
+              - { type: adjustMood, value: -8 }
+              - { type: advanceTo, value: { value: 4531, unit: day } }
+              - { type: log, text: 2017 年 12 月 24 日 · 百鬼夜行结束。 , visibility: public }
 
   # ══════════════════════════════════════════════════════════════
   # 八、第四章 · 少年院（2018 年 6 月）
@@ -2480,6 +2768,19 @@ events:
               - { type: adjustFlag, id: truthBits, value: 1 }
               - { type: advanceTo, value: { value: 4674, unit: day } }
               - { type: log, text: 2018 年 6 月 · 少年院事件。 , visibility: public }
+          - id: opt-jv3-report
+            text: 直接把符纸交给夜蛾，让他去查
+            effects:
+              - { type: setFlag, id: moleClue, value: true }
+              - { type: setFlag, id: moleReported, value: true }
+              - { type: setFlag, id: jvDone, value: true }
+              - { type: setFlag, id: ready5, value: true }
+              - { type: setFlag, id: chapter, value: 9 }
+              - { type: adjustRelation, npcId: npc-yaga, value: 7 }
+              - { type: adjustAttribute, attribute: reputation, value: 4 }
+              - { type: adjustMood, value: -2 }
+              - { type: advanceTo, value: { value: 4674, unit: day } }
+              - { type: log, text: 2018 年 6 月 · 少年院事件。 , visibility: public }
 
   # ══════════════════════════════════════════════════════════════
   # 九、第五章 · 涩谷事变（2018 年 10 月 31 日）
@@ -2520,6 +2821,18 @@ events:
               - { type: setFlag, id: chapter, value: 10 }
               - { type: setFlag, id: shLine, value: under }
             nextEventId: ev-sh-01
+          # 叛逃线的涩谷入口：同一个夜晚，你在帐的另一侧。后续链条共用，但动机与结局不同。
+          - id: opt-ch5-rogue
+            text: 从帐的另一侧进去。你不站在任何人的队伍里
+            visibleWhen:
+              - { flag: defected, eq: true }
+            effects:
+              - { type: setFlag, id: ready5, value: false }
+              - { type: setFlag, id: chapter, value: 10 }
+              - { type: setFlag, id: shLine, value: rogue }
+              - { type: adjustAttribute, attribute: luck, value: 2 }
+              - { type: adjustMood, value: -4 }
+            nextEventId: ev-sh-01
 
   - id: ev-sh-01
     title: 三条路
@@ -2544,6 +2857,18 @@ events:
               - { type: setFlag, id: shAggressive, value: true }
               - { type: adjustAttribute, attribute: physique, value: 2 }
             nextEventId: ev-sh-02b
+          # ev-d3-eve（万圣节前夜）里提前布下的那层帐，在这里才第一次被用到。
+          - id: opt-sh1-prep
+            text: 走你提前布好的那条通道
+            visibleWhen:
+              - { flag: shibuyaPrep, eq: true }
+            effects:
+              - { type: setFlag, id: shSaved, value: true }
+              - { type: setFlag, id: usedPrep, value: true }
+              - { type: adjustFlag, id: savedCivilians, value: 2 }
+              - { type: adjustAttribute, attribute: reputation, value: 6 }
+              - { type: adjustMood, value: 4 }
+            nextEventId: ev-sh-02a
 
   - id: ev-sh-02a
     title: 火山
@@ -2611,6 +2936,10 @@ events:
             text: 冲上去，抢那个方块
             effects:
               - { type: setFlag, id: gojoSealed, value: true }
+              # 封印 = 不在世（ADR-0012/ADR-0020 同一条入口）：此后他不进人物面板的「在世」名单、
+              # 不参与任何以他为 ref 的战斗（引擎判活自动过滤，模板不重写判活）、关系写入冻结。
+              - { type: setNpcLifecycle, npcId: npc-gojo, state: inactive, reasonCode: 封印 }
+              - { type: setFlag, id: gojoGone, value: true }
               - { type: applyStatus, status: injured-sim, stacks: 1 }
               - { type: adjustMood, value: -18 }
             nextEventId: ev-sh-03b
@@ -2618,6 +2947,8 @@ events:
             text: 先带人撤离。这一刻你救不了他
             effects:
               - { type: setFlag, id: gojoSealed, value: true }
+              - { type: setNpcLifecycle, npcId: npc-gojo, state: inactive, reasonCode: 封印 }
+              - { type: setFlag, id: gojoGone, value: true }
               - { type: setFlag, id: shSaved, value: true }
               - { type: adjustAttribute, attribute: reputation, value: 6 }
               - { type: adjustFlag, id: savedCivilians, value: 4 }
@@ -2718,6 +3049,36 @@ events:
               - { type: adjustMood, value: -6 }
               - { type: advanceTo, value: { value: 4694, unit: day } }
               - { type: log, text: 2018 年 10 月 31 日 · 涩谷事变。 , visibility: public }
+          - id: opt-sh5-evac
+            text: 先把还活着的人抬出去
+            effects:
+              - { type: setNpcLifecycle, npcId: npc-yuji, state: alive }
+              - { type: setFlag, id: shDone, value: true }
+              - { type: setFlag, id: ready6, value: true }
+              - { type: setFlag, id: chapter, value: 11 }
+              - { type: setFlag, id: shEvacuated, value: true }
+              - { type: adjustFlag, id: savedCivilians, value: 6 }
+              - { type: adjustAttribute, attribute: reputation, value: 8 }
+              - { type: applyStatus, status: exhausted, stacks: 1 }
+              - { type: adjustMood, value: -10 }
+              - { type: advanceTo, value: { value: 4694, unit: day } }
+              - { type: log, text: 2018 年 10 月 31 日 · 涩谷事变。 , visibility: public }
+          # gojoSealed 的第一次可读分叉（P0）：封印之后「五条不在」这件事必须落成文本与后果。
+          - id: opt-sh5-seal
+            text: 去看那个方块。他还睁着眼睛
+            visibleWhen:
+              - { flag: gojoSealed, eq: true }
+            effects:
+              - { type: setNpcLifecycle, npcId: npc-yuji, state: alive }
+              - { type: setFlag, id: shDone, value: true }
+              - { type: setFlag, id: ready6, value: true }
+              - { type: setFlag, id: chapter, value: 11 }
+              - { type: setFlag, id: gojoSealKnown, value: true }
+              - { type: adjustFlag, id: truthBits, value: 2 }
+              - { type: applyStatus, status: grief, stacks: 1 }
+              - { type: adjustMood, value: -14 }
+              - { type: advanceTo, value: { value: 4694, unit: day } }
+              - { type: log, text: 五条悟被封印在狱门疆里，睁着眼睛。 , visibility: public }
 
   # ══════════════════════════════════════════════════════════════
   # 十、第六章 · 死灭回游（2018 年 11 月）
@@ -2785,14 +3146,77 @@ events:
               - { type: adjustAttribute, attribute: reputation, value: 8 }
               - { type: adjustFlag, id: savedCivilians, value: 4 }
               - { type: adjustMood, value: 6 }
-            nextEventId: ev-cg-02
+            # P0 修复：cgPath 原先三条路一律汇进 ev-cg-02，等于没分支。
+            # 现在三条路各有自己的中间步，再汇到 ev-cg-03（夺舍）：
+            #   kill → 直接撞上「教你规矩」的术师（原有战斗）
+            #   save → 护送队伍（ev-cg-02s）：不进战斗，但耽误时间、被记恨
+            #   rule → 拆规则（ev-cg-02r）：无战斗，靠脑子换情报与分数
+            nextEventId: ev-cg-02s
           - id: opt-cg1-rule
             text: 找规则的漏洞。规则一定有漏洞
             effects:
               - { type: setFlag, id: cgPath, value: rule }
               - { type: adjustFlag, id: truthBits, value: 3 }
               - { type: adjustAttribute, attribute: intellect, value: 3 }
-            nextEventId: ev-cg-02
+            nextEventId: ev-cg-02r
+
+  # cgPath=save 的中间步：你选了人，就得付护送的时间与代价。
+  - id: ev-cg-02s
+    title: 护送
+    narrative: 你带着十一个普通人往结界边缘走。他们走得比你想象中慢，每走五百米就要停下来确认一次方向。结界的出口会移动，而你没有第二次机会。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-cg2s-escort
+            text: 一个一个送到出口，慢一点也没关系
+            effects:
+              - { type: setFlag, id: cgEscorted, value: true }
+              - { type: adjustFlag, id: savedCivilians, value: 3 }
+              - { type: adjustAttribute, attribute: reputation, value: 10 }
+              - { type: applyStatus, status: exhausted, stacks: 1 }
+              - { type: adjustMood, value: 4 }
+            nextEventId: ev-cg-03
+          - id: opt-cg2s-trade
+            text: 用分数换一条固定的出口
+            effects:
+              - { type: setFlag, id: cgEscorted, value: true }
+              - { type: setFlag, id: cgBoughtExit, value: true }
+              - { type: adjustFlag, id: savedCivilians, value: 3 }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustAttribute, attribute: reputation, value: -4 }
+              - { type: adjustMood, value: -6 }
+            nextEventId: ev-cg-03
+
+  # cgPath=rule 的中间步：不靠拳头，靠把规则读成一个人的字迹。
+  - id: ev-cg-02r
+    title: 规则的作者
+    narrative: 你给我加一百分，我给你一条规则。」结界里最贵的不是战斗力，是逗号的位置。你花了三个小时，在临时登记的条款里找到了一句可以被读成两遍的话。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-cg2r-exploit
+            text: 把那条规则改成你要的意思
+            effects:
+              - { type: setFlag, id: cgRuleHacked, value: true }
+              - { type: adjustFlag, id: truthBits, value: 2 }
+              - { type: adjustAttribute, attribute: intellect, value: 3 }
+              - { type: adjustMood, value: -2 }
+            nextEventId: ev-cg-03
+          - id: opt-cg2r-sell
+            text: 把这条漏洞卖给出价最高的队伍
+            effects:
+              - { type: setFlag, id: cgRuleHacked, value: true }
+              - { type: setFlag, id: cgSoldRule, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 8 }
+              - { type: adjustAttribute, attribute: luck, value: 3 }
+              - { type: adjustMood, value: -8 }
+            nextEventId: ev-cg-03
 
   - id: ev-cg-02
     title: 分数
@@ -2851,6 +3275,18 @@ events:
               - { type: adjustAttribute, attribute: cursedEnergy, value: 10 }
               - { type: adjustMood, value: -20 }
               - { type: log, text: 你与诅咒之王做了一笔交易。 , visibility: public }
+            nextEventId: ev-cg-04
+          # cgPath=rule 的第二次读取点：你手里那条被改过的规则在这里第一次救了人。
+          - id: opt-cg3-rule
+            text: 用你改过的那条规则，把结界挪开三米
+            visibleWhen:
+              - { flag: cgRuleHacked, eq: true }
+            effects:
+              - { type: setFlag, id: ruleSavedMegumi, value: true }
+              - { type: adjustFlag, id: truthBits, value: 2 }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustMood, value: -8 }
+              - { type: log, text: 结界挪开了三米。只够你把手伸进去。 , visibility: public }
             nextEventId: ev-cg-04
 
   - id: ev-cg-04
@@ -2939,7 +3375,9 @@ events:
               - { type: setFlag, id: withGojo, value: true }
               - { type: adjustRelation, npcId: npc-gojo, value: 8 }
               - { type: adjustMood, value: 8 }
-            nextEventId: ev-sj-02
+            # P0 修复：阵容按 flag 分成两条 combat（引擎不支持条件化 allies）。
+            # 有五条 → ev-sj-02-gojo；封印线 → ev-sj-02（allies 只留虎杖）。
+            nextEventId: ev-sj-02-gojo
           - id: opt-sj1-alone
             text: 没有五条。你们只能靠自己
             visibleWhen:
@@ -2949,6 +3387,85 @@ events:
               - { type: adjustMood, value: -8 }
               - { type: setFlag, id: noGojo, value: true }
             nextEventId: ev-sj-02
+          # 叛逃线的决战入口：你不在这一排人里，所以你也不该去打一场不属于你的仗。
+          # 走专属收束 ev-sj-rogue（不跑命运轮、不进 boss 战），结局由 end-defected 优先命中。
+          - id: opt-sj1-defected
+            text: 你站在对面那排人的后面。今晚之后没人会记得谁站哪边
+            visibleWhen:
+              - { flag: defected, eq: true }
+            effects:
+              - { type: setFlag, id: withGojo, value: false }
+              - { type: setFlag, id: defectedWatcher, value: true }
+              - { type: adjustAttribute, attribute: luck, value: 3 }
+              - { type: adjustMood, value: -10 }
+            nextEventId: ev-sj-rogue
+
+  # 叛逃者在决战夜的专属收束。与高专线共用同一个夜晚，但你不是参战方。
+  - id: ev-sj-rogue
+    title: 对面那排人
+    narrative: 零点过后，两具身体撞在一起，新宿的天空被切开一道口子。你站在对面那排人的后面，看见有人在跑、有人在喊、有人一直没有倒下。你没有上前，也没有走。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sjr-walk
+            text: 转身走进地铁口。这一夜之后，不再有你的名字
+            effects:
+              - { type: setFlag, id: rogueWalked, value: true }
+              - { type: setFlag, id: sjDone, value: true }
+              - { type: setFlag, id: storyDone, value: true }
+              - { type: setFlag, id: chapter, value: 15 }
+              - { type: adjustAttribute, attribute: luck, value: 3 }
+              - { type: adjustMood, value: -6 }
+              - { type: advanceTo, value: { value: 4752, unit: day } }
+              - { type: log, text: 2018 年 12 月 24 日 · 新宿。你没有参战。 , visibility: public }
+          - id: opt-sjr-watch
+            text: 站着看完。你想知道自己错过了什么
+            effects:
+              - { type: setFlag, id: rogueWatched, value: true }
+              - { type: setFlag, id: sjDone, value: true }
+              - { type: setFlag, id: storyDone, value: true }
+              - { type: setFlag, id: chapter, value: 15 }
+              - { type: adjustFlag, id: truthBits, value: 3 }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustMood, value: -14 }
+              - { type: advanceTo, value: { value: 4752, unit: day } }
+              - { type: log, text: 2018 年 12 月 24 日 · 新宿。你把它看完了。 , visibility: public }
+
+  # 未封印线的一阶段：五条在场，阵容不同、战果也更轻松。
+  # 与 ev-sj-02 共用同一张敌人卡（enemy-sukuna-megumi）与同一套战败处理，
+  # 差别只在 allies —— 这是「拆两条 combat」而不是「给 allies 加条件」的原因。
+  - id: ev-sj-02-gojo
+    title: 人外魔境 · 一阶段（五条在场）
+    narrative: 他动了。五条往前一步，第一道「解」在半空被「无下限」折弯了。第二道「捌」贴着你耳朵过去时，你才意识到自己被挡在了后面。对面那具身体是伏黑的——脸上四道纹路，手腕的骨节在错位地长。
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-sukuna-megumi, levelScale: 0.58 }
+        allies:
+          - { ref: npc-gojo, levelScale: 1.0 }
+          - { ref: npc-yuji, levelScale: 0.8 }
+        canFlee: false
+        onVictory:
+          effects:
+            - { type: setFlag, id: beatSukuna, value: true }
+            - { type: adjustAttribute, attribute: reputation, value: 16 }
+            - { type: adjustMood, value: 12 }
+            - { type: adjustResource, resource: hp, value: 45 }
+            - { type: adjustResource, resource: mp, value: 25 }
+          nextEventId: ev-sj-02b
+        onDefeat:
+          effects:
+            - { type: setFlag, id: beatSukuna, value: false }
+            - { type: setFlag, id: finalEnd, value: hero-death }
+            - { type: applyStatus, status: injured-sim, stacks: 1 }
+            - { type: adjustMood, value: -18 }
+          # 战败即收束：与 ev-sj-02 同一条处理路径（不写 nextEventId）。
 
   - id: ev-sj-02
     title: 人外魔境 · 一阶段
@@ -2966,6 +3483,9 @@ events:
           # 0.58 才落回旧 0.62 的手感；「一阶段 → 二阶段」两连战才是本轮真正加的分量。
           - { ref: enemy-sukuna-megumi, levelScale: 0.58 }
         allies:
+          # 这条是「封印线 / 叛逃线」的一阶段。五条被封印时 lifecycle=inactive，
+          # 引擎在建场前判活把他滤掉（Part 1 已验证的 resolveCombatRefs），
+          # 所以这里不需要条件化阵容、也不重写判活。
           - { ref: npc-gojo, levelScale: 1.0 }
           - { ref: npc-yuji, levelScale: 0.8 }
         canFlee: false
@@ -3105,6 +3625,20 @@ events:
               - { type: setFlag, id: sjDone, value: true }
               - { type: setFlag, id: storyDone, value: true }
               - { type: setFlag, id: chapter, value: 15 }
+              - { type: advanceTo, value: { value: 4752, unit: day } }
+              - { type: log, text: 2019 年 1 月 · 落幕。 , visibility: public }
+          - id: opt-sj4-hospital
+            text: 先去医院。有些伤得有人替你缝
+            effects:
+              - { type: cureStatus, status: injured-sim }
+              - { type: cureStatus, status: exhausted }
+              - { type: adjustResource, resource: hp, value: 60 }
+              - { type: adjustResource, resource: mp, value: 30 }
+              - { type: adjustRelation, npcId: npc-shoko, value: 8 }
+              - { type: setFlag, id: sjDone, value: true }
+              - { type: setFlag, id: storyDone, value: true }
+              - { type: setFlag, id: chapter, value: 15 }
+              - { type: adjustMood, value: 6 }
               - { type: advanceTo, value: { value: 4752, unit: day } }
               - { type: log, text: 2019 年 1 月 · 落幕。 , visibility: public }
 
