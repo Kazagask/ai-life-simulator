@@ -984,9 +984,18 @@ describe("V2 引擎 · R2.6 关系图谱模板接入", () => {
     const gojo = view.npcs.find((n) => n.id === "npc-gojo")!;
     expect(gojo.relations.length).toBeGreaterThan(0);
     expect(gojo.relations.every((r) => r.visibility === "known" || r.visibility === "inferred")).toBe(true);
-    // 五条 → 乙骨 的远亲边应带粗称谓
-    const kin = gojo.relations.find((r) => r.withId === "npc-yuta" && r.kind === "relative");
-    expect(kin?.kinshipTerm).toBe("远亲");
+    // ADR-0022 补记 D-1（反改）：乙骨由 npcSpawnRules[rule-yuta-arrival] 管辖、建世界期
+    // unspawned ⇒ 五条→乙骨的 gap 亲属边不进投影，面板不再出现「视 npc-yuta 为亲戚 · 远亲」。
+    // 旧断言（`kin?.kinshipTerm === "远亲"`）固化的是本补记认定的缺陷行为，不得回退。
+    expect(gojo.relations.some((r) => r.withId === "npc-yuta")).toBe(false);
+    expect(view.npcs.some((n) => n.id === "npc-yuta")).toBe(false);
+    // 任何 NPC 的 relations 都不得出现指向未登场者的行（id 不外泄）
+    expect(view.npcs.some((n) => n.relations.some((r) => r.withId === "npc-yuta"))).toBe(false);
+    expect(JSON.stringify(view)).not.toContain("npc-yuta");
+    // 引擎侧 graph 事实不变（只改投影期）：边仍在 state 里，模板作者可继续用条件读它
+    expect(
+      state.relations.some((e) => e.from === "npc-gojo" && e.to === "npc-yuta" && e.kind === "relative"),
+    ).toBe(true);
     expect(JSON.stringify(view)).not.toContain("hidden");
   });
 });

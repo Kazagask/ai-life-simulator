@@ -39,7 +39,23 @@ export function projectSnapshotV2(
 
   // R2.6 / ADR-0014：只投影 known / inferred 边。称谓也只在**可见子图**上推导，
   // 否则 hidden 边会成为可推理的侧信道。
-  const visibleRelations = projectVisibleRelations(state.relations);
+  //
+  // ADR-0022 补记 D-1：判据是「确知未登场」，不是「不在上屏列表」——敌人永不实例化、
+  // inactive 必须保留边与称谓。player 无 NPC 实例，永不进 hiddenNodeIds（硬保留）。
+  // 反例记录（勿改成「投影后 NPC 集合的补集」）：用「不在上屏集合内」会把
+  // `["enemy-x","player"]` 这类公开边一并误杀，并让列表口径静默决定关系可见性。
+  const hiddenNodeIds = new Set(
+    state.npcs.filter((n) => n.lifecycle.state === "unspawned").map((n) => n.id),
+  );
+  /**
+   * 关系面唯一收敛结果：列表行与称谓子图**共用这一份**（决策 3）。
+   * 任一端 unspawned ⇒ 整条边剔除，于是「不可达」由 `kinshipTerm` 返回 `null` 自然表达，
+   * **不补「远亲」兜底**（决策 4）：那会对玩家断言一条没有任何边支撑的亲属关系，
+   * 并暗示中间存在一个他不知道的人（正是要堵的侧信道）。
+   */
+  const observableRelations = projectVisibleRelations(state.relations).filter(
+    (e) => !hiddenNodeIds.has(e.from) && !hiddenNodeIds.has(e.to),
+  );
 
   const statuses = player.statuses
     .map((inst) => {
@@ -149,8 +165,9 @@ export function projectSnapshotV2(
     })),
     // ADR-0022：unspawned（尚未出生/登场）的角色不上屏——实例存在是为了让模板能用
     // `npcState` 条件判断「还没出生」，但它不该出现在人物列表里。
+    // 与关系边/称谓子图同源（ADR-0022 补记 D-1）：三处共用 `hiddenNodeIds`。
     npcs: state.npcs
-      .filter((npc) => npc.lifecycle.state !== "unspawned")
+      .filter((npc) => !hiddenNodeIds.has(npc.id))
       .map((npc) => {
       // ADR-0019：NPC 面板需要「状态 / 生命周期」两块。口径与玩家一致——
       // 补正只透 visibility=known（hidden/unknown 不外泄），阶段由年龄按模板阶段表推导。
@@ -197,14 +214,21 @@ export function projectSnapshotV2(
           sinceTurn: npc.lifecycle.sinceTurn,
           sinceWorldTime: npc.lifecycle.sinceWorldTime,
         },
-        relations: visibleRelations
+        // ADR-0022 补记 D-1：行来源与下方称谓推导的边集是同一份 `observableRelations`
+        // （已剔除任一端 unspawned 的边）——不得再回退到整张 known/inferred 图。
+        relations: observableRelations
           .filter((e) => e.from === npc.id || e.to === npc.id)
           .map((e) => {
             const outgoing = e.from === npc.id;
             const withId = outgoing ? e.to : e.from;
             // 称谓只在「本体称呼对方」的有向亲属边上成立；反向边不强行反推称谓。
+            // 入参必须是过滤后的同一份边集（决策 3）：未登场节点不在可见子图上，
+            // 路径穿过它 ⇒ `kinshipTerm` 返回 null（不可达）⇒ 不带称谓，也不得用
+            // 「远亲」兜底（决策 4：会断言无支撑的亲属关系并暗示中间人存在）。
             const term =
-              outgoing && isKinshipKind(e.kind) ? kinshipTerm(visibleRelations, npc.id, withId) : null;
+              outgoing && isKinshipKind(e.kind)
+                ? kinshipTerm(observableRelations, npc.id, withId)
+                : null;
             return {
               withId,
               kind: e.kind,
