@@ -60,6 +60,12 @@ export type EvaluationConfig = z.infer<typeof EvaluationConfigSchema>;
 export const EvaluationDimensionResultSchema = z
   .object({
     id: z.string().min(1),
+    /**
+     * 维度中文名（来自 `EvaluationConfig` 的 `label`，如「成长」「羁绊」）。
+     * 可选以兼容早期只带 id 的记录；引擎 `evaluateLifeV2` 始终填充，
+     * 玩家端投影直接透出，前端不必自备 id→中文映射表。
+     */
+    label: z.string().min(1).optional(),
     score: z.number().finite(),
     level: z.string().min(1),
     explanation: z.string(),

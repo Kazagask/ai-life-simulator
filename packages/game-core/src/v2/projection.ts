@@ -183,6 +183,19 @@ export function projectSnapshotV2(
     evaluation: {
       summary: evaluation?.summary ?? "本局评价尚未生成。",
       canonDeviation: typeof state.flags.canonDeviation === "number" ? state.flags.canonDeviation : 0,
+      // 五维分项（ADR-0016）：评价只读过程信号，不含结局类型 ⇒ 提前展示不泄露结局
+      ...(evaluation
+        ? {
+            dimensions: evaluation.dimensions.map((d) => ({
+              id: d.id,
+              ...(d.label !== undefined ? { label: d.label } : {}),
+              score: d.score,
+              level: d.level,
+              explanation: d.explanation,
+            })),
+            ...(evaluation.overall !== undefined ? { overall: evaluation.overall } : {}),
+          }
+        : {}),
     },
     status,
     ending: state.termination ? buildEndingView(state.termination, endings, state) : null,

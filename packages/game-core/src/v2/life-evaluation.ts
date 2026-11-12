@@ -165,6 +165,8 @@ export function evaluateLifeV2(
     const level = ratio < 1 / 3 ? "低" : ratio < 2 / 3 ? "中" : "高";
     return {
       id: d.id,
+      // 中文名来自模板 evaluation.yaml 的 label；玩家端投影直接透出，前端不自备映射表
+      label: d.label,
       score,
       level,
       explanation: `基于 ${evidence.length} 条过程记录与维度规则确定性评分。`,

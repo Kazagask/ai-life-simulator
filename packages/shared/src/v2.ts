@@ -450,7 +450,25 @@ export interface V2Snapshot {
   lastWheel: WheelResultView | null;
   activeChains: Array<{ id: string; status: string }>;
   availableActions: Array<{ id: string; label: string; description: string; duration?: TimeAmount }>;
-  evaluation: { summary: string; canonDeviation: number };
+  evaluation: {
+    summary: string;
+    canonDeviation: number;
+    /**
+     * R2.6 / ADR-0016：五维分项评价（成长/羁绊/功绩/真相/自由等，取自模板
+     * `evaluation.yaml`）。只读过程信号，不含结局类型 ⇒ 不泄露结局。
+     * 可选以兼容尚未生成评价的局面（`summary` 为占位文案时为空）。
+     */
+    dimensions?: Array<{
+      id: string;
+      /** 维度中文名（模板 label）；缺省时前端回退显示 id */
+      label?: string;
+      score: number;
+      level: string;
+      explanation: string;
+    }>;
+    /** 加权总分（模板维度 weight 加权），与分项同时给出，不取代分项 */
+    overall?: number;
+  };
   /** 运行状态；缺省视为 running（兼容未升级的调用方） */
   status?: WorldRunStatus;
   /** 已终止时的结局投影；未终止为 null */
