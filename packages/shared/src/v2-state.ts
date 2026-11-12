@@ -12,8 +12,8 @@ import type { BattleState, HistoryEntryV2, WorldStateV2 } from "./v2.js";
  * 加载磁盘存档本质是处理不可信输入：schemaVersion 校验之后必须过这里。
  * 双维护风险用文件末尾的双向类型断言收口——schema 与 TS 接口漂移即编译错误。
  *
- * 兼容策略：HistoryEntryV2.visibility / player.equipment 可缺省（R2.2 旧档视为 public / []），
- * 其余字段为存档必需——缺任一字段即拒绝该档（协议 §21.2）。
+ * 兼容策略：HistoryEntryV2.visibility / player.equipment / lastWheels 可缺省
+ * （R2.x 旧档视为 public / [] / []），其余字段为存档必需——缺任一字段即拒绝该档（协议 §21.2）。
  */
 
 const StatusInstanceSchema = z
@@ -196,6 +196,11 @@ export const WorldStateV2Schema = z
     pendingEvents: z.array(PendingEventSchema),
     battle: BattleStateSchema.nullable(),
     lastWheel: WheelResultViewSchema.nullable(),
+    /**
+     * 当轮全部转盘结果（D-03）。可缺省：R2.x 旧档无此字段，读侧按 `[]` 处理
+     * （与 history.visibility / player.equipment 同一兼容策略 ⇒ 不升 schemaVersion、不拒载旧档）。
+     */
+    lastWheels: z.array(WheelResultViewSchema).optional(),
     history: z.array(HistoryEntryV2Schema),
     openingCompleted: z.boolean(),
     termination: TerminationRecordSchema.nullable(),

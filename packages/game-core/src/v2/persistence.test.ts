@@ -125,6 +125,19 @@ describe("加载校验（R-PS-02/05）", () => {
     }
   });
 
+  it("D-03 旧档兼容：缺 lastWheels 的存档仍通过校验，读侧按 [] 处理", () => {
+    const state = makeRealWorld();
+    const legacy = structuredClone(state) as unknown as Record<string, unknown>;
+    delete legacy.lastWheels;
+    const parsed = WorldStateV2Schema.safeParse(legacy);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.lastWheels).toBeUndefined();
+    // 新档必带该字段（createWorldV2 初始化 []），落盘往返逐字段无损
+    expect(state.lastWheels).toEqual([]);
+    const roundTrip = WorldStateV2Schema.parse(readEnvelope(state.id).state);
+    expect(roundTrip.lastWheels).toEqual([]);
+  });
+
   it("合法档加载回内存逐字段相等；坏类档逐个跳过且不阻断（R-PS-05 三类）", () => {
     const state = makeRealWorld();
     // 合法档

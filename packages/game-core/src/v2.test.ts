@@ -416,6 +416,57 @@ describe("V2 引擎 · 事件轮次", () => {
     expect(res2.wheelResult?.label).toBe("凶");
   });
 
+  // ---------- D-03：单轮多个转盘结果不再互相覆盖 ----------
+
+  function makeMultiWheelWorld(seed = 42): { state: WorldStateV2; template: WorldTemplateV2; lookup: ReturnType<typeof createLookup> } {
+    const base = makeTestTemplate();
+    const wheelEvent = (id: string, title: string, label: string) => ({
+      id,
+      title,
+      narrative: `${title}的转盘。`,
+      // 两个池事件同轮必中（probability 1），冷却 99 天保证下一轮不再触发 ⇒ 可验证「当轮清空」
+      trigger: { source: "pool", probability: 1, cooldown: { value: 99, unit: "day" } },
+      kind: "random",
+      settle: { random: { wheel: { segments: [{ weight: 1, label, effects: [{ type: "adjustMood", value: 1 }] }] } } },
+    });
+    const template = {
+      ...base,
+      // 只保留两个 kind: random 事件，排除普通事件占槽对断言的干扰
+      events: [wheelEvent("ev-wheel-a", "晨间占卜", "上上签"), wheelEvent("ev-wheel-b", "夜间抽签", "平")],
+    } as unknown as WorldTemplateV2;
+    const lookup = createLookup(template);
+    const state = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed }, template, "w-multi");
+    return { state, template, lookup };
+  }
+
+  it("D-03：同轮两个 random 事件都进入 lastWheels，顺序为触发顺序，lastWheel 仍为最后一个", () => {
+    const { state, template, lookup } = makeMultiWheelWorld();
+    const res = advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
+
+    expect(res.snapshot.lastWheels.length).toBe(2);
+    expect(res.snapshot.lastWheels.map((w) => w.label)).toEqual(["上上签", "平"]);
+    expect(res.snapshot.lastWheels.map((w) => w.eventId)).toEqual(["ev-wheel-a", "ev-wheel-b"]);
+    // 向后兼容：单槽 lastWheel / V2TurnResult.wheelResult 仍是「最后一个」
+    expect(res.snapshot.lastWheel?.label).toBe("平");
+    expect(res.wheelResult?.label).toBe("平");
+    // 状态层与投影同源（投影不自行推测）
+    expect(res.snapshot.lastWheels).toEqual(state.lastWheels);
+  });
+
+  it("D-03：lastWheels 是「当轮」而非累计历史（下一轮起点清空，lastWheel 保持最近一次）", () => {
+    const { state, template, lookup } = makeMultiWheelWorld();
+    advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
+    expect(state.lastWheels?.length).toBe(2);
+
+    const second = advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
+    // 冷却期内不再触发转盘 ⇒ 本轮列表为空，而不是沿用/累加上一轮
+    expect(second.snapshot.lastWheels).toEqual([]);
+    expect(state.lastWheels).toEqual([]);
+    expect(second.wheelResult).toBeNull();
+    // 单槽语义不变：仍是历史上「最近一次」的转盘
+    expect(second.snapshot.lastWheel?.label).toBe("平");
+  });
+
   it("行动钩子触发战斗，胜利结算 onVictory 效果", () => {
     const { state, template } = makeState();
     const lookup = createLookup(template);

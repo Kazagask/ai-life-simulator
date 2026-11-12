@@ -163,6 +163,8 @@ export function createWorldV2(
     pendingEvents: [],
     battle: null,
     lastWheel: null,
+    // D-03：当轮转盘结果列表（每轮起点清空）；单槽 lastWheel 保留兼容
+    lastWheels: [],
     history: [],
     openingCompleted: false,
     termination: null,
@@ -334,7 +336,10 @@ function triggerEventV2(
       label: seg.label,
       segments: wheel.segments.map((s) => ({ label: s.label, weight: Math.max(0, s.weight) })),
     };
+    // 单槽保留「最后一个」（既有消费者 + D-09 刷新回放），列表承接「当轮全部」（D-03）：
+    // 同一轮结算两个 kind: random 事件时不再互相覆盖玩家可见的转盘结果。
     state.lastWheel = result.wheelResult;
+    (state.lastWheels ??= []).push(result.wheelResult);
     const segCtx: EffectContextV2 = { state, lookup, rng, logs: [] };
     applyEffectsV2(segCtx, seg.effects);
     // 效果推进世界时间 / enqueueEvent 入队：只置标记，由 drainDue 在本轮整体结束后
@@ -689,6 +694,9 @@ export function advanceTurnV2(
   if (state.battle && !state.battle.over) throw new Error("battle_in_progress");
   // 清理上一场已结束的战斗（结果已回写）
   state.battle = null;
+  // 「当轮」语义（D-03）：转盘结果列表在**轮次起点**清空，只保留本轮触发的转盘。
+  // 放在全部守卫之后，被拒的指令不会清掉上一轮的可见结果。
+  state.lastWheels = [];
 
   // 未注入 ctx 时沿用原有按轮派生 seed（行为逐字段不变）；
   // 注入时用 RunnerContext 的确定性 rng，供同 seed 全链路回放复用。
@@ -818,6 +826,8 @@ export function chooseOptionV2(
   );
   if (!option) throw new Error("option_not_available");
 
+  // 「当轮」语义（D-03）：事件结算轮起点清空转盘列表（守卫全部通过后才清）
+  state.lastWheels = [];
   state.pendingEvents.shift();
 
   // ---- #34 结算轮：事件结算推进 turnIndex（占槽），并按事件级 timeCost 推进世界时间 ----
@@ -888,6 +898,8 @@ export function battleActionV2(
     // #34：战斗结束算一次结算轮（战果占槽），推进 turnIndex；战斗回合内不推进（ADR-0001）。
     // 战果本身即本轮槽位内容，不再额外跑 NPC/pool 尾管线，避免把新事件塞进同一个槽位。
     state.turnIndex += 1;
+    // 「当轮」语义（D-03）：结算轮起点清空转盘列表（战斗回合内不动，避免白丢本轮结果）
+    state.lastWheels = [];
     // 结算战斗结果效果 → 后续事件
     const event = lookup.event(battle.eventId);
     const outcome = battle.over;
@@ -967,6 +979,8 @@ export function useItemV2(
   if ((state.player.inventory[item.id] ?? 0) <= 0) throw new Error("item_not_owned");
 
   const rng = createRng(deriveTurnSeed(state.seed + 29, state.turnIndex));
+  // 用物品是**轮外操作**（不推进 turnIndex、不占槽位），故不清空 lastWheels：
+  // 它属于「本轮已发生的转盘」，本轮尚未结束（D-03「当轮」语义）。
   state.player.inventory[item.id] -= 1;
   if (state.player.inventory[item.id] <= 0) delete state.player.inventory[item.id];
   const logs: string[] = [];

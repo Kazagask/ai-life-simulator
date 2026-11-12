@@ -248,6 +248,14 @@ export interface WorldStateV2 {
   battle: BattleState | null;
   /** 最近一次转盘结果（持久化到状态，供刷新后回放） */
   lastWheel: WheelResultView | null;
+  /**
+   * 当轮全部转盘结果（D-03），按本轮**触发顺序**排列；每个轮次起点清空，不是累计历史。
+   * 单槽 `lastWheel` 只保留「最后一个」，同轮多个 `kind: random` 事件会互相覆盖 ——
+   * 本字段承接「同轮全部呈现」，`lastWheel` 保留以兼容既有消费者（投影 / D-09 回放）。
+   * 可选：R2.x 旧存档无此字段，读侧一律按 `[]` 处理（与 history.visibility /
+   * player.equipment 同一兼容策略，故不升 schemaVersion、不拒载旧档）。
+   */
+  lastWheels?: WheelResultView[];
   history: HistoryEntryV2[];
   /** 开局交接完成标记；false 时拒绝普通轮次推进 */
   openingCompleted: boolean;
@@ -447,7 +455,13 @@ export interface V2Snapshot {
   }>;
   pendingEvent: PendingEventView | null;
   battle: BattleView | null;
+  /** 最近一次转盘结果（向后兼容的单槽视图，等价于 `lastWheels` 的末项） */
   lastWheel: WheelResultView | null;
+  /**
+   * 本轮全部转盘结果（D-03）：按触发顺序，供前端逐条呈现同轮多个转盘。
+   * 空数组表示本轮没有转盘（前端据此不渲染转盘区）。
+   */
+  lastWheels: WheelResultView[];
   activeChains: Array<{ id: string; status: string }>;
   availableActions: Array<{ id: string; label: string; description: string; duration?: TimeAmount }>;
   evaluation: {

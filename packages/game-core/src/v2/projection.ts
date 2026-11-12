@@ -169,6 +169,8 @@ export function projectSnapshotV2(
     pendingEvent: ended ? null : pendingEventView(state, lookup),
     battle,
     lastWheel: state.lastWheel,
+    // D-03：当轮全部转盘结果（旧档无该字段 ⇒ 空数组，前端据此不渲染转盘区）
+    lastWheels: state.lastWheels ?? [],
     activeChains: state.chains
       .filter((c) => c.status === "active")
       .map((c) => ({ id: c.id, status: c.status })),
