@@ -2994,7 +2994,8 @@ events:
               - { type: adjustRelation, npcId: npc-yuji, value: -8 }
               - { type: applyStatus, status: exhausted, stacks: 1 }
               - { type: log, text: 你把他按住了。代价是你们之后谁也没提过这一夜。 , visibility: public }
-            nextEventId: ev-sh-05
+            # 两条路都要经过七海的最后一战：他的死是世界事实，不由你放不放宿傩决定。
+            nextEventId: ev-sh-04n
 
   # 只在「放任」时可达：敌人是**借虎杖之身**的宿傩，即复用的 enemy-sukuna
   # （不为同一形态造两套数值；虎杖此刻 inactive，故本场没有友军）。
@@ -3017,7 +3018,8 @@ events:
             - { type: adjustAttribute, attribute: reputation, value: 12 }
             - { type: adjustFlag, id: savedCivilians, value: 5 }
             - { type: adjustMood, value: 4 }
-          nextEventId: ev-sh-05
+          # 领域收了之后，天还没亮：七海那边正在发生他自己的最后一战。
+          nextEventId: ev-sh-04n
         onDefeat:
           effects:
             - { type: setFlag, id: sukunaRepelled, value: false }
@@ -3025,7 +3027,46 @@ events:
             - { type: setFlag, id: fledShibuya, value: true }
             - { type: applyStatus, status: injured-sim, stacks: 1 }
             - { type: adjustMood, value: -18 }
-          nextEventId: ev-sh-05
+          nextEventId: ev-sh-04n
+
+  # ── 七海建人的最后一战（原作：涩谷事变中阵亡）──
+  # 密度不是白给：这一战没有战斗回合，但有代价与收获——你替他守完了一个出口，
+  # 或者你只来得及看见他的尸体。无论哪条路，他此后都不在世（lifecycle 唯一入口）。
+  - id: ev-sh-04n
+    title: 七海建人
+    narrative: 七海靠在检票口的柱子上，外套叠得很整齐，放在膝边。他的下半身已经不见了。「……我算过了，」他说，声音很平，「这件事不值得做。但我还是做了。」他想再说点什么，最后只是把眼镜摘下来递给你。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sh4n-line
+            text: 接下眼镜，替他守完那十分钟
+            effects:
+              # 阵亡 = inactive（与「受肉」「夺舍」同一条入口）。此后对他的关系写入冻结，
+              # 引用他的池事件用 npcState 条件挡掉，战斗 ref 由引擎自动过滤。
+              - { type: setNpcLifecycle, npcId: npc-nanami, state: inactive, reasonCode: 阵亡 }
+              - { type: setFlag, id: nanamiGone, value: true }
+              - { type: setFlag, id: heldNanamiLine, value: true }
+              - { type: adjustFlag, id: savedCivilians, value: 4 }
+              - { type: adjustAttribute, attribute: reputation, value: 5 }
+              - { type: applyStatus, status: grief, stacks: 1 }
+              - { type: adjustMood, value: -12 }
+              - { type: log, text: 七海建人阵亡。你替他守住了那个出口。 , visibility: public }
+            nextEventId: ev-sh-05
+          - id: opt-sh4n-chase
+            text: 不守了。你去找那个把他弄成这样的人
+            effects:
+              - { type: setNpcLifecycle, npcId: npc-nanami, state: inactive, reasonCode: 阵亡 }
+              - { type: setFlag, id: nanamiGone, value: true }
+              - { type: setFlag, id: avengedNanami, value: true }
+              - { type: adjustFlag, id: truthBits, value: 2 }
+              - { type: adjustAttribute, attribute: agility, value: 2 }
+              - { type: applyStatus, status: grief, stacks: 1 }
+              - { type: adjustMood, value: -16 }
+              - { type: log, text: 七海建人阵亡。你连他的手都没握住。 , visibility: public }
+            nextEventId: ev-sh-05
 
   - id: ev-sh-05
     title: 天亮之前
@@ -3178,7 +3219,7 @@ events:
               - { type: adjustAttribute, attribute: reputation, value: 10 }
               - { type: applyStatus, status: exhausted, stacks: 1 }
               - { type: adjustMood, value: 4 }
-            nextEventId: ev-cg-03
+            nextEventId: ev-cg-02b
           - id: opt-cg2s-trade
             text: 用分数换一条固定的出口
             effects:
@@ -3188,7 +3229,7 @@ events:
               - { type: adjustAttribute, attribute: intellect, value: 2 }
               - { type: adjustAttribute, attribute: reputation, value: -4 }
               - { type: adjustMood, value: -6 }
-            nextEventId: ev-cg-03
+            nextEventId: ev-cg-02b
 
   # cgPath=rule 的中间步：不靠拳头，靠把规则读成一个人的字迹。
   - id: ev-cg-02r
@@ -3207,7 +3248,7 @@ events:
               - { type: adjustFlag, id: truthBits, value: 2 }
               - { type: adjustAttribute, attribute: intellect, value: 3 }
               - { type: adjustMood, value: -2 }
-            nextEventId: ev-cg-03
+            nextEventId: ev-cg-02b
           - id: opt-cg2r-sell
             text: 把这条漏洞卖给出价最高的队伍
             effects:
@@ -3216,7 +3257,7 @@ events:
               - { type: adjustAttribute, attribute: reputation, value: 8 }
               - { type: adjustAttribute, attribute: luck, value: 3 }
               - { type: adjustMood, value: -8 }
-            nextEventId: ev-cg-03
+            nextEventId: ev-cg-02b
 
   - id: ev-cg-02
     title: 分数
@@ -3235,11 +3276,76 @@ events:
           effects:
             - { type: adjustAttribute, attribute: reputation, value: 6 }
             - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
-          nextEventId: ev-cg-03
+          nextEventId: ev-cg-02b
         onDefeat:
           effects:
             - { type: applyStatus, status: injured-sim, stacks: 1 }
             - { type: adjustMood, value: -10 }
+          nextEventId: ev-cg-02b
+
+  # ── 群像 + 密度：钉崎与伏黑各自的战场 ──
+  - id: ev-cg-02b
+    title: 九只与十一只
+    narrative: 钉崎把钉子一根一根插进地面，摆成一条线；伏黑从影子里唤出玉犬，犬不叫，只是盯着结界深处。「那边上来了，」钉崎说，「我数了，九只。」「十一只。」伏黑说，「还有两只在楼里。」
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-cg2b-line
+            text: 守住这条线，让伏黑先把影铺开
+            effects:
+              - { type: setFlag, id: cgHordeLine, value: true }
+              - { type: adjustRelation, npcId: npc-nobara, value: 6 }
+              - { type: adjustRelation, npcId: npc-megumi, value: 5 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: adjustMood, value: -2 }
+            nextEventId: ev-cg-02c
+          - id: opt-cg2b-split
+            text: 分头：你上楼清那两只，钉崎守街
+            effects:
+              - { type: setFlag, id: cgSplit, value: true }
+              - { type: adjustRelation, npcId: npc-nobara, value: 3 }
+              - { type: adjustAttribute, attribute: agility, value: 2 }
+              - { type: applyStatus, status: injured-sim, stacks: 1 }
+              - { type: adjustMood, value: -6 }
+            nextEventId: ev-cg-02c
+
+  - id: ev-cg-02c
+    title: 结界的十一只
+    narrative: 玉犬先咬住了最前面那只，钉崎的钉子跟着飞出去，一根接一根，像有人在地面上敲一串急促的鼓点。你听见伏黑在数数——他数到十一的时候，楼里的那两只已经站在你身后了。
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-grade1-curse, levelScale: 1.2 }
+          - { ref: enemy-curse-user, levelScale: 1.0 }
+        # 伏黑夺舍之前最后一次和你并肩；钉崎的刍灵咒法在这一场里救了一次场。
+        allies:
+          - { ref: npc-nobara, levelScale: 0.9 }
+          - { ref: npc-megumi, levelScale: 0.9 }
+        canFlee: false
+        onVictory:
+          effects:
+            - { type: setFlag, id: cgBeatHorde, value: true }
+            - { type: adjustFlag, id: savedCivilians, value: 4 }
+            - { type: adjustAttribute, attribute: reputation, value: 8 }
+            - { type: adjustRelation, npcId: npc-nobara, value: 5 }
+            - { type: adjustRelation, npcId: npc-megumi, value: 5 }
+            - { type: adjustResource, resource: hp, value: 25 }
+            - { type: adjustMood, value: 4 }
+          nextEventId: ev-cg-03
+        onDefeat:
+          effects:
+            # 密度有代价：你倒了，钉崎为了把你拖出来挨了一下——她之后一整章都在带伤。
+            - { type: setFlag, id: cgHordeLost, value: true }
+            - { type: setFlag, id: nobaraHurt, value: true }
+            - { type: applyStatus, status: injured-sim, stacks: 1 }
+            - { type: adjustRelation, npcId: npc-nobara, value: -4 }
+            - { type: adjustMood, value: -14 }
           nextEventId: ev-cg-03
 
   - id: ev-cg-03
@@ -3348,7 +3454,7 @@ events:
               - { type: setFlag, id: chapter, value: 14 }
               - { type: setFlag, id: sjPost, value: front }
               - { type: adjustAttribute, attribute: reputation, value: 8 }
-            nextEventId: ev-sj-01
+            nextEventId: ev-sj-01b
           - id: opt-ch7-back
             text: 守后方。把还能救的人救下来
             effects:
@@ -3356,7 +3462,81 @@ events:
               - { type: setFlag, id: chapter, value: 14 }
               - { type: setFlag, id: sjPost, value: back }
               - { type: adjustFlag, id: savedCivilians, value: 3 }
-            nextEventId: ev-sj-01
+            nextEventId: ev-sj-01b
+
+  # ── 群像 + 密度：先头部队 ──
+  # 决战开场不是直接进入 boss 战：先撞上羂索放出来的咒灵群，由一年级们接住。
+  - id: ev-sj-01b
+    title: 六个人
+    narrative: 二十三点十分。新宿西口的这支队伍一共六个人：虎杖在最前面，钉崎在给他数倒数，乙骨站在最后面，里香在他身后。第七个位置空着——那是七海的。你站进哪一个空档，就决定了今晚你身边的人是谁。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sj1b-yuji
+            text: 站到虎杖旁边。你们一起把第一波撞开
+            effects:
+              - { type: setFlag, id: sjPair, value: yuji }
+              - { type: adjustRelation, npcId: npc-yuji, value: 6 }
+              - { type: adjustAttribute, attribute: physique, value: 2 }
+              - { type: adjustMood, value: 6 }
+            nextEventId: ev-sj-01c
+          - id: opt-sj1b-nobara
+            text: 站到钉崎身后。她的钉子需要一个不被近身的人
+            effects:
+              - { type: setFlag, id: sjPair, value: nobara }
+              - { type: adjustRelation, npcId: npc-nobara, value: 6 }
+              - { type: adjustAttribute, attribute: agility, value: 2 }
+              - { type: adjustMood, value: 4 }
+            nextEventId: ev-sj-01c
+          - id: opt-sj1b-yuta
+            text: 跟乙骨一起压后排。里香需要有人在前面引
+            effects:
+              - { type: setFlag, id: sjPair, value: yuta }
+              - { type: adjustRelation, npcId: npc-yuta, value: 6 }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 3 }
+              - { type: adjustMood, value: 2 }
+            nextEventId: ev-sj-01c
+
+  - id: ev-sj-01c
+    title: 先头部队
+    narrative: 第一波不是宿傩放的，是羂索放的。三十多只咒灵从地下街的通风口里挤出来，像被踩开的蚁巢。钉崎的钉子在地上排成三条线，乙骨把里香放了出去——她的影子盖住了整条街。
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-grade1-curse, levelScale: 1.4 }
+          - { ref: enemy-curse-user, levelScale: 1.2 }
+          - { ref: enemy-grade2-curse, levelScale: 1.6 }
+        allies:
+          # 钉崎与乙骨在这一场里各有可辨识的贡献：钉崎的面积压制 + 乙骨的正面承伤。
+          - { ref: npc-nobara, levelScale: 1.0 }
+          - { ref: npc-yuta, levelScale: 0.9 }
+        canFlee: false
+        onVictory:
+          effects:
+            - { type: setFlag, id: sjClearedFront, value: true }
+            - { type: adjustFlag, id: savedCivilians, value: 3 }
+            - { type: adjustAttribute, attribute: reputation, value: 10 }
+            - { type: adjustRelation, npcId: npc-nobara, value: 4 }
+            - { type: adjustRelation, npcId: npc-yuta, value: 4 }
+            # 换防喘息：先头部队清干净了，钉崎才能腾出手给你缝两针。
+            - { type: adjustResource, resource: hp, value: 35 }
+            - { type: adjustResource, resource: mp, value: 20 }
+            - { type: adjustMood, value: 6 }
+          nextEventId: ev-sj-01
+        onDefeat:
+          effects:
+            # 代价：先头部队没清干净，后面 boss 战时街上还有咒灵，支援也更少。
+            - { type: setFlag, id: sjFrontLost, value: true }
+            - { type: applyStatus, status: injured-sim, stacks: 1 }
+            - { type: adjustRelation, npcId: npc-nobara, value: -5 }
+            - { type: adjustMood, value: -14 }
+          nextEventId: ev-sj-01
 
   - id: ev-sj-01
     title: 决战前夜
@@ -3530,8 +3710,8 @@ events:
             - { type: setFlag, id: beatSukunaIncarnate, value: true }
             - { type: adjustAttribute, attribute: reputation, value: 25 }
             - { type: adjustMood, value: 16 }
-          # 二番战胜利才进原有终局链（命运轮 ev-sj-03 → 尾声 ev-sj-04）
-          nextEventId: ev-sj-03
+          # 二番战胜利后不是立刻散场：羂索一直站在远处看着，这时候才走过来。
+          nextEventId: ev-sj-02c
         onDefeat:
           effects:
             - { type: setFlag, id: beatSukuna, value: false }
@@ -3540,6 +3720,38 @@ events:
             - { type: applyStatus, status: injured-sim, stacks: 1 }
             - { type: adjustMood, value: -20 }
           # 与一阶段战败同等处理：不写 nextEventId，由 finalEnd=hero-death 的终止条件就地收束。
+
+  - id: ev-sj-02c
+    title: 缝合线
+    narrative: 宿傩倒下去的地方还在冒烟。一个人从烟里走出来，额头上有缝合线，笑得很客气。「辛苦了，」他说，「我一直想看看这具身体到底能撑到哪一步。」他抬手的动作很轻，像在摘一片叶子。
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          # 羂索：不跟宿傩抢戏，但他是这一夜真正的布局者
+          - { ref: enemy-kenjaku, levelScale: 0.5 }
+        allies:
+          - { ref: npc-yuta, levelScale: 0.9 }
+          - { ref: npc-yuji, levelScale: 0.8 }
+        canFlee: false
+        onVictory:
+          effects:
+            - { type: setFlag, id: beatKenjaku, value: true }
+            - { type: adjustFlag, id: truthBits, value: 4 }
+            - { type: adjustAttribute, attribute: reputation, value: 15 }
+            - { type: adjustRelation, npcId: npc-yuta, value: 6 }
+            - { type: adjustMood, value: 10 }
+          nextEventId: ev-sj-03
+        onDefeat:
+          effects:
+            # 不是终局死（宿傩那两场才判死）；代价是伤与「终究没拦住他」。
+            - { type: setFlag, id: beatKenjaku, value: false }
+            - { type: setFlag, id: kenjakuEscaped, value: true }
+            - { type: applyStatus, status: injured-sim, stacks: 1 }
+            - { type: adjustMood, value: -16 }
+          nextEventId: ev-sj-03
 
   - id: ev-sj-03
     title: 终结

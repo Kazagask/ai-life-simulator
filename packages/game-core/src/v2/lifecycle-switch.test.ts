@@ -402,7 +402,17 @@ describe("模板级断言（jjk-2006）· 刷新规则与身体争夺接线", ()
     expect(phase1Event.settle.combat.enemies.map((r) => r.ref)).toEqual(["enemy-sukuna-megumi"]);
     expect(phase2Event.settle.combat.enemies.map((r) => r.ref)).toEqual(["enemy-sukuna-incarnate"]);
     expect(phase1Event.settle.combat.onVictory?.nextEventId).toBe("ev-sj-02b");
-    expect(phase2Event.settle.combat.onVictory?.nextEventId).toBe("ev-sj-03");
+    // 二番战胜利后不再直接进命运轮：先打羂索（ev-sj-02c），再由它接 ev-sj-03 终局链。
+    expect(phase2Event.settle.combat.onVictory?.nextEventId).toBe("ev-sj-02c");
+    const kenjakuEvent = template.events.find((e) => e.id === "ev-sj-02c");
+    if (kenjakuEvent?.kind !== "combat") throw new Error("fixture: ev-sj-02c 不是 combat");
+    expect(kenjakuEvent.settle.combat.onVictory?.nextEventId).toBe("ev-sj-03");
+    expect(kenjakuEvent.settle.combat.onDefeat?.nextEventId).toBe("ev-sj-03");
+    // 羂索那一场不判死：只有宿傩两阶段战败才写 hero-death（避免「被残党打倒 = 战殁」）
+    const kenjakuDeath = (kenjakuEvent.settle.combat.onDefeat?.effects ?? []).some(
+      (e) => e.type === "setFlag" && e.id === "finalEnd" && e.value === "hero-death",
+    );
+    expect(kenjakuDeath).toBe(false);
     // P0 修复：两阶段战败都不得回日常（不写 nextEventId），交给终止条件收束
     expect(phase1Event.settle.combat.onDefeat?.nextEventId).toBeUndefined();
     expect(phase2Event.settle.combat.onDefeat?.nextEventId).toBeUndefined();
