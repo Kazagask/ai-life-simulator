@@ -259,6 +259,22 @@ export const WorldTemplateV2Schema = z
       if (!attributeIds.has(attr)) add(["attributes", "labels"], `未知属性：${attr}`);
     });
 
+    // 属性键必须在 attributes.order 中声明（D-17）：补齐一处**不对称**。
+    // 既有 superRefine 已强制 `attributes.labels` 的键 ⊆ order（见上），也已校验
+    // `characters[].attributes`（见下方角色循环，L318 一带）—— 但 `attributes.defaults` 与
+    // `playerTemplate.attributes` 两处漏了。引擎会把这两处直接写进 player.attributes，
+    // 而 labels.attributes 又只可能含 order 内的键 ⇒ 玩家端那格属性名静默退回机器名
+    // （如 `luck`）：不报错、不空白、只多出一行英文名，且与「声明了属性但忘了配 label」
+    // 肉眼同形，极难归因。故在加载期 fail-fast（与其余 8 类交叉引用一致）。
+    // 注意：characters 仍由既有那段校验，**不在此重复**，避免同一问题报两条 issue。
+    const checkAttributeKeys = (value: Record<string, number> | undefined, path: (string | number)[]): void => {
+      Object.keys(value ?? {}).forEach((attr) => {
+        if (!attributeIds.has(attr)) add([...path, attr], `未知属性：${attr}（未在 attributes.order 中声明）`);
+      });
+    };
+    checkAttributeKeys(w.attributes.defaults, ["attributes", "defaults"]);
+    checkAttributeKeys(w.playerTemplate?.attributes, ["playerTemplate", "attributes"]);
+
     // 状态栏数据源引用（source=resource 的 key 只能是 hp/mp；source=attribute 的 keys 必须已声明）
     w.statusBar.forEach((section, i) => {
       if (section.source === "resource") {

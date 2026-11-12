@@ -278,6 +278,65 @@ describe("世界模板协议 V2 Schema", () => {
 });
 
 /**
+ * D-17：属性键必须已在 `attributes.order` 中声明。
+ *
+ * 既有 superRefine 已强制 `attributes.labels` 的键 ⊆ order，也已校验 `characters[].attributes`；
+ * 漏的是 `attributes.defaults` 与 `playerTemplate.attributes` —— 这个**不对称**才是缺口本质：
+ * 引擎会把这两处直接写进 player.attributes，而 labels 只可能给 order 内的键配名字，
+ * ⇒ 玩家端多出一行英文机器名（不报错、不空白，静默退化、极难归因）。故在加载期 fail-fast。
+ */
+describe("D-17 加载期校验 · 属性键必须已在 attributes.order 中声明", () => {
+  function issuesOf(input: unknown): Array<{ path: string; message: string }> {
+    const res = WorldTemplateV2Schema.safeParse(input);
+    expect(res.success, "应被拒载").toBe(false);
+    if (res.success) return [];
+    return res.error.issues.map((i) => ({ path: i.path.join("."), message: i.message }));
+  }
+
+  it("拒绝：attributes.defaults 出现 order 外键，错误定位到该键本身", () => {
+    const world = loadJjkTemplate();
+    const attributes = world.attributes as { defaults: Record<string, number> };
+    attributes.defaults = { ...attributes.defaults, fortune: 3 };
+    const issues = issuesOf(world);
+    const hit = issues.find((i) => i.path === "attributes.defaults.fortune");
+    expect(hit, `issue 路径不对：${JSON.stringify(issues)}`).toBeDefined();
+    expect(hit!.message).toContain("未知属性：fortune");
+    expect(hit!.message).toContain("attributes.order");
+  });
+
+  it("拒绝：playerTemplate.attributes 出现 order 外键", () => {
+    const world = loadJjkTemplate();
+    const pt = world.playerTemplate as { attributes: Record<string, number> };
+    pt.attributes = { ...pt.attributes, stealth: 3 };
+    const issues = issuesOf(world);
+    expect(issues.some((i) => i.path === "playerTemplate.attributes.stealth")).toBe(true);
+  });
+
+  it("回归：characters[].attributes 越界由**既有**校验拦下，且只报一条（新实现不得重复）", () => {
+    const world = loadJjkTemplate();
+    const characters = world.characters as Array<{ id: string; attributes: Record<string, number> }>;
+    characters[2].attributes = { ...characters[2].attributes, stealth: 3 };
+    const issues = issuesOf(world);
+    // 既有校验的 path 指向 attributes 对象（不含键名），保持原样以兼容既有消费方
+    const hits = issues.filter((i) => i.path === "characters.2.attributes");
+    expect(hits.length, `同一问题只应报一次：${JSON.stringify(issues)}`).toBe(1);
+    expect(hits[0].message).toContain("未知属性：stealth");
+  });
+
+  it("接受：现网 jjk-2006 的全部属性键（defaults / playerTemplate / 16 个角色）都在 order 内", () => {
+    const world = WorldTemplateV2Schema.parse(loadJjkTemplate());
+    const order = new Set(world.attributes.order);
+    const keys = [
+      ...Object.keys(world.attributes.defaults),
+      ...Object.keys(world.playerTemplate?.attributes ?? {}),
+      ...world.characters.flatMap((c) => Object.keys(c.attributes)),
+    ];
+    expect(keys.filter((k) => !order.has(k))).toEqual([]);
+  });
+});
+
+
+/**
  * 阶段 4 遗留接线后的分域验收：jjk-2006 现在真的提供 endings.yaml / opening.yaml，
  * 因此这两个文件必须像六个主文件一样有加载期校验与引用完整性保护。
  */
