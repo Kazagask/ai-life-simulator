@@ -453,6 +453,51 @@ button {
   color: color-mix(in srgb, var(--danger) 80%, var(--muted));
 }
 
+/*
+ * 「无法行动」覆盖层（D-13）：眩晕等 cannot_act 压制时盖住整个行动区。
+ * 用一层半透明底 + 虚线红框 + 明确文案，玩家看到的是一个「本回合不能动」的事实，
+ * 而不是三个各自置灰的按钮；下方保留「硬撑过这一回合」作为唯一推进出口。
+ */
+.battle-action-zone {
+  position: relative;
+}
+
+.battle-locked {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px 12px;
+  border: 1px dashed color-mix(in srgb, var(--danger) 60%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg-card) 92%, transparent);
+  backdrop-filter: blur(3px);
+  text-align: center;
+}
+
+.battle-locked-title {
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  color: var(--danger);
+}
+
+.battle-locked-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.battle-locked-pass {
+  width: auto;
+  margin-top: 2px;
+  padding: 8px 18px;
+  font-size: 14px;
+}
+
 .action-detail {
   margin-top: 12px;
   display: flex;

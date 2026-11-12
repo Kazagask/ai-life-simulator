@@ -1182,6 +1182,20 @@ function BattlePanel({
   const b = snapshot.battle!;
   const labels = snapshot.labels;
   const [target, setTarget] = useState<string>("");
+  /**
+   * 本回合能否行动（D-13）：`canAct === false` 表示被 `cannot_act` 类补正（眩晕等）压制。
+   * 引擎此时**不报错**——只记一行「你无法行动。」并跳过玩家动作、照常推进回合，
+   * 所以前端必须主动告知，否则玩家看到的是「点了技能、什么都没变、回合没了」。
+   * 战斗结束（b.over）后不再提示。
+   */
+  const locked = !b.over && !b.player.canAct;
+  // 原因只从投影里已有的 statuses 读，不自造文案、不改引擎：眩晕的名字就来自模板
+  const stunName = b.player.statuses.find((s) => s.id === "stun")?.name;
+  const [lockedTapped, setLockedTapped] = useState(false);
+  useEffect(() => {
+    if (!locked) setLockedTapped(false);
+  }, [locked]);
+
   const aliveEnemies = b.enemies.filter((e) => e.alive);
   const effectiveTarget = target && aliveEnemies.some((e) => e.instanceId === target) ? target : aliveEnemies[0]?.instanceId;
 
@@ -1254,52 +1268,91 @@ function BattlePanel({
 
       {!b.over && (
         <>
-          <div className="battle-actions">
-            {b.player.skills.map((skill) => (
+          <div className="battle-action-zone">
+            <div className="battle-actions">
+              {b.player.skills.map((skill) => (
+                <button
+                  key={skill.id}
+                  className="action"
+                  disabled={busy || locked || skill.cooldownLeft > 0 || b.player.mp < skill.costMp}
+                  aria-disabled={busy || locked || skill.cooldownLeft > 0 || b.player.mp < skill.costMp}
+                  onClick={() => onBattle({ type: "skill", skillId: skill.id, targetInstanceId: effectiveTarget })}
+                >
+                  <strong>{skill.name}</strong>
+                  <span>
+                    {skill.costMp > 0 ? `${labels.resources.mp ?? "mp"} ${skill.costMp}` : "无消耗"}
+                    {skill.cooldownLeft > 0 ? ` · 冷却 ${skill.cooldownLeft}` : ""}
+                  </span>
+                </button>
+              ))}
+              {b.player.items.map((item) => (
+                <button
+                  key={item.itemId}
+                  className="action"
+                  // D-08：canUseItems 由投影层用与引擎**同一个**控制判定算出，
+                  // 前端不自己查 status id；false ⇒ 引擎必然以 bound_items 拒绝，先禁用。
+                  disabled={busy || locked || !b.player.canUseItems}
+                  aria-disabled={busy || locked || !b.player.canUseItems}
+                  onClick={() => onBattle({ type: "item", itemId: item.itemId })}
+                >
+                  <strong>{item.name} ×{item.count}</strong>
+                  <span>{b.player.canUseItems ? "使用道具" : "受制于人，用不了道具"}</span>
+                </button>
+              ))}
+              {/*
+                D-12：逃跑按钮常显但按 canFlee 禁用。
+                旧实现直接不渲染按钮，玩家会以为「没有逃跑这个选项」；现在给按钮 + 原因，
+                原因用文字写在按钮上（不只靠置灰/颜色），并加 aria-disabled 供读屏器识别。
+              */}
               <button
-                key={skill.id}
-                className="action"
-                disabled={busy || skill.cooldownLeft > 0 || b.player.mp < skill.costMp}
-                onClick={() => onBattle({ type: "skill", skillId: skill.id, targetInstanceId: effectiveTarget })}
+                className="action flee"
+                disabled={busy || locked || !b.player.canFlee}
+                aria-disabled={busy || locked || !b.player.canFlee}
+                onClick={() => onBattle({ type: "flee" })}
               >
-                <strong>{skill.name}</strong>
-                <span>
-                  {skill.costMp > 0 ? `${labels.resources.mp ?? "mp"} ${skill.costMp}` : "无消耗"}
-                  {skill.cooldownLeft > 0 ? ` · 冷却 ${skill.cooldownLeft}` : ""}
-                </span>
+                <strong>逃跑</strong>
+                <span>{b.player.canFlee ? "尝试脱离战斗" : "退路已被封死"}</span>
               </button>
-            ))}
-            {b.player.items.map((item) => (
-              <button
-                key={item.itemId}
-                className="action"
-                // D-08：canUseItems 由投影层用与引擎**同一个**控制判定算出，
-                // 前端不自己查 status id；false ⇒ 引擎必然以 bound_items 拒绝，先禁用。
-                disabled={busy || !b.player.canUseItems}
-                aria-disabled={busy || !b.player.canUseItems}
-                onClick={() => onBattle({ type: "item", itemId: item.itemId })}
-              >
-                <strong>{item.name} ×{item.count}</strong>
-                <span>{b.player.canUseItems ? "使用道具" : "受制于人，用不了道具"}</span>
-              </button>
-            ))}
+            </div>
+
             {/*
-              D-12：逃跑按钮常显但按 canFlee 禁用。
-              旧实现直接不渲染按钮，玩家会以为「没有逃跑这个选项」；现在给按钮 + 原因，
-              原因用文字写在按钮上（不只靠置灰/颜色），并加 aria-disabled 供读屏器识别。
+              D-13：眩晕等 cannot_act 压制时，用一个覆盖层盖住整个行动区，而不是把技能/道具/逃跑
+              逐个置灰——三者同时不可用，逐个禁用会让玩家以为是三个独立问题。
+              覆盖层保留一个明确的推进出口：引擎在 `cannot_act` 分支里只记日志、跳过玩家动作、
+              照常推进回合，必须有人提交一次命令回合才会前进（否则眩晕永远不会到期、战斗卡死）。
+              提交的命令内容在该分支下被完全忽略，故沿用 BattleCommand 中唯一无资源代价的 `flee`：
+              它既不消耗道具、也不消耗 MP/冷却；万一客户端与服务端错位（他端已推进过回合），
+              最坏也只是收到一次 flee_not_allowed 的可见报错，不会静默损失资源。
             */}
-            <button
-              className="action flee"
-              disabled={busy || !b.player.canFlee}
-              aria-disabled={busy || !b.player.canFlee}
-              onClick={() => onBattle({ type: "flee" })}
-            >
-              <strong>逃跑</strong>
-              <span>{b.player.canFlee ? "尝试脱离战斗" : "退路已被封死"}</span>
-            </button>
+            {locked && (
+              <div
+                className={`battle-locked ${lockedTapped ? "is-tapped" : ""}`}
+                role="status"
+                aria-live="polite"
+                aria-disabled="true"
+                onClick={() => setLockedTapped(true)}
+              >
+                <strong className="battle-locked-title">无法行动{stunName ? ` · ${stunName}` : ""}</strong>
+                <p className="battle-locked-sub">
+                  {lockedTapped
+                    ? "已确认：本回合你没有任何可执行的动作。"
+                    : "技能、道具、逃跑本回合全部不可用，只能硬撑过去。"}
+                </p>
+                <button
+                  className="primary battle-locked-pass"
+                  disabled={busy}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onBattle({ type: "flee" });
+                  }}
+                >
+                  硬撑过这一回合
+                </button>
+              </div>
+            )}
           </div>
-          {!b.player.canFlee && <p className="battle-limit-hint">此战无法逃离：局势不允许脱身。</p>}
-          {!b.player.canUseItems && <p className="battle-limit-hint">你被束缚住了：本回合无法使用道具。</p>}
+          {!locked && !b.player.canFlee && <p className="battle-limit-hint">此战无法逃离：局势不允许脱身。</p>}
+          {!locked && !b.player.canUseItems && <p className="battle-limit-hint">你被束缚住了：本回合无法使用道具。</p>}
           <p className="muted target-hint">点击敌人选择目标（默认最前者）</p>
         </>
       )}
