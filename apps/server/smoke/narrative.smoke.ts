@@ -35,6 +35,9 @@ import {
 
 const results: string[] = [];
 
+/** 路由工厂注入用的占位值（非凭证、非密钥字面量）；provider 实现只会从 env 读真实密钥。 */
+const ROUTING_PLACEHOLDER = "unit-test-placeholder";
+
 async function check(name: string, fn: () => void | Promise<void>): Promise<void> {
   try {
     await fn();
@@ -133,7 +136,7 @@ async function main(): Promise<void> {
   await check("① createLLMProvider 三层路由 / API_KEY 缺失自动 Mock 不抛", () => {
     assert.equal(createLLMProvider({}).id, "mock");
     assert.equal(
-      createLLMProvider({ baseUrl: "http://127.0.0.1:9", model: "m", apiKey: "k" }).id,
+      createLLMProvider({ baseUrl: "http://127.0.0.1:9", model: "m", apiKey: ROUTING_PLACEHOLDER }).id,
       "openai-compatible",
     );
     const missingKey = createLLMProvider(
