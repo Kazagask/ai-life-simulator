@@ -87,6 +87,8 @@ const RAW_TEMPLATE: Record<string, unknown> = {
     { id: "st-confuse", name: "混乱", duration: { turns: 1 }, stacking: "refresh" as const, combat: { control: ["forced_target_self" as const] }, visibility: "known" as const },
     { id: "st-bound", name: "束缚", duration: { turns: 2 }, stacking: "refresh" as const, combat: { control: ["cannot_use_items" as const] }, visibility: "known" as const },
     { id: "st-grip", name: "缠锁", duration: { turns: 2 }, stacking: "refresh" as const, combat: { control: ["cannot_flee" as const] }, visibility: "known" as const },
+    // 与真实模板 statuses.yaml#stun 同构：known 可见 + battleRounds 1（一回合后自动解除）
+    { id: "st-stun", name: "眩晕", duration: { turns: 2 }, stacking: "refresh" as const, combat: { control: ["cannot_act" as const], battleRounds: 1 }, visibility: "known" as const },
   ],
   events: [],
 };
@@ -324,5 +326,42 @@ describe("D-12 · 投影告知「本回合能否逃跑」（settle 声明 AND �
     expect(projectSnapshotV2(state, template, lookup).battle?.player.canFlee).toBe(false);
     // 引擎拒绝码是 flee_not_allowed（不是 cannot_flee）
     expect(() => performBattleAction(state, { type: "flee" }, lookup, createRng(5))).toThrow("flee_not_allowed");
+  });
+});
+
+describe("D-13 · 投影告知「本回合能否正常行动」（与引擎 cannot_act 分支同源）", () => {
+  it("无眩晕 ⇒ canAct true", () => {
+    const { template, lookup, state } = setup();
+    expect(projectSnapshotV2(state, template, lookup).battle?.player.canAct).toBe(true);
+  });
+
+  it("眩晕 ⇒ canAct false，且同回合玩家动作确实被跳过（不抛错、回合照常消耗）", () => {
+    const { template, lookup, state } = setup();
+    state.battle!.player.statuses.push({ statusId: "st-stun", stacks: 1, appliedTurn: 0 });
+    expect(projectSnapshotV2(state, template, lookup).battle?.player.canAct).toBe(false);
+
+    const enemyHpBefore = state.battle!.enemies[0].hp;
+    const roundBefore = state.battle!.round;
+    // 引擎该分支**不抛错**（这正是必须由投影告知的原因：点击不会收到 400，只会白费回合）
+    expect(() => performBattleAction(state, { type: "skill", skillId: "sk-strike" }, lookup, createRng(5))).not.toThrow();
+    // 玩家动作被跳过：敌人未掉血、日志留痕、战斗回合仍推进（眩晕的应有语义，引擎不改）
+    expect(state.battle!.enemies[0].hp).toBe(enemyHpBefore);
+    expect(state.battle!.log.join("\n")).toContain("你无法行动。");
+    expect(state.battle!.round).toBe(roundBefore + 1);
+  });
+
+  it("回合结束后眩晕到期解除 ⇒ canAct 恢复 true（判定读实时镜像，不缓存）", () => {
+    const { template, lookup, state } = setup();
+    state.battle!.player.statuses.push({ statusId: "st-stun", stacks: 1, appliedTurn: 0 });
+    expect(projectSnapshotV2(state, template, lookup).battle?.player.canAct).toBe(false);
+    performBattleAction(state, { type: "skill", skillId: "sk-strike" }, lookup, createRng(5));
+    // battleRounds: 1 ⇒ 该回合结束后自动移除
+    expect(state.battle!.player.statuses.some((s) => s.statusId === "st-stun")).toBe(false);
+    const snap = projectSnapshotV2(state, template, lookup);
+    expect(snap.battle?.player.canAct).toBe(true);
+    // 恢复后玩家动作生效（敌人掉血）
+    const enemyHpBefore = state.battle!.enemies[0].hp;
+    performBattleAction(state, { type: "skill", skillId: "sk-strike" }, lookup, createRng(5));
+    expect(state.battle!.enemies[0].hp).toBeLessThan(enemyHpBefore);
   });
 });

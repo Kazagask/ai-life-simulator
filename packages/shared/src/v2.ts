@@ -321,6 +321,17 @@ export interface BattleView {
      * 为 false 时引擎也会以 `bound_items` 拒绝，二者同源。
      */
     canUseItems: boolean;
+    /**
+     * 本回合能否正常行动（D-13）。为 false 表示玩家被 `cannot_act` 类补正（如眩晕）压制：
+     * 引擎**不会报错**，而是跳过玩家动作、照常让友军/敌人行动并推进战斗回合
+     * （眩晕的应有语义，不改），玩家点击只会白费一个回合 —— 故由投影如实告知。
+     * 判定与引擎同一处 `controlOf(..., "cannot_act")`，输入取战斗镜像补正列表。
+     *
+     * 禁用原因**不单独下发**：`known` 可见性的补正本身已在 `statuses` 里（含名字），
+     * 前端可直接展示；若某模板把控制类补正声明为 hidden，则会出现
+     * 「canAct=false 但 statuses 里看不到原因」，这属于模板可见性声明问题。
+     */
+    canAct: boolean;
   };
   enemies: BattleEnemyView[];
   allies: BattleEnemyView[];

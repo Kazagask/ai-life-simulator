@@ -322,6 +322,12 @@ function battleView(state: WorldStateV2, lookup: TemplateLookup, template: World
        * —— 这正是 performBattleAction 检查 `pc.statuses` 的来源，二者不会漂移。
        */
       canUseItems: !controlOf(battle.player.statuses, "cannot_use_items", lookup),
+      /**
+       * D-13：与引擎同一分支同源 —— performBattleAction 的第一步就是
+       * `controlOf(pc.statuses, "cannot_act")`，为真时**不抛错**、只记日志并跳过玩家动作，
+       * 回合照常推进（眩晕的应有语义，引擎不改）。输入同样取战斗镜像补正列表。
+       */
+      canAct: !controlOf(battle.player.statuses, "cannot_act", lookup),
     },
     enemies: battle.enemies.map((e) => ({
       instanceId: e.instanceId,
