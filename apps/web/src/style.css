@@ -148,6 +148,13 @@ body {
   white-space: nowrap;
 }
 
+/* R2.7 / T-S1 / T-S2：AI 叙事来源的中性小标记。复用 .tag 外观，
+   仅补一点行内间距，挂在既有 meta / eval 行里，不新增独立行、不打断布局。 */
+.ai-narrative-tag {
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
 .muted {
   color: var(--muted);
   font-size: 13px;

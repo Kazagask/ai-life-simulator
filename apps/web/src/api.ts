@@ -9,6 +9,16 @@ import type {
 
 const BASE = "";
 
+/** R2.7 / R-NAR-03：叙事来源（与 shared 的 NarrativeSourceSchema 同值域，前端只做展示判定）。 */
+export type NarrativeSource = "template" | "llm" | "fallback";
+
+/**
+ * R2.7 / R-NAR-03：事件 flavor 展示文案表。键为事件 id，值为服务端异步生成并已校验的
+ * **展示**文案。fire-and-forget 结果，可能缺失、可能为空对象；非权威缓存、不进存档 / replay。
+ * 前端不得依赖它存在，只用于当次渲染。
+ */
+export type EventFlavorMap = Record<string, string>;
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   // 只有带 body 时才声明 Content-Type：空 body + application/json 会被 Fastify 判为 400
   const headers = init?.body !== undefined ? { "Content-Type": "application/json" } : undefined;
@@ -67,10 +77,14 @@ export interface WorldSummary {
 export interface InteractionResponse {
   worldId: string;
   snapshot: V2Snapshot;
-  triggeredEvents: Array<{ id: string; title: string; narrative: string }>;
+  /** 服务端目前只下发 `eventFlavors` map；`flavor` 为可选占位，缺省完全等同当前行为。 */
+  triggeredEvents: Array<{ id: string; title: string; narrative: string; flavor?: string }>;
   wheelResult: WheelResultView | null;
+  /** R2.7 / R-NAR-03：可选，异步生成、可能为空对象或整字段缺失。前端不得依赖它存在。 */
+  eventFlavors?: EventFlavorMap;
 }
 
+/** `eventFlavors` 经 `InteractionResponse` 继承，此处不再重复声明。 */
 export interface TurnResponse extends InteractionResponse {
   turnIndex: number;
   elapsed: TimeAmount;
@@ -87,6 +101,17 @@ export interface ArchiveResponse {
     snapshot: V2Snapshot;
     /** 归档中被过滤掉的 hidden 条目数（只公开计数，不公开内容） */
     hiddenHistoryCount?: number;
+    /** R2.7：归档时刻固化的结局叙事来源与文案（可选；旧档 / 未装饰时缺失）。 */
+    ending?: {
+      narrativeSource?: NarrativeSource;
+      title?: string;
+      summary?: string;
+    };
+    /** R2.7：归档时刻固化的人生总结来源与文案（可选）。来源不改变评分。 */
+    evaluation?: {
+      summary?: string;
+      summarySource?: NarrativeSource;
+    };
   };
 }
 
@@ -127,7 +152,7 @@ export const api = {
     });
   },
   getWorld(id: string) {
-    return request<{ worldId: string; snapshot: V2Snapshot }>(`/api/worlds/${id}`);
+    return request<{ worldId: string; snapshot: V2Snapshot; eventFlavors?: EventFlavorMap }>(`/api/worlds/${id}`);
   },
   advanceTurn(id: string, action: { type: string; description: string }, endLife = false) {
     return request<TurnResponse>(`/api/worlds/${id}/turns`, {
@@ -171,5 +196,20 @@ export const api = {
     }));
   },
 };
+
+/**
+ * 事件展示文案解析（R2.7 / T-S3 / R-NAR-03）。
+ *
+ * 优先取服务端异步生成并已校验的 flavor；`flavors` 为 `undefined` / `{}` / 无该 id /
+ * 值为空串时，一律回退模板文案 `event.narrative` —— 即「字段缺失 = 与改前逐字相同」。
+ * 纯函数、零副作用：flavors 只是当次渲染的非权威展示数据，不缓存、不落库、不进 localStorage。
+ */
+export function resolveEventNarrative(
+  event: { id: string; narrative: string },
+  flavors?: EventFlavorMap,
+): string {
+  const flavor = flavors?.[event.id];
+  return flavor !== undefined && flavor !== "" ? flavor : event.narrative;
+}
 
 export type { V2Snapshot, BattleCommand, WheelResultView, EndingView };

@@ -2,8 +2,17 @@ import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { CloudSession } from "@tencent-ai/workbuddy-cloud-sdk";
 import "./style.css";
-import { api } from "./api";
-import type { BattleCommand, EndingView, TemplateSummary, V2Snapshot, WheelResultView, WorldSummary } from "./api";
+import { api, resolveEventNarrative } from "./api";
+import type {
+  BattleCommand,
+  EndingView,
+  EventFlavorMap,
+  NarrativeSource,
+  TemplateSummary,
+  V2Snapshot,
+  WheelResultView,
+  WorldSummary,
+} from "./api";
 import { bootstrapAuth, signOutOfWorkBuddy, signInWithWorkBuddy, userDisplayName } from "./auth";
 import { cloud } from "./cloud";
 import { deleteLifeRecord, listLifeRecords, saveLifeRecord, shouldAutoArchive } from "./records";
@@ -24,6 +33,16 @@ const UNIT_NAMES: Record<string, string> = {
 
 function elapsedText(elapsed: { value: number; unit: string }): string {
   return `${elapsed.value} ${UNIT_NAMES[elapsed.unit] ?? elapsed.unit}`;
+}
+
+/**
+ * 「AI 叙事」中性小标记（R2.7 / T-S1 / T-S2）：仅在服务端明确回传 `llm` 来源时渲染。
+ * `template` / `fallback` / 字段缺失 ⇒ 不渲染任何额外节点，DOM 与改前逐字一致（零回归底线）。
+ * 隐藏结局由服务端保证「不做 LLM 装饰」（narrativeSource 恒非 llm），故不会带此标记，
+ * 前端也绝不据此补全或反推 hidden 原文。
+ */
+function AiNarrativeTag() {
+  return <span className="tag ai-narrative-tag">AI 叙事</span>;
 }
 
 // ---------- 装备 ----------
@@ -103,6 +122,11 @@ interface LastResult {
   elapsed: string;
   events: Array<{ id: string; title: string; narrative: string }>;
   wheel: WheelResultView | null;
+  /**
+   * R2.7 / R-NAR-03：本次响应可选附带的事件 flavor 展示文案。
+   * 纯瞬态、只供当次渲染消费；不进 localStorage、不进 records.ts 人生档案、刷新即失。
+   */
+  eventFlavors?: EventFlavorMap;
 }
 
 // ---------- 本轮转盘结果（D-03 / D-09） ----------
@@ -163,6 +187,15 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<LastResult | null>(null);
+  /**
+   * R2.7 / T-S2：归档响应里的人生总结来源（llm / template / fallback）。
+   * 只在 `archiveWorld` 成功时写入，按 worldId 派生 —— 切到别的世界自动失效，无需额外重置。
+   * 纯瞬态展示元数据：不写 localStorage、不进 records.ts 人生档案、不参与评分。
+   */
+  const [archiveSummarySource, setArchiveSummarySource] = useState<{
+    worldId: string;
+    summarySource: NarrativeSource | undefined;
+  } | null>(null);
   // 本轮转盘是否已被「继续」读掉（签名 = 轮次 + 本轮转盘集合，见 wheelSignature）。
   // 放在 App 而不是 LifeTab：切页签会卸载 LifeTab，本状态必须活过重挂载。
   const [dismissedWheelSig, setDismissedWheelSig] = useState<string | null>(null);
@@ -289,7 +322,7 @@ function App() {
 
   const wrap = useCallback(
     async (
-      fn: () => Promise<{ snapshot: V2Snapshot; triggeredEvents?: LastResult["events"]; wheelResult?: WheelResultView | null; elapsed?: { value: number; unit: string } }>,
+      fn: () => Promise<{ snapshot: V2Snapshot; triggeredEvents?: LastResult["events"]; wheelResult?: WheelResultView | null; elapsed?: { value: number; unit: string }; eventFlavors?: EventFlavorMap }>,
       translateError?: (e: unknown) => string,
     ) => {
       if (busyRef.current) return;
@@ -304,6 +337,7 @@ function App() {
           elapsed: res.elapsed ? elapsedText(res.elapsed) : "",
           events: res.triggeredEvents ?? [],
           wheel: res.wheelResult ?? null,
+          eventFlavors: res.eventFlavors,
         });
       } catch (e) {
         const status = (e as Error & { status?: number }).status;
@@ -387,6 +421,12 @@ function App() {
     setError(null);
     try {
       const res = await api.archiveWorld(wid);
+      // R2.7 / T-S2：归档响应可选带人生总结来源，仅在来源为 llm 时给展示加中性小标记。
+      // 与 eventFlavors 一样是当次渲染的瞬态展示元数据，不落库、不进人生档案。
+      setArchiveSummarySource({
+        worldId: wid,
+        summarySource: res.archive?.evaluation?.summarySource,
+      });
       // 归档响应自带最终快照（status=archived，含 ending 与 evaluation 五维分项），
       // 直接采用即可：不再多打一次 GET，也不会用非归档投影覆盖归档事实。
       const finalSnapshot = res.archive?.snapshot ?? (await api.getWorld(wid)).snapshot;
@@ -460,6 +500,9 @@ function App() {
   // 刚结算的这一轮才播转盘动画；从存档恢复（刷新后 lastResult 为空）直接呈现已落定结果，
   // 否则每次刷新都要白等 2.6s 才看到「继续」（D-09）。
   const wheelsFresh = lastResult !== null && lastResult.turnIndex === snapshot.turnIndex;
+  // 只认「当前 worldId 的归档响应」：切换 / 重开世界后旧值自动失效（零回归，无额外重置）。
+  const summarySource =
+    archiveSummarySource?.worldId === worldId ? archiveSummarySource.summarySource : undefined;
 
   return (
     <div className="shell">
@@ -486,6 +529,7 @@ function App() {
             wheels={visibleWheels}
             wheelsFresh={wheelsFresh}
             signedIn={session !== null}
+            summarySource={summarySource}
             onAdvance={advance}
             onChoose={choose}
             onBattle={battle}
@@ -497,7 +541,7 @@ function App() {
         )}
         {tab === "people" && <PeopleTab snapshot={snapshot} />}
         {tab === "personal" && (
-          <PersonalTab snapshot={snapshot} busy={busy} onUseItem={useItem} onEquip={equip} onUnequip={unequip} />
+          <PersonalTab snapshot={snapshot} busy={busy} summarySource={summarySource} onUseItem={useItem} onEquip={equip} onUnequip={unequip} />
         )}
         {tab === "world" && <WorldTab snapshot={snapshot} />}
         {tab === "log" && <LogTab snapshot={snapshot} />}
@@ -784,7 +828,7 @@ function EvaluationBreakdown({
 
 // ---------- 玩家状态卡 ----------
 
-function PlayerCard({ snapshot }: { snapshot: V2Snapshot }) {
+function PlayerCard({ snapshot, summarySource }: { snapshot: V2Snapshot; summarySource?: NarrativeSource }) {
   const p = snapshot.player;
   const labels = snapshot.labels;
   const labelOrder = Object.keys(labels.attributes);
@@ -826,7 +870,7 @@ function PlayerCard({ snapshot }: { snapshot: V2Snapshot }) {
           ))}
         </div>
       )}
-      <p className="eval-line">{snapshot.evaluation.summary}</p>
+      <p className="eval-line">{snapshot.evaluation.summary}{summarySource === "llm" && <AiNarrativeTag />}</p>
       <EvaluationBreakdown evaluation={snapshot.evaluation} status={snapshot.status} />
     </section>
   );
@@ -854,6 +898,7 @@ function LifeTab({
   wheels,
   wheelsFresh,
   signedIn,
+  summarySource,
   onAdvance,
   onChoose,
   onBattle,
@@ -871,6 +916,8 @@ function LifeTab({
   wheelsFresh: boolean;
   /** 已登录 WorkBuddy 账号：只影响结算页那行「存进人生档案」的提示 */
   signedIn: boolean;
+  /** R2.7 / T-S2：归档响应的人生总结来源；缺省 / 非 llm 时展示与改前逐字一致 */
+  summarySource?: NarrativeSource;
   onAdvance: (action: { type: string; description: string }) => void;
   onChoose: (optionId: string) => void;
   onBattle: (command: BattleCommand) => void;
@@ -909,7 +956,7 @@ function LifeTab({
 
   return (
     <div className="stack">
-      <PlayerCard snapshot={snapshot} />
+      <PlayerCard snapshot={snapshot} summarySource={summarySource} />
 
       {ended && snapshot.ending && (
         <EndingPanel
@@ -969,7 +1016,8 @@ function LifeTab({
             {alsoHappened.map((event) => (
               <div key={event.id} className="event-card">
                 <strong>⚡ {event.title}</strong>
-                <p>{event.narrative}</p>
+                {/* R2.7 / R-NAR-03：有 flavor 用服务端已校验文案，缺失 / 空串回退模板文案（零回归） */}
+                <p>{resolveEventNarrative(event, lastResult?.eventFlavors)}</p>
               </div>
             ))}
           </div>
@@ -1010,9 +1058,12 @@ function EndingPanel({
       <span className="tag">{archived ? "本局已封存" : "本局已结束"}</span>
       <h2 className="ending-title">{ending.title}</h2>
       <p className="ending-summary">{ending.summary}</p>
+      {/* R2.7 / T-S1：仅 llm 来源在 meta 行尾追加中性小标记；template / fallback / 缺字段
+          ⇒ 行内无新增节点、无新增空白，与改前逐字相同。隐藏结局由服务端保证不做 LLM
+          装饰（narrativeSource 恒非 llm），故不会带此标记，前端也不反推 hidden 原文。 */}
       <p className="muted ending-meta">
         第 {ending.turnIndex} 轮 · {SOURCE_LABELS[ending.source] ?? ending.source}
-        {ending.visibility === "hidden" ? " · 隐藏结局" : ""}
+        {ending.visibility === "hidden" ? " · 隐藏结局" : ""}{ending.narrativeSource === "llm" && <AiNarrativeTag />}
       </p>
       {!archived && (
         <button className="ghost" disabled={busy} onClick={onArchive}>
@@ -1612,12 +1663,15 @@ type PersonalSelection =
 function PersonalTab({
   snapshot,
   busy,
+  summarySource,
   onUseItem,
   onEquip,
   onUnequip,
 }: {
   snapshot: V2Snapshot;
   busy: boolean;
+  /** R2.7 / T-S2：归档响应的人生总结来源；缺省 / 非 llm 时展示与改前逐字一致 */
+  summarySource?: NarrativeSource;
   onUseItem: (itemId: string) => void;
   onEquip: (itemId: string) => void;
   onUnequip: (instanceId: string) => void;
@@ -1668,7 +1722,7 @@ function PersonalTab({
       {sub === "character" && (
         <>
           <CharacterPanel snapshot={snapshot} equipment={equipment} selection={active} onSelect={setSelection} />
-          <StatsPanel snapshot={snapshot} />
+          <StatsPanel snapshot={snapshot} summarySource={summarySource} />
           <AssetDetail
             snapshot={snapshot}
             selection={active}
@@ -1885,7 +1939,7 @@ function StoryChapterChip({ chapter }: { chapter: number | undefined }) {
 }
 
 /** 属性面板：只复述投影已有字段，不做任何前端推算（与 DNF 的 M 面板信息区对应）。 */
-function StatsPanel({ snapshot }: { snapshot: V2Snapshot }) {
+function StatsPanel({ snapshot, summarySource }: { snapshot: V2Snapshot; summarySource?: NarrativeSource }) {
   const p = snapshot.player;
   const labels = snapshot.labels.attributes;
   const order = Object.keys(labels);
@@ -1930,7 +1984,7 @@ function StatsPanel({ snapshot }: { snapshot: V2Snapshot }) {
         <span className="chip">{snapshot.formattedTime}</span>
         <StoryChapterChip chapter={snapshot.storyChapter} />
       </div>
-      <p className="eval-line">{snapshot.evaluation.summary}</p>
+      <p className="eval-line">{snapshot.evaluation.summary}{summarySource === "llm" && <AiNarrativeTag />}</p>
       <EvaluationBreakdown evaluation={snapshot.evaluation} status={snapshot.status} />
     </section>
   );
