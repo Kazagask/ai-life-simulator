@@ -497,6 +497,15 @@ export interface V2Snapshot {
       /** 多跳中文称谓（仅亲属链可推导时存在） */
       kinshipTerm?: string;
     }>;
+    /**
+     * 当前补正（ADR-0019）。**只投影 visibility=known 的定义**，与玩家补正同一过滤口径；
+     * unknown / hidden 补正不外泄，避免「状态列表」变成侧信道。
+     */
+    statuses: Array<{ id: string; name: string; stacks: number }>;
+    /** 人生阶段 id（按模板阶段表由 NPC 年龄推导，与玩家口径一致）。 */
+    lifeStage: string;
+    /** 人生阶段显示标签（模板未给 label 时回退 stage id）。 */
+    lifeStageLabel: string;
   }>;
   pendingEvent: PendingEventView | null;
   battle: BattleView | null;

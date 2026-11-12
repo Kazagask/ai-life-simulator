@@ -147,32 +147,47 @@ export function projectSnapshotV2(
       allowedCategories: [...s.allowedCategories],
       panelSide: s.panelSide ?? "bottom",
     })),
-    npcs: state.npcs.map((npc) => ({
-      id: npc.id,
-      name: npc.name,
-      age: npc.age,
-      genderLabel: lookup.genderLabel(npc.gender),
-      personality: npc.personality,
-      relationship: npc.relationship,
-      knownGoals: [...npc.knownGoals],
-      relations: visibleRelations
-        .filter((e) => e.from === npc.id || e.to === npc.id)
-        .map((e) => {
-          const outgoing = e.from === npc.id;
-          const withId = outgoing ? e.to : e.from;
-          // 称谓只在「本体称呼对方」的有向亲属边上成立；反向边不强行反推称谓。
-          const term =
-            outgoing && isKinshipKind(e.kind) ? kinshipTerm(visibleRelations, npc.id, withId) : null;
-          return {
-            withId,
-            kind: e.kind,
-            visibility: e.visibility,
-            direction: outgoing ? ("out" as const) : ("in" as const),
-            ...(e.value !== undefined ? { value: e.value } : {}),
-            ...(term ? { kinshipTerm: term.term } : {}),
-          };
-        }),
-    })),
+    npcs: state.npcs.map((npc) => {
+      // ADR-0019：NPC 面板需要「状态 / 生命周期」两块。口径与玩家一致——
+      // 补正只透 visibility=known（hidden/unknown 不外泄），阶段由年龄按模板阶段表推导。
+      const npcStage = adapter.resolveLifeStage(npc.age);
+      return {
+        id: npc.id,
+        name: npc.name,
+        age: npc.age,
+        genderLabel: lookup.genderLabel(npc.gender),
+        personality: npc.personality,
+        relationship: npc.relationship,
+        knownGoals: [...npc.knownGoals],
+        statuses: npc.statuses
+          .map((inst) => {
+            const def = lookup.status(inst.statusId);
+            return def && def.visibility === "known"
+              ? { id: def.id, name: def.name, stacks: inst.stacks }
+              : null;
+          })
+          .filter((s): s is { id: string; name: string; stacks: number } => s !== null),
+        lifeStage: npcStage,
+        lifeStageLabel: adapter.lifeStageLabel(npcStage),
+        relations: visibleRelations
+          .filter((e) => e.from === npc.id || e.to === npc.id)
+          .map((e) => {
+            const outgoing = e.from === npc.id;
+            const withId = outgoing ? e.to : e.from;
+            // 称谓只在「本体称呼对方」的有向亲属边上成立；反向边不强行反推称谓。
+            const term =
+              outgoing && isKinshipKind(e.kind) ? kinshipTerm(visibleRelations, npc.id, withId) : null;
+            return {
+              withId,
+              kind: e.kind,
+              visibility: e.visibility,
+              direction: outgoing ? ("out" as const) : ("in" as const),
+              ...(e.value !== undefined ? { value: e.value } : {}),
+              ...(term ? { kinshipTerm: term.term } : {}),
+            };
+          }),
+      };
+    }),
     pendingEvent: ended ? null : pendingEventView(state, lookup),
     battle,
     lastWheel: state.lastWheel,

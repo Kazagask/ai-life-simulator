@@ -2049,30 +2049,142 @@ function SkillList({ snapshot }: { snapshot: V2Snapshot }) {
 
 // ---------- 人物 Tab ----------
 
+/**
+ * 关系 kind 的中文显示名。
+ *
+ * 语义来自 `packages/shared/src/schema/relation.ts`：`{from:A, to:B, kind}` 读作
+ * **「B 是 A 的 <kind>」**。所以界面上不能只写「父亲」——必须标明**是谁视谁为**，
+ * 否则同一条边在不同方向下会被读反。称谓（`kinshipTerm`）由投影给出，只有亲属边才有。
+ */
+const RELATION_KIND_LABEL: Record<string, string> = {
+  father: "父亲",
+  mother: "母亲",
+  son: "儿子",
+  daughter: "女儿",
+  husband: "丈夫",
+  wife: "妻子",
+  "elder-brother": "兄长",
+  "younger-brother": "弟弟",
+  "elder-sister": "姐姐",
+  "younger-sister": "妹妹",
+  relative: "亲戚",
+  mentor: "师父",
+  disciple: "弟子",
+  friend: "朋友",
+  rival: "对手",
+  enemy: "敌手",
+  colleague: "同僚",
+};
+
+const RELATION_VISIBILITY_LABEL: Record<string, string> = {
+  known: "确知",
+  inferred: "推断",
+};
+
+function NpcCard({
+  npc,
+  names,
+}: {
+  npc: V2Snapshot["npcs"][number];
+  names: Record<string, string>;
+}) {
+  const nameOf = (id: string) => (id === "player" ? "你" : names[id] ?? id);
+  return (
+    <section className="card npc-card">
+      <div className="row">
+        <h2>{npc.name}</h2>
+        <span className="tag">
+          {npc.age} 岁 · {npc.genderLabel}
+        </span>
+      </div>
+      <div className="chip-row npc-meta">
+        <span className="chip">{npc.lifeStageLabel}</span>
+        <span className="chip">关系 {npc.relationship}</span>
+      </div>
+      <p className="muted">{npc.personality}</p>
+      <div className="attr">
+        <span className="attr-name">好感</span>
+        <div className="bar">
+          <div
+            className="bar-fill relation"
+            style={{ width: `${((npc.relationship + 100) / 200) * 100}%` }}
+          />
+        </div>
+        <span className="attr-value">{npc.relationship}</span>
+      </div>
+      {npc.knownGoals.length > 0 && (
+        <p className="known-goals">已知目标：{npc.knownGoals.join("；")}</p>
+      )}
+      <details className="npc-details">
+        <summary>
+          关系 {npc.relations.length} · 状态 {npc.statuses.length}
+        </summary>
+
+        <div className="npc-block">
+          <h3>关系</h3>
+          {npc.relations.length === 0 ? (
+            <p className="muted">尚无已知的人际关系。</p>
+          ) : (
+            <ul className="rel-list">
+              {npc.relations.map((rel, i) => {
+                const kindLabel = RELATION_KIND_LABEL[rel.kind] ?? rel.kind;
+                const other = nameOf(rel.withId);
+                // direction=out：本体 → 对方；direction=in：对方 → 本体。
+                // 两个方向都写成完整句（含双方名字），避免出现「本体」这类只有开发者懂的词。
+                const sentence =
+                  rel.direction === "out"
+                    ? `${npc.name}视${other}为${kindLabel}`
+                    : `${other}视${npc.name}为${kindLabel}`;
+                return (
+                  <li key={`${rel.withId}-${rel.kind}-${i}`} className="rel-row">
+                    <span className="rel-text">{sentence}</span>
+                    {rel.kinshipTerm && <span className="rel-term">{rel.kinshipTerm}</span>}
+                    <span className={`rel-vis rel-vis-${rel.visibility}`}>
+                      {RELATION_VISIBILITY_LABEL[rel.visibility] ?? rel.visibility}
+                    </span>
+                    {typeof rel.value === "number" && <span className="rel-value">{rel.value}</span>}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        <div className="npc-block">
+          <h3>状态</h3>
+          {npc.statuses.length === 0 ? (
+            <p className="muted">无异常状态。</p>
+          ) : (
+            <div className="chip-row">
+              {npc.statuses.map((s) => (
+                <span key={s.id} className="chip">
+                  {s.name}
+                  {s.stacks > 1 ? ` ×${s.stacks}` : ""}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="npc-block">
+          <h3>生命周期</h3>
+          <p className="muted">
+            {npc.lifeStageLabel} · {npc.age} 岁
+          </p>
+        </div>
+      </details>
+    </section>
+  );
+}
+
 function PeopleTab({ snapshot }: { snapshot: V2Snapshot }) {
+  // 关系边只给 id，这里建一次 id→名 的索引，避免每行重复查找。
+  const names = Object.fromEntries(snapshot.npcs.map((n) => [n.id, n.name]));
   return (
     <div className="stack">
+      {snapshot.npcs.length === 0 && <p className="muted">这个世界还没有出现在你身边的人。</p>}
       {snapshot.npcs.map((npc) => (
-        <section key={npc.id} className="card">
-          <div className="row">
-            <h2>{npc.name}</h2>
-            <span className="tag">{npc.age} 岁 · {npc.genderLabel}</span>
-          </div>
-          <p className="muted">{npc.personality}</p>
-          <div className="attr">
-            <span className="attr-name">关系</span>
-            <div className="bar">
-              <div
-                className="bar-fill relation"
-                style={{ width: `${((npc.relationship + 100) / 200) * 100}%` }}
-              />
-            </div>
-            <span className="attr-value">{npc.relationship}</span>
-          </div>
-          {npc.knownGoals.length > 0 && (
-            <p className="known-goals">已知目标：{npc.knownGoals.join("；")}</p>
-          )}
-        </section>
+        <NpcCard key={npc.id} npc={npc} names={names} />
       ))}
     </div>
   );

@@ -28,8 +28,10 @@ characters:
         skillWeights: { sk-puppet: 4, sk-basic-strike: 1 }
     relationship: 8
     relations:
-      - { to: npc-gojo, kind: mentor, visibility: known, value: 80 }
-      - { to: npc-nanami, kind: mentor, visibility: known, value: 70 }
+      # 夜蛾是二人之师：边语义为「to 是 from 的 kind」，故此处是 disciple（弟子），
+      # 不是 mentor。原写成 mentor 会读成「五条/七海是夜蛾的师父」（2026-11-12 面板验收发现）。
+      - { to: npc-gojo, kind: disciple, visibility: known, value: 80 }
+      - { to: npc-nanami, kind: disciple, visibility: known, value: 70 }
 
   - id: npc-gojo
     isEnemy: false

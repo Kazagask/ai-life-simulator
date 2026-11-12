@@ -725,3 +725,34 @@ NPC 现无任何存活状态：死亡/失联的 NPC 照样被效用评分选中�
   → 日常池 → 第一章 day 215 → 甚尔战（夏油友军、领域展开生效）→ 救下理子 → 时间跳跃 2007-06-03（age 16）。
 - **已知缺口**：`combat-ai.yaml` 的 `sk-domain-void` 已随改名同步为 `sk-domain-empty`；
   创建链仍是点击式（转盘动画只服务 `kind: random` 事件，`ev-w12` 与 `ev-sj-03` 会真正旋转）。
+
+---
+
+## ADR-0019 NPC 面板投影：补 `statuses` / `lifeStage`
+
+- **状态**：**已实施（2026-11-12 用户要求「前端还没实现 NPC 面板，关系/生命周期/状态先实现了」）**。
+  属 T-2（投影契约变更），故先补本条 ADR。
+- **背景**：`V2Snapshot.npcs[]` 原本只有 `id/name/age/genderLabel/personality/relationship/knownGoals/relations`。
+  关系边在 R2.6（ADR-0014）已就绪，但**状态与人生阶段从未投影**，前端人物页只能显示姓名、年龄与一个关系数值。
+- **决策**：
+  1. `npcs[].statuses: { id, name, stacks }[]` —— **只透 `visibility === "known"` 的补正定义**，与玩家补正同一过滤口径。
+     `unknown` / `hidden` 补正既不进数组、也不留任何字符串痕迹（避免「状态列表」成为 `hidden` 的侧信道）。
+  2. `npcs[].lifeStage` / `lifeStageLabel` —— 由 NPC **年龄**经与玩家同一个 `CalendarAdapter.resolveLifeStage`
+     推导（模板配置阶段表时走阶段表，否则走内置 4 段兜底），**不在状态层存储推导结果**（延续 ADR-0012「生命周期与投影解耦」）。
+- **明确不做**：
+  - **不新增 NPC 生死状态**。引擎当前没有 `alive` / 死亡建模，面板因此只显示「阶段 · 年龄」，
+    不显示「已故」。真要做得先定「NPC 何时死」这条游戏规则（属核心规则变更，另立项），
+    见 `docs/BACKLOG.md` §0。**不得用「年龄大就当作已故」这类推测在投影层伪造。**
+  - 不下发 `hp/mp/mood` 与 `attributes`：NPC 战斗数值属战斗域，日常面板不需要，暴露反而成为推理材料。
+  - 不下发关系另一端的**名字**：前端用 `npcs[].id → name` 自建索引即可（同屏数据已足够），
+    避免投影为每个 NPC 重复内联全部人名。
+- **前端**：`apps/web/src/main.tsx` 的 `PeopleTab` 改为可展开的 `NpcCard`，
+  三块「关系 / 状态 / 生命周期」。关系行**双方向都写成完整句**（`A 视 B 为师父` / `B 视 A 为弟子`），
+  因为边语义是 `{from, to, kind}` = 「to 是 from 的 kind」，只写单个关系词会被读反。
+  kind 的中文名放前端常量表（`RELATION_KIND_LABEL`）——枚举封闭，属展示文案，不进内核。
+- **副作用（已修）**：面板上线后立刻暴露一条模板数据错误——`characters.yaml` 里夜蛾正道声明
+  `{to: npc-gojo, kind: mentor}`，按边语义读成「五条是夜蛾的师父」（原作相反）。已改为 `kind: disciple`
+  （T-1 内容修正）。这正是「投影如实」的价值：数据反了，面板会直接读出来。
+- **验证**：`pnpm typecheck` 0 错；game-core **373/373**（新增 `v2/npc-panel-projection.test.ts` 3 例：
+  known-only 过滤 + hidden 不留痕迹、阶段按年龄推导三档、无补正给空数组）；shared 62/62；`pnpm build` 通过。
+  浏览器实测（430×932 DPR2）：人物页 16 张卡片、展开后三块齐全、`docH 2933 / 横向溢出 0`、控制台零报错。
