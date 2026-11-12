@@ -14,6 +14,7 @@
 - 禁止「先全量读一遍再动手」。历史过程文档只解释「为什么当初那样做」，不构成现行约束；**现行约束只看 `core/` 与 ADR**。
 - 规格与代码冲突时：以 `core/` + ADR 为准；`archive/` 与代码冲突时以**代码**为准（历史文档已作废）。
 - 发现 `core/` 与实现不一致 → 记 `docs/BACKLOG.md` 或 `docs/OPEN_QUESTIONS.md`，不要擅自回改历史文档。
+- **改模板 `specs/data/templates/` 里的 yaml 不算改规格**：demo 期模板频繁变更，**仅 yaml 改动免 ADR**；只有动到 schema / 枚举 / effect 类型 / 投影契约这类**协议面**才走 ADR。判据与最小验证集见 `AGENTS.md` §0.3。
 
 ## 1. 目录结构
 

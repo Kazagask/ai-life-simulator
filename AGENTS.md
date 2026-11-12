@@ -18,8 +18,37 @@
 - 先给出简短实施计划，再修改文件。
 - 一次只实现一个明确任务，不要擅自扩展范围。
 - 不确定的产品规则写入 `docs/OPEN_QUESTIONS.md`，不要自行伪造共识。
-- 不得静默改变技术栈、目录结构、核心数据模型或游戏规则；需要变更时先写 ADR。
+- 不得静默改变技术栈、目录结构、核心数据模型或游戏规则；需要变更时先写 ADR（**例外：仅 yaml 模板改动免 ADR，见 §0.3**）。
 - 优先小步提交、可运行、可测试的改动。
+
+### 0.3 模板变更与 ADR 的边界（2026-11-12 用户裁决）
+
+**当前阶段策略：demo 期以内核开发为主，模板会频繁变更。** 因此判据只看一件事：**有没有动 yaml 以外的契约面**。
+
+| 档 | 范围 | ADR | 流程 |
+|---|---|---|---|
+| **T-1 仅 yaml** | `specs/data/templates/**/*.yaml` 的任何改动——文案、数值、增删事件/链、改触发拓扑、改章节编排、改结局判据、改属性集 | **不走 ADR** | 加载期校验 → 跑读模板的测试 → 一条冒烟 → 单提交 |
+| **T-2 协议** | `packages/shared/src/schema/**` 的字段/枚举/类型、effect 类型、`source`/`kind` 语义、触发策略语义、投影契约、存档结构 | **必须 ADR（G2 生效）** | ADR → schema → 模板 → 测试 → QA |
+
+**判据（一句话）**：`git status` 里只有 `specs/data/templates/` ⇒ 免 ADR；一旦动了 `packages/shared` / `packages/game-core` / `apps/**` 的契约面 ⇒ 走 ADR。
+
+**T-1 仍必须做到的四件事**（免 ADR 不等于免责任）：
+
+1. **提交信息写清"玩法结构变更"**：改了哪条循环 / 触发拓扑 / 结局判据，为什么改。免的是 ADR 文档，不是可追溯性。
+2. **主动声明存档代价**：模板指纹取目录内全部 `*.yaml` 排序拼接的 sha256（`apps/server/src/templates.ts`），改动必然变化 ⇒ 旧存档全部拒载。这是 ADR-0007 既定策略，不是故障，必须写进交付说明。
+3. **不许为迁就模板而在内核加兜底**：模板漏配就该在加载期失败（D-17 教训）。需要兜底说明该改的是 schema，那就升到 T-2 走 ADR。
+4. **反复出现才回补 ADR**：同一类模板改动反复引发同类缺陷（如章节触发器重复触发）时，回头补一条 ADR，把教训固化。
+
+**T-1 的最小验证集**（够用即止，不要跑全量 UI e2e）：
+
+```bash
+pnpm --filter @life-sim/server start                 # 加载期 fail-fast
+pnpm --filter @life-sim/shared test                  # schema / opening 解析
+pnpm --filter @life-sim/game-core exec vitest run --no-file-parallelism \
+  src/v2.test.ts src/v2/opening.test.ts src/v2/playthrough.test.ts
+```
+
+`playthrough.test.ts`（6 种子 × 2 开局自动通关）是最容易暴雷的一关，改内容必跑。
 
 ## 1. 架构边界
 
