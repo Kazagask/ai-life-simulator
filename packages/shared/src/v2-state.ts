@@ -75,6 +75,12 @@ const V2NpcSchema = CombatantBaseSchema.extend({
     })
     .strict()
     .default({ state: "alive", sinceTurn: 0, sinceWorldTime: 0 }),
+  /**
+   * 出生时刻（世界分钟，**可为负** = 世界起点之前出生；ADR-0021 决策 4.1）。
+   * 可选 + 读侧反推：缺字段的旧档不拒载，投影按 `birthTimeFromAge(age, adapter)` 兜底
+   * （与 lifecycle 同一兼容策略 ⇒ **不升 schemaVersion**）。
+   */
+  birthTime: z.number().optional(),
 }).strict();
 
 const BattleEnemySchema = z

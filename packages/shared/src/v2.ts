@@ -85,6 +85,25 @@ export interface V2Npc extends V2CombatantBase {
    * （阵亡 / 叛逃 / 下落不明…），引擎不对它分支，业务语义由模板 `npcState` 条件表达。
    */
   lifecycle: NpcLifecycle;
+  /**
+   * 出生时刻（**世界分钟，可为负**：负值 = 世界起点之前出生，ADR-0021 决策 4.1）。
+   * 与 `age` 的关系：「当前年龄」= `ageAt(birthTime, worldTime)`。
+   *
+   * **可选 + 读侧反推、不升 schemaVersion**（沿用 `lifecycle` 先例）：旧档没有该字段时，
+   * 读取侧按「从世界起点按整年回溯 age」兜底（`time.birthTimeFromAge`），
+   * 从而保证 `ageAt(birthTime, 0) === age`。
+   *
+   * 写入点只有一处：建世界期（`createWorldV2`）。`spawnNpc` 仍缺，故本字段不新增写入点。
+   */
+  birthTime?: number;
+  /**
+   * ⚠ **语义收窄（ADR-0021 决策 4.1）**：`age` 继承自 `V2CombatantBase`，在 NPC 上它现在只是
+   * 「**起始年龄快照**（世界起点时的年龄）」，唯一合法读者是 birthTime 的反推兜底；
+   * **不再表示当前年龄**，也不被投影直接读取——投影的 `npcs[].age` 由
+   * `ageAt(birthTime, worldTime)` 现算。保留为必填字段只是旧档字节兼容
+   * （`CombatantBaseSchema.age` 是 strict 存档必填，删字段＝旧档全拒载）。
+   */
+  // age 在 V2CombatantBase 中声明，此处仅承接语义说明
   /** 与玩家的关系值 */
   relationship: number;
   personality: string;

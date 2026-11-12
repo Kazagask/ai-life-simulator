@@ -52,6 +52,21 @@ export interface CalendarAdapter {
   format(minutes: number): string;
   /** 内部时间标量 → 经过的整年数（用于年龄推进；生日未达不减岁，限日历感知 preset） */
   elapsedYears(minutes: number): number;
+  /**
+   * 该世界分钟落在**哪一年**（历法年；approx 用固定年长折算）。
+   * 负分钟（世界起点之前）⇒ startYear 之前的年份，不做钳位（ADR-0021 决策 4.3）。
+   */
+  yearOf(minute: number): number;
+  /**
+   * 年龄派生（ADR-0021 决策 4.2）：**年差口径** `yearOf(now) − yearOf(birth)`，
+   * 即 ADR-0013 修订 R1 的「跨年界即 +1」。
+   *
+   * **不得**实现为 `elapsedYears(now − birth)`：`elapsedYears` 的语义是「相对 startYear
+   * 的整年差」，喂两个时刻之差得到的是**生日口径**（满周年才加岁），二者在 gregorian/custom
+   * 下会差 1 岁（生于 1991-04-03、观察点 2007-01-15：本式 16 岁，生日口径 15 岁）。
+   * approx 下两者恰好等价（525600 整除），所以这个坑只会在日历感知 preset 上炸。
+   */
+  ageAt(birthMinute: number, nowMinute: number): number;
   /** 年龄 → 人生阶段 id */
   resolveLifeStage(age: number): string;
   /** 人生阶段 id → 显示标签 */
@@ -60,6 +75,7 @@ export interface CalendarAdapter {
    * 按注入历法把 TimeAmount 换算为**分钟增量**（R2.6 落地，ADR-0013）：
    * 从 fromMinute 起推进 value 个 unit 后净增加的分钟数。day/week/hour/minute 与时历结构无关；
    * year/month 经日历逐月推进（如 2000-02-28 起 1 月因闰年到 03-28，比平年少 1 天）。
+   * **负值表示回溯**（ADR-0021 决策 4.3）：year/month 向回走真实日历长度。
    */
   toMinutes(amount: TimeAmount, fromMinute: number): number;
   /** 解析复合时长（3d / 2h30m / 1y2mo）与历法日期字面量（2006-12-24）→ **绝对世界分钟**；非法抛错。 */
@@ -126,14 +142,30 @@ interface View {
   day: number; // 1-based
   minuteOfDay: number; // 0..1439
 }
+/**
+ * 内部分钟 → 历法视图（Date-free）。
+ *
+ * ADR-0021 决策 4.3：**支持负分钟**（世界起点之前）。`minutes >= 0` 的输出与钳位版逐字节一致：
+ * 非负时 `Math.floor(total/1440) === total % 1440` 的分解与旧实现同值，故零回归。
+ * 负值时从 startYear-01-01 逐年向回走真实年长（闰年/自定义月长各自计入），
+ * 与 `eraYearBase` 的手写负分支同一思路（那里保留手写是因为它数的是「纪元年基」）。
+ */
 function minutesToView(minutes: number, model: CalendarModel): View {
-  const total = Math.max(0, Math.floor(minutes));
-  const minuteOfDay = total % 1440;
-  let rem = Math.floor(total / 1440); // 剩余天数
+  const total = Math.floor(minutes);
+  const dayIndex = Math.floor(total / 1440); // 可为负（欧几里得分解）
+  const minuteOfDay = total - dayIndex * 1440; // 恒在 0..1439
+  let rem = dayIndex; // 剩余天数（可为负）
   let year = model.startYear;
-  while (rem >= daysInYear(model, year)) {
-    rem -= daysInYear(model, year);
-    year++;
+  if (rem >= 0) {
+    while (rem >= daysInYear(model, year)) {
+      rem -= daysInYear(model, year);
+      year++;
+    }
+  } else {
+    while (rem < 0) {
+      year--;
+      rem += daysInYear(model, year);
+    }
   }
   let monthIndex = 0;
   while (rem >= daysInMonth(model, year, monthIndex)) {
@@ -144,7 +176,12 @@ function minutesToView(minutes: number, model: CalendarModel): View {
 }
 function viewToMinutes(v: View, model: CalendarModel): number {
   let minutes = 0;
-  for (let y = model.startYear; y < v.year; y++) minutes += daysInYear(model, y) * 1440;
+  // ADR-0021 决策 4.3：year < startYear 时负累加（回溯），非负路径逐字节不变
+  if (v.year >= model.startYear) {
+    for (let y = model.startYear; y < v.year; y++) minutes += daysInYear(model, y) * 1440;
+  } else {
+    for (let y = v.year; y < model.startYear; y++) minutes -= daysInYear(model, y) * 1440;
+  }
   for (let m = 0; m < v.monthIndex; m++) minutes += daysInMonth(model, v.year, m) * 1440;
   minutes += (v.day - 1) * 1440;
   minutes += v.minuteOfDay;
@@ -205,21 +242,36 @@ function createApproxAdapter(template: WorldTemplateV2): TimeAdapter {
   };
   const lifeStageLabel = (stageId: string): string => stages?.find((s) => s.id === stageId)?.label ?? stageId;
   const format = (minutes: number): string => {
-    const years = Math.floor(minutes / UNIT_MINUTES.year);
-    const rest = minutes % UNIT_MINUTES.year;
+    // 欧几里得分解：非负时与旧实现逐字节一致（floor/取余同值），负分钟也不产出 0 月 0 日
+    const total = Math.floor(minutes);
+    const years = Math.floor(total / UNIT_MINUTES.year);
+    const rest = total - years * UNIT_MINUTES.year; // 恒在 0..年长-1
     const months = Math.floor(rest / UNIT_MINUTES.month);
     const days = Math.floor((rest % UNIT_MINUTES.month) / UNIT_MINUTES.day);
     const hours = Math.floor((rest % UNIT_MINUTES.day) / UNIT_MINUTES.hour);
     return `${startYear + years}年${months + 1}月${days + 1}日 ${String(hours).padStart(2, "0")}:00`;
   };
   const elapsedYears = (minutes: number): number => Math.floor(minutes / UNIT_MINUTES.year);
+  // approx 无真实日历：年长恒为 525600 ⇒ 年差口径与「固定年长折算」等价（ADR-0021 决策 4.2）
+  const yearOf = (minute: number): number => startYear + Math.floor(minute / UNIT_MINUTES.year);
+  const ageAt = (birthMinute: number, nowMinute: number): number => yearOf(nowMinute) - yearOf(birthMinute);
   const resolveStep = (lifeStage: string, actionDuration?: TimeAmount): TimeAmount => {
     if (actionDuration) return actionDuration;
     const steps = template.time.lifeStageSteps;
     return steps?.[lifeStage] ?? template.time.defaultStep;
   };
 
-  return { format, elapsedYears, resolveLifeStage, lifeStageLabel, resolveStep, toMinutes: amountToMinutes, parseTimeSpec: parseCompositeOnly };
+  return {
+    format,
+    elapsedYears,
+    yearOf,
+    ageAt,
+    resolveLifeStage,
+    lifeStageLabel,
+    resolveStep,
+    toMinutes: amountToMinutes,
+    parseTimeSpec: parseCompositeOnly,
+  };
 }
 
 /** approx 仅支持复合时长字面量（不含历法日期，因 approx 非真实日历）。 */
@@ -293,6 +345,10 @@ export function createTimeAdapter(template: WorldTemplateV2): TimeAdapter {
     return Math.max(0, v.year - model.startYear);
   };
 
+  /** ADR-0021 决策 4.2：年龄用**年差口径**，不是「相对 startYear 的整年差」。 */
+  const yearOf = (minute: number): number => minutesToView(minute, model).year;
+  const ageAt = (birthMinute: number, nowMinute: number): number => yearOf(nowMinute) - yearOf(birthMinute);
+
   const toMinutes = (amount: TimeAmount, fromMinute: number): number => {
     const raw: Record<string, number> = { week: 10080, day: 1440, hour: 60, minute: 1 };
     if (amount.unit in raw) return amount.value * raw[amount.unit];
@@ -323,5 +379,19 @@ export function createTimeAdapter(template: WorldTemplateV2): TimeAdapter {
     return steps?.[lifeStage] ?? template.time.defaultStep;
   };
 
-  return { format, elapsedYears, resolveLifeStage, lifeStageLabel, resolveStep, toMinutes, parseTimeSpec };
+  return { format, elapsedYears, yearOf, ageAt, resolveLifeStage, lifeStageLabel, resolveStep, toMinutes, parseTimeSpec };
+}
+
+/**
+ * 年龄 → 出生分钟（ADR-0021 决策 4.1 的反推口径）：按**整年从世界起点回溯**。
+ *
+ * 用 `toMinutes({ value: -age, unit: "year" }, 0)` 而非 `-age * 525600`：
+ * 后者在日历感知 preset 下会漂（真实年长 365/366 天不等，custom 甚至可能是 61 天/年），
+ * 反推出的年份可能差好几年，`ageAt(birthTime, 0) === age` 就不成立。
+ * approx 下 `toMinutes` 就是 525600 的整数倍 ⇒ 与朴素式等价。
+ *
+ * 建实例（turn.ts）与旧档读侧兜底（projection.ts）共用本函数，避免两处各写一遍口径。
+ */
+export function birthTimeFromAge(age: number, adapter: CalendarAdapter): number {
+  return adapter.toMinutes({ value: -age, unit: "year" }, 0);
 }

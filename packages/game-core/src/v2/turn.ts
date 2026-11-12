@@ -20,7 +20,7 @@ import type {
 import { createRng, deriveTurnSeed, pickWeighted, type Rng } from "../rng.js";
 import type { RunnerContext } from "./runner-context.js";
 import { evaluateLifeV2 } from "./life-evaluation.js";
-import { amountToMinutes, createTimeAdapter, minutesToAmount } from "./time.js";
+import { amountToMinutes, birthTimeFromAge, createTimeAdapter, minutesToAmount } from "./time.js";
 import {
   applyEffectsV2,
   checkAllConditions,
@@ -104,6 +104,9 @@ export function createWorldV2(
     growthLevel: 0,
     equipment: initialEquipment,
   };
+  // 历法适配器在建世界期就要用（广播 birthTime 反推 + 下方 schedule 窗口换算），故提前构造。
+  // 纯函数、无副作用，位置变化不改变任何行为。
+  const initCalendar = createTimeAdapter(template);
   const state: WorldStateV2 = {
     id: worldId,
     templateId: template.meta.id,
@@ -118,7 +121,11 @@ export function createWorldV2(
         id: c.id,
         name: c.identity.name,
         gender: c.identity.gender,
+        // ADR-0021 决策 4.1：age 降级为「起始年龄快照」，仅供 birthTime 反推兜底与旧档兼容
         age: c.identity.age,
+        // 出生分钟由起始年龄按整年回溯（negative 分钟，ADR-0021 决策 4.3 已支持）；
+        // 此后「当前年龄」由投影按 ageAt(birthTime, worldTime) 现算，不再回写 age。
+        birthTime: birthTimeFromAge(c.identity.age, initCalendar),
         attributes: { ...c.attributes },
         hp: 1,
         mp: 1,
@@ -190,7 +197,6 @@ export function createWorldV2(
   // R-EV-08：全部 source: schedule 事件在**世界初始化**（now=0）即入队，
   // 不再每轮扫描 template.events。window 在入队时一次性换算成绝对分钟固化。
   // R2.6（ADR-0013）：TimeSpec 换算经历法适配器（字符串字面量 / year-month 量）。
-  const initCalendar = createTimeAdapter(template);
   for (const event of template.events) {
     if (event.trigger.source !== "schedule") continue;
     enqueueScheduled({

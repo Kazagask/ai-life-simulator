@@ -10,7 +10,7 @@ import type {
   WorldTemplateV2,
 } from "@life-sim/shared";
 import { moodBand, maxHp, maxMp } from "./engine.js";
-import { createTimeAdapter } from "./time.js";
+import { birthTimeFromAge, createTimeAdapter } from "./time.js";
 import type { TemplateLookup } from "./lookup.js";
 import { pendingEventView } from "./turn.js";
 import { controlOf } from "./battle.js";
@@ -150,11 +150,19 @@ export function projectSnapshotV2(
     npcs: state.npcs.map((npc) => {
       // ADR-0019：NPC 面板需要「状态 / 生命周期」两块。口径与玩家一致——
       // 补正只透 visibility=known（hidden/unknown 不外泄），阶段由年龄按模板阶段表推导。
-      const npcStage = adapter.resolveLifeStage(npc.age);
+      //
+      // ADR-0021 决策 4.1：年龄**投影期现算**（`ageAt(birthTime, worldTime)`，年差口径=
+      // 跨年界即 +1），不回写 `state.npcs[].age`（那是起始年龄快照）。旧档缺 birthTime
+      // ⇒ 按同一反推口径兜底，保证「加载即与原来一致，此后随世界时间增长」。
+      const npcAge = adapter.ageAt(
+        npc.birthTime ?? birthTimeFromAge(npc.age, adapter),
+        state.worldTime,
+      );
+      const npcStage = adapter.resolveLifeStage(npcAge);
       return {
         id: npc.id,
         name: npc.name,
-        age: npc.age,
+        age: npcAge,
         genderLabel: lookup.genderLabel(npc.gender),
         personality: npc.personality,
         relationship: npc.relationship,
