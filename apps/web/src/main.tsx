@@ -1066,24 +1066,41 @@ function WheelDeck({
 
   /**
    * D-05：转盘落定时「继续」会出现在事件区底部，430×932 竖屏下常被固定底栏（tabbar +
-   * 交互浮标）压住，玩家得先自己猜着往上滑。
+   * 交互浮标 `.interact-hint`）压住，玩家得先自己猜着往上滑。
    *
    * 取舍：选「内容出现时自动滚入视野」，而不是「容器底部按 --tabbar-h 留 padding」——
-   * padding 只能保证「滚到底时不被压住」，按钮仍落在首屏之外，玩家还是要先滑一次；
-   * 而这个按钮是本轮唯一的推进出口，落定即把它带到视野中部最省一次交互。
-   * 只在按钮真的被裁掉时滚（`getBoundingClientRect` 判断），玩家正读上面的内容时不打扰。
-   * 另在 `.content` 底部加 12px 余量（见 style.css），让交互浮标那条带子不再压住末行。
+   * padding 只能保证「滚到底时不重叠」，按钮仍可能落在首屏之外，玩家还是要先滑一次；
+   * 而这个按钮是本轮唯一的推进出口，落定即把它带进视野最省一次交互。
+   *
+   * 实现要点（首版踩过的坑）：
+   * 1. 遮挡线取「tabbar 上沿」与「交互浮标上沿」的较小值——浮标本身也是 fixed 浮在内容上，
+   *    只按 tabbar 算会把按钮留在浮标下面。
+   * 2. 只滚动**最小必要距离**（不 `block:"center"`）：按钮靠近页面底部时居中目标会被
+   *    maxScroll 截断，居中请求反而没把按钮带出来。
+   * 3. 落定后 700ms 再校验一次（即时滚动兜底）：本轮多枚转盘的紧凑卡片是随后插入的，
+   *    文档高度会在揭示过程中增长，首次滚动目标可能已过期。
    */
   useEffect(() => {
     if (!firstSettled) return;
-    const el = continueRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const hiddenBelow = rect.bottom > window.innerHeight - 12;
-    const hiddenAbove = rect.top < 0;
-    if (!hiddenBelow && !hiddenAbove) return;
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
-    el.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
+
+    const ensureVisible = (behavior: ScrollBehavior) => {
+      const el = continueRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const tabbarTop = document.querySelector(".tabbar")?.getBoundingClientRect().top ?? window.innerHeight;
+      const hintTop = document.querySelector(".interact-hint")?.getBoundingClientRect().top ?? window.innerHeight;
+      const limit = Math.min(tabbarTop, hintTop) - 12;
+      const delta = rect.bottom - limit; // > 0：按钮底部在遮挡线以下
+      if (rect.top >= 0 && delta <= 0) return; // 已经在可视且未被遮挡
+      const doc = document.scrollingElement ?? document.documentElement;
+      const max = doc.scrollHeight - window.innerHeight;
+      window.scrollTo({ top: Math.max(0, Math.min(max, window.scrollY + delta)), behavior });
+    };
+
+    ensureVisible(reduce ? "auto" : "smooth");
+    const timer = window.setTimeout(() => ensureVisible("auto"), 700);
+    return () => window.clearTimeout(timer);
   }, [firstSettled]);
 
   if (!first) return null;
