@@ -2097,12 +2097,17 @@ const NPC_LIFECYCLE_LABEL: Record<string, string> = {
 /**
  * 生命周期文案（ADR-0021 / T3）。
  *
- * 规则：`reasonCode` **存在时只显示原因**（「阵亡」「失踪」「叛逃」「被封」），
+ * 规则：`reasonCode` **存在且 trim 后非空时只显示原因**（「阵亡」「失踪」「叛逃」「被封」），
  * 不再拼接状态词；只有缺失原因时才回退到状态兜底词。顶部 `npc-life-chip`
  * 与「生命周期」区块共用这一个函数，保证两处文案永远一致。
+ *
+ * 为什么必须 trim 判空：模板 schema 对 `reasonCode` 只约束 `min(1)`，所以 `" "`（单个空格）
+ * 是**合法值**。若用真值判断，这种值会渲染出一个近乎空白的胶囊且不回退到状态词
+ * （QA D-3）。显示时同样用 trim 后的值，避免前后带空格把胶囊撑宽。
  */
 function lifecycleText(state: string, reasonCode?: string): string {
-  if (reasonCode) return reasonCode;
+  const code = reasonCode?.trim();
+  if (code) return code;
   return NPC_LIFECYCLE_LABEL[state] ?? state;
 }
 
