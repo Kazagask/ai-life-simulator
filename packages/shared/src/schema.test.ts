@@ -293,23 +293,29 @@ describe("D-17 加载期校验 · 属性键必须已在 attributes.order 中声�
     return res.error.issues.map((i) => ({ path: i.path.join("."), message: i.message }));
   }
 
-  it("拒绝：attributes.defaults 出现 order 外键，错误定位到该键本身", () => {
+  it("拒绝：attributes.defaults 出现 order 外键，错误定位到该键本身（且恰好一条）", () => {
     const world = loadJjkTemplate();
     const attributes = world.attributes as { defaults: Record<string, number> };
     attributes.defaults = { ...attributes.defaults, fortune: 3 };
     const issues = issuesOf(world);
-    const hit = issues.find((i) => i.path === "attributes.defaults.fortune");
-    expect(hit, `issue 路径不对：${JSON.stringify(issues)}`).toBeDefined();
-    expect(hit!.message).toContain("未知属性：fortune");
-    expect(hit!.message).toContain("attributes.order");
+    // 只断言「存在某条 issue」抓不到重复上报，这里必须钉住**恰好一条**（D-17 自验就漏在这）
+    const hits = issues.filter((i) => i.path === "attributes.defaults.fortune");
+    expect(hits.length, `同一问题只应报一次：${JSON.stringify(issues)}`).toBe(1);
+    expect(hits[0].message).toContain("未知属性：fortune");
+    expect(hits[0].message).toContain("attributes.order");
+    // 前缀口径同样只有一条（防止将来 path 结构变化时一条变多条）
+    expect(issues.filter((i) => i.path.startsWith("attributes.defaults.")).length).toBe(1);
   });
 
-  it("拒绝：playerTemplate.attributes 出现 order 外键", () => {
+  it("拒绝：playerTemplate.attributes 出现 order 外键（且恰好一条）", () => {
     const world = loadJjkTemplate();
     const pt = world.playerTemplate as { attributes: Record<string, number> };
     pt.attributes = { ...pt.attributes, stealth: 3 };
     const issues = issuesOf(world);
-    expect(issues.some((i) => i.path === "playerTemplate.attributes.stealth")).toBe(true);
+    const hits = issues.filter((i) => i.path === "playerTemplate.attributes.stealth");
+    expect(hits.length, `同一问题只应报一次：${JSON.stringify(issues)}`).toBe(1);
+    expect(hits[0].message).toContain("未知属性：stealth");
+    expect(issues.filter((i) => i.path.startsWith("playerTemplate.attributes.")).length).toBe(1);
   });
 
   it("回归：characters[].attributes 越界由**既有**校验拦下，且只报一条（新实现不得重复）", () => {
@@ -321,6 +327,9 @@ describe("D-17 加载期校验 · 属性键必须已在 attributes.order 中声�
     const hits = issues.filter((i) => i.path === "characters.2.attributes");
     expect(hits.length, `同一问题只应报一次：${JSON.stringify(issues)}`).toBe(1);
     expect(hits[0].message).toContain("未知属性：stealth");
+    // 反向守卫：不得出现「新式」逐键路径 —— 一旦有人给 characters 再加一条 helper 校验，
+    // 同一次越界就会产出两条 issue（旧 path + 新 path），这条断言立刻变红。
+    expect(issues.some((i) => i.path.startsWith("characters.2.attributes."))).toBe(false);
   });
 
   it("接受：现网 jjk-2006 的全部属性键（defaults / playerTemplate / 16 个角色）都在 order 内", () => {
