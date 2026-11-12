@@ -1056,3 +1056,296 @@ resolveCombatRefs(state, settle) -> { enemies, allies, enemiesExhausted: boolean
 - **验证**：`pnpm typecheck` 0 错；game-core **422/422**（新增 `v2/spawn-rules.test.ts` 7 例：
   实例化队列 + unspawned 不上屏、出生后转 alive 且年龄取规则值、重复调用幂等、不自动触发、
   未知 ruleId 抛错、`npcState` 可判 unspawned、加载期三类拒载）；shared 62/62。
+
+---
+
+## ADR-0023 运行时生成 NPC 实例：`generated` 刷新规则（「造实例」≠「生成配置层定义」）
+
+- **状态**：**草案 · 待 G1 门禁**（含一条必须由用户拍板的边界裁决，见文末「需用户裁决」）。
+  属 **T-2**（`packages/shared` 协议族 + `packages/game-core` 内核 + 效果 DSL + 存档结构），按 `AGENTS.md` §0.3 先出本条。
+- **起草人**：系统架构师（高见远）；核实基线 HEAD `080b9f1`、工作区干净。
+- **关联**：ADR-0010 决策 4、ADR-0012 决策 1/3/5、ADR-0014、ADR-0020、ADR-0021、ADR-0022、OQ #46。
+
+### 用户诉求（原文）
+
+> 现在的生成机制解决不了随机npc生成 如玩家的子女 得想个办法
+
+### 现状核实（以代码为准，不以旧 spec 为准）
+
+| 事项 | 核实结论 | 证据 |
+|---|---|---|
+| 规则形态 | `NpcSpawnRuleSchema = { id, characterRef, age? }`，`characterRef` **必须**指向 `characters[]` 已声明角色 | `schema/world.ts:196-205` |
+| 只能唤醒**预定义**角色 | 建世界期把规则实例化为 `SpawnRuleInstance`，角色 `lifecycle.state = "unspawned"` 且被投影过滤（不上屏）；`spawnNpc(ruleId)` 把**已有实例**翻成 `alive` | `v2/turn.ts:112-119`、`turn.ts:156-168`、`v2/engine.ts:439-472`、`v2/projection.ts:150-153` |
+| 无法凭空造 NPC | 姓名/性别/属性/初始关系边全部来自 yaml `characters[]`；运行时**零**「造角色」路径 | `schema/character.ts` + 同上 |
+| 确定性工具 | `createRng`（mulberry32）/`deriveTurnSeed`/`pickWeighted`；各域用 `deriveTurnSeed(seed + K, 维度)` 做**域隔离盐**（+7 选项、+13 战斗、+29 物品） | `rng.ts:1-40`、`turn.ts:772/891/961/1050/1095` |
+| 实例 id 先例 | `evi-${enqueueSeqCounter}`：自增序列、进存档、跨重放稳定；全仓无 `randomUUID`/`Date.now` | `scheduler.ts:106-127` |
+| 关系边语义 | `{from:A, to:B, kind}` = 「**B 是 A 的 kind**」；`kinshipTerm` **只沿出边**推导，反向边不反推称谓 | `schema/relation.ts:1-25`、`relations.ts`（`shortestPath`/`kinshipTerm`）、`projection.ts:196-208`、`GAME_RULES.md §6` |
+| `detectCycles` 现状 | 已实现但**无任何运行时/加载期调用点**（纯库函数，仅测试引用） | `relations.ts:214`；`grep detectCycles packages apps` 仅命中定义 |
+| 生成 NPC 能否进战斗 | **不能**：`buildUnits` 按 `ref` 走 `lookup.character(ref)` 取**模板定义** | `battle.ts:189/243` |
+| `npcs[]` 来源 | 只装 `!isEnemy` 的模板角色；敌人永不实例化 | `turn.ts:120-160` |
+| 年龄派生 | `birthTimeFromAge(age, adapter) = adapter.toMinutes({value:-age,unit:"year"},0)`；`age=0 ⇒ 0` | `time.ts:396-398`、ADR-0021 决策 4 |
+
+### 决策 0（边界裁决）：「造一个实例」**不**构成「生成配置层定义」
+
+**结论：不越界。** 按 seed 派生一个**实例**，产物是 `WorldStateV2` 里的本局活对象（进存档、随局销毁、不进模板 id 空间），
+与 #46 禁止的「运行时按 seed 生成**配置层模板定义**」不是同一件事；模板给的是**池与规则**（authoring-time 写进 yaml），
+seed 只决定**这一次抽到哪一个**。ADR-0010 决策 4 的禁令原文是「运行时不生成**新的配置层模板定义**」，
+本 ADR **不改**该禁令、**不重开** #46 的候选 B。
+
+为避免「不越界」变成一句口号，把判据写成**三条充分判据 + 四条可执行守卫**（命中任一即越界）：
+
+| # | 越界判据 | 本 ADR 的产物 |
+|---|---|---|
+| ① | 产物参与/需要参与**模板指纹**，或需随模板分发到其它局 | 不进指纹；不进 `specs/data/templates/**`；销毁随局 |
+| ② | 产物占用**配置层主键空间**（`characters[].id` / `skills[].id` / `events[].id` / `endings[].id`），会被加载期引用完整性校验当作「定义」 | 占实例命名空间 `npc-gen-<ruleId>-<seq>`，加载期**禁止**模板字符 id 使用 `npc-gen-` 前缀（守卫 a） |
+| ③ | 产物**可被模板按 id 引用**（`characterRef` / `combat.enemies.ref` / `characters[].relations.to` / 事件选项 `requiresSkill`…） | 结构上不可引用（守卫 b/c） |
+
+| 守卫 | 内容 | 为什么是「可执行」的边界而非注释 |
+|---|---|---|
+| (a) | 加载期拒绝 `characters[].id` 以 `npc-gen-` 开头 | 生成 id 永不与模板 id 撞名 ⇒ 不会出现「运行时生成的 id 被模板引用」的既成事实 |
+| (b) | 生成 NPC 恒 `isEnemy: false` | 敌人只能由 combat `ref` 走模板定义 ⇒ 生成 NPC 永不可能成为战斗单位定义 |
+| (c) | `buildUnits` 仍只认 `lookup.character(ref)` | 模板即便手写 `npc-gen-...` 也只会拿到 `character_not_found`，不会"碰巧"生效 |
+| (d) | `npcSpawnRules[].characterRef` 仍必须命中 `characters[]` | 规则不能把实例 id 当定义引用 |
+
+**顺手把边界写成一句话**（供协议文档引用）：
+> **定义**是 authoring-time 的、跨局共享的、可被其它定义按 id 引用的；**实例**是 run-time 的、局内唯一的、只被本局状态引用的。
+> 生成 NPC 只满足后者 ⇒ 不越界。反过来：**运行时生成新的事件链 / 技能 / 物品 / 状态 / 结局定义，或生成一条进入 `characters[]` 的条目 = 越界，仍需 ADR（且 #46 已裁「不做」）。**
+
+### 决策 1：规则形态 —— 判别联合（`kind`），模板只给「池与规则」
+
+```yaml
+npcSpawnRules:
+  - id: rule-player-child          # ASCII slug：^[a-z0-9][a-z0-9-]*$（新加载期校验，见下）
+    kind: generated                # 缺省 "character"（旧 yaml 零改动）
+    age: 0                         # 缺省 0 = 出生当下；>0 = 登场时已 n 岁（birthTime 反推）
+    maxSpawns: 3                   # 缺省 1（= 与 ADR-0022 的幂等语义对齐）
+    gender: { weights: { male: 1, female: 1 } }
+    name:
+      surnamePool: surname-common  # 可选；省略 = 无姓
+      givenPool: { male: given-m, female: given-f, default: given-n }
+    attributes:
+      scheme: inherit              # fixed | range | inherit
+      spread: { cursedEnergy: 1, physique: 1 }
+      ranges: { luck: { min: 1, max: 8 } }   # 优先级 fixed > range > inherit > defaults
+    parents:
+      - { id: player, kind: father }         # kind 由模板给，引擎不按 gender 猜
+      - { id: npc-x, kind: mother }
+    childKind: { male: son, female: daughter, default: son }
+    relation: { visibility: known }          # 缺省 known（出生是双方可观测事实）
+    relationship: 60                         # 对玩家标量初值，缺省 0
+    visibility: public                       # 角色投影闸（public|hidden）
+    personality: 模板静态文案                 # 可选
+    skills: []                               # 静态声明，加载期校验存在；不随机抽
+```
+
+- `kind: "character"` 保留现状全部语义（`characterRef` 必填，`age` 可选）；`kind` **缺省 `"character"`** ⇒ 现有 yaml/存档零迁移。
+- **模板能给「池与规则」，不能给「结果」**：`namePools` 是模板顶层新表（`Record<poolId, {text, weight}[]>`，与 `npcs` 同域放 world.yaml），生成器只做「按权重抽一个」。
+- 加载期新增校验（**必须写在 `superRefine` 顶层**，理由见 §存量缺陷 D-1）：
+  1. `kind: generated` 时 `characterRef` 必须缺省、`kind: character` 时 `characterRef` 必填（互斥）；
+  2. `id` 匹配 `^[a-z0-9][a-z0-9-]*$`；
+  3. `namePools` 引用的每个池存在、非空、`weight ≥ 0` 且合计 `> 0`；`givenPool` 的键 ⊆ `genders[].id ∪ {"default"}`；
+  4. `gender.weights` 的键 ⊆ `genders[].id`；
+  5. `attributes.ranges`/`fixed`/`spread` 的键 ⊆ `attributes.order`（D-17 同一教训：键集越界必须在加载期炸，不能静默落成 `undefined` 属性）；
+  6. `parents[].id ∈ characters[].id ∪ {PLAYER_ID}`，`parents[].kind ∈ KinshipKind`，`childKind` 的值 ⊆ `{son, daughter}`、键 ⊆ `genders ∪ {"default"}`；
+  7. `skills` 引用存在；`maxSpawns ≥ 1` 的整数。
+
+### 决策 2：确定性 id —— `npc-gen-<ruleId>-<seq>`，禁止 `randomUUID`
+
+- **格式**：`npc-gen-${ruleId}-${seq}`，`seq` = 该规则的**第几次出生**（从 1 起，取 `SpawnRuleInstance.spawnedCount + 1`，效果成功后 `spawnedCount += 1`）。
+- 为什么不能用 `randomUUID`：① 同 seed 必须逐字段同结果，`randomUUID` 直接破坏 R-NFR-01 回放断言；
+  ② 该 id 会进 `state.relations`（`from`/`to`）、`spawnLog.npcId`、`history` 条目 id（`t${turn}-npc-${id}`），一旦不确定，**存档字节不等**；
+  ③ `seq` 派生 id 天然可读、可排障（`npc-gen-rule-player-child-1` 一眼看出第二次出生）。
+- 保留前缀 `npc-gen-` 由守卫 (a) 保护；`PLAYER_ID = "player"` 不受影响。
+
+### 决策 3：RNG 隔离 —— 独立派生流 + 固定骰序表
+
+- **绝对不用 `ctx.rng`**（主轮流）。`applyEffectsV2` 的 `ctx.rng` 是 `deriveTurnSeed(state.seed + 7, turnIndex)` 一类的**既有域流**，
+  在效果里多消耗一颗骰就会让同 seed 的既有 playthrough 基线整体漂移（ADR-0011 已付过一次这种代价，不再付第二次）。
+- 新派生流（落 `rng.ts`，与 `deriveTurnSeed` 同族）：
+
+```ts
+export function hashString(s: string): number;            // FNV-1a 32bit，纯函数、无 Date/随机
+export function deriveSpawnSeed(worldSeed: number, ruleId: string, seq: number): number {
+  const h = (worldSeed ^ hashString(ruleId) ^ 0x5f356495) >>> 0;  // 域盐：spawn
+  return deriveTurnSeed(h, seq);                                   // 复用既有混合器
+}
+```
+
+- 与 `deriveTurnSeed(worldSeed, turnIndex)` 的关系：**同族、不同参数位**——既有域把「维度」放第二参（`turnIndex`/`round`），
+  出生流放的是 `(ruleId, seq)`，**不含 `turnIndex`**。理由：出生骰只应由「第几次出生」决定，
+  含轮次会让「同一次出生在不同轮次」得到不同结果，R3 时间回拨时最难解释；不含轮次则「重放同一次出生 = 同结果」。
+- **骰序表（顺序固定，实现必须照抄；新增随机取值只能追加在表尾）**：
+
+| # | 步骤 | 触发条件 | 骰数 | 取值 |
+|---|---|---|---|---|
+| 1 | 性别 | 规则声明 `gender.weights`（只用 1 个选项也照掷，「声明即掷」） | 1 | `pickWeighted(genders, w => w[id], rng)` |
+| 2 | 姓氏 | 规则声明 `name.surnamePool` | 1 | `pickWeighted(pool, x => x.weight ?? 1, rng)` |
+| 3 | 名 | 恒有（`name.givenPool`） | 1 | 同上；性别无专属池时用 `default` |
+| 4..k | 属性 | 按 `attributes.order` 顺序逐项：`range` 1 骰 / `inherit` 1 骰 / `fixed`、缺省 0 骰 | 0..n | 见决策 5 |
+| 末尾 | 心情 | 规则声明 `mood.range` | 1 | `min + floor(rng() * (max - min + 1))` |
+
+- **失败不掷骰**：所有合法性都在**加载期**校验完；运行期 `spawnNpc` 先判 `maxSpawns`/规则存在，再开掷，
+  保证「掷了半截再抛错」不可能发生（否则存档会被写脏一半）。
+- 骰序与**状态无关**：即使父母缺失/死亡，`inherit` 那一步**仍消耗 1 骰**（值回落 `defaults`），
+  否则「父母是否在世」会改变属性骰序 ⇒ 生成结果更难复现。
+
+### 决策 4：父母与关系边 —— 规则静态声明 + **成对写入**
+
+- **父母写在规则里**（`parents: [{id, kind}]`），**不给 `spawnNpc` 加参数**。理由：① ADR-0022 已定「效果只接受 `ruleId`，其余归规则」；
+  ② 静态父母覆盖用户诉求（玩家子女、两 NPC 子女）；③ 静态才能在**加载期**校验 `parents[].id` 存在 —— 效果参数只能运行期炸。
+- **`kind` 由模板显式给**（`father`/`mother`），**引擎不按 `gender` 猜**：`genders` 是模板自定义枚举（本仓有 `femboy`/`agender`/`custom-heli`），
+  引擎按性别推亲属称谓就是把世界观规则硬编码进内核（`AGENTS.md` §5 红线）。
+- **每个父母写两条边**（同一次效果内原子完成，顺序固定：建 NPC → 写边 → 追加 `spawnLog`）：
+
+| 边 | 语义 | 用途 |
+|---|---|---|
+| `{from: childId, to: parentId, kind: father\|mother, source: "effect", visibility}` | 「**parent 是 child 的** father/mother」 | 孩子卡片上出 `kinshipTerm`（"爸爸"/"妈妈"） |
+| `{from: parentId, to: childId, kind: son\|daughter, source: "effect", visibility}` | 「**child 是 parent 的** son/daughter」 | 父母卡片上出「视孩子为儿子/女儿」+ `kinshipTerm`（"儿子"/"女儿"） |
+
+  `child↔kind` 的映射由规则 `childKind` 给（按 `genders[].id`），同样不在引擎里按性别硬编码。
+- **为什么必须成对**：`kinshipTerm` 只沿**出边**推导（`GAME_RULES.md §6`「反向边不反推称谓」），
+  只写 `child→parent` 时，`kinshipTerm(player → child)` 直接 `null`，玩家永远看不到"这是你儿子"。成对写入让两个方向都可读，且都走同一个推导函数（单一真源）。
+- **`visibility` 缺省 `known`**：出生是双方可观测事实。要「秘密生子」就显式写 `unknown`（边不上屏、称谓不可推 —— 这正是 hidden 语义该有的表现）。
+  这与 R-OP-05「默认不认识」不冲突：那条约束针对 NPC↔玩家**初识**，亲子是模板显式声明的关系。
+- **与 ADR-0014 的「称谓只在可见子图上推导」完全一致**：投影先 `projectVisibleRelations`，`kinshipTerm` 拿的是过滤后的边集；
+  `unknown` 边既不展示也不参与称谓 ⇒ 无侧信道。
+- **连带要求（本轮必须做）**：`detectCycles` 需对「配对反向边」豁免，否则每一条亲子关系都会被报成谱系环。见 §存量缺陷 D-2。
+
+### 决策 5：属性继承 —— 确定性公式（父母均值 + 有界抖动 + 夹取）
+
+对 `template.attributes.order` 里**每一项**按序求值（只写 order 内键，不引入 order 外键）：
+
+```
+value(attr) =
+    fixed[attr]                                      若声明 fixed
+  : min + floor(rng() * (max - min + 1))             若声明 ranges[attr] = {min,max}（闭区间整数）
+  : clamp( Math.round(mean + jitter), lo, hi )       若 scheme = inherit
+       mean   = 所有可解析父母的 base 值算术平均
+       jitter = Math.round((rng() * 2 - 1) * (spread[attr] ?? 0))
+  : attributes.defaults[attr] ?? 0                   其余
+最终再 clamp 到 attributes.caps[attr]（若声明）
+```
+
+- `base` 的取法：`parents[].id === PLAYER_ID` ⇒ `state.player.attributes[attr]`；否则找 `state.npcs` 同 id 实例的 `attributes[attr]`；
+  **找不到实例的父母被忽略**（与 ADR-0020「只拦确知非在世」同口径：不猜）；全父母缺 `mean` 来源 ⇒ `mean = defaults[attr] ?? 0`，**骰照掷**。
+- 读的是**实例当前 base 属性**（不是投影值、不叠 `levelScale`/`statuses` 补正）——与 ADR-0021 决策 3「投影只下发 base」同源，避免第二真源。
+- `Math.round`（半数向上）与 `Math.floor`（闭区间抽值）在 JS/V8 上确定；**禁用** `toFixed`/字符串比较/`Number.EPSILON` 花活。
+- 范围默认 `lo = 0`、`hi = attributes.caps[attr] ?? +∞`；`inherit.range` 可显式收窄（新生儿属性不该等于成年父母）。
+
+### 决策 6：存档与投影
+
+- **不升 `schemaVersion`**（沿用 `lifecycle` / `birthTime` / `spawnRules` 先例）。三条理由：
+  ① `spawnRules` / `spawnLog` 在旧档里**恒为 `[]`**（jjk-2006 从未声明 `npcSpawnRules`，真实存档里没有一条规则实例），加字段无既存数据可冲突；
+  ② 新字段全部 **optional + 读侧默认**（`kind` 缺省 `"character"`、`spawnedCount` 缺省 0、`spawnSeq` 缺省 undefined）；
+  ③ 升版本会让 `schemaVersion` 校验拒载**全部**旧档，代价远大于收益。
+- 结构变更（实例层判别联合）：
+
+```ts
+type SpawnRuleInstance =
+  | { ruleId; kind: "character"; characterRef: string; status; spawnedTurn; spawnedWorldTime; spawnedCount }
+  | { ruleId; kind: "generated"; status; spawnedTurn; spawnedWorldTime; spawnedCount };
+
+interface SpawnFact { npcId; ruleId; seq: number; turnIndex; worldTime; parentIds?: string[] }
+// V2Npc 增 spawnSeq?: number（与既有 spawnRuleId 配对，便于回放/排障）
+```
+
+- **投影零改动**：`NpcView` **不新增** `spawnRuleId`/`spawnSeq`/`generated` 之类的"随机生成"标记。
+  生成 NPC 与预定义 NPC 在玩家端**完全同形**——玩家不该看出"这是随机生成的"。
+  （`spawnRuleId` 现状也未下发，见 `projection.ts:150-215`，本 ADR 维持。）
+- 生成 NPC 出生即 `alive`（不经过 `unspawned`）：规则语义就是「生出来」，两步式只会让模板多写一条 `npcState` 条件。`unspawned` 语义保持给 `kind: "character"` 用。
+
+### 决策 7：明确不做（本轮边界）
+
+| 不做 | 理由 |
+|---|---|
+| 运行时生成**事件链 / 技能 / 物品 / 状态 / 结局**定义 | 越界（决策 0 判据 ①②③ 全中）；#46 已裁「不做」 |
+| 生成一条进 `characters[]` 的模板条目 | 同上；配置层只读（ADR-0010 决策 4） |
+| 让生成 NPC 作为 `combat.enemies/allies.ref` 或 `characterRef` | 越界（守卫 b/c）；真要做须另立 ADR 引入"实例即战斗单位"语义 |
+| 技能/补正**随机池抽取** | 会扩骰序表、且出生即 0 岁本不该有技能；静态 `skills` 声明够用，成长走模板事件 `unlockSkill` |
+| 属性随年龄成长 | 世界规则，不该由生成器代劳；模板用事件效果调 |
+| 生成 NPC 之间自动结亲/繁衍（NPC 自我增殖） | 指数增殖 + 触发权必须归模板（R-LM-04）；本轮只有效果能触发 |
+| 已出生实例的「重掷 / respec」 | 会破坏「事实只追加、逐字段不变」；且属未出现需求 |
+| 时间驱动自动出生（`spawnAt`） | ADR-0022 决策 1 已否，维持 |
+| **LLM 生成姓名 / 性格 / 属性** | ① 破坏同 seed 可复现；② 撞 `AGENTS.md` §5「不得让 LLM 成为唯一裁判」。LLM 若参与，只能产叙事文本（结构校验 + 回退模板，`narrative.ts` 同款），且姓名/属性仍由模板池 + seed 决定 |
+| 全局 `maxAlive` 人口上限 | 属"世界规模/性能"整体议题，不是本功能的前置；本轮只给 **per-rule `maxSpawns`**（缺省 1）防重复触发爆炸，超限**不掷骰、不改状态、无操作**（ADR-0022 幂等语义的自然延伸），另记可诊断 `logs` |
+| `spawnNpc` 效果加 `parentIds` 参数 | 见决策 4；将来真需要「运行时决定父母」，走规则字段 `parentsFrom: "spawner"` 并另立 ADR（要引效果上下文注入） |
+
+### 决策 8：验证要点（必须有测试）
+
+1. **同 seed 逐字段相同**：两个独立 world（同 seed、同模板、同一触发路径）比对 `state.npcs`（生成实例的 `id/name/gender/attributes/birthTime/spawnSeq`）、新增关系边、`spawnLog` 的 JSON —— 完全相等。
+2. **主轮 RNG 零污染**：`spawnNpc` 执行前后 `ctx.rng` 的调用计数不变（spy）；另一条断言：把生成效果替换成 `setFlag` 空操作的同 seed playthrough，`lastWheels`/`history` 的事件序列一致 ⇒ 既有基线不漂移。
+3. **骰序表固化**：给定 `(seed, ruleId, seq)` 直接调 `deriveSpawnSeed` + 生成器，断言性别/姓/名/各属性的具体取值（钉死骰序，防后人插入新骰）。
+4. **幂等 + `maxSpawns` 护栏**：`maxSpawns: 1` 重复触发 ⇒ 只 1 个实例、1 条 `spawnLog`、`spawnedCount` 不再增长；`maxSpawns: 3` 连触 4 次 ⇒ 恰好 3 个实例，第 4 次不掷骰（计数不变）。
+5. **父母边方向正确 + 称谓可推**：`kinshipTerm(relations, childId, PLAYER_ID) === "爸爸"/"妈妈"` 且 `kinshipTerm(relations, PLAYER_ID, childId) === "儿子"/"女儿"`；`visibility: unknown` 时两者皆 `null` 且边不上屏。
+6. **`detectCycles` 不误报**：成对亲子边 ⇒ `detectCycles` 返回 `[]`；故意造 `a→b father, b→a father`（同向配对错误）仍上报。
+7. **属性继承确定性**：父母 base 已知 ⇒ 断言 `round(mean + jitter)` 结果与夹取；父母实例缺失 ⇒ 回落 `defaults` 且**骰数不变**；`spread` 缺省 0 ⇒ 恰为均值（整数化后）。
+8. **加载期拒载**（每条断言 **issue path**，不只看 `success === false`）：`kind: generated` 带 `characterRef` / `id` 非 slug / 池不存在 / 池空 / 权重和 0 / `parents` 引用未知 / `childKind` 键非法 / 属性键越界 —— 各一条。
+9. **投影同形**：`NpcView` 上不出现 `spawnRuleId`/`spawnSeq`；生成 NPC 与预定义 NPC 的字段集完全一致。
+10. **模板零改动不回归**：jjk-2006 未声明 `npcSpawnRules` ⇒ `playthrough.test.ts`（6 种子 × 2 开局）基线不变。
+
+### 施工期发现的两个存量缺陷（本 ADR 必须一并处理，不得留作"顺手"）
+
+**D-1（协议层，严重）：ADR-0022 的刷新规则加载期校验是死代码，且其测试是假绿。**
+`schema/world.ts:588-601` 的整段 `npcSpawnRules` 校验被**插进了** `Object.entries(ai.assignments).forEach(...)` 的回调体内（`world.ts:585` 开、`world.ts:602-603` 闭），位于 `if (ai)` 之内。
+后果：**模板未声明 `combatAi` ⇒ 刷新规则的「未知角色 / 指向敌人 / 重复 id」三条校验全不生效**；声明了 `combatAi` 则按 assignment 条数重复报错。
+而 `v2/spawn-rules.test.ts:115` 的三条断言之所以"绿"，是因为 `makeTestTemplate()` 本身**另有一处既有非法引用**（`events[0].settle.normal.options[0].visibleWhen[0].requiresSkill = "sk-none"`），
+`safeParse` 无论如何都返回 `false` —— 实测 `ISSUES: [["events.0.settle.normal.options.0.visibleWhen.0","未知技能：sk-none"]]`，`npcSpawnRules` 一条 issue 都没有。
+⇒ **要求**：把该段提到 `superRefine` 顶层，并改用**issue path 断言**（含一条「本 case 必须恰好命中 `npcSpawnRules.*`」）。本 ADR 新增的 7 条生成的校验也必须落在顶层。
+
+**D-2（内核层，中等）：`detectCycles` 无接线，而本 ADR 首次产生**成对**亲属边。**
+`detectCycles` 已实现却无任何生产调用点（只有测试引用）。一旦有人把它接成加载期/保存期门禁，**每一条亲子关系都会爆环**。
+⇒ **要求**：本轮给 `detectCycles` 加「配对反向边」豁免（仅直系五对：`father↔son`、`father↔daughter`、`mother↔son`、`mother↔daughter`、`husband↔wife`；
+兄弟/姐妹配对本轮不做，模板仍单向声明），并补两向测试（合法配对 `[]`、同向伪配对仍上报）。理由：本 ADR 是**第一个**产生双向亲属边的路径，埋雷成本远高于 3 行豁免。
+
+### 被否决的备选
+
+- **给 `spawnNpc` 效果加 `parentIds` / `name` 等参数（把配置搬进事件）**：效果变成"半个定义"，
+  加载期无法校验（父母 id、姓名池只能在运行期炸），且与 ADR-0022「效果只吃 `ruleId`」的口径分裂。规则侧静态声明一次性解决。
+- **用主轮 `ctx.rng` 掷出生骰**：最省事，但同 seed 的既有 playthrough 基线整体漂移（ADR-0011 已付过账），
+  且出生骰会与选项/转盘骰序耦合——模板加一条出生就改掉整局随机序列，不可接受。
+- **`deriveSpawnSeed` 里带 `turnIndex`**：会让「同一次出生」在重放/回拨时得到不同结果，把确定性依赖扩大到轮次维度。
+- **用 `randomUUID()` / `Date.now()` 做实例 id 或出生时间**：直接违反 R-NFR-01 与 `AGENTS.md` §2；存档字节不可比。
+- **只写 `child→parent` 单向边**：省一组边，但 `kinshipTerm(player → child)` 恒 `null`（只沿出边推导），
+  玩家永远看不到"这是你儿子"——正好砸在用户诉求上。
+- **引擎按 `gender` 推 `father/mother`、`son/daughter`**：`genders` 是模板自定义枚举，引擎按性别分支＝硬编码世界观规则。
+- **生成 NPC 走 `unspawned` 再翻 `alive` 两步**：多一次状态迁移、模板要多写条件，收益为零。
+- **给 `NpcView` 加 `generated: true`**：等于在玩家端标注"这是随机 NPC"，破坏沉浸且是新信息面。
+- **升 `schemaVersion` 到 3**：旧档全拒载，而真实旧档里 `spawnRules` 恒为空数组，纯亏。
+- **全局 `maxAlive` 人口上限**：属性能/世界规模议题，先加会变成"猜需求"的抽象（`AGENTS.md` §2 禁止为未使用需求提前搭抽象）。
+
+### 后果 / 影响面（文件归属按 `ARCHITECTURE.md §2` 依赖方向）
+
+| 改动点 | 归属 | 依据 | 是否与其它任务写冲突 |
+|---|---|---|---|
+| `NpcSpawnRuleSchema` 判别联合 + `NamePoolSchema` + 生成规格 + **7 条加载期校验（顶层）** + 修 D-1 | `packages/shared/src/schema/world.ts` | 协议族变更（T-2） | 与任何改 `world.ts` 的任务冲突（本任务独占） |
+| `SpawnRuleInstance` 判别 / `SpawnFact` 扩 / `V2Npc.spawnSeq?` | `packages/shared/src/v2.ts` | 实例层结构 | 与投影/生命周期类任务可能同文件（需串行） |
+| 对应 zod | `packages/shared/src/v2-state.ts` | 存档结构 | 低 |
+| `hashString` + `deriveSpawnSeed` | `packages/game-core/src/rng.ts` | 可注入确定性（`AGENTS.md` §2） | 低（新增导出，不改既有） |
+| `createGeneratedNpc()` 纯函数 + 骰序表 | `packages/game-core/src/v2/spawn.ts`（**新**） | 内核确定性、可单测 | 无 |
+| `spawnNpc` 分支（generated）+ 关系边双写 + `spawnLog` | `packages/game-core/src/v2/engine.ts` | 效果唯一写入口 | 与其它改 effects 的任务冲突 |
+| 建世界期实例化 `kind`/`spawnedCount` | `packages/game-core/src/v2/turn.ts` | 配置→实例 | 冲突面最大（turn.ts 是热点） |
+| `detectCycles` 配对反向边豁免（修 D-2） | `packages/game-core/src/v2/relations.ts` | 图内核 | 低 |
+| 投影：**零改动** | `packages/game-core/src/v2/projection.ts` | 投影同形 | 无 |
+| 模板接线（声明 1 条 generated 规则 + 1 个出生事件） | `specs/data/templates/**` | T-1，免 ADR | 改动必然变指纹 ⇒ 旧档拒载（既定代价） |
+| 前端：**零改动** | `apps/web` | 投影形状不变 | 无 |
+
+- **确定性**：新增独立派生流，**不消耗主轮 RNG**；生成结果只依赖 `(state.seed, ruleId, seq, 模板, 生成瞬间的 base 属性)` —— 全部是已有输入的纯函数。
+- **迁移成本**：旧档零感（`spawnRules`/`spawnLog` 恒空 + 可选字段读侧默认）；模板零改动即零回归；新增测试约 20 例。
+- **R3 穿越 seam**：出生流不含 `turnIndex` ⇒ 回拨重放同一次出生得同结果，**加强**而非封死预留点。
+
+### 建议拆任务（4 个 T-2 任务，按序施工）
+
+| 序 | 任务 | 主改点 | 依赖 |
+|---|---|---|---|
+| T1 | 协议与加载期：规则判别联合 + 生成规格 + 7 条顶层校验 + **修 D-1（含测试改 issue path 断言）** | `shared/src/schema/world.ts`、`shared/src/v2.ts`、`v2-state.ts` | 无 |
+| T2 | 确定性生成器：`hashString`/`deriveSpawnSeed` + `createGeneratedNpc()` + 骰序表 + 继承公式 | `rng.ts`、`v2/spawn.ts`（新）、单测 | T1 |
+| T3 | 引擎接线：`spawnNpc` generated 分支 + `maxSpawns` + 关系边双写 + `spawnLog` + **修 D-2（配对豁免）** | `v2/engine.ts`、`v2/turn.ts`、`v2/relations.ts`、单测 | T1、T2 |
+| T4 | 模板接线与端到端：声明 1 条 generated 规则 + 1 个出生事件；跑加载期 + `playthrough.test.ts` 基线不变 | `specs/data/templates/**`（T-1） | T3 |
+
+### 需用户裁决（1 条，阻塞 G1/G2）
+
+**「按 seed 派生 NPC 实例」确认不属于 #46 所禁的「运行时生成配置层定义」**，并认可决策 0 的三条越界判据 + 四条守卫
+（尤其是：生成 NPC 恒非敌人、永不可被模板按 id 引用、不支持生成新技能/事件链/结局定义）。
+若用户认为**任何**运行时生成（含实例）都应保守地归入 #46 的禁令，则本 ADR 作废，替代方案只有两条：
+① 玩家子女也必须预先在 `characters[]` 里声明 N 个占位角色（模板作者手工枚举，姓名字段写死）；
+② 走 LLM 生成后落 yaml 的离线流程（非运行时）。二者都明显更差，但**属于用户可选项**，不由架构自行否决。

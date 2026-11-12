@@ -585,13 +585,20 @@ export const WorldTemplateV2Schema = z
       Object.entries(ai.assignments).forEach(([characterId, styleId], i) => {
         if (!characterIds.has(characterId)) add(["combatAi", "assignments", i], `未知角色：${characterId}`);
 
+        if (!styleIds.has(styleId)) add(["combatAi", "assignments", i], `未知风格：${styleId}`);
+      });
+    }
+
     // ADR-0022：刷新规则引用完整性。规则指向的角色必须存在且不是敌人
     // （敌人由 combat settle 直接 ref 引，不属于「将来出生」语义）。
-    const ruleIds = new Set<string>();
+    // 注意：本段必须留在 superRefine 顶层 —— 曾被误插进 combatAi.assignments 的
+    // forEach 回调体内，导致未声明 combatAi 的模板三条校验全不生效（测试因夹具另有
+    // 非法引用而假绿）。ADR-0023 施工时复核发现。
+    const spawnRuleIds = new Set<string>();
     (w.npcSpawnRules ?? []).forEach((rule, i) => {
       const path = ["npcSpawnRules", i];
-      if (ruleIds.has(rule.id)) add(path, `重复的刷新规则 id：${rule.id}`);
-      ruleIds.add(rule.id);
+      if (spawnRuleIds.has(rule.id)) add(path, `重复的刷新规则 id：${rule.id}`);
+      spawnRuleIds.add(rule.id);
       const ch = w.characters.find((c) => c.id === rule.characterRef);
       if (!ch) {
         add([...path, "characterRef"], `未知角色：${rule.characterRef}`);
@@ -599,9 +606,6 @@ export const WorldTemplateV2Schema = z
         add([...path, "characterRef"], `刷新规则不能指向敌人角色：${rule.characterRef}`);
       }
     });
-        if (!styleIds.has(styleId)) add(["combatAi", "assignments", i], `未知风格：${styleId}`);
-      });
-    }
 
     // NPC 行动效果引用完整性
     (w.npcActions ?? []).forEach((action, i) => {

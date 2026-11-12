@@ -112,24 +112,52 @@ describe("V2 NPC 刷新机制（ADR-0022）", () => {
     expect(checkCondition({ npcState: { npcId: "npc-born", state: "alive" } }, ctx)).toBe(true);
   });
 
-  it("加载期校验：未知角色 / 指向敌人 / 重复规则 id 均拒载", () => {
-    const base = () => {
-      const t = makeTestTemplate();
-      return JSON.parse(JSON.stringify(t)) as Record<string, unknown>;
+  it("加载期校验：未知角色 / 指向敌人 / 重复规则 id 均拒载（断言 issue path）", () => {
+    // 只看 npcSpawnRules 相关的 issue：基线夹具 makeTestTemplate 本身有一处
+    // 非法引用（事件的 requiresSkill: "sk-none"），不过滤会把"因别的原因失败"误当通过。
+    // 这正是 ADR-0023 施工时发现的问题——上一版这三条断言是假绿。
+    const spawnIssues = (input: unknown): string[] => {
+      const res = WorldTemplateV2Schema.safeParse(input);
+      if (res.success) return [];
+      return res.error.issues
+        .filter((i) => i.path[0] === "npcSpawnRules")
+        .map((i) => i.path.join("."));
     };
+    const base = () => {
+      const t = JSON.parse(JSON.stringify(makeTestTemplate())) as WorldTemplateV2;
+      t.characters.push({
+        id: "npc-ok",
+        isEnemy: false,
+        visibility: "public",
+        identity: { name: "合法角色", age: 17, gender: "f" },
+        mood: { value: 60 },
+        attributes: { cursedEnergy: 5, agility: 3, luck: 3 },
+        skills: ["sk-strike"],
+        public: { personality: "测试用" },
+        private: { combatHints: { skillWeights: { "sk-strike": 1 } } },
+        relationship: 0,
+      } as WorldTemplateV2["characters"][number]);
+      return t;
+    };
+
     const unknown = base();
     unknown.npcSpawnRules = [{ id: "r1", characterRef: "npc-ghost" }];
-    expect(WorldTemplateV2Schema.safeParse(unknown).success).toBe(false);
+    expect(spawnIssues(unknown)).toEqual(["npcSpawnRules.0.characterRef"]);
 
     const enemy = base();
     enemy.npcSpawnRules = [{ id: "r1", characterRef: "enemy-x" }];
-    expect(WorldTemplateV2Schema.safeParse(enemy).success).toBe(false);
+    expect(spawnIssues(enemy)).toEqual(["npcSpawnRules.0.characterRef"]);
 
     const dup = base();
     dup.npcSpawnRules = [
-      { id: "r1", characterRef: "enemy-x" },
-      { id: "r1", characterRef: "enemy-x" },
+      { id: "r1", characterRef: "npc-ok" },
+      { id: "r1", characterRef: "npc-ok" },
     ];
-    expect(WorldTemplateV2Schema.safeParse(dup).success).toBe(false);
+    expect(spawnIssues(dup)).toEqual(["npcSpawnRules.1"]);
+
+    // 正例：合法规则不产生任何 npcSpawnRules issue（保证不是"永远报错"）
+    const ok = base();
+    ok.npcSpawnRules = [{ id: "r1", characterRef: "npc-ok" }];
+    expect(spawnIssues(ok)).toEqual([]);
   });
 });
