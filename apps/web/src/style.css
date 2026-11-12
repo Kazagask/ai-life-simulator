@@ -89,9 +89,14 @@ body {
 
 /* ---------- 内容 ---------- */
 
+/*
+ * 底部安全余量（D-05）：`--tabbar-h` 之外再留 36px，给 `.interact-hint` 那条浮标
+ * （fixed，距底 var(--tabbar-h)+8px，高约 24px）腾位置，否则它会压住内容最后一行。
+ * 不动 `--tabbar-h` 本身：那是底栏几何，牵动全局布局。
+ */
 .content {
   flex: 1;
-  padding: 4px 16px calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 24px);
+  padding: 4px 16px calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 36px);
 }
 
 .stack {

@@ -1060,8 +1060,32 @@ function WheelDeck({
 }) {
   const [firstSettled, setFirstSettled] = useState(!animate);
   const handleFirstSettled = useCallback(() => setFirstSettled(true), []);
+  const continueRef = React.useRef<HTMLButtonElement | null>(null);
   const first = items[0];
   const rest = items.slice(1);
+
+  /**
+   * D-05：转盘落定时「继续」会出现在事件区底部，430×932 竖屏下常被固定底栏（tabbar +
+   * 交互浮标）压住，玩家得先自己猜着往上滑。
+   *
+   * 取舍：选「内容出现时自动滚入视野」，而不是「容器底部按 --tabbar-h 留 padding」——
+   * padding 只能保证「滚到底时不被压住」，按钮仍落在首屏之外，玩家还是要先滑一次；
+   * 而这个按钮是本轮唯一的推进出口，落定即把它带到视野中部最省一次交互。
+   * 只在按钮真的被裁掉时滚（`getBoundingClientRect` 判断），玩家正读上面的内容时不打扰。
+   * 另在 `.content` 底部加 12px 余量（见 style.css），让交互浮标那条带子不再压住末行。
+   */
+  useEffect(() => {
+    if (!firstSettled) return;
+    const el = continueRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const hiddenBelow = rect.bottom > window.innerHeight - 12;
+    const hiddenAbove = rect.top < 0;
+    if (!hiddenBelow && !hiddenAbove) return;
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+    el.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
+  }, [firstSettled]);
+
   if (!first) return null;
 
   return (
@@ -1086,7 +1110,7 @@ function WheelDeck({
 
       <div className="wheel-foot">
         {firstSettled ? (
-          <button className="primary wheel-continue" onClick={onContinue}>
+          <button ref={continueRef} className="primary wheel-continue" onClick={onContinue}>
             继续
           </button>
         ) : (
