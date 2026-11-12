@@ -218,3 +218,13 @@ export type EventWindow = z.infer<typeof EventWindowSchema>;
 export type EventOption = z.infer<typeof EventOptionSchema>;
 export type CombatSettle = z.infer<typeof CombatSettleSchema>["combat"];
 export type SettleOutcome = z.infer<typeof SettleOutcomeSchema>;
+
+// ---------- R2.7 · 事件 flavor 的 LLM 输出契约（R-NAR-03 / ADR-0027 决策 3） ----------
+
+/**
+ * 事件 flavor 只允许一段展示文本；strict 拒绝任何试图写状态 / 分数 / 维度的字段。
+ * 纯新增（不改任何既有 schema）⇒ `schemaVersion` 不升、模板指纹不变、旧档照常载入。
+ */
+export const EventFlavorOutputSchema = z.object({ flavor: z.string().min(1) }).strict();
+
+export type EventFlavorOutput = z.infer<typeof EventFlavorOutputSchema>;
