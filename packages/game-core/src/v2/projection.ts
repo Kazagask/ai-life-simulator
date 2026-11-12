@@ -147,7 +147,11 @@ export function projectSnapshotV2(
       allowedCategories: [...s.allowedCategories],
       panelSide: s.panelSide ?? "bottom",
     })),
-    npcs: state.npcs.map((npc) => {
+    // ADR-0022：unspawned（尚未出生/登场）的角色不上屏——实例存在是为了让模板能用
+    // `npcState` 条件判断「还没出生」，但它不该出现在人物列表里。
+    npcs: state.npcs
+      .filter((npc) => npc.lifecycle.state !== "unspawned")
+      .map((npc) => {
       // ADR-0019：NPC 面板需要「状态 / 生命周期」两块。口径与玩家一致——
       // 补正只透 visibility=known（hidden/unknown 不外泄），阶段由年龄按模板阶段表推导。
       //
@@ -203,8 +207,8 @@ export function projectSnapshotV2(
               ...(term ? { kinshipTerm: term.term } : {}),
             };
           }),
-      };
-    }),
+        };
+      }),
     pendingEvent: ended ? null : pendingEventView(state, lookup),
     battle,
     lastWheel: state.lastWheel,

@@ -1013,3 +1013,46 @@ resolveCombatRefs(state, settle) -> { enemies, allies, enemiesExhausted: boolean
 | T2 | NPC 属性投影 + 前端属性区 | `projection.ts` + `main.tsx` | 无 |
 | T3 | 展示口径：`reasonCode` 优先 + 「已离场」兜底 | `main.tsx` | 可与 T2 合并为同一前端提交 |
 | T4 | `birthTime` 派生 | `time.ts`（负分钟 + `yearOf/ageAt`）→ `v2.ts`/`v2-state.ts`/`turn.ts`/`projection.ts` | **内部顺序不可反**：先历法能力、后数据字段（否则 gregorian 下年龄静默算错） |
+
+---
+
+## ADR-0022 NPC 刷新（出生队列）落地 —— 补 ADR-0010 决策 4 / R-LM-04 的欠账
+
+- **状态**：**已实施（2026-11-12）**。属 T-2（协议 + 状态 + 效果 + 投影），故先补本条。
+- **欠账事实**：ADR-0010 决策 4 与 R-LM-04 在 2026-11-12 已通过并写明「常规路径归 R2.6」：
+  *刷新规则写 yaml → 世界初始化实例化 `SpawnRuleInstance` → 效果 `spawnNpc(ruleId)` 建 NPC 实例*。
+  但 R2.6 只落地 WS-A / WS-B，**刷新机制从未实施**——全仓 `grep spawn` 只有 `lifecycle` 的
+  `unspawned` 枚举值孤立存在，**没有任何路径能进入该状态**；`TEMPLATE_PROTOCOL_V2.md:540` 至今写着
+  「`spawnNpc` 本轮未实现、模板不得使用」。与 ADR-0020（生命周期）是同一次遗漏的两个部分。
+- **决策**：
+  1. **配置层** `npcSpawnRules?: Array<{ id, characterRef, age? }>`（`schema/world.ts`）：
+     只声明「将来会有这个角色」+ 出生年龄（`0` = 新生儿；缺省沿用 `identity.age`）。
+     **刻意不提供 `spawnAt`**：R-LM-04 明确「spawn 不得由已有某事实自动触发」——时间到达也是事实，
+     提供它等于把规则变成隐式调度器，与「触发权归模板事件效果」冲突。
+  2. **实例层** `WorldStateV2.spawnRules: SpawnRuleInstance[]`（`{ ruleId, characterRef, status: pending|spawned, spawnedTurn, spawnedWorldTime }`）：
+     世界创建时由配置实例化，进存档、可序列化；**只记引用，不复制配置域定义**（ADR-0010 决策 4）。
+     `V2Npc.spawnRuleId?` 标记「由哪条规则生出」。
+  3. **事实层** `WorldStateV2.spawnLog: SpawnFact[]`：**append-only**，只由 `spawnNpc` 追加，
+     与 `eventFires` / `missedEvents` 同级。不写 `flags`（ADR-0010 禁令）。
+  4. **建世界期**：被规则涵盖的角色初始为 `lifecycle.state = "unspawned"`（**不是 alive**）；
+     **投影过滤掉 `unspawned`**——实例存在的唯一理由是让模板能用 `npcState` 条件判「还没出生」，
+     它不该出现在人物列表里。仍受默认判活约束（非 alive 不自主行动、不走关系写入、不参战）。
+  5. **效果** `{ type: "spawnNpc", ruleId }`：只接受**规则 id**，不接受角色 id（运行时不得拼装配置域定义）。
+     幂等——已 `spawned` 则什么都不做（不重复建实例、不重复追加事实），因为模板可能重复触发同一效果。
+     `rule.age` 显式声明时按它重算 `birthTime`（`worldTime + birthTimeFromAge(age)`），
+     否则沿用建世界期的年龄快照。
+  6. **加载期校验**：`characterRef` 必须存在、不得是 `isEnemy` 角色（敌人由 combat settle 直接 ref 引，
+     不属「将来出生」语义）、规则 id 不得重复。
+- **兼容**：`spawnRules` / `spawnLog` 均为**可选 + 默认 `[]`**，旧档加载补空数组，**不升 `schemaVersion`**。
+  模板不声明 `npcSpawnRules` 时**行为零变化**（jjk-2006 当前未声明）。
+- **本次未做（明确记录）**：
+  - **不做时间驱动的自动出生**（`spawnAt`）：见决策 1 的理由。
+  - **不做运行时按 seed 生成配置层定义**：#46 已由用户裁决「不做」，本轮不重新打开。
+  - **不新增 `spawnRule` 条件**（如「某规则是否已触发」）：当前可用 `npcState: unspawned` 表达，
+    不为未出现的需求提前建抽象。
+  - **不做「NPC 出生后刷新关系/技能」**：出生即完整实例，属性与关系在模板里声明即可。
+- **连带影响**：`birthTime` 此前只有建世界期一个写入点（ADR-0021 遗留项），现在 `spawnNpc`
+  成为第二个写入点 ⇒ 「中途出生的角色」从概念变为可表达。
+- **验证**：`pnpm typecheck` 0 错；game-core **422/422**（新增 `v2/spawn-rules.test.ts` 7 例：
+  实例化队列 + unspawned 不上屏、出生后转 alive 且年龄取规则值、重复调用幂等、不自动触发、
+  未知 ruleId 抛错、`npcState` 可判 unspawned、加载期三类拒载）；shared 62/62。

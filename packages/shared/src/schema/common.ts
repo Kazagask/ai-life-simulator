@@ -250,6 +250,12 @@ export const EffectSchema = z.discriminatedUnion("type", [
    * 复活 / 死亡 / 失联走同一入口，无特权通道。`reasonCode` 是模板自由字符串
    * （阵亡 / 叛逃 / 下落不明…），**引擎不对它分支**，只原样存下来供模板条件与投影展示。
    */
+  /**
+   * 依刷新规则实例建出 NPC（ADR-0010 决策 4 / R-LM-04 / ADR-0022）。
+   * 只接受**规则 id**，不接受角色 id —— 触发权归模板事件效果，配置域定义不在运行时被拼装。
+   * 重复调用同一 ruleId 幂等：已 spawned 则不做任何事（不重复建实例、不追加事实）。
+   */
+  z.object({ type: z.literal("spawnNpc"), ruleId: z.string().min(1) }).strict(),
   z
     .object({
       type: z.literal("setNpcLifecycle"),

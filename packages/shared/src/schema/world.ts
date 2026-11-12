@@ -119,6 +119,24 @@ export const CalendarConfigSchema = z
     }
   });
 
+/**
+ * NPC 刷新规则（ADR-0010 决策 4 / R-LM-04 / ADR-0022 落地）。
+ *
+ * 配置层只声明「将来会有这个角色」；世界创建时把每条规则**实例化**为
+ * `SpawnRuleInstance`（实例层、进存档），事件效果 `spawnNpc(ruleId)` 才真正建出 NPC。
+ * **不提供 `spawnAt`**：R-LM-04 明确「spawn 不得由已有某事实（含时间到达）自动触发」，
+ * 触发权在模板的事件效果里，否则规则会变成一套隐式调度器。
+ */
+export const NpcSpawnRuleSchema = z
+  .object({
+    id: z.string().min(1),
+    /** 目标角色 id（必须在 characters 中声明且非敌人） */
+    characterRef: z.string().min(1),
+    /** 出生/登场时的年龄；缺省沿用 `characterRef.identity.age`。0 = 新生儿 */
+    age: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
 export const WorldTemplateV2Schema = z
   .object({
     meta: z
@@ -207,6 +225,8 @@ export const WorldTemplateV2Schema = z
     chains: z.array(ChainSchema).optional(),
     /** NPC 自主行动定义（A6：触发式 + 效用评分） */
     npcActions: z.array(NpcActionSchema).optional(),
+    /** NPC 刷新规则（ADR-0022；世界创建时实例化为 SpawnRuleInstance，由 spawnNpc 效果触发） */
+    npcSpawnRules: z.array(NpcSpawnRuleSchema).optional(),
   })
   .strict()
   .superRefine((w, ctx) => {
@@ -564,6 +584,21 @@ export const WorldTemplateV2Schema = z
       });
       Object.entries(ai.assignments).forEach(([characterId, styleId], i) => {
         if (!characterIds.has(characterId)) add(["combatAi", "assignments", i], `未知角色：${characterId}`);
+
+    // ADR-0022：刷新规则引用完整性。规则指向的角色必须存在且不是敌人
+    // （敌人由 combat settle 直接 ref 引，不属于「将来出生」语义）。
+    const ruleIds = new Set<string>();
+    (w.npcSpawnRules ?? []).forEach((rule, i) => {
+      const path = ["npcSpawnRules", i];
+      if (ruleIds.has(rule.id)) add(path, `重复的刷新规则 id：${rule.id}`);
+      ruleIds.add(rule.id);
+      const ch = w.characters.find((c) => c.id === rule.characterRef);
+      if (!ch) {
+        add([...path, "characterRef"], `未知角色：${rule.characterRef}`);
+      } else if (ch.isEnemy) {
+        add([...path, "characterRef"], `刷新规则不能指向敌人角色：${rule.characterRef}`);
+      }
+    });
         if (!styleIds.has(styleId)) add(["combatAi", "assignments", i], `未知风格：${styleId}`);
       });
     }

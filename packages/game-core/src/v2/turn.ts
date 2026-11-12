@@ -107,6 +107,16 @@ export function createWorldV2(
   // 历法适配器在建世界期就要用（广播 birthTime 反推 + 下方 schedule 窗口换算），故提前构造。
   // 纯函数、无副作用，位置变化不改变任何行为。
   const initCalendar = createTimeAdapter(template);
+  // ADR-0022：配置层刷新规则 → 实例层队列。规则指向的角色在出生前不进世界（unspawned），
+  // 由事件效果 spawnNpc 建出。实例只记引用，不复制配置域定义。
+  const spawnRuleInstances = (template.npcSpawnRules ?? []).map((rule) => ({
+    ruleId: rule.id,
+    characterRef: rule.characterRef,
+    status: "pending" as const,
+    spawnedTurn: 0,
+    spawnedWorldTime: 0,
+  }));
+  const spawnRuleByCharacter = new Map(spawnRuleInstances.map((r) => [r.characterRef, r.ruleId]));
   const state: WorldStateV2 = {
     id: worldId,
     templateId: template.meta.id,
@@ -143,14 +153,19 @@ export function createWorldV2(
         secrets: [...(c.private.secrets ?? [])],
         lastActedAtTurn: 0,
         isEnemy: false,
+        // ADR-0022：由刷新规则管辖的角色，世界创建时处于 unspawned（尚未出生/登场）
+        ...(spawnRuleByCharacter.has(c.id) ? { spawnRuleId: spawnRuleByCharacter.get(c.id) } : {}),
         // ADR-0012 决策 1 / ADR-0020：缺省在世；模板可在 characters[].lifecycle 声明初始态
         lifecycle: {
-          state: c.lifecycle?.state ?? "alive",
+          state: spawnRuleByCharacter.has(c.id) ? "unspawned" : (c.lifecycle?.state ?? "alive"),
           ...(c.lifecycle?.reasonCode ? { reasonCode: c.lifecycle.reasonCode } : {}),
           sinceTurn: 0,
           sinceWorldTime: 0,
         },
       })),
+    // ADR-0022：规则实例队列 + 空的出生事实（append-only，只由 spawnNpc 追加）
+    spawnRules: spawnRuleInstances,
+    spawnLog: [],
     // R2.6 / ADR-0014：初始关系边由 characters[].relations 声明（from=该角色）。
     // visibility 缺省 unknown（R-OP-05 默认不认识）；npc.relationship 标量保留独立
     // 兼容字段，不自动生成 known 边。

@@ -61,6 +61,8 @@ const V2NpcSchema = CombatantBaseSchema.extend({
   knowledge: z.array(z.string()),
   secrets: z.array(z.string()),
   lastActedAtTurn: z.number().int().nonnegative(),
+  /** ADR-0022：由哪条刷新规则生出；缺省 = 世界初始即存在 */
+  spawnRuleId: z.string().min(1).optional(),
   /**
    * 生命周期（ADR-0012 决策 1 / ADR-0020）。**可选 + 默认存活**：
    * 该字段引入前落盘的存档没有它，加载时补成 alive，不升 `schemaVersion`
@@ -206,6 +208,35 @@ export const WorldStateV2Schema = z
     npcs: z.array(V2NpcSchema),
     /** R2.6 / ADR-0014：关系图边（实例层，NPC↔NPC 与 NPC↔玩家同构；配置域不复制） */
     relations: z.array(RelationEdgeSchema),
+    /**
+     * ADR-0022：刷新规则实例队列。**可选 + 默认 []**（旧档加载补空数组，不升 schemaVersion）。
+     */
+    spawnRules: z
+      .array(
+        z
+          .object({
+            ruleId: z.string().min(1),
+            characterRef: z.string().min(1),
+            status: z.enum(["pending", "spawned"]),
+            spawnedTurn: z.number().int().nonnegative(),
+            spawnedWorldTime: z.number(),
+          })
+          .strict(),
+      )
+      .default([]),
+    /** ADR-0022：事实层出生记录（append-only）。可选 + 默认 []。 */
+    spawnLog: z
+      .array(
+        z
+          .object({
+            npcId: z.string().min(1),
+            ruleId: z.string().min(1),
+            turnIndex: z.number().int().nonnegative(),
+            worldTime: z.number(),
+          })
+          .strict(),
+      )
+      .default([]),
     flags: z.record(z.string(), FlagsValueSchema),
     /** 过渡兼容索引：与 lastFiredIndex / eventFires 由 recordFire 一处写入 */
     firedEvents: z.record(z.string(), z.number().int().nonnegative()),

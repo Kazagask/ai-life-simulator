@@ -78,6 +78,30 @@ export interface NpcLifecycle {
   sinceWorldTime: number;
 }
 
+/**
+ * NPC 刷新规则实例（ADR-0010 决策 4 / R-LM-04 / ADR-0022）。
+ *
+ * 配置层（`npcSpawnRules`，yaml）→ 实例层（本结构，进存档）→ 事实层（`spawnLog` 只追加）。
+ * 它是**队列**：`pending` 表示角色尚未出生/登场，`spawned` 之后不再回退。
+ */
+export interface SpawnRuleInstance {
+  ruleId: string;
+  /** 指向的角色 id —— 实例只记引用，不复制配置域定义（ADR-0010 决策 4） */
+  characterRef: string;
+  status: "pending" | "spawned";
+  /** spawned 时的轮次与世界时间；pending 恒为 0 */
+  spawnedTurn: number;
+  spawnedWorldTime: number;
+}
+
+/** 事实层：NPC 出生/登场记录（append-only，只由 spawnNpc 效果追加）。 */
+export interface SpawnFact {
+  npcId: string;
+  ruleId: string;
+  turnIndex: number;
+  worldTime: number;
+}
+
 export interface V2Npc extends V2CombatantBase {
   /**
    * 生命周期（ADR-0012 决策 1 / ADR-0020 落地）。
@@ -85,6 +109,8 @@ export interface V2Npc extends V2CombatantBase {
    * （阵亡 / 叛逃 / 下落不明…），引擎不对它分支，业务语义由模板 `npcState` 条件表达。
    */
   lifecycle: NpcLifecycle;
+  /** 由哪条刷新规则生出（ADR-0022）；缺省 = 世界初始即存在的角色 */
+  spawnRuleId?: string;
   /**
    * 出生时刻（**世界分钟，可为负**：负值 = 世界起点之前出生，ADR-0021 决策 4.1）。
    * 与 `age` 的关系：「当前年龄」= `ageAt(birthTime, worldTime)`。
@@ -260,6 +286,10 @@ export interface WorldStateV2 {
    * B 是 A 的父亲）；默认 visibility=unknown（R-OP-05），known/inferred 才进玩家投影。
    */
   relations: RelationEdge[];
+  /** NPC 刷新规则实例队列（ADR-0022；配置域规则的实例化副本，可序列化、进存档） */
+  spawnRules: SpawnRuleInstance[];
+  /** 事实层：出生/登场记录（append-only，与 eventFires / missedEvents 同级） */
+  spawnLog: SpawnFact[];
   /** 模板可读写的语义黑板；引擎内部记录不得写入（R-LM-02） */
   flags: Record<string, boolean | number | string>;
   /**

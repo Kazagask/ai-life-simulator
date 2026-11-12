@@ -11,7 +11,7 @@ import type {
   ChainStateV2,
 } from "@life-sim/shared";
 import { createRng, pickWeighted, type Rng } from "../rng.js";
-import { amountToMinutes, createTimeAdapter } from "./time.js";
+import { amountToMinutes, birthTimeFromAge, createTimeAdapter } from "./time.js";
 import { evaluateDynamicModifier, type ModifierConditionGate } from "./equipment.js";
 import type { TemplateLookup } from "./lookup.js";
 // 调度器与效果执行器互为依赖（scheduler 读 checkAllConditions、engine 写入队），
@@ -434,6 +434,40 @@ export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefin
           throw new Error("freezeRelationsOnDeath 的 npcId 无法解析（__self__ 时须有当前 NPC）");
         }
         state.relations = freezeOnDeath(state.relations, npcId);
+        break;
+      }
+      case "spawnNpc": {
+        // ADR-0010 决策 4 / ADR-0022：只凭**规则 id** 建实例，配置域定义不在运行时被拼装。
+        const rule = state.spawnRules.find((r) => r.ruleId === effect.ruleId);
+        if (!rule) {
+          throw new Error(`spawnNpc 指向未知刷新规则：${effect.ruleId}`);
+        }
+        // 幂等：已出生过就不再重复建实例、不重复追加事实（模板可能重复触发同一效果）
+        if (rule.status === "spawned") break;
+        const npc = state.npcs.find((n) => n.id === rule.characterRef);
+        if (!npc) {
+          throw new Error(`spawnNpc 规则 ${rule.ruleId} 指向的角色没有实例：${rule.characterRef}`);
+        }
+        // 出生年龄：规则显式声明优先（0 = 新生儿），缺省沿用建世界期的年龄快照
+        const ruleDef = (ctx.lookup.template.npcSpawnRules ?? []).find((r) => r.id === effect.ruleId);
+        if (ruleDef?.age !== undefined) {
+          npc.birthTime = state.worldTime + birthTimeFromAge(ruleDef.age, createTimeAdapter(ctx.lookup.template));
+        }
+        npc.lifecycle = {
+          state: "alive",
+          sinceTurn: state.turnIndex,
+          sinceWorldTime: state.worldTime,
+        };
+        rule.status = "spawned";
+        rule.spawnedTurn = state.turnIndex;
+        rule.spawnedWorldTime = state.worldTime;
+        // 事实层只追加（与 eventFires / missedEvents 同级），不写 flags
+        state.spawnLog.push({
+          npcId: npc.id,
+          ruleId: rule.ruleId,
+          turnIndex: state.turnIndex,
+          worldTime: state.worldTime,
+        });
         break;
       }
       case "setNpcLifecycle": {
