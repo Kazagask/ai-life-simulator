@@ -1354,13 +1354,22 @@ interface SpawnFact { npcId; ruleId; seq: number; turnIndex; worldTime; parentId
 
 ## ADR-0024 待决事件的「呈现前前提复核」——pending 不是已定论
 
-- **状态**：**草案 · 待 G1 门禁**。属 **T-2**：动的是「触发策略语义 + 呈现契约」（`packages/game-core` 的
+> **本条覆盖两件事**：①引擎的「呈现前前提复核」（决策 0–8，主体）；②**已故者年龄冻结**（决策 9，
+> 实施期由同一条 QA 项 P1-2 牵出的投影侧补强）。两者同属「不让已死的角色继续以活人姿态出现」。
+
+- **状态**：**已实施（2026-11-12）**。属 **T-2**：动的是「触发策略语义 + 呈现契约」（`packages/game-core` 的
   `pendingEvents` 生命周期、`TriggerResult` 诊断位）与 `apps/server` 的载入路径；**`packages/shared` schema 零改动**、
   不升 `schemaVersion`、不扩 `MissReason`。按 `AGENTS.md` §0.3 先出本条。
-- **起草人**：系统架构师（高见远）；核实基线 HEAD `8c99cf3`、工作区干净（唯一未跟踪文件是 QA 验收报告
-  `tasks/reports/JJK-SCRIPT-ACCEPTANCE.md`）。
+  - 落地提交：`bbb440b`（引擎侧复核 + `ev-d-canteen` 模板补丁）、`b1321ec`（决策 9 投影年龄冻结）、
+    `0759497`（模板侧 QA P1-1 `npc-riko` 落 lifecycle，前置依赖）。验证：`game-core` **462/462**、
+    `shared` 62/62、`pnpm typecheck` 0 错。
+  - **与初稿的三处偏差已在文末「实施偏差记录」固化**（`checkEventPremise` 返回判别对象、
+    `revalidatePendingV2` 不接 rng、S1 判据改写）；决策 1–8 的**方向**未变，仅决策 9 为实施期新增。
+- **起草人**：系统架构师（高见远）；起草基线 HEAD `8c99cf3`、工作区干净（唯一未跟踪文件是 QA 验收报告
+  `tasks/reports/JJK-SCRIPT-ACCEPTANCE.md`）；实施核验基线 HEAD `b1321ec`。
 - **关联**：ADR-0010（配置/实例/事实三层）、ADR-0011 决策 3（入队门控前置、门控失败不构成错失）与决策 6（链对齐）、
-  ADR-0012 决策 1/2（默认判活）、ADR-0020（生命周期落地）、ADR-0021 决策 1.1/1.4（判定单一入口、错失事实不落盘）、ADR-0022。
+  ADR-0012 决策 1/2（默认判活）、ADR-0020（生命周期落地）、ADR-0021 决策 1.1/1.4（判定单一入口、错失事实不落盘）
+  与决策 4.1（年龄投影期现算，决策 9 的直接前身）、ADR-0022。
 
 ### 问题（QA 实测，非推测）
 
@@ -1439,21 +1448,31 @@ pending 期间再判会把玩家已看到的场景判成不合法）、`window`�
 
 ```ts
 // scheduler.ts（与 evaluateDue 同域：事件前提求值的唯一处）
-export function checkEventPremise(def: EventV2, ctx: ConditionContext): boolean
+export type EventPremiseVerdict =
+  | { ok: true }
+  | { ok: false; missWhen: true; label?: string }
+  | { ok: false; missWhen: false };
+export function checkEventPremise(def: EventV2, ctx: ConditionContext): EventPremiseVerdict
 ```
 
-`evaluateDue` 的序 1/序 2 改为调用它（**逐字节等价重构，不改判定结果**），`pendingEvents` 复核复用**同一个函数**。
-这样「什么算前提失效」只有一份定义 —— 也就是主理人担心的「两套判定」在结构上不成立。
+**返回判别对象而不是裸 boolean**（实施期修订，见「实施偏差记录 (a)」）：`missWhen` 命中与 `conditions` 不满足是
+**两种处置**（前者 drop + 记错失，后者 hold 留队），压成 boolean 就得**再求值一次**才能分辨，而条件里的 `random`
+每求值一次都消耗 RNG ⇒ 破坏「逐字节等价」。需要布尔语义的调用方读 `.ok`。
+
+`evaluateDue` 的序 1/序 2 改为调用它（**每个条件数组恰好求值一次，判定结果不变**），`pendingEvents` 复核复用
+**同一个函数**。这样「什么算前提失效」只有一份定义 —— 也就是主理人担心的「两套判定」在结构上不成立。
 
 #### 2.2 单一排空函数
 
 ```ts
 // turn.ts（pendingEvents 的归属层；不新建文件）
-export function revalidatePendingV2(state, lookup): { dropped: string[] }
+export function revalidatePendingV2(state: WorldStateV2, lookup: TemplateLookup): { dropped: string[] }
 ```
 
 按队列顺序**全队列**扫描（不只队首）：谓词为假即从数组移除，返回被移除的 `eventId` 列表（保序，确定性）。
 不推 `turnIndex`、不加 `worldTime`、不写 history、不记 `missedEvents`（见决策 4）、不动 `eventFires`。
+**不接受外部 rng 参数**：内部自建 `deriveTurnSeed(seed + 37, turnIndex)`（决策 8），否则复核开销会被记到
+调用方的随机序列账上（见「实施偏差记录 (b)」）。定义缺失的条目**保留**（那是加载期完整性问题，不属前提失效）。
 
 #### 2.3 调用点清单（这是本 ADR 的硬约束）
 
@@ -1594,6 +1613,103 @@ QA 建议「给引用在世角色的 option 补 `visibleWhen: npcState alive`」
   它只消耗这条独立流：同一 `(seed, turnIndex, state)` 恒得同一结果（确定性成立），且它的取值与 fire 时那次
   求值无关（＝重新掷一次，这是「复核」的应有语义）。
 
+### 决策 9：已故者年龄冻结在 `lifecycle.sinceWorldTime`（实施期新增，投影侧）
+
+#### 9.1 背景：这是「诈尸」的隐蔽变体
+
+QA P1-1 把 `npc-riko` 的 `state`/`reasonCode` 修对之后，面板变成「天内理子 · 已故 · 阵亡 · **26 岁**」——
+**而年龄仍在年年长**（实测修前 26→27）。根因：`projection.ts` 的 `npcs[].age` 一律按
+`ageAt(birthTime, worldTime)` 现算，**完全不看 lifecycle**。死人不该过生日，`era` 一翻页就自己长了一岁，
+比"选项还能点"更隐蔽，但玩家一眼就能看到。
+
+#### 9.2 决策
+
+```ts
+// projection.ts（纯投影；零状态写、零 schema）
+const ageBasis = npc.lifecycle.state === "alive" ? state.worldTime : npc.lifecycle.sinceWorldTime;
+const npcAge = adapter.ageAt(npc.birthTime ?? birthTimeFromAge(npc.age, adapter), ageBasis);
+```
+
+1. `alive` ⇒ 基准 `worldTime`（行为**逐字段不变**，不误伤活人）。
+2. **非 alive（`inactive` / `unspawned`）⇒ 基准 `lifecycle.sinceWorldTime`**，即「状态变更那一刻」。
+3. **`lifeStage` / `lifeStageLabel` 与 `age` 用同一个 `npcAge` 派生**，不另设基准 —— 否则年龄冻结而阶段单独漂移，
+   正是「双基准」这类缺陷的经典形态。
+4. 判据**只读 `lifecycle.state`，不读 `reasonCode`**（ADR-0012 决策 1 的禁令继续有效：阵亡 / 被夺舍 / 封印 / 未登场
+   一律同口径）。
+5. 复活（回 `alive`）后 `sinceWorldTime` 已被 `setNpcLifecycle` 刷新到当下 ⇒ **自动**恢复按 `worldTime` 增长，
+   不需要额外分支。
+
+#### 9.3 为什么**不**用「把死亡时年龄单独存一个字段」
+
+| 候选 | 否决理由 |
+|---|---|
+| `V2Npc.deathAge` / `ageAtDeath` 缓存字段 | 与 `ageAt(birthTime, …)` 形成**第二真源**：同一个数字有两个来源，任何一处漏更新就漂移。而且它要进存档 ⇒ 迁移成本 + 旧档语义（老存档没有这个字段，得回填）。同型判决已两次：ADR-0012 否决「`age` 保留为每轮 tick 更新的缓存字段」、ADR-0020 决策 4 用 `birthTime` 派生而非存年龄 |
+| `flags` 里记 `ageFrozenAt` | ADR-0010 决策 2 明令引擎内部记录不得进 flags（模板条件可读引擎内部记录＝层级墙穿透） |
+| 在死亡效果里把 `identity.age` 写成终值 | 那会把「快照」和「派生」混成一个字段，且复活后无法恢复增长 |
+
+**`sinceWorldTime` 天然就是正确锚点**：它是 lifecycle 状态变更的唯一时间戳（ADR-0020 决策 1），
+「非 alive 区间」=[`sinceWorldTime`, 复活时刻) 由状态机自己维护 ⇒ 引擎不需要新字段、不需要新逻辑，
+也不需要知道「死」这个语义。这正好符合「世界观规则只进模板、结构留给引擎」。
+
+#### 9.4 边界
+
+- **投影不回写**：`state.npcs[].age` 仍是起始年龄快照，冻结只发生在投影期（与 ADR-0021 决策 4.1 的
+  「年龄投影期现算」一脉相承）。
+- **`unspawned` 同口径**：还没登场的角色按建世界时刻计龄，不会「凭空长大」；`spawnNpc` 翻 `alive` 时
+  `sinceWorldTime` 刷新 ⇒ 登场后按当下世界时间计龄。
+- **零 schema / 零 `schemaVersion`**：判据全在既有字段上，旧档加载后即刻生效（不需要回填）。
+- **附带修掉一个潜伏缺陷**：若模板用 `characters[].lifecycle` 声明「开局即已故」的角色（建世界期 `sinceWorldTime = 0`），
+  此前它也会随 `worldTime` 一路长大（「死了一百年的人按当下年龄上屏」）；现在按声明年龄冻结。
+- **已知语义假设（必须写明，否则会被当成缺陷报回来）**：本决策把 `inactive` **一律**视为「不计龄」，
+  因此「失踪 / 封印 / 长眠十年后归来」这类**时间仍在流逝**的角色，复活（回 `alive`）后年龄**不会**补上这十年。
+  **这不是疏忽，是当前三态模型下的唯一可选项**：要区分「死亡不计龄」与「失踪照常计龄」就必须按 `reasonCode`
+  分支，而 ADR-0012 决策 1 明令引擎不得对 `reasonCode` 分支（那是模板自由字符串）。
+  **若模板真需要「失踪期间照常长大」**，正确做法是给 lifecycle 加一个**结构位**（如 `ageFrozen: boolean`，
+  缺省按 `state === "alive"` 派生，模板可显式覆盖），而不是让引擎猜 `reasonCode` —— 那属协议变更，需单独 ADR。
+  **重开条件**：出现任一「时间流逝型 inactive」角色（失踪 / 长期封印 / 沉睡）需要正确计龄时，回来做 `ageFrozen`。
+
+#### 9.5 验证要点（已落 `v2/npc-age-projection.test.ts` 4 例）
+
+1. 置 `inactive` 后推进 5 年，`age` / `lifeStage` / `lifeStageLabel` **三者都不变**，且 `state.npcs[].age` 未被回写。
+2. 同局未死的 NPC 照常增长（证明「只冻结非 alive」，不是一刀切冻全表）。
+3. 复活后按 `worldTime` 恢复增长（断言等于 `ageAt(birthTime, worldTime)` 且严格大于死亡时年龄）。
+4. `unspawned` 按 `sinceWorldTime` 计龄，登场后按当下世界时间计龄。
+5. 端到端（jjk-2006，临时探针已删）：`npc-riko` 于 2006-08 置 `inactive(阵亡)`，投影 2006-08 / 2018 / 2019 末
+   的 `age` 恒为 **14**（修前 26 → 27），`lifeStage` 恒为 `youth`。
+
+### 实施偏差记录（2026-11-12）
+
+> 本节的存在理由：**禁止后来者照本 ADR 初稿的签名"重写一遍"**。以下四条是实现时的定稿，与初稿不同或初稿未写明。
+
+**(a) `checkEventPremise` 返回判别对象 `EventPremiseVerdict`，不是裸 boolean**
+
+```ts
+type EventPremiseVerdict = { ok: true } | { ok: false; missWhen: true; label?: string } | { ok: false; missWhen: false };
+```
+
+初稿写的是 `: boolean`，**不要改回去**。原因：`evaluateDue` 对两种失败的处置不同（`missWhen` ⇒ drop + 记错失；
+`conditions` ⇒ hold 留队）。压成 boolean 后调用方要分辨就得**再求值一次**，而条件里的 `random` 每求值一次都消耗
+RNG ⇒ 「逐字节等价重构」立刻不成立（RNG 流被多扣一次，全模板基线平移）。需要布尔语义的调用方读 `.ok`。
+
+**(b) `revalidatePendingV2(state, lookup)` 不接受 `rng` 参数**
+
+初稿签名即如此（决策 2.2），此处固化理由：若把调用方的 rng 传进来，复核开销会**记到调用方随机序列账上**
+（`chooseOptionV2` 的 `+7` 流、`battleActionV2` 的 `+13` 流…），等于「每多挂一个调用点就改一次骰序」。
+内部自建 `createRng(deriveTurnSeed(state.seed + 37, state.turnIndex))` ⇒ 复核是**完全独立的一条流**，
+同一个 `(seed, turnIndex, state)` 恒得同一结果，且不污染任何既有序列。
+
+**(c) S1 判据改写**（原「0 丢弃局指纹不变」作废，理由见「确定性影响」节 S1）
+
+**(d) 初稿的"建议"在实施中的落定形态**
+
+| 初稿表述 | 实际落定 |
+|---|---|
+| 决策 2.3 #4「建议收敛成一个共享小函数，如 `revalidateThenProject()`」 | 已落地 `revalidateThenProject()`（`turn.ts`），四个入口末尾统一调用，内含「排空 + 并入 `droppedPending` + `projectWithConfig`」 |
+| 决策 2.3 #6「`pendingEventView` 只读守卫」 | 已落地在 `pendingEventView` 内（用独立盐 `+37`），**`projection.ts` 因此零改动**（符合影响面表） |
+| 决策 3 附则「把本轮丢弃的 id 从 `result.triggered` 剔除」 | 已落地（`recordDroppedPending()`） |
+| 决策 8「`event_premise_invalidated` 进 `interactionErrors` ⇒ 409」 | 已落地（`apps/server/src/index.ts:442`） |
+| 决策 2.2「定义缺失的条目保留」 | 已落地并加了显式说明：那是加载期完整性问题（`pendingEventView` 已返回 null），复核不越权删除 |
+
 ### 被否决的备选（总表）
 
 - **只在投影层过滤、不动队列**：造成 UI 死锁（决策 2.5）与「点击选项必然失败」的双重故障。**否决**。
@@ -1635,7 +1751,7 @@ QA 建议「给引用在世角色的 option 补 `visibleWhen: npcState alive`」
 
 | 不变量 | 现状 | 本改动影响 | 保护措施 |
 |---|---|---|---|
-| 同 seed 同输入同结果 | 成立 | **会改变受影响 seed 的轨迹**（丢弃 ⇒ 少一轮 `turnIndex`/`worldTime`） | 独立 RNG 盐 `+37` 不污染主流；断言「丢弃计数为 0 的 seed 指纹逐字节不变」 |
+| 同 seed 同输入同结果 | 成立 | **会改变受影响 seed 的轨迹**（丢弃 ⇒ 少一轮 `turnIndex`/`worldTime`） | 独立 RNG 盐 `+37` 不污染主流；断言「**首次丢弃之前的逐轮指纹与基线逐字节相同**」（S1 改写见下） |
 | hidden 不进入玩家端 API | 成立（另有 QA P2-1 `visibility` 未生效的 pre-existing 缺陷） | 无影响 | 本次不碰投影字段集；危险不在本次范围 |
 | 世界观规则只进模板 | 成立 | **强化**：复核只读 `trigger.conditions`，引擎不内建「死人不能出场」 | 不新增任何「按 reasonCode / 按 NPC 分支」的引擎逻辑 |
 | 时间/随机/ID 可注入 | 成立 | 复核引入新 RNG 派生（盐 `+37`），仍由 `state.seed` 决定 | 不读 `Date`/`Math.random`；派生点写在一处 |
@@ -1647,17 +1763,33 @@ QA 建议「给引用在世角色的 option 补 `visibleWhen: npcState alive`」
 1. **预期变化的范围**：只有「排队期间前提翻转」的 seed 会变。QA 实测上限是 11/30、9/30、5/30（三个事件，
    种子集合不同）。变化形态：该事件被丢弃 ⇒ 少一次结算轮 ⇒ 后续 `turnIndex` / `worldTime` / 属性 / 骰序整体平移。
 2. **可断言的非回归判据（这是核心，别用「看着差不多」替代）**：
-   - **S1**：对 12 局（6 seed × 2 开局）记录 `droppedPending` 计数。**凡计数为 0 的局，状态指纹必须逐字节不变**
-     （指纹口径沿用 QA F-2：`turnIndex/worldTime/hp/mp/mood/attributes/flags/全部 npc/eventFires/termination`）。
+   - **S1（已改写，原表述作废）**：对每个种子记下「第一次丢弃发生的轮次」`T_d`，断言
+     **`T_d` 之前（含 `T_d` 那一步）每一轮的逐轮状态指纹与基线逐字节相同**，且**首个差异恰好出现在
+     `T_d` 之后的第一步**（＝丢弃那条命令的后一步）。
+     **原表述为什么必须作废**：「凡 `droppedPending === 0` 的局，指纹逐字节不变」在这套样本上**不可证伪**
+     —— `era` 翻页会必然让 era 相关池事件失效，实测 6 个种子**全部**至少丢一条，所以「0 丢弃局」集合是空集，
+     该断言恒真（vacuously true）、永远不会红。
+     **改写版更强而不是更弱**：它表达的是这个不变量真正想说的东西 —— **差异只能由丢弃引起，且不能早于丢弃**。
+     在一个「必然发生丢弃」的样本上它仍然可证伪：`T_d` 之前出现任何一位差异 ⇒ 红；
+     首个差异出现在 `T_d` 之后第二步及更晚（说明还有一个未被 `droppedPending` 记录的扰动源）⇒ 红。
+     实测前缀等价步数：s1 前 260 步、s2 325、s3 222、s4 245、s5 238、s6 221 **全部相同**，
+     首个差异恰好落在丢弃那条命令的后一步。
    - **S2**：凡计数 > 0 的局，**首个差异字段必须出现在「第一次丢弃发生的那个轮次」或其之后**。早于它出现差异 ⇒ 回归。
+     （S2 是 S1 的弱化版，保留作独立断言，便于失败时快速分辨「早于」与「晚于」两种成因。）
    - **S3**：`playthrough.test.ts` 的**结构性断言必须全绿**（结局在声明集合内、章节数 ≥ 8、`turns < 700`、
      `day ≥ 4300`、章节事件不重复、五维严格小于上界）。**允许变化的只有 `console.log` 的读局摘要**。
      若某个 seed 掉到 `day < 4300` 或章节数 < 8 ⇒ 说明丢弃吃掉了主线，是真回归。
    - **S4**：`replay.test.ts` 逐字节不变（其模板无普通待决事件，池事件是 `kind: random`，不经过 `pendingEvents`）。
-3. **已知的必然漂移**：受影响 seed 的 `day` 会略减（少若干次结算轮）。QA 基线是 `day 4736–4755`，余量充足。
+3. **实测结论（实施期）**：
+   - `droppedPending` 6 种子合计 **13 条**，**全部**是「前提本该失效」的池事件（`era` 翻页 / 伏黑被夺舍），
+     **无一条是模板误配** —— 佐证决策 1「这是引擎复核时机问题，不是模板漏配问题」的判断。
+   - 模板补丁（`ev-d-canteen` 加 `npcState`）在 6 个种子上**不改变任何轨迹**（有/无补丁的逐轮指纹一致）⇒
+     它是**防御性正确**，不是「修掉实际命中」。**这不削弱决策 7**：命中与否取决于种子，而该事件确实是
+     3 例里唯一缺前提的一个；缺了它，引擎再复核也**无从判断**（引擎不许猜「正文点名了谁」）。
+4. **已知的必然漂移**：受影响 seed 的 `day` 会略减（少若干次结算轮）。QA 基线是 `day 4736–4755`，余量充足。
    `evaluation.overall` 可能微动（QA 基线 94.51–95.02，断言区间 60–96，余量充足）。
-4. **反向检查（防「改了个寂寞」）**：必须有一条用例证明修复真的生效 —— 构造「排队期间死亡」的受控场景，
-   断言该事件**不再呈现、也不再能结算**；此用例在修复前必须为红。
+5. **反向检查（防「改了个寂寞」）**：必须有一条用例证明修复真的生效 —— 构造「排队期间死亡」的受控场景，
+   断言该事件**不再呈现、也不再能结算**；此用例在修复前必须为红（已落 `v2/pending-premise.test.ts` ①）。
 
 ### 明确不做（边界）
 
@@ -1671,10 +1803,14 @@ QA 建议「给引用在世角色的 option 补 `visibleWhen: npcState alive`」
 | 不做条件种类白名单（不区分单调量/振荡量） | 决策 1；改为「模板作者须知」的书写约束 |
 | 不改 `EVENT_SOURCE_PRIORITY` / 不设待决队列上限 | QA P2-3 属调度策略议题，与本缺陷正交 |
 | 不把 `recordFire`/`pushHistory` 移到 settle 时 | 见「被否决的备选」最后两条 |
-| 不修 QA P1-1（`npc-riko` 未落 lifecycle）与 P2-1（`visibility: hidden` 未在投影生效） | 前者是纯模板漏配（T-1），后者是 pre-existing 投影缺陷，各自独立，不并入本 ADR |
+| 不修 QA P1-1（`npc-riko` 未落 lifecycle）与 P2-1（`visibility: hidden` 未在投影生效） | P1-1 已作为**独立模板提交** `0759497` 修完（T-1，本 ADR 只把它列为前置依赖）；P2-1 是 pre-existing 投影缺陷，各自独立，不并入本 ADR |
+| 不做「已故者的关系/装备/技能也不随时间变化」之类的外延 | 只处理玩家**看得见且会自己长大**的那一项（年龄，决策 9）。其余由 `lifecycle` 的既有语义与模板条件承担，不为未出现的症状提前建抽象 |
 | 不做前端改动 | `pendingEvent: null` 是既有形状；新错误码走既有 toast |
 
-### 验证要点
+### 验证要点（含落地用例位置）
+
+> ①②③④⑥⑦⑧ 与决策 3 附则已落 `packages/game-core/src/v2/pending-premise.test.ts`（6 个 `describe` / 16 例）；
+> 决策 9 落 `npc-age-projection.test.ts`（12 例，其中 4 例为本决策新增）。下表保留原始验收口径，便于 QA 复核「测的是不是该测的」。
 
 1. **排队期间死亡 ⇒ 不再呈现**：构造 A（池事件 fire）→ 另一轮里 `setNpcLifecycle inactive` → 断言该事件
    **既不在 `snapshot.pendingEvent`、也不在 `pendingEvents`**，且再次提交它的 `optionId` **不可能成功**
@@ -1682,8 +1818,9 @@ QA 建议「给引用在世角色的 option 补 `visibleWhen: npcState alive`」
    再由该命令提交旧 `optionId`」时才走 `event_premise_invalidated`）。**本用例修复前必须为红**。
 2. **全选项失效 ≠ 死锁**：断言不存在「`options: []` 且 `pendingEvents.length > 0`」的可观测状态；
    丢弃后若队列还有下一个有效事件，**同一响应**即呈现它；若队列清空，`advanceTurnV2` 正常推进（不抛 `pending_event_required`）。
-3. **未死亡 ⇒ 行为与现状逐字节一致**：对 12 局做 `droppedPending === 0` 的指纹比对（S1），并单独断言
-   `evaluateDue` 重构前后对同一状态返回相同 `DueDecision`（等价重构的回归网）。
+3. **未死亡 ⇒ 行为与现状逐字节一致**：按 **S1（改写版）**验证「前缀等价 + 首个差异落在首次丢弃轮次的后一步」，
+   并单独断言 `evaluateDue` 重构前后对同一状态返回相同 `DueDecision`、且**条件数组的求值次数不变**
+   （等价重构的回归网；这条同时守住实施偏差 (a)：若有人把谓词改回 boolean，求值次数会翻倍）。
 4. **槽位让位不吞轮次**：丢弃前后 `turnIndex` / `worldTime` / `player.age` 不变；`history` 长度不变；
    `eventFires` 长度不变；`missedEvents` 长度不变。（防「顺手把丢弃做成了结算」）
 5. **同 seed 基线变化可解释**：跑 S1–S4 四条判据，输出「每局 `droppedPending` + 首个差异轮次」一表，作为交付附件。
@@ -1692,11 +1829,14 @@ QA 建议「给引用在世角色的 option 补 `visibleWhen: npcState alive`」
 7. **确定性**：同 seed 两次运行的 `droppedPending` 列表与最终指纹一致（复核用 `+37` 盐 ⇒ 不引入时间/随机依赖）。
 8. **旧档**：手工构造一个含「失效队首」的 `WorldStateV2` 落盘 → 重启/`hydrate` → 断言该条目已被清理且状态已持久化；
    同时断言 `schemaVersion` 未变、`WorldStateV2Schema.parse` 仍通过（证明零协议变更）。
+9. **已故年龄冻结（决策 9）**：置 `inactive` 后推进**一年**，`age` **与 `lifeStage`/`lifeStageLabel` 三者均不变**；
+   复活回 `alive` 后恢复按 `worldTime` 增长（严格大于死亡时年龄）；同局未死者照常增长；`unspawned` 同口径计龄。
 
-### 需用户/主理人裁决（2 条）
+### 起草时列为待确认的两条（实施时已按默认口径落地）
 
-1. **确认默认处置「静默不出场」**：事件因前提失效而**不呈现、不记错失、不退 `once`/冷却**，
-   fire 时刻已写在 `history` 的那条旁白**保留**。若用户要求「必须让玩家知道这件事没发生」，
-   那就要扩 `MissReason` + 给 `PendingEvent` 加 `instanceId`（协议变更，代价见决策 4），本 ADR 需改写。
-2. **确认僵尸链接受为已知限制**（决策 6 的三条理由 + 重开条件）。若主理人要求本轮一并处理，
-   则改为「丢弃时按 `alignChainStep` 无参形态对齐到下一个 `advanceWhen: nextTurn` 步」，测试点 6 同步改写。
+1. **默认处置「静默不出场」** —— 已按此实施（`bbb440b`）：不呈现、不记错失、不退 `once`/冷却，fire 时刻写在
+   `history` 的那条旁白保留。**若将来用户改口要求「必须让玩家知道这件事没发生」**，代价仍是扩 `MissReason` +
+   给 `PendingEvent` 加 `instanceId`（协议变更，见决策 4），届时需改写本节与决策 3/4。
+2. **僵尸链接受为已知限制** —— 已按此实施，并用用例把它**钉死**（`pending-premise.test.ts` ⑥ 断言链仍为 `active`
+   而不是被伪装成 `completed`）。**重开条件不变**：模板出现带 `trigger.conditions` 的链步骤，或出现任何读
+   `chain.status === "completed"` 的消费者时，必须回来补 `alignChainStep` 无参形态对齐，并同步改写该用例。
