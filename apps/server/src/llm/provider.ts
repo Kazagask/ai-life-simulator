@@ -1,4 +1,7 @@
 import type { NarrativeInput, NarrativeOutputSchemaLike } from "@life-sim/game-core";
+import { MockProvider } from "./mock.js";
+import { OpenAICompatibleProvider } from "./openaiCompatible.js";
+import { WorkBuddyCloudProvider } from "./workbuddyCloud.js";
 
 /**
  * R2.7 · LLMProvider 统一接口（R-LLM-01 / ADR-0027 决策 1）。
@@ -53,4 +56,25 @@ export function readLLMConfig(env: Record<string, string | undefined> = process.
     ...(cloudSession !== undefined ? { cloudSession } : {}),
     ...(cloudUrl !== undefined ? { cloudUrl } : {}),
   };
+}
+
+/**
+ * 三层凭证路由工厂（R-LLM-02 / ADR-0027 决策 2）：
+ * ① cloudSession + cloudUrl ⇒ workbuddy-cloud；② 三项 `LIFE_SIM_LLM_*` 齐备 ⇒ openai-compatible；
+ * ③ 否则 ⇒ mock（无 env 无登录态的零回归默认）。
+ * 返回的 `id` 是运行时真实选中的那个；加载期不得抛错，密钥绝不出现在任何日志 / 仓库文件。
+ */
+export function createLLMProvider(config: LLMConfig): LLMProvider {
+  const cloudSession = config.cloudSession?.trim();
+  const cloudUrl = config.cloudUrl?.trim();
+  if (cloudSession && cloudUrl) {
+    return new WorkBuddyCloudProvider({ cloudSession, cloudUrl, timeoutMs: config.timeoutMs });
+  }
+  const baseUrl = config.baseUrl?.trim();
+  const model = config.model?.trim();
+  const apiKey = config.apiKey?.trim();
+  if (baseUrl && model && apiKey) {
+    return new OpenAICompatibleProvider({ baseUrl, model, apiKey, timeoutMs: config.timeoutMs });
+  }
+  return new MockProvider();
 }
