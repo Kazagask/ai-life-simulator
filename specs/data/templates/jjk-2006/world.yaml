@@ -157,3 +157,15 @@ npcActions:
       traitAffinity: [caring, confident]
     effects:
       - { type: adjustRelation, npcId: __self__, value: 2 }
+
+# NPC 刷新规则（ADR-0022：配置层 → 实例层队列 → spawnLog 事实层）
+#
+# 被规则管辖的角色在世界创建时处于 `unspawned`：不上人物面板、不进入自主行动候选、
+# 不参与任何以他为 ref 的战斗（引擎默认判活，模板无需再写判活条件）。
+# 由模板事件的 `{ type: spawnNpc, ruleId: ... }` 触发登场，同一 ruleId 重复触发幂等。
+#
+# 乙骨忧太：2006–2017 年在海外，2017 百鬼夜行归国参战（ev-np-01 第一波结束后登场，
+# 因此 ev-np-02a / ev-np-02b 里他能作为友军 ref 参战）。spawnNpc 时按规则年龄重算 birthTime，
+# 所以 2006 年他不会被投影成「11 年前就已经 16 岁」。
+npcSpawnRules:
+  - { id: rule-yuta-arrival, characterRef: npc-yuta, age: 16 }

@@ -336,7 +336,7 @@ describe("真实模板回归（jjk-2006）· 无实例敌人不被判活误杀",
     }
   });
 
-  it("ev-sj-02：npc-gojo 非在世 ⇒ 涩谷终战照常建场，allies 不含 gojo、敌人不变", () => {
+  it("ev-sj-02：npc-gojo 非在世 ⇒ 新宿决战一阶段照常建场，allies 不含 gojo、敌人不变", () => {
     const template = loadJjkTemplate();
     const lookup = createLookup(template);
     const state = createActiveWorldV2(
@@ -356,12 +356,39 @@ describe("真实模板回归（jjk-2006）· 无实例敌人不被判活误杀",
     };
 
     const resolved = resolveCombatRefs(event.settle.combat, state, lookup);
-    expect(resolved.enemies.map((r) => r.ref)).toEqual(["enemy-sukuna"]);
+    // 一阶段敌人是「借伏黑惠之身」的宿傩（enemy-sukuna-megumi），不是涩谷那张卡
+    expect(resolved.enemies.map((r) => r.ref)).toEqual(["enemy-sukuna-megumi"]);
     expect(resolved.allies.map((r) => r.ref)).toEqual(["npc-yuji"]);
     expect(resolved.inactiveNpcIds).toEqual(["npc-gojo"]);
 
     const battle = createBattle("ev-sj-02", event.settle.combat, state, lookup);
-    expect(battle.enemies.map((e) => e.characterId)).toEqual(["enemy-sukuna"]);
+    expect(battle.enemies.map((e) => e.characterId)).toEqual(["enemy-sukuna-megumi"]);
     expect(battle.allies.map((a) => a.characterId)).toEqual(["npc-yuji"]);
+  });
+
+  it("ev-sj-02 / ev-sj-02b：allies 引用的 npc-yuji 被宿傩受肉（inactive）⇒ 被过滤，二番战照常成立", () => {
+    const template = loadJjkTemplate();
+    const lookup = createLookup(template);
+    const state = createActiveWorldV2(
+      { templateId: "jjk-2006", playerName: "测试者", seed: 7 },
+      template,
+      "w-jjk-sj2",
+    );
+    // 身体争夺的中间态：虎杖被占据、宿傩还没归还身体
+    state.npcs.find((n) => n.id === "npc-yuji")!.lifecycle = {
+      state: "inactive",
+      reasonCode: "宿傩受肉",
+      sinceTurn: 3,
+      sinceWorldTime: 180,
+    };
+
+    for (const id of ["ev-sj-02", "ev-sj-02b"]) {
+      const event = template.events.find((e) => e.id === id);
+      if (event?.kind !== "combat") throw new Error(`fixture: ${id} 不再是 combat`);
+      const resolved = resolveCombatRefs(event.settle.combat, state, lookup);
+      expect(resolved.enemies.length).toBeGreaterThan(0);
+      expect(resolved.allies.map((r) => r.ref)).toEqual(["npc-gojo"]);
+      expect(resolved.inactiveNpcIds).toContain("npc-yuji");
+    }
   });
 });

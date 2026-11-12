@@ -1150,6 +1150,8 @@ events:
         - { flag: creationDone, eq: true }
         - { flag: era, eq: 3 }
         - { flag: yujiJoined, eq: true }
+        # 被宿傩占据期间（涩谷放逐路线）他没有「端着第五碗饭坐下来」这回事。
+        - { npcState: { npcId: npc-yuji, state: alive } }
     kind: normal
     settle:
       normal:
@@ -1182,6 +1184,9 @@ events:
       conditions:
         - { flag: creationDone, eq: true }
         - { flag: era, eq: 3 }
+        # 死亡/被占据不诈尸：池事件不会被引擎按 NPC 引用自动过滤，
+        # 引用在世角色的日常事件必须自己判活（战斗 ref 才有默认判活，不重复写）。
+        - { npcState: { npcId: npc-megumi, state: alive } }
     kind: normal
     settle:
       normal:
@@ -1243,6 +1248,8 @@ events:
         - { flag: creationDone, eq: true }
         - { flag: era, eq: 3 }
         - { flag: yutaGone, ne: true }
+        # 刷新规则（ADR-0022）管辖的角色：没登场（unspawned）就不该出现在日常里。
+        - { npcState: { npcId: npc-yuta, state: alive } }
     kind: normal
     settle:
       normal:
@@ -2153,11 +2160,17 @@ events:
           effects:
             - { type: adjustFlag, id: missionsCompleted, value: 3 }
             - { type: adjustAttribute, attribute: reputation, value: 5 }
+            # 乙骨忧太归国参战（ADR-0022 刷新机制）：第一波咒灵打完，他从海外赶到了。
+            # 此前他处于 unspawned（不上屏、不自主行动）；此处转 alive 后，
+            # 下面 ev-np-02a / ev-np-02b 的 allies ref 才能判活通过。
+            - { type: spawnNpc, ruleId: rule-yuta-arrival }
           nextEventId: ev-np-02
         onDefeat:
           effects:
             - { type: applyStatus, status: injured-sim, stacks: 1 }
             - { type: adjustMood, value: -10 }
+            # 同上：胜负都不影响「乙骨到了」这个世界事实。
+            - { type: spawnNpc, ruleId: rule-yuta-arrival }
           nextEventId: ev-np-02
 
   - id: ev-np-02
@@ -2593,14 +2606,14 @@ events:
               - { type: adjustMood, value: 16 }
               - { type: adjustFlag, id: truthBits, value: 3 }
               - { type: log, text: 你提前拆掉了狱门疆的封印阵。五条悟没有被封印。 , visibility: public }
-            nextEventId: ev-sh-04
+            nextEventId: ev-sh-03b
           - id: opt-sh3-rush
             text: 冲上去，抢那个方块
             effects:
               - { type: setFlag, id: gojoSealed, value: true }
               - { type: applyStatus, status: injured-sim, stacks: 1 }
               - { type: adjustMood, value: -18 }
-            nextEventId: ev-sh-04
+            nextEventId: ev-sh-03b
           - id: opt-sh3-civ
             text: 先带人撤离。这一刻你救不了他
             effects:
@@ -2609,46 +2622,83 @@ events:
               - { type: adjustAttribute, attribute: reputation, value: 6 }
               - { type: adjustFlag, id: savedCivilians, value: 4 }
               - { type: adjustMood, value: -14 }
-            nextEventId: ev-sh-04
+            nextEventId: ev-sh-03b
 
-  - id: ev-sh-04
-    title: 伏魔御厨子
-    narrative: 二十三点十四分。一个不该出现的领域在涩谷中心展开——没有边界，只有一千四百米半径的、不断重复的斩击。领域的主人踩着人头走出来，四只手，两双眼。
+  # ── 身体争夺 · 涩谷（原作：虎杖被打至昏迷，宿傩趁虚受肉，23:14 展开伏魔御厨子）──
+  #
+  # 玩法结构变更：本章新增一次「是否放任宿傩夺取身体」的选择，用**已有的** setNpcLifecycle
+  # 效果 + 自由字符串 reasonCode 表达「被占据」，不新增效果类型、不改 schema。
+  #   放任 ⇒ npc-yuji inactive(reasonCode=宿傩受肉) + 必须在 ev-sh-04 打这一场；战果决定
+  #            shibuyaSurvived / sukunaRepelled 与救人数（高回报、可能真打不过）
+  #   压制 ⇒ npc-yuji 保持 alive、无该战斗（安全），但付出人格代价：心情大跌 + 与虎杖的关系
+  #   `sukunaTookOver` 记录「这一夜他是否出来过」，供后续文本/结局分支读取。
+  # 两条路都仍有涩谷的收尾（ev-sh-05），不会把玩家扔在链上无路可走。
+  - id: ev-sh-03b
+    title: 身体里的东西
+    narrative: 虎杖跪在碎石里，一只手按着地面，指节把地面按出裂纹。他抬起头——脸上正在长出一条不属于他的纹路。「……喂。」那不是他的声音，「你打算怎么办。」
     trigger:
       source: chain
     kind: normal
     settle:
       normal:
         options:
-          - id: opt-sh4-save
-            text: 冲进领域边缘，把人拖出来
+          - id: opt-sh3b-let
+            text: 松手。让他出来
             effects:
+              # 宿傩受肉 ⇒ 虎杖这一夜不在世（inactive）。reasonCode 只是模板自由字符串，
+              # 引擎不对它分支，只原样存下来供投影展示与模板条件判断。
+              - { type: setNpcLifecycle, npcId: npc-yuji, state: inactive, reasonCode: 宿傩受肉 }
+              - { type: setFlag, id: sukunaTookOver, value: true }
+              - { type: adjustMood, value: -12 }
+              - { type: log, text: 你松开了手。虎杖的嘴角翘起来，那不是他的表情。 , visibility: public }
+            nextEventId: ev-sh-04
+          - id: opt-sh3b-hold
+            text: 按住他，别让他出来
+            effects:
+              - { type: setFlag, id: sukunaTookOver, value: false }
               - { type: setFlag, id: shibuyaSurvived, value: true }
-              - { type: adjustAttribute, attribute: reputation, value: 12 }
-              - { type: adjustFlag, id: savedCivilians, value: 5 }
-              - { type: applyStatus, status: injured-sim, stacks: 1 }
-              - { type: adjustMood, value: 4 }
-            nextEventId: ev-sh-05
-          - id: opt-sh4-hold
-            text: 挡在避难通道口
-            effects:
-              - { type: setFlag, id: shibuyaSurvived, value: true }
-              - { type: setFlag, id: heldLine, value: true }
-              - { type: adjustAttribute, attribute: physique, value: 3 }
-              - { type: applyStatus, status: injured-sim, stacks: 1 }
-              - { type: adjustMood, value: -6 }
-            nextEventId: ev-sh-05
-          - id: opt-sh4-flee
-            text: 撤出去。这已经不是你能处理的东西
-            effects:
-              - { type: setFlag, id: shibuyaSurvived, value: false }
-              - { type: setFlag, id: fledShibuya, value: true }
+              # 人格代价：你亲手把一个朋友按回黑暗里，你们之间从此少了一层话。
+              # 换来的是「领域没有展开」——没有人被那一千四百米切碎，包括你自己。
               - { type: adjustMood, value: -20 }
+              - { type: adjustRelation, npcId: npc-yuji, value: -8 }
+              - { type: applyStatus, status: exhausted, stacks: 1 }
+              - { type: log, text: 你把他按住了。代价是你们之后谁也没提过这一夜。 , visibility: public }
             nextEventId: ev-sh-05
+
+  # 只在「放任」时可达：敌人是**借虎杖之身**的宿傩，即复用的 enemy-sukuna
+  # （不为同一形态造两套数值；虎杖此刻 inactive，故本场没有友军）。
+  # 战败不等于死亡（前三章的战败只给重伤），故仍走 ev-sh-05 收尾。
+  - id: ev-sh-04
+    title: 伏魔御厨子
+    narrative: 二十三点十四分，整条街以一个看不见的中心开始被切开。没有边界、没有死角，只有一千四百米半径内不断重复的斩击。领域的主人踩着人头走出来——四只手，两双眼，脸上四道纹路。
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-sukuna, levelScale: 0.5 }
+        canFlee: false
+        onVictory:
+          effects:
+            - { type: setFlag, id: sukunaRepelled, value: true }
+            - { type: setFlag, id: shibuyaSurvived, value: true }
+            - { type: adjustAttribute, attribute: reputation, value: 12 }
+            - { type: adjustFlag, id: savedCivilians, value: 5 }
+            - { type: adjustMood, value: 4 }
+          nextEventId: ev-sh-05
+        onDefeat:
+          effects:
+            - { type: setFlag, id: sukunaRepelled, value: false }
+            - { type: setFlag, id: shibuyaSurvived, value: false }
+            - { type: setFlag, id: fledShibuya, value: true }
+            - { type: applyStatus, status: injured-sim, stacks: 1 }
+            - { type: adjustMood, value: -18 }
+          nextEventId: ev-sh-05
 
   - id: ev-sh-05
     title: 天亮之前
-    narrative: 十一月一日凌晨。涩谷站前的十字路口被削掉了一层。消防车的水浇在烧焦的地面上，蒸汽一直升到天亮。有人在清点人数——数字比预期少很多，但比最坏的情况好。
+    narrative: 十一月一日凌晨。涩谷站前的十字路口被削掉了一层。消防车的水浇在烧焦的地面上，蒸汽一直升到天亮。虎杖坐在路沿上，抱着自己的膝盖——他说他不记得那段时间，但他的手一直在抖。有人在清点人数：数字比预期少很多，但比最坏的情况好。
     trigger:
       source: chain
     kind: normal
@@ -2658,6 +2708,10 @@ events:
           - id: opt-sh5-go
             text: 在废墟里找人
             effects:
+              # 身体争夺的回程入口（与「被占据」同一入口，无特权通道）：
+              # 宿傩用完这具身体就退回体内 ⇒ 虎杖回到 alive，reasonCode 随新状态一起清掉。
+              # 走「压制」路线时虎杖本来就活着，此处是幂等的在世确认。
+              - { type: setNpcLifecycle, npcId: npc-yuji, state: alive }
               - { type: setFlag, id: shDone, value: true }
               - { type: setFlag, id: ready6, value: true }
               - { type: setFlag, id: chapter, value: 11 }
@@ -2811,6 +2865,16 @@ events:
           - id: opt-cg4-go
             text: 准备去新宿
             effects:
+              # ── 身体争夺 · 伏黑惠 ──
+              # 原作：死灭回游末，宿傩夺舍伏黑。这里用同一个 setNpcLifecycle 入口表达「被占据」，
+              # reasonCode 只是模板自由字符串（引擎不分支）。从此：
+              #   · npc-megumi 不再上「在世」名单，对他的关系写入被冻结（单向棘轮）
+              #   · 决战一阶段的敌人 = enemy-sukuna-megumi（借这具身体）
+              #   · 引用他的日常事件用 npcState 条件挡掉（不写重复的判活逻辑）
+              - { type: setNpcLifecycle, npcId: npc-megumi, state: inactive, reasonCode: 被宿傩夺舍 }
+              - { type: setFlag, id: megumiTaken, value: true }
+              - { type: adjustMood, value: -16 }
+              - { type: log, text: 十二月初，伏黑惠的身体被宿傩占了。 , visibility: public }
               - { type: setFlag, id: cgDone, value: true }
               - { type: setFlag, id: ready7, value: true }
               - { type: setFlag, id: chapter, value: 13 }
@@ -2887,15 +2951,20 @@ events:
             nextEventId: ev-sj-02
 
   - id: ev-sj-02
-    title: 人外魔境
-    narrative: 他动了。第一道「解」切开了三百米外的大楼。第二道「捌」贴着你的耳朵过去。你听见自己的心跳，比任何一次都响。
+    title: 人外魔境 · 一阶段
+    narrative: 他动了。第一道「解」切开了三百米外的大楼，第二道「捌」贴着你的耳朵过去。对面那具身体是伏黑的——脸上四道纹路，手腕的骨节在错位地长。你听见自己的心跳，比任何一次都响。
     trigger:
       source: chain
     kind: combat
     settle:
       combat:
         enemies:
-          - { ref: enemy-sukuna, levelScale: 0.62 }
+          # 一阶段：宿傩借伏黑惠之身（npc-megumi 已在 ev-cg-04 置 inactive(被宿傩夺舍)）。
+          # 虎杖作为 allies 会被引擎自动判活过滤：涩谷「放任」且没顶住时他曾被占据，
+          # 但 ev-sh-05 已把他还原成 alive，故常规路径下他仍能参战。
+          # levelScale 0.58 是场面旋钮（不是强度声明）：这张卡本身比 enemy-sukuna 强一档，
+          # 0.58 才落回旧 0.62 的手感；「一阶段 → 二阶段」两连战才是本轮真正加的分量。
+          - { ref: enemy-sukuna-megumi, levelScale: 0.58 }
         allies:
           - { ref: npc-gojo, levelScale: 1.0 }
           - { ref: npc-yuji, levelScale: 0.8 }
@@ -2905,14 +2974,52 @@ events:
             - { type: setFlag, id: beatSukuna, value: true }
             - { type: adjustAttribute, attribute: reputation, value: 20 }
             - { type: adjustMood, value: 12 }
-          nextEventId: ev-sj-03
+            # 两场之间的喘息：反转术式与补给（否则二番战必定带伤开场，变成「必死」而不是「决战」）
+            - { type: adjustResource, resource: hp, value: 45 }
+            - { type: adjustResource, resource: mp, value: 25 }
+          nextEventId: ev-sj-02b
         onDefeat:
           effects:
             - { type: setFlag, id: beatSukuna, value: false }
             - { type: setFlag, id: finalEnd, value: hero-death }
             - { type: applyStatus, status: injured-sim, stacks: 1 }
             - { type: adjustMood, value: -18 }
-          nextEventId: ev-sj-04
+          # 战败即收束（P0 修复）：这里**不写** nextEventId。
+          # 旧值指向 ev-sj-04（「你在便利店买了热咖啡」），会出「战死还去喝咖啡」。
+          # 终局由 endings.yaml 的 terminationConditions（finalEnd=hero-death）在战败边界直接固化。
+          # 二番战战败走同一处理，不再回日常。
+
+  - id: ev-sj-02b
+    title: 人外魔境 · 二阶段 · 受肉
+    narrative: 借来的身体跪了下去，血从伏黑的嘴角流到地上。然后四只手从他背后长出来，把少年那层皮撑开——他把自己塞回了原本的形状，头上的骨冠在路灯下泛着旧血的颜色。「现在，」他说，「重新开始。」
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          # 二阶段：完全受肉的真身，显著强于一阶段
+          - { ref: enemy-sukuna-incarnate, levelScale: 0.55 }
+        allies:
+          - { ref: npc-gojo, levelScale: 1.0 }
+          - { ref: npc-yuji, levelScale: 0.8 }
+        canFlee: false
+        onVictory:
+          effects:
+            - { type: setFlag, id: beatSukuna, value: true }
+            - { type: setFlag, id: beatSukunaIncarnate, value: true }
+            - { type: adjustAttribute, attribute: reputation, value: 25 }
+            - { type: adjustMood, value: 16 }
+          # 二番战胜利才进原有终局链（命运轮 ev-sj-03 → 尾声 ev-sj-04）
+          nextEventId: ev-sj-03
+        onDefeat:
+          effects:
+            - { type: setFlag, id: beatSukuna, value: false }
+            - { type: setFlag, id: beatSukunaIncarnate, value: false }
+            - { type: setFlag, id: finalEnd, value: hero-death }
+            - { type: applyStatus, status: injured-sim, stacks: 1 }
+            - { type: adjustMood, value: -20 }
+          # 与一阶段战败同等处理：不写 nextEventId，由 finalEnd=hero-death 的终止条件就地收束。
 
   - id: ev-sj-03
     title: 终结

@@ -378,6 +378,53 @@ characters:
         skillWeights: { sk-dismantle: 4, sk-cleaves: 3, sk-fuga: 1, sk-domain-malevolent: 1 }
     relationship: -100
 
+  # ══════════════ 决战宿傩 · 两阶段 ══════════════
+  #
+  # 同一存在、两种形态，**分开建两张卡**（用户要求：是两个 NPC）：
+  #   一阶段 = 借伏黑惠之身（死灭回游末被夺舍，ev-cg-04 把 npc-megumi 置 inactive）
+  #   二阶段 = 完全受肉真身（四臂两面），显著强于一阶段
+  # 涩谷那个「借虎杖之身」的形态**复用 enemy-sukuna**，不为同一形态造两套数值。
+
+  - id: enemy-sukuna-megumi
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 两面宿傩（伏黑惠之身）
+      age: 1000
+      gender: male
+      description: 借来的身体。脸上多了四道纹路，手腕的骨节在错位地生长。他一边笑一边活动手指，像在试一件新衣服合不合身。
+    mood: { value: 60 }
+    # 略强于涩谷那夜（enemy-sukuna）：他先适应了这具身体，才开始认真。
+    attributes: { cursedEnergy: 78, intellect: 11, physique: 13, agility: 12, reputation: 100 }
+    skills: [sk-dismantle, sk-cleaves, sk-fuga, sk-domain-malevolent, sk-ten-shadow]
+    statuses: [cursed-king]
+    public:
+      personality: 比涩谷那夜更有耐心——他在算这具身体能承受多少。
+    private:
+      combatHints:
+        skillWeights: { sk-dismantle: 4, sk-cleaves: 3, sk-fuga: 1, sk-domain-malevolent: 1, sk-ten-shadow: 1 }
+    relationship: -100
+
+  - id: enemy-sukuna-incarnate
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 两面宿傩（受肉）
+      age: 1000
+      gender: male
+      description: 真身。四臂两面，不再借任何人的身体——他把自己塞回了原本的形状，头上的骨冠在路灯下泛着旧血的颜色。
+    mood: { value: 65 }
+    # 显著强于一阶段：真身不受宿主的肉体限制。
+    attributes: { cursedEnergy: 105, intellect: 12, physique: 15, agility: 12, reputation: 100 }
+    skills: [sk-dismantle, sk-cleaves, sk-fuga, sk-domain-malevolent]
+    statuses: [cursed-king]
+    public:
+      personality: 终于不必再迁就一具少年的身体。他现在只想把眼前的一切切一遍。
+    private:
+      combatHints:
+        skillWeights: { sk-dismantle: 5, sk-cleaves: 4, sk-fuga: 2, sk-domain-malevolent: 2 }
+    relationship: -100
+
   # ══════════════ 杂兵 ══════════════
 
   - id: enemy-grade2-curse

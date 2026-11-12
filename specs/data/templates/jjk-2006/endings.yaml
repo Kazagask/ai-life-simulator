@@ -21,8 +21,21 @@ terminationConditions:
     combinator: AND
     terminationMode: afterSettle
 
-# 本模板不设 deathRoute：死亡只由终章战败（ev-sj-02 onDefeat → finalEnd=hero-death）表达。
-# 理由 —— 前三章的战败只给「力竭 / 重伤」，让玩家有时间疗养；真正的死只发生在最后一场。
+  # 终章战败就地收束（P0 修复）：finalEnd=hero-death 一旦落盘，就在结算边界直接终止，
+  # 不再回日常/尾声事件。旧实现里战败只写 finalEnd、nextEventId 仍指向 ev-sj-04，
+  # 于是「战死」之后还会「在便利店买一罐热咖啡」，收束要拖到跑满 4755 天才算。
+  # 战败信号本身已由战斗边界的 battleDefeat 提供，这里只读落盘的 flag，不读 HP 数值
+  # （R-EN-07 / P9：不得以 HP 归零作判据）。
+  - type: worldState
+    params:
+      conditions:
+        - { flag: finalEnd, eq: hero-death }
+    combinator: AND
+    terminationMode: afterSettle
+
+# 本模板不设 deathRoute：死亡只用「终章战败落 finalEnd=hero-death → 上面的 worldState 终止条件」
+# 表达。理由 —— 前三章的战败只给「力竭 / 重伤」，让玩家有时间疗养；真正的死只发生在最后一场
+# （一阶段 ev-sj-02 与二番战 ev-sj-02b 的战败同等处理）。
 
 endings:
   # ---------- 终章直接决定 ----------
