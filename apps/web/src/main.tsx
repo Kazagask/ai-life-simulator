@@ -1624,6 +1624,22 @@ function MiniBar({ label, value, max, cls }: { label: string; value: number; max
   );
 }
 
+/**
+ * 章节进度（D-07）。
+ *
+ * 只渲染服务端下发的数字：`storyChapter` 缺省 ⇒ 该世界没有章节机，整块**不渲染**
+ * （不能出现「第 0 章」这种凭空造的进度）；引擎不编造章节名，这里也不自造，
+ * 只写「第 N 章」。合法性判断（1..6）留在服务端，前端仅拒绝 0 / 负数这类非法值兜底。
+ */
+function StoryChapterChip({ chapter }: { chapter: number | undefined }) {
+  if (typeof chapter !== "number" || !Number.isFinite(chapter) || chapter < 1) return null;
+  return (
+    <span className="chip chapter-chip" title="主线章节进度">
+      第 {chapter} 章
+    </span>
+  );
+}
+
 /** 属性面板：只复述投影已有字段，不做任何前端推算（与 DNF 的 M 面板信息区对应）。 */
 function StatsPanel({ snapshot }: { snapshot: V2Snapshot }) {
   const p = snapshot.player;
@@ -1668,6 +1684,7 @@ function StatsPanel({ snapshot }: { snapshot: V2Snapshot }) {
       <div className="meta-row">
         <span className="chip">命运偏离度 {snapshot.evaluation.canonDeviation}</span>
         <span className="chip">{snapshot.formattedTime}</span>
+        <StoryChapterChip chapter={snapshot.storyChapter} />
       </div>
       <p className="eval-line">{snapshot.evaluation.summary}</p>
       <EvaluationBreakdown evaluation={snapshot.evaluation} status={snapshot.status} />

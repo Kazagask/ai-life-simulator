@@ -1141,6 +1141,13 @@ button {
   margin-top: 8px;
 }
 
+/* 章节进度（D-07）：与命运偏离度 / 时间同级的提示位，未使用章节机的世界不出现 */
+.chapter-chip {
+  border-color: color-mix(in srgb, var(--gold) 55%, var(--border));
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+}
+
 
 /* ---------- 结局 ---------- */
 
