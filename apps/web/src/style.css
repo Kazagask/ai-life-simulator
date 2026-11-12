@@ -1367,7 +1367,7 @@ button {
   background: color-mix(in srgb, var(--muted) 10%, transparent);
 }
 
-/* ---------- 人物面板 · NPC 详情（关系 / 状态 / 生命周期） ---------- */
+/* ---------- 人物面板 · NPC 详情（关系 / 状态 / 属性 / 生命周期） ---------- */
 
 .npc-meta {
   margin: 6px 0 8px;
@@ -1465,6 +1465,41 @@ button {
   font-size: 12px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* 属性面板（ADR-0021 决策 3）：紧凑两列，顺序即模板 attributes.order。
+   值可能是 0（有效值）也可能是多位数，故用 tabular-nums 定宽对齐；
+   min-width:0 + ellipsis 保证 430 竖屏下不横向溢出。 */
+.npc-attrs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 10px;
+}
+
+.npc-attr {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--bg-card-2);
+  font-size: 13px;
+}
+
+.npc-attr-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.npc-attr-value {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
 }
 
 /* 生命周期（ADR-0020）：非在世的卡片整体降饱和，状态胶囊高亮 */

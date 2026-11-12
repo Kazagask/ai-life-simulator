@@ -2082,23 +2082,44 @@ const RELATION_VISIBILITY_LABEL: Record<string, string> = {
 };
 
 /**
- * 生命周期三态（ADR-0012 / ADR-0020）。`reasonCode` 是模板自由字符串（阵亡 / 叛逃 / 下落不明），
- * 前端只原样展示，不解释、不推断——引擎也不对它分支。
+ * 生命周期三态（ADR-0012 / ADR-0020）。
+ *
+ * 这三条只是 `reasonCode` 缺失时的**兜底**文案。`inactive` 的兜底必须中性写「已离场」：
+ * 「已故」「失联」都是在替模板猜具体死因，而模板可能表达的是叛逃、被封印、转学离开……
+ * 真正的原因由 `lifecycle.reasonCode` 原样下发，前端不解释、不推断（引擎也不对它分支）。
  */
 const NPC_LIFECYCLE_LABEL: Record<string, string> = {
   alive: "在世",
-  inactive: "已故 / 失联",
+  inactive: "已离场",
   unspawned: "尚未登场",
 };
+
+/**
+ * 生命周期文案（ADR-0021 / T3）。
+ *
+ * 规则：`reasonCode` **存在时只显示原因**（「阵亡」「失踪」「叛逃」「被封」），
+ * 不再拼接状态词；只有缺失原因时才回退到状态兜底词。顶部 `npc-life-chip`
+ * 与「生命周期」区块共用这一个函数，保证两处文案永远一致。
+ */
+function lifecycleText(state: string, reasonCode?: string): string {
+  if (reasonCode) return reasonCode;
+  return NPC_LIFECYCLE_LABEL[state] ?? state;
+}
 
 function NpcCard({
   npc,
   names,
+  attrLabels,
 }: {
   npc: V2Snapshot["npcs"][number];
   names: Record<string, string>;
+  /** 属性 id → 中文名（`snapshot.labels.attributes`，与玩家面板同源，前端不另建映射） */
+  attrLabels: Record<string, string>;
 }) {
   const nameOf = (id: string) => (id === "player" ? "你" : names[id] ?? id);
+  // 顺序即模板 `attributes.order`（projection 已按 order 构造）：不重排、不过滤，
+  // 值为服务端 base 原值——前端不重算、不叠补正。0 是有效值，照常显示。
+  const attrEntries = Object.entries(npc.attributes);
   return (
     <section className={`card npc-card${npc.lifecycle.state === "alive" ? "" : " npc-card-inactive"}`}>
       <div className="row">
@@ -2112,8 +2133,7 @@ function NpcCard({
         <span className="chip">关系 {npc.relationship}</span>
         {npc.lifecycle.state !== "alive" && (
           <span className="chip npc-life-chip">
-            {NPC_LIFECYCLE_LABEL[npc.lifecycle.state] ?? npc.lifecycle.state}
-            {npc.lifecycle.reasonCode ? ` · ${npc.lifecycle.reasonCode}` : ""}
+            {lifecycleText(npc.lifecycle.state, npc.lifecycle.reasonCode)}
           </span>
         )}
       </div>
@@ -2133,7 +2153,7 @@ function NpcCard({
       )}
       <details className="npc-details">
         <summary>
-          关系 {npc.relations.length} · 状态 {npc.statuses.length}
+          关系 {npc.relations.length} · 状态 {npc.statuses.length} · 属性 {attrEntries.length}
         </summary>
 
         <div className="npc-block">
@@ -2183,11 +2203,26 @@ function NpcCard({
         </div>
 
         <div className="npc-block">
+          <h3>属性</h3>
+          {attrEntries.length === 0 ? (
+            <p className="muted">暂无属性数据</p>
+          ) : (
+            <div className="npc-attrs">
+              {attrEntries.map(([key, value]) => (
+                <div key={key} className="npc-attr">
+                  <span className="npc-attr-name">{attrLabels[key] ?? key}</span>
+                  <span className="npc-attr-value">{value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="npc-block">
           <h3>生命周期</h3>
           <p className="muted">
             <span className={`npc-life npc-life-${npc.lifecycle.state}`}>
-              {NPC_LIFECYCLE_LABEL[npc.lifecycle.state] ?? npc.lifecycle.state}
-              {npc.lifecycle.reasonCode ? ` · ${npc.lifecycle.reasonCode}` : ""}
+              {lifecycleText(npc.lifecycle.state, npc.lifecycle.reasonCode)}
             </span>
             {" · "}
             {npc.lifeStageLabel} · {npc.age} 岁
@@ -2205,7 +2240,12 @@ function PeopleTab({ snapshot }: { snapshot: V2Snapshot }) {
     <div className="stack">
       {snapshot.npcs.length === 0 && <p className="muted">这个世界还没有出现在你身边的人。</p>}
       {snapshot.npcs.map((npc) => (
-        <NpcCard key={npc.id} npc={npc} names={names} />
+        <NpcCard
+          key={npc.id}
+          npc={npc}
+          names={names}
+          attrLabels={snapshot.labels.attributes}
+        />
       ))}
     </div>
   );
