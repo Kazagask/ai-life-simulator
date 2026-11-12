@@ -57,6 +57,9 @@ importers:
       '@life-sim/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@tencent-ai/workbuddy-cloud-sdk':
+        specifier: dev
+        version: 0.1.4-dev.ca27990.202610161713
       react:
         specifier: ^19.1.0
         version: 19.3.1
@@ -704,6 +707,10 @@ packages:
     resolution: {integrity: sha512-ee+c14ggUiM7lg4PtCjSBYU9O9dHp4FFespRnd5yj7SilUBJCL3x3aHlB+sIqbGjcPo3pEyODASnfKJuZ26YBw==}
     cpu: [x64]
     os: [win32]
+
+  '@tencent-ai/workbuddy-cloud-sdk@0.1.4-dev.ca27990.202610161713':
+    resolution: {integrity: sha512-HyrXFiilbYFxDGF5pvl1MhBYvE9QnK39uJjiiefX07k7ppl2UPKfl6KWaN9yIzD1DtAGycl3fXaYOzHmvlIMpg==}
+    engines: {node: '>=18'}
 
   '@types/babel__core@7.20.5':
     resolution: {integrity: sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==}
@@ -1729,6 +1736,8 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.68.2':
     optional: true
+
+  '@tencent-ai/workbuddy-cloud-sdk@0.1.4-dev.ca27990.202610161713': {}
 
   '@types/babel__core@7.20.5':
     dependencies:

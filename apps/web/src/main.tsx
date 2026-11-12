@@ -1,8 +1,13 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
+import type { CloudSession } from "@tencent-ai/workbuddy-cloud-sdk";
 import "./style.css";
 import { api } from "./api";
 import type { BattleCommand, EndingView, TemplateSummary, V2Snapshot, WheelResultView, WorldSummary } from "./api";
+import { bootstrapAuth, signOutOfWorkBuddy, signInWithWorkBuddy, userDisplayName } from "./auth";
+import { cloud } from "./cloud";
+import { deleteLifeRecord, listLifeRecords, saveLifeRecord } from "./records";
+import type { LifeRecordRow } from "./records";
 
 // ---------- 工具 ----------
 
@@ -90,7 +95,7 @@ function itemGlyph(type: InventoryView["type"]): string {
 
 // ---------- 组件 ----------
 
-type Tab = "life" | "people" | "personal" | "world" | "log";
+type Tab = "life" | "people" | "personal" | "world" | "log" | "records";
 
 interface LastResult {
   /** 该响应对应的轮次：用于判断「这批结果是刚结算的」还是「从存档恢复的」（D-09） */
@@ -161,10 +166,61 @@ function App() {
   // 本轮转盘是否已被「继续」读掉（签名 = 轮次 + 本轮转盘集合，见 wheelSignature）。
   // 放在 App 而不是 LifeTab：切页签会卸载 LifeTab，本状态必须活过重挂载。
   const [dismissedWheelSig, setDismissedWheelSig] = useState<string | null>(null);
+  // ---------- 账号登录（ADR-0025） ----------
+  // 认证**不阻塞游戏**：这三个状态只影响「档案」页签与结算页的一行提示。
+  const [session, setSession] = useState<CloudSession | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
+  // 自动写档案的去重表：只为省请求，正确性由唯一索引 (owner_id, world_id) 兜底。
+  const savedWorldsRef = React.useRef<Set<string>>(new Set());
   // 竞态锁：React state 同帧不生效，双击会双发请求（第二个撞 409）——用 ref 同步判断
   const busyRef = React.useRef(false);
   const worldIdRef = React.useRef<string | null>(worldId);
   worldIdRef.current = worldId;
+
+  /**
+   * 接上启动期的认证回执（回调已在模块顶层处理完，见文件末尾 `authBootstrap`）。
+   * 订阅放在回执之后：`INITIAL_SESSION` 会立即回放一次，若与回调兑换并发，
+   * 可能用「回调前的空会话」覆盖刚拿到的会话。
+   */
+  useEffect(() => {
+    let alive = true;
+    let unsubscribe: (() => void) | undefined;
+    void authBootstrap.then((res) => {
+      if (!alive) return;
+      setSession(res.session);
+      setAuthReady(true);
+      if (res.error) setAuthNotice(res.error);
+      unsubscribe = cloud.auth.onAuthStateChange((_event, next) => {
+        if (alive) setSession(next);
+      });
+    });
+    return () => {
+      alive = false;
+      unsubscribe?.();
+    };
+  }, []);
+
+  /**
+   * 结局产生时写一次云端档案（ADR-0025 决策 8）。
+   *
+   * 触发条件全部在**事件/副作用**里判断，不在 render 里写数据：已登录 + 状态为
+   * `terminated` / `archived` + 有结局投影。未登录**不写、不弹窗、不打断结算**。
+   * 云不可用只降级档案功能：失败静默（`records.ts` 内已按 stage + code/status 记日志），
+   * 绝不进 `error` 通道，也绝不影响 `/api/**` 游戏主链路。
+   */
+  useEffect(() => {
+    if (!session || !snapshot) return;
+    const wid = snapshot.worldId;
+    if (savedWorldsRef.current.has(wid)) return;
+    if (snapshot.status !== "terminated" && snapshot.status !== "archived") return;
+    if (!snapshot.ending) return;
+    savedWorldsRef.current.add(wid);
+    void saveLifeRecord(snapshot, session.user.name ?? null).then((res) => {
+      // 失败就把去重键放回去：玩家手动点「把这局存进档案」或下一次快照变化时可以重试。
+      if (res.status === "error") savedWorldsRef.current.delete(wid);
+    });
+  }, [session, snapshot]);
 
   useEffect(() => {
     if (!worldId) return;
@@ -319,14 +375,21 @@ function App() {
       const res = await api.archiveWorld(wid);
       // 归档响应自带最终快照（status=archived，含 ending 与 evaluation 五维分项），
       // 直接采用即可：不再多打一次 GET，也不会用非归档投影覆盖归档事实。
-      setSnapshot(res.archive?.snapshot ?? (await api.getWorld(wid)).snapshot);
+      const finalSnapshot = res.archive?.snapshot ?? (await api.getWorld(wid)).snapshot;
+      setSnapshot(finalSnapshot);
+      // 手动归档是**玩家显式动作**：用归档态再写一次（同一 worldId，status 变 archived）。
+      // 这里刻意**不查** savedWorldsRef —— 上一轮 terminated 已经写过一行，正是要靠这次
+      // upsert 撞唯一索引把它更新成 archived（幂等验证点）。云失败不影响归档本身。
+      if (session && finalSnapshot.ending) {
+        void saveLifeRecord(finalSnapshot, session.user.name ?? null);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       busyRef.current = false;
       setBusy(false);
     }
-  }, []);
+  }, [session]);
 
   const endLife = useCallback(() => {
     const wid = worldIdRef.current;
@@ -350,6 +413,12 @@ function App() {
         {notice && (
           <div className="banner info" onClick={() => setNotice(null)}>
             {notice}
+          </div>
+        )}
+        {/* 登录回调失败等提示：可关闭，且不拦着进入游戏（认证不阻塞） */}
+        {authNotice && (
+          <div className="banner info" onClick={() => setAuthNotice(null)}>
+            {authNotice}
           </div>
         )}
         <SetupScreen
@@ -390,6 +459,7 @@ function App() {
       </header>
 
       {error && <div className="banner error" onClick={() => setError(null)}>{error}</div>}
+      {authNotice && <div className="banner info" onClick={() => setAuthNotice(null)}>{authNotice}</div>}
 
       <main className="content">
         {tab === "life" && (
@@ -399,6 +469,7 @@ function App() {
             lastResult={lastResult}
             wheels={visibleWheels}
             wheelsFresh={wheelsFresh}
+            signedIn={session !== null}
             onAdvance={advance}
             onChoose={choose}
             onBattle={battle}
@@ -414,6 +485,7 @@ function App() {
         )}
         {tab === "world" && <WorldTab snapshot={snapshot} />}
         {tab === "log" && <LogTab snapshot={snapshot} />}
+        {tab === "records" && <RecordsTab authReady={authReady} session={session} />}
       </main>
 
       <nav className="tabbar">
@@ -424,6 +496,7 @@ function App() {
             ["personal", "个人", "▣"],
             ["world", "世界", "◍"],
             ["log", "记录", "≡"],
+            ["records", "档案", "❖"],
           ] as const
         ).map(([key, label, icon]) => (
           <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}>
@@ -726,6 +799,7 @@ function LifeTab({
   lastResult,
   wheels,
   wheelsFresh,
+  signedIn,
   onAdvance,
   onChoose,
   onBattle,
@@ -741,6 +815,8 @@ function LifeTab({
   wheels: WheelResultView[];
   /** 这批转盘是刚结算的（true，播动画）还是从存档恢复的（false，直接落定） */
   wheelsFresh: boolean;
+  /** 已登录 WorkBuddy 账号：只影响结算页那行「存进人生档案」的提示 */
+  signedIn: boolean;
   onAdvance: (action: { type: string; description: string }) => void;
   onChoose: (optionId: string) => void;
   onBattle: (command: BattleCommand) => void;
@@ -786,6 +862,7 @@ function LifeTab({
           ending={snapshot.ending}
           archived={snapshot.status === "archived"}
           busy={busy}
+          signedIn={signedIn}
           onArchive={onArchive}
         />
       )}
@@ -865,11 +942,13 @@ function EndingPanel({
   ending,
   archived,
   busy,
+  signedIn,
   onArchive,
 }: {
   ending: EndingView;
   archived: boolean;
   busy: boolean;
+  signedIn: boolean;
   onArchive: () => void;
 }) {
   return (
@@ -887,6 +966,8 @@ function EndingPanel({
         </button>
       )}
       {archived && <p className="muted">已归档，只读。点击顶部「重开」开始新的一生。</p>}
+      {/* 未登录只给一行中性提示：不弹窗、不打断结算、也不事后自动补写（ADR-0025 决策 8） */}
+      {!signedIn && <p className="muted">登录后可把这局存进人生档案。</p>}
     </section>
   );
 }
@@ -2330,6 +2411,226 @@ function LogTab({ snapshot }: { snapshot: V2Snapshot }) {
   );
 }
 
+// ---------- 档案 Tab（云端人生档案 / ADR-0025） ----------
+
+/** 存档时间：本地时区的可读串；坏值不渲染成 `Invalid Date`。 */
+function formatSavedAt(iso: string | null | undefined): string {
+  if (!iso) return "时间未知";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "时间未知";
+  return d.toLocaleString("zh-CN", { hour12: false });
+}
+
+/**
+ * 一条云端档案。**只渲染玩家已可见的投影字段**（`records.ts` 里映射、服务端已掩码），
+ * 不显示 owner_id、不显示邮箱/手机号/token。
+ */
+function RecordCard({ row, onDelete }: { row: LifeRecordRow; onDelete: () => void }) {
+  const dims = row.dimensions ?? [];
+  return (
+    <section className="card">
+      <div className="row">
+        <h2>{row.ending_label ?? "未记结局"}</h2>
+        <span className={`badge ${row.status === "archived" ? "st-archived" : "st-terminated"}`}>
+          {row.status === "archived" ? "已封存" : "已收束"}
+        </span>
+      </div>
+      <p className="muted">
+        {row.player_name} · {row.world_name}
+        {typeof row.player_age === "number" ? ` · ${row.player_age} 岁` : ""}
+      </p>
+      <div className="row">
+        <span className="chip">第 {row.final_day ?? 0} 天</span>
+        {typeof row.story_chapter === "number" && <span className="chip">第 {row.story_chapter} 章</span>}
+        {/* `overall` 是 numeric：PostgREST 可能给数字也可能给字符串，两者都照原样显示 */}
+        {row.overall != null && <span className="chip">总评 {String(row.overall)}</span>}
+      </div>
+      {dims.length > 0 && (
+        <div className="attrs">
+          {dims.map((dim) => (
+            <div key={dim.id} className="attr">
+              <span className="attr-name">{dim.label ?? dim.id}</span>
+              <div className="bar">
+                <div className="bar-fill" style={{ width: `${scoreWidth(dim.score)}%` }} />
+              </div>
+              <span className="attr-value">{String(dim.score)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="muted">
+        {row.final_time ? `${row.final_time} · ` : ""}存档于 {formatSavedAt(row.created_at)}
+      </p>
+      <button className="ghost" onClick={onDelete}>
+        删除档案
+      </button>
+    </section>
+  );
+}
+
+/**
+ * 「档案」页签 —— 唯一要求登录的功能（ADR-0025 决策 5：认证不阻塞游戏）。
+ *
+ * 未登录时**一个数据库请求都不发**，只渲染登录引导；登录回跳后**不自动补写**，
+ * 由玩家在这里显式点「把这局存进档案」（`worldId` 从 localStorage 读，不从 URL 读）。
+ */
+function RecordsTab({ authReady, session }: { authReady: boolean; session: CloudSession | null }) {
+  const [rows, setRows] = useState<LifeRecordRow[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [reload, setReload] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const currentWorldId = loadWorldId();
+
+  // 已登录才发请求；未登录把列表清空，保证不残留上一个账号的行。
+  useEffect(() => {
+    if (!session) {
+      setRows(null);
+      setError(null);
+      return;
+    }
+    let alive = true;
+    setLoading(true);
+    setError(null);
+    void listLifeRecords().then((res) => {
+      if (!alive) return;
+      setLoading(false);
+      if (res.error) {
+        setError(res.error);
+        setRows(null);
+        return;
+      }
+      setRows(res.rows ?? []);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [session, reload]);
+
+  const login = async () => {
+    setBusy(true);
+    setError(null);
+    const failed = await signInWithWorkBuddy();
+    setBusy(false);
+    // 成功时页面已经跳去授权页，走不到这里。
+    if (failed) setError(failed);
+  };
+
+  const logout = async () => {
+    setBusy(true);
+    setNotice(null);
+    const failed = await signOutOfWorkBuddy();
+    setBusy(false);
+    if (failed) setError(failed);
+  };
+
+  /** 显式「把这局存进档案」：worldId 取自 localStorage，快照从服务端重取。 */
+  const saveCurrent = async () => {
+    if (!session) return;
+    if (!currentWorldId) {
+      setError("没有可保存的这一局。");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const { snapshot } = await api.getWorld(currentWorldId);
+      const result = await saveLifeRecord(snapshot, session.user.name ?? null);
+      if (result.status === "saved") {
+        setNotice("已把这局存进人生档案。");
+        setReload((n) => n + 1);
+      } else if (result.status === "skipped") {
+        setNotice(result.message);
+      } else {
+        setError(result.message);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (row: LifeRecordRow) => {
+    if (!window.confirm(`删除档案「${row.ending_label ?? "未记结局"}」？只删云端副本，本地存档不受影响。`)) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    const result = await deleteLifeRecord(row.id);
+    setBusy(false);
+    if (result.status === "deleted") {
+      setRows((prev) => (prev ?? []).filter((r) => r.id !== row.id));
+      setNotice("档案已删除。");
+    } else {
+      // 空结果（不存在 / 无权）绝不能当成功
+      setError(result.message);
+    }
+  };
+
+  return (
+    <div className="stack">
+      {error && (
+        <div className="banner error" onClick={() => setError(null)}>
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="banner info" onClick={() => setNotice(null)}>
+          {notice}
+        </div>
+      )}
+
+      {!authReady && <p className="muted">正在确认登录状态…</p>}
+
+      {authReady && !session && (
+        <section className="card">
+          <span className="tag">人生档案</span>
+          <h2>把这一生存到云端</h2>
+          <p className="muted">
+            用 WorkBuddy 登录后可跨设备保存结局档案：换设备、换次发布都还能翻回这一生。
+            不登录也能照常玩，只是档案不会留存。
+          </p>
+          <button className="primary" disabled={busy} onClick={login}>
+            {busy ? "正在前往登录…" : "使用 WorkBuddy 登录"}
+          </button>
+          <p className="muted">登录只用于归属你的档案，不读取其它数据。</p>
+        </section>
+      )}
+
+      {session && (
+        <>
+          <section className="card">
+            <div className="row">
+              <span className="tag">人生档案</span>
+              <button className="ghost" disabled={busy} onClick={logout}>
+                退出登录
+              </button>
+            </div>
+            <p className="muted">已登录：{userDisplayName(session.user)}</p>
+            {currentWorldId ? (
+              <button className="primary" disabled={busy || loading} onClick={saveCurrent}>
+                {busy ? "处理中…" : "把这局存进档案"}
+              </button>
+            ) : (
+              <p className="muted">当前没有打开中的这一局；结算时会自动存进档案。</p>
+            )}
+          </section>
+
+          {loading && <p className="muted">正在读取档案…</p>}
+          {!loading && rows !== null && rows.length === 0 && (
+            <p className="muted">还没有云端档案。完成一局后会出现在这里。</p>
+          )}
+          {rows?.map((row) => (
+            <RecordCard key={row.id} row={row} onDelete={() => void remove(row)} />
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ---------- 本地存续（worldId 存 localStorage） ----------
 
 function loadWorldId(): string | null {
@@ -2355,5 +2656,17 @@ function clearWorldId(): void {
     /* 忽略 */
   }
 }
+
+/**
+ * 启动期第一步：**先处理 OAuth 回调，再渲染 App**（顺序是硬要求，ADR-0025 决策 4）。
+ *
+ * 为什么调用点在 `render` 之前、但**不 await**：
+ * - 回调必须在任何路由/鉴权判断之前跑完兑换 —— 用户拿回来的是**一次性** `code`，
+ *   先被别的逻辑清掉 URL 就永久丢失；本应用的「入口」就是这次 render，所以先发起。
+ * - 又不阻塞渲染：云服务不可用、网络挂住时页面必须照常进游戏（认证不阻塞游戏）。
+ *   兑换结果回来后 `App` 通过 `authBootstrap.then` 补上会话，失败只出一条可关闭提示。
+ * - `bootstrapAuth` 内部已收口所有异常，**不会**冒泡成白屏。
+ */
+const authBootstrap = bootstrapAuth();
 
 createRoot(document.getElementById("root")!).render(<App />);

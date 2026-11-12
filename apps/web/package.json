@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@life-sim/shared": "workspace:*",
+    "@tencent-ai/workbuddy-cloud-sdk": "dev",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
