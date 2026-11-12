@@ -1349,3 +1349,354 @@ interface SpawnFact { npcId; ruleId; seq: number; turnIndex; worldTime; parentId
 若用户认为**任何**运行时生成（含实例）都应保守地归入 #46 的禁令，则本 ADR 作废，替代方案只有两条：
 ① 玩家子女也必须预先在 `characters[]` 里声明 N 个占位角色（模板作者手工枚举，姓名字段写死）；
 ② 走 LLM 生成后落 yaml 的离线流程（非运行时）。二者都明显更差，但**属于用户可选项**，不由架构自行否决。
+
+---
+
+## ADR-0024 待决事件的「呈现前前提复核」——pending 不是已定论
+
+- **状态**：**草案 · 待 G1 门禁**。属 **T-2**：动的是「触发策略语义 + 呈现契约」（`packages/game-core` 的
+  `pendingEvents` 生命周期、`TriggerResult` 诊断位）与 `apps/server` 的载入路径；**`packages/shared` schema 零改动**、
+  不升 `schemaVersion`、不扩 `MissReason`。按 `AGENTS.md` §0.3 先出本条。
+- **起草人**：系统架构师（高见远）；核实基线 HEAD `8c99cf3`、工作区干净（唯一未跟踪文件是 QA 验收报告
+  `tasks/reports/JJK-SCRIPT-ACCEPTANCE.md`）。
+- **关联**：ADR-0010（配置/实例/事实三层）、ADR-0011 决策 3（入队门控前置、门控失败不构成错失）与决策 6（链对齐）、
+  ADR-0012 决策 1/2（默认判活）、ADR-0020（生命周期落地）、ADR-0021 决策 1.1/1.4（判定单一入口、错失事实不落盘）、ADR-0022。
+
+### 问题（QA 实测，非推测）
+
+用户点名的第一条要求是「死亡角色不能诈尸」。QA 用 30 种子逐条求值 `visibleWhen`，在**结算时刻**发现三类反例：
+
+| 反例 | 命中 | 表现 | 事件级条件现状 |
+|---|---|---|---|
+| `ev-d-canteen ⇐ npc-haibara` | **11/30 种子** | 正文点名灰原，`opt-ct-2`「坐到七海和灰原那桌」仍可选 | **只有** `era==1`，**无任何判活** |
+| `ev-d-haibara ⇐ npc-haibara` | **9/30 种子** | 3 个选项全可见，正文「灰原把便当盒拍在你桌上」 | **已有** `haibaraDead ne true` |
+| `ev-d3-megumi ⇐ npc-megumi` | **5/30 种子** | 3 个选项全可见（伏黑已被夺舍） | **已有** `npcState npc-megumi alive` |
+
+关键事实：**3 例里有 2 例的模板条件本来就是对的**（`events.yaml:869` 的 `haibaraDead ne true`、`:1189` 的
+`npcState npc-megumi alive`），它们只是在 fire 时为真、排队期间变假。所以这**不是模板漏配问题**，
+是引擎的复核时机问题。
+
+对照证据（说明「事件级条件」与「选项级 `visibleWhen`」在这套 DSL 里本就分工不同，不是本 ADR 自造的区分）：
+`ev-social-hook` 的每个选项都写了 `visibleWhen`（`events.yaml:1418-1422` 等），QA 判它 PASS —— 因为它的正文是
+「找谁」这种**不点名**的通用文案，隐藏掉一个选项后卡片依然自洽；而那 3 个反例的正文**点名**了具体角色、
+且**全部**选项都指向同一个人，隐藏选项只会剩下空卡片。
+
+QA 定位的轨迹（种子 1）：`ev-d-canteen` fire@t212 → settle@t220（排队 8 轮，其间 haibara 阵亡、`era` 1→2）；
+`ev-d-haibara` fire@t216 → settle@t223；`ev-d3-megumi` fire@t280 → settle@t282。`pendingEvents` 实测积压到 5 条。
+
+### 现状核实（以代码为准，不以旧 spec 为准）
+
+| 事项 | 核实结论 | 证据 |
+|---|---|---|
+| `pendingEvents` 元素形状 | `{ eventId, chainId? }` —— **没有 instanceId**，也**不复制**任何配置域字段 | `shared/src/v2.ts:202-206`、`:314` |
+| 入队路径 | `triggerEventV2` 对 `kind: normal` 调 `enqueuePendingEvent`（按 `EVENT_SOURCE_PRIORITY` 插位，同优先级稳定 FIFO） | `turn.ts:384-387`、`:321-339` |
+| 结算路径 | `chooseOptionV2` 取 `pendingEvents[0]` → 找可见选项 → `shift()` → 推进 `turnIndex`/`timeCost` → 写 history → 效果 → 结算后管线 | `turn.ts:886-947` |
+| **事件级 `conditions` 求值次数** | **只有 1 次**：候选产生时（`resolvePoolV2` / `resolveHooksV2` / `enqueueCandidate` 门控）或出队终判（`evaluateDue`）。进 `pendingEvents` 后**再无人看** | `turn.ts:536-541`、`:561-570`、`scheduler.ts:162`、`:244-251` |
+| **选项级 `visibleWhen` 求值次数** | **每次读都算**：投影 `pendingEventView` 一次（`turn.ts:1102`），结算 `chooseOptionV2` 再一次（`turn.ts:893-895`） | 同上 |
+| `scheduledEvents` 是否已复核 | **已复核**：`drainScheduledEvents` 每轮对每个 waiting 实例跑 `evaluateDue`（`missWhen` → `conditions` → `cooldown` → fire/hold/drop） | `scheduler.ts:268-317`、`:236-252` |
+| 投影是否纯读 | **是**：`projectSnapshotV2` 只读 `state`，`pendingEvent` 由纯函数 `pendingEventView` 产出 | `projection.ts:212`、`turn.ts:1090-1105` |
+| 槽位语义 | `pendingEvents` 是「**只承载槽位呈现**」的 FIFO；投影只取队首；`pendingEvents.length > 0` 时**拒绝自由行动** | `v2.ts:313-314`、`turn.ts:762`、`turn.ts:1091` |
+| fire 时已落哪些事实 | `recordFire`（三处索引）+ `pushHistory`（`visibility: public`，玩家可见）+ `result.triggered`（本响应回给前端） | `turn.ts:374-382` |
+| 轮次入口清单 | `advanceTurnV2` / `chooseOptionV2` / `battleActionV2` / `useItemV2` —— 四者都能改状态；**`useItemV2` 没有 `pending_event_required` 守卫** | `turn.ts:759-762`、`:885`、`:959`、`:1044-1048` |
+| 现有 RNG 盐 | `+0`（主轮）、`+7`（选项/`visibleWhen`）、`+13`（战斗）、`+29`（物品）；`+37` 空闲 | `grep deriveTurnSeed` |
+| 存档载入 | 指纹不匹配即拒载；同一入口还做 `WorldStateV2Schema` 校验 | `apps/server/src/store.ts:110-125`、`:136-140` |
+
+### 决策 0（定性）：这是「呈现层二次门控」，与 ADR-0011 决策 3 同源
+
+ADR-0011 决策 3 立的口径是「**入队门控前置，门控失败不产生实例、不构成错失**」。`pendingEvents` 是**已过门控**的
+队列，但它的前提状态在**入队之后**仍会变。所以本 ADR 加的是**第二道门**，且这道门的性质是**呈现门**而非**调度门**：
+
+| | 调度门（ADR-0011） | 呈现门（本 ADR） |
+|---|---|---|
+| 何时 | 候选产生时 | 每次呈现/结算前 |
+| 队列 | `scheduledEvents`（等**待**层，玩家看不见） | `pendingEvents`（**已占**玩家视野） |
+| 失败处置 | 不入队（drop）/ 留队 hold | **必须出队**（见决策 3；理由见决策 2.4） |
+| 记错失 | 不记 | **不记**（见决策 4） |
+
+### 决策 1：复核对象 = 事件级 `trigger.conditions`（+ `missWhen`）；`visibleWhen` **不进本次复核**
+
+| 候选 | 结论 | 理由 |
+|---|---|---|
+| A. 复核选项级 `visibleWhen` | **不需要** | 它**每次读都在算**（投影一次 + 结算一次，见上表）。当前实现没有缺口，再加一层只是把同一判定算第三遍 |
+| B. 复核事件级 `trigger.conditions` | **必须做** | 唯一存在缺口的判定。它有且只有一次求值机会，而 `pendingEvents` 的排队窗口实测可达 8 轮 |
+| C. B + `missWhen` | **做** | `missWhen` 是模板显式声明的「前提永久失效」，比 `conditions` 更强；同一处不判它，下一轮还得回来补一次 ADR |
+| D. A + B「两者都要」 | **不做** | 「都要」在执行层是重复计算；且会诱导模板把「场景前提」写进 `visibleWhen`，与 E 的边界冲突（见决策 7） |
+
+**判定口径一句话**：`trigger.conditions` = **这个场景现在成不成立**（事件级、影响正文与全部选项）；
+`option.visibleWhen` = **这个选项现在该不该给玩家**（选项级、只影响可选项集合）。
+「人已经死了」属于前者，永远不该用后者表达。
+
+**不复核的东西**（显式列出，防下轮重复讨论）：`cooldown`（它是「刚触发过」的时间约束，fire 时已判定；
+pending 期间再判会把玩家已看到的场景判成不合法）、`window`（pending 已无窗口语义）、`probability`/`once`/`weight`（入队门控已消费）。
+
+**「不设条件种类白名单」**：复核用**同一个条件数组、同一个求值器**，不区分单调量（`flag`/`npcState`/`time`）与
+振荡量（`mood`/`attribute`/`relation`/`inventory`）。理由：给引擎加「哪些条件可以复核」的知识＝把条件语义
+拆成两套，模板作者无法从 DSL 看出差别。代价与用法约束见决策 7 的「模板作者须知」。
+
+### 决策 2：复核点位置 —— 三层防线，缺一层就有幽灵或死锁
+
+#### 2.1 单一纯谓词（规则只写一处，沿用 ADR-0021 决策 1.1 的同型手法）
+
+```ts
+// scheduler.ts（与 evaluateDue 同域：事件前提求值的唯一处）
+export function checkEventPremise(def: EventV2, ctx: ConditionContext): boolean
+```
+
+`evaluateDue` 的序 1/序 2 改为调用它（**逐字节等价重构，不改判定结果**），`pendingEvents` 复核复用**同一个函数**。
+这样「什么算前提失效」只有一份定义 —— 也就是主理人担心的「两套判定」在结构上不成立。
+
+#### 2.2 单一排空函数
+
+```ts
+// turn.ts（pendingEvents 的归属层；不新建文件）
+export function revalidatePendingV2(state, lookup): { dropped: string[] }
+```
+
+按队列顺序**全队列**扫描（不只队首）：谓词为假即从数组移除，返回被移除的 `eventId` 列表（保序，确定性）。
+不推 `turnIndex`、不加 `worldTime`、不写 history、不记 `missedEvents`（见决策 4）、不动 `eventFires`。
+
+#### 2.3 调用点清单（这是本 ADR 的硬约束）
+
+| # | 位置 | 时机 | 作用 |
+|---|---|---|---|
+| 1 | `advanceTurnV2` 首行（`assertActive` 之后、**槽位守卫之前**） | 命令入口 | 保证槽位守卫看到的是干净队列 |
+| 2 | `chooseOptionV2` 首行 | 命令入口 | **权威门**：即便状态被外部改坏 / 旧档残留，也不可能结算一个前提已假的事件 |
+| 3 | `battleActionV2` / `useItemV2` 首行 | 命令入口 | 二者都能在两轮之间改状态（`useItemV2` **没有** `pending_event_required` 守卫，`turn.ts:1044-1048`） |
+| 4 | **`projectWithConfig()` 之前**（四个入口各自末尾，建议收敛成一个共享小函数，如 `revalidateThenProject()`） | 响应生成前 | **唯一的必做项**：保证任何返回给玩家的 `snapshot` 里没有幽灵 |
+| 5 | `worldStore.hydrate()` 逐世界一次 | 载入 | 旧档 / 手改档一次性规范化（有变更则 `persist`） |
+| 6 | `pendingEventView` 的**只读守卫** | 投影 | 队首前提为假 ⇒ 返回 `null`（防御；正常流程不命中） |
+
+#### 2.4 投影「只看队首，绝不跳读」
+
+即使队首已失效，`pendingEventView` **也不得**跳到下一个有效事件呈现。若跳读，投影呈现的会是
+`pendingEvents[k]`，而 `chooseOptionV2` 取 `pendingEvents[0]`（`turn.ts:886`）—— 玩家点的是 A 的选项、
+引擎在找 B 的选项 ⇒ 必然 `option_not_available`。**「呈现集合 = 队首」是不可破的耦合**，所以失效队首只有
+两条出路：**排空**（本 ADR）或**呈现 null**，没有第三条。
+
+#### 2.5 各项的必要性与「单独上线会坏在哪」
+
+先补一个容易被忽略的实现事实：`worldStore.get()` 返回的是**内存里的同一个对象**，轮次函数**原地改**它
+（`apps/server/src/index.ts:95`、`:191-192`；无 `structuredClone`）。所以抛错路径虽然不落盘，**内存已被改**。
+下面按这一点如实描述：
+
+| 只做 | 后果 |
+|---|---|
+| **只做 #6 投影守卫** | 队首失效 ⇒ 呈现 null，而**没有任何路径会清掉队首** ⇒ 自由行动永被 `pending_event_required` 拒绝（`turn.ts:762`）＝**硬死锁**。这是本 ADR 唯一真正致命的组合，也是「投影过滤不排空」必须被否决的原因 |
+| 只做 #4（尾部排空） | 常态已够（每次响应都干净）；但状态被外部改坏 / 旧档残留时，第一个命令会**先结算再排空**，即**结算了一个前提已假的事件**——缺陷在最需要它的那条路径上没起作用 |
+| 只做 #1-3（入口排空） | 命令侧安全了，但**本轮内「fire 后立刻失效」**（同轮死亡 + 触发）的条目仍留在本次响应的 `snapshot` 里，玩家会看到一张下一轮就消失的卡 |
+| 不做 #5（载入规范化） | 只影响**同模板指纹的旧档**。若同批改 yaml（必然改指纹 ⇒ 旧档拒载，`store.ts:114-118`）则此场景不可达，故非阻塞；**仍建议做**：成本约 1 行、幂等，且覆盖测试夹具与手改存档 |
+| #1-3 缺少时的隐藏代价 | 抛错虽不落盘，内存已改 ⇒ 玩家侧表现为「一次假报错 + 刷新后恢复正常」（无死锁，但难看）。所以 #1/#2 的目的是**不让假报错发生**，而不是防死锁 |
+
+### 决策 3：复核失败的处置 —— **静默移出待决队列**（drop），槽位立即让位
+
+| 候选 | 否决/采纳理由 |
+|---|---|
+| **① 丢弃待决事件**（**采纳**） | 唯一不产生新状态语义的处置。不占轮次、不写事实、不留僵尸引用；与 ADR-0011 的 `miss_when` 出队同型 |
+| ② 只隐藏失效选项、保留事件 | **会造出「零选项卡片」**：`pendingEventView` 的 `options` 是过滤结果，可以是空数组（`turn.ts:1100-1104`）；此时 `chooseOptionV2` 任何 `optionId` 都抛 `option_not_available`（`turn.ts:896`），而自由行动又被槽位守卫拒绝（`turn.ts:762`）⇒ **玩家硬死锁**。这正是本 ADR 最不能采纳的选项，而它恰好是 QA 建议的短期补丁形态（见决策 7） |
+| ③ 保留事件但「叙事降级」 | **引擎不做叙事**：①`AGENTS.md` §1「AI/引擎不承载世界观规则」，`narrative` 是模板的单一字符串，DSL 里**没有**「按条件换正文」的位置；②要支持就得加 schema（条件化文案），属新协议面且与本缺陷不成比例；③正确做法是把一个场景**拆成两个互斥条件的事件**，写在 yaml 里（T-1，免 ADR） |
+| ④ 重新入队延后 | 需要「还能不能变回真」的知识，引擎没有；振荡量场景会与 valid 事件争队首造成顺序抖动；若全队列都失效仍需兜底 drop ⇒ 复杂度换零收益。另：死亡是**棘轮**（ADR-0020 决策 3「复活不解冻」同型），反向重估在绝大多数场景不会发生 |
+
+**默认处置 = ①**，细则：
+
+- **不占轮次**：不推进 `turnIndex`、不结算 `timeCost`、不写 `history`（玩家没做选择、世界没花时间）。
+- **槽位立即让位**：同一响应里，下一个占位者（若有）成为新队首并呈现；队列清空则该轮回到「空槽」（可自由行动）。
+- **不退还 `once` / 冷却**：fire 时的 `recordFire` 三处写已发生，事实层 append-only，退还＝删事实（见决策 4）。
+- **附则（建议同批做，2 行）**：把本轮被丢弃的 `eventId` 从 `result.triggered` 中剔除。否则「同一轮内死+触发」时，
+  同一响应的 `triggeredEvents` 会报「食堂的三张桌子」而 `snapshot.pendingEvent` 却是 `null`，前端两处观感不一致。
+
+**玩家可见后果（精确描述，不夸大也不掩饰）**：
+
+1. **正常路径：完全不可见。** 因为排空发生在**每次响应生成之前**（2.3 的 #4），前提一旦失效，下一个响应里
+   这条待决事件就不存在了 —— 玩家从未见过它。
+2. 唯一的「消失」窗口是「**呈现之后、结算之前又发生了状态变更**」。当前这种入口只有 `useItemV2`（轮外操作、
+   无 pending 守卫）。把排空也接进 `useItemV2`（2.3 #3）之后，丢弃与「玩家刚做的那个动作」出现在**同一个响应**里，
+   因果是连贯的：你用了道具 → 世界变了 → 那个场景不再成立。
+3. fire 那一轮的响应里已经下发过 `result.triggered`（标题 + 正文，`turn.ts:375`）与一条 `history`（`turn.ts:376-382`）。
+   那是 **fire 时刻**的记录，此刻前提为真 ⇒ **不构成诈尸**，语义上是「被旁白带过的场景，玩家没赶上做选择」。
+   这条历史条目**保留**（事实层只追加），是否要改成「结算时才落叙事」见「明确不做」。
+
+### 决策 4：**不记 `missedEvents`**、不扩 `MissReason`、不退还 fire 事实
+
+三条理由，任一独立成立：
+
+1. **结构不允许**：`MissedEventRecord` 要求每条记录有 `instanceId`（`v2.ts:213-223`），而 `PendingEvent` 只有
+   `{ eventId, chainId? }`（`v2.ts:202-206`）。要写就得**编造一个 instanceId** —— 伪造事实。
+   （同型判决见 ADR-0021 决策 1.4 对「战斗因判活被跳过」的处理。）
+2. **语义不对**：`MissReason` 现为 `window_expired | miss_when`。本情形既非窗口过期、也非模板声明的 `missWhen`；
+   扩枚举＝协议变更，且会把「呈现层失效」说成「调度层错失」，误导后续消费者（错过列表、投影文案）。
+3. **与 ADR-0011 决策 3 一致**：门控失败不构成错失。本 ADR 加的是第二道门（决策 0），第二道门失败同理不记。
+   这也是对主理人倾向（「不记，因为这不是调度层错失，是呈现层失效」）的确认：**同意，且这不构成对 ADR-0011 的修订**。
+
+**可诊断性补偿**（沿用 ADR-0021 决策 1.4 的手法，**非持久化**）：`TriggerResult` 增加
+`droppedPending?: string[]`（本轮被排空的 `eventId`，保序）。**不复用现有 `skipped?: string`** —— 那是单槽，
+同一轮里被战斗判活跳过写一次、再被本机制覆盖，会丢掉前者（`turn.ts:243-262` 已自陈该局限）。
+不进存档 / 投影 / 玩家端 API。
+
+### 决策 5：**不并入「默认判活清单」**，另立「前提复核」条目
+
+ADR-0020/0021/0022 的「默认判活」清单（自主行动 / 关系写入 / 战斗参战 ref，加上出生规则的非 alive 过滤）回答的是
+「**这个 NPC 现在能不能被引擎拿来做事**」—— 它不依赖模板书写。本 ADR 回答的是
+「**模板给这个场景声明的必要前提现在还成不成立**」—— 前提可以是 `flag`/`era`/`time`/`npcState` 任意组合。
+
+把它挂进「判活」名下会造成两个错误预期：①读者以为它只管死人，将来条件复核扩展到时间穿越的可见性投影时
+会以为要新建机制；②模板作者会以为「只要 NPC 活着就没事」，而实际上 `era` 翻页、`chapter` 推进同样会让场景失效。
+
+**结论**：记为一条**独立机制**「呈现前前提复核」，并在 ADR 索引里注明它**顺带覆盖**了「已死角色仍出场」这一类，
+覆盖方式是「模板用 `npcState` 把这个前提写进 `trigger.conditions`」—— 也就是说，它拿到的是判活的**效果**，
+但机制上不属于判活。默认判活清单**不加第四条**。
+
+### 决策 6：链条目被丢弃时**不处置链**（已知限制，附重开条件）
+
+pending 里带 `chainId` 的事件被丢弃后，`advanceChainOnSettle` 不会执行 ⇒ `chain.stepIndex` 停在那一
+步、`chain.status` 保持 `active`；而 `evaluateChain` 只要该步的定义还在就返回 `active`（`scheduler.ts:327-341`），
+所以 `advanceNextTurnChains` 的「非 active 即完结」兜底（`turn.ts:606-609`）永远不会触发 ⇒ **僵尸链**。
+
+**裁决：本轮不处置。** 三条理由：
+
+1. **窗口极窄且当前不可达**：链事件的待决优先级是 0（`EVENT_SOURCE_PRIORITY.chain`，`turn.ts:304-309`），
+   入队插在队首 ⇒ 待决窗口 ≤ 1 轮；实测 3 例反例**全部**是 pool 事件（优先级 3）。jjk-2006 的链步骤也没有会在
+   1 轮内翻转的条件。
+2. **没有任何消费者读「链已完结」**：`evaluateChain` 的返回值只回喂给 `advanceNextTurnChains` 自己；
+   结局/解锁目前只读 `flags`。所以僵尸链今天**无玩法影响**。
+3. **两种「处置」都要引擎替模板判断叙事**：主动 `completed`（＝提前宣布主线到此结束）或 `alignChainStep`
+   跳步（＝替模板决定「跳过这一步、继续后面」），都违反 ADR-0012「引擎不替模板决定语义」。
+
+**重开条件（写死在这里，不留口头共识）**：出现以下任一情况必须回来补「丢弃时按 `alignChainStep` 无参形态
+对齐到下一个 `advanceWhen: nextTurn` 步」：①模板出现带 `trigger.conditions` 的链步骤；②出现任何读
+`chain.status === "completed"` 的消费者（结局、解锁、评价维度）。
+
+### 决策 7：模板侧 —— **补数据可以，补 option 级 `visibleWhen` 不行**
+
+QA 建议「给引用在世角色的 option 补 `visibleWhen: npcState alive`」作为短期补丁。裁决分两半：
+
+| 补丁形态 | 裁决 | 理由 |
+|---|---|---|
+| 给 `ev-d-canteen` 的 **`trigger.conditions`** 补判活（`haibaraDead ne true` 或 `npcState npc-haibara alive`） | **做**（T-1，免 ADR） | 它确实是漏配（3 例里唯一一个）。补齐后事件**不再在灰原死后 fire**。**建议用 `{ npcState: { npcId: npc-haibara, state: alive } }`**：`lifecycle` 是单一真源（ADR-0020），与 `ev-d3-megumi:1189` 写法一致；`haibaraDead` 是模板自己的黑板，可能与 `lifecycle` 漂移（已有分支只写其一时会出现双真源） |
+| 给任何事件的 **`option.visibleWhen`** 补判活 | **不做** | ①**治不了正文**：`narrative` 是事件级单一字符串，选项被隐藏后卡片仍在说「灰原把便当盒拍在你桌上」；②**会造死锁**：这 3 个事件的全部选项都指向同一个已故角色 ⇒ 全被隐藏 ⇒ 零选项卡片（见决策 3 候选 ②的证据链）；③**与引擎复核重复**：若引擎已复核 `conditions`，选项级判活是同一事实的第二处判定，主理人担心的「两套判定」正是这个 |
+| 「引擎根治后，模板补丁反而有害？」 | **分情况** | 补 `trigger.conditions` **无害且必要**——引擎复核的正是它，不写引擎就无从判断（引擎不许猜「哪些 NPC 被正文点名」）；补 `visibleWhen` **有害**，理由同上 |
+
+**模板作者须知（本 ADR 的用法约束，建议同步进 `TEMPLATE_PROTOCOL_V2.md`）**：
+`trigger.conditions` 是**场景前提**，会在「入队时」和「每次呈现前」两次求值 ⇒ **不要把会振荡的量写进前提**
+（`mood.gte`、`relation.gte`、`attribute.gte`、`inventory.gte`）。写了就会在低潮期把已经排队的好场景丢掉，
+而丢掉不记错失、不退冷却，内容静默损失。振荡型条件应写到效果层或选项级 `visibleWhen`。
+
+### 决策 8：schema / 协议 / RNG
+
+- **`packages/shared` 零改动**：`PendingEvent` 形状不变、`MissReason` 不扩、不新增「允许失效丢弃」声明位
+  （`invalidateOn`/`presentWhen` 之类）。**不升 `schemaVersion`**（旧档可直接载入，载入时由 2.3 #5 规范化）。
+- **不加「允许失效」声明位的理由**：那等于给模板一个「允许出现幽灵场景」的开关，默认值无论取哪边都错
+  —— 默认允许＝缺陷保留，默认禁止＝开关无意义。正确性不能是可选项。
+- **错误码**：`chooseOptionV2` 排空后若 `command.optionId` 所属事件本轮被丢弃，抛 `event_premise_invalidated`
+  （区别于 `option_not_available`，便于客户端区分「状态过期，请重取快照」与「请求非法」）。
+  `apps/server/src/index.ts:435` 的 `interactionErrors` 加入该码 ⇒ 409（语义是状态冲突，与 `pending_event_required` 同级）。
+- **RNG**：复核使用**独立派生流** `createRng(deriveTurnSeed(state.seed + 37, state.turnIndex))`。
+  `+37` 在现有盐 `{0, +7, +13, +29}` 之外，**不污染主轮与选项/战斗/物品序列**。若前提里写了 `random` 条件，
+  它只消耗这条独立流：同一 `(seed, turnIndex, state)` 恒得同一结果（确定性成立），且它的取值与 fire 时那次
+  求值无关（＝重新掷一次，这是「复核」的应有语义）。
+
+### 被否决的备选（总表）
+
+- **只在投影层过滤、不动队列**：造成 UI 死锁（决策 2.5）与「点击选项必然失败」的双重故障。**否决**。
+- **投影跳读下一个有效事件**：破坏「呈现集合 = 队首」的耦合，结算入口按 `[0]` 取值 ⇒ 必然错位。**否决**。
+- **给 `pendingEvents` 加 `instanceId` 以便记错失**：为一条不需要的记录扩协议，且会诱导把 pending 当 scheduled 用
+  （两套实例生命周期）。**否决**。
+- **在 `setNpcLifecycle` 里追溯清理引用该 NPC 的待决事件**：①死亡不是唯一失效源（`era`/`chapter`/`flag`/`time` 都会变），
+  按事实种类逐个补出口＝把一个通用复核拆成 N 个特化路径；②效果层反向感知呈现层，破坏 ADR-0010 的分层方向；
+  ③写入时不知道哪些事件引用了该 NPC，要反查配置域（违反「配置/实例分离」）。**否决**。
+- **对 `scheduledEvents` 也加「同样的复核」**：`evaluateDue` 已经在做（`missWhen` → `conditions` → `cooldown`），
+  再加一层是同一判定算两遍，还会让 `hold` 语义分叉。**否决（重复劳动）**。
+- **把 `recordFire` / `pushHistory` 从 fire 时移到 settle 时**（从根上消除「已落事实但未呈现」）：
+  这是更干净的模型，但它同时改 `once`/冷却的时点语义、改 `V2TurnResult.triggeredEvents` 的契约
+  （前端靠它在 fire 那轮弹提示），并让所有 `eventFires` 基线平移 —— 收益（消除一条时间戳正确的历史条目）
+  与代价严重不成比例。**本轮不做**，若将来要动，独立 ADR。
+- **给 `pendingEvents` 设长度上限 / 改优先级**（QA P2-3 提的积压问题）：属调度策略议题，与本缺陷正交，
+  且改优先级会动 `EVENT_SOURCE_PRIORITY` 的既有契约。**本轮不做**，记 `docs/BACKLOG.md`。
+
+### 影响面与文件归属（按 `ARCHITECTURE.md` §2 依赖方向）
+
+| 改动点 | 归属 | 依据 | 写冲突 |
+|---|---|---|---|
+| `checkEventPremise()` 纯谓词 + `evaluateDue` 等价重构 | `packages/game-core/src/v2/scheduler.ts` | 事件前提求值的唯一处（与 `evaluateDue` 同域） | 与任何改调度器的任务冲突（本任务独占） |
+| `revalidatePendingV2()` + 四个入口首行 + 四个入口末尾（`projectWithConfig` 之前收敛成一个共享小函数）+ `pendingEventView` 守卫 + `TriggerResult.droppedPending:` + `result.triggered` 剔除 | `packages/game-core/src/v2/turn.ts` | `pendingEvents` 归 turn 层 | **turn.ts 是热点**，与任何改轮次管线的任务必须串行 |
+| 载入时规范化 | `apps/server/src/store.ts`（`hydrate`）/ 或在 `index.ts` 启动序列 | server → game-core 合法 | 低 |
+| `event_premise_invalidated` 加入 `interactionErrors` | `apps/server/src/index.ts:435` | 错误映射层 | 低 |
+| 投影 | `packages/game-core/src/v2/projection.ts` **零改动**（守卫在 `turn.ts` 的 `pendingEventView` 内） | 投影形状不变 | 无 |
+| `packages/shared` | **零改动** | schema 不变 | 无 |
+| 模板 | `ev-d-canteen` 补 `trigger.conditions` 判活（决策 7） | T-1，免 ADR；**改动必然变模板指纹 ⇒ 旧档拒载（ADR-0007 既定代价，须写进交付说明）** | 与任何改 `events.yaml` 的任务冲突 |
+| 前端 | **零改动**（`pendingEvent: null` 已是既有形状；新错误码走既有 toast 通道） | 投影契约不变 | 无 |
+
+**并行施工提示（起草时实测）**：起草期间 `specs/data/templates/jjk-2006/events.yaml` 已被另一任务改动
+（`npc-riko` 补 `setNpcLifecycle`，即 QA P1-1，`git status` 可见）。因此：①本 ADR 决策 7 的模板补丁
+（`ev-d-canteen`）**必须与该任务的提交串行**，不能两人同时改同一文件；②模板指纹本批必然变化 ⇒ 旧档拒载，
+决策 2.3 #5 的载入规范化在本批属「防御性冗余」（仍建议做，成本极低）；③`npc-riko` 变 `inactive` 本身
+不会触发新的丢弃（现存模板没有任何 `trigger.conditions` 引用 `npc-riko`，已核查）。
+
+### 不变量检查表
+
+| 不变量 | 现状 | 本改动影响 | 保护措施 |
+|---|---|---|---|
+| 同 seed 同输入同结果 | 成立 | **会改变受影响 seed 的轨迹**（丢弃 ⇒ 少一轮 `turnIndex`/`worldTime`） | 独立 RNG 盐 `+37` 不污染主流；断言「丢弃计数为 0 的 seed 指纹逐字节不变」 |
+| hidden 不进入玩家端 API | 成立（另有 QA P2-1 `visibility` 未生效的 pre-existing 缺陷） | 无影响 | 本次不碰投影字段集；危险不在本次范围 |
+| 世界观规则只进模板 | 成立 | **强化**：复核只读 `trigger.conditions`，引擎不内建「死人不能出场」 | 不新增任何「按 reasonCode / 按 NPC 分支」的引擎逻辑 |
+| 时间/随机/ID 可注入 | 成立 | 复核引入新 RNG 派生（盐 `+37`），仍由 `state.seed` 决定 | 不读 `Date`/`Math.random`；派生点写在一处 |
+| R3 穿越 seam 未被封死 | 三个预留点（事件实例标识 / `TimeAdapter` / 可见性投影）均未硬化 | **正向**：复核是「呈现前求值」，时间回拨后同一事件可重估前提，不写死时间单调 | 复核不缓存结果、不在 fire 时固化前提真值 |
+| 引擎不替模板判断语义 | 成立 | 丢弃＝「不呈现」，不是「剧情作废」；不 `completed` 链、不写错失 | 决策 3 / 决策 6 |
+
+### 确定性影响与「变化是预期的、不是回归」的判据
+
+1. **预期变化的范围**：只有「排队期间前提翻转」的 seed 会变。QA 实测上限是 11/30、9/30、5/30（三个事件，
+   种子集合不同）。变化形态：该事件被丢弃 ⇒ 少一次结算轮 ⇒ 后续 `turnIndex` / `worldTime` / 属性 / 骰序整体平移。
+2. **可断言的非回归判据（这是核心，别用「看着差不多」替代）**：
+   - **S1**：对 12 局（6 seed × 2 开局）记录 `droppedPending` 计数。**凡计数为 0 的局，状态指纹必须逐字节不变**
+     （指纹口径沿用 QA F-2：`turnIndex/worldTime/hp/mp/mood/attributes/flags/全部 npc/eventFires/termination`）。
+   - **S2**：凡计数 > 0 的局，**首个差异字段必须出现在「第一次丢弃发生的那个轮次」或其之后**。早于它出现差异 ⇒ 回归。
+   - **S3**：`playthrough.test.ts` 的**结构性断言必须全绿**（结局在声明集合内、章节数 ≥ 8、`turns < 700`、
+     `day ≥ 4300`、章节事件不重复、五维严格小于上界）。**允许变化的只有 `console.log` 的读局摘要**。
+     若某个 seed 掉到 `day < 4300` 或章节数 < 8 ⇒ 说明丢弃吃掉了主线，是真回归。
+   - **S4**：`replay.test.ts` 逐字节不变（其模板无普通待决事件，池事件是 `kind: random`，不经过 `pendingEvents`）。
+3. **已知的必然漂移**：受影响 seed 的 `day` 会略减（少若干次结算轮）。QA 基线是 `day 4736–4755`，余量充足。
+   `evaluation.overall` 可能微动（QA 基线 94.51–95.02，断言区间 60–96，余量充足）。
+4. **反向检查（防「改了个寂寞」）**：必须有一条用例证明修复真的生效 —— 构造「排队期间死亡」的受控场景，
+   断言该事件**不再呈现、也不再能结算**；此用例在修复前必须为红。
+
+### 明确不做（边界）
+
+| 不做 | 理由 |
+|---|---|
+| 不动 `scheduledEvents` 的复核 | `evaluateDue` 已在做（「被否决的备选」第 5 条），重复即二次判定 |
+| 不做「角色死亡时追溯清理 pending」 | 通用复核已覆盖，且会造成效果层 → 呈现层的反向依赖（「被否决的备选」第 4 条） |
+| 不处置僵尸链 | 决策 6（含重开条件） |
+| 不记 `missedEvents`、不扩 `MissReason`、不退还 `once`/冷却 | 决策 4 |
+| 不改 `pendingEvents` 元素形状、不加「允许失效」声明位、不升 `schemaVersion` | 决策 8 |
+| 不做条件种类白名单（不区分单调量/振荡量） | 决策 1；改为「模板作者须知」的书写约束 |
+| 不改 `EVENT_SOURCE_PRIORITY` / 不设待决队列上限 | QA P2-3 属调度策略议题，与本缺陷正交 |
+| 不把 `recordFire`/`pushHistory` 移到 settle 时 | 见「被否决的备选」最后两条 |
+| 不修 QA P1-1（`npc-riko` 未落 lifecycle）与 P2-1（`visibility: hidden` 未在投影生效） | 前者是纯模板漏配（T-1），后者是 pre-existing 投影缺陷，各自独立，不并入本 ADR |
+| 不做前端改动 | `pendingEvent: null` 是既有形状；新错误码走既有 toast |
+
+### 验证要点
+
+1. **排队期间死亡 ⇒ 不再呈现**：构造 A（池事件 fire）→ 另一轮里 `setNpcLifecycle inactive` → 断言该事件
+   **既不在 `snapshot.pendingEvent`、也不在 `pendingEvents`**，且再次提交它的 `optionId` **不可能成功**
+   （正常时序下队首已换人或队列已空 ⇒ `no_pending_event` / `option_not_available`；只有在「同一命令内先丢弃、
+   再由该命令提交旧 `optionId`」时才走 `event_premise_invalidated`）。**本用例修复前必须为红**。
+2. **全选项失效 ≠ 死锁**：断言不存在「`options: []` 且 `pendingEvents.length > 0`」的可观测状态；
+   丢弃后若队列还有下一个有效事件，**同一响应**即呈现它；若队列清空，`advanceTurnV2` 正常推进（不抛 `pending_event_required`）。
+3. **未死亡 ⇒ 行为与现状逐字节一致**：对 12 局做 `droppedPending === 0` 的指纹比对（S1），并单独断言
+   `evaluateDue` 重构前后对同一状态返回相同 `DueDecision`（等价重构的回归网）。
+4. **槽位让位不吞轮次**：丢弃前后 `turnIndex` / `worldTime` / `player.age` 不变；`history` 长度不变；
+   `eventFires` 长度不变；`missedEvents` 长度不变。（防「顺手把丢弃做成了结算」）
+5. **同 seed 基线变化可解释**：跑 S1–S4 四条判据，输出「每局 `droppedPending` + 首个差异轮次」一表，作为交付附件。
+6. **链条目丢弃不产生悬空引用**：`ev-social-hook`（action-hook）之外的链事件若被丢弃，断言
+   `evaluateChain` 仍返回 `active`（僵尸链被**如实**暴露，而不是伪装成 completed）；此用例目的是把决策 6 的限制钉死。
+7. **确定性**：同 seed 两次运行的 `droppedPending` 列表与最终指纹一致（复核用 `+37` 盐 ⇒ 不引入时间/随机依赖）。
+8. **旧档**：手工构造一个含「失效队首」的 `WorldStateV2` 落盘 → 重启/`hydrate` → 断言该条目已被清理且状态已持久化；
+   同时断言 `schemaVersion` 未变、`WorldStateV2Schema.parse` 仍通过（证明零协议变更）。
+
+### 需用户/主理人裁决（2 条）
+
+1. **确认默认处置「静默不出场」**：事件因前提失效而**不呈现、不记错失、不退 `once`/冷却**，
+   fire 时刻已写在 `history` 的那条旁白**保留**。若用户要求「必须让玩家知道这件事没发生」，
+   那就要扩 `MissReason` + 给 `PendingEvent` 加 `instanceId`（协议变更，代价见决策 4），本 ADR 需改写。
+2. **确认僵尸链接受为已知限制**（决策 6 的三条理由 + 重开条件）。若主理人要求本轮一并处理，
+   则改为「丢弃时按 `alignChainStep` 无参形态对齐到下一个 `advanceWhen: nextTurn` 步」，测试点 6 同步改写。
