@@ -8,6 +8,7 @@ import {
   assembleArchive,
   battleActionV2,
   buildEndingNarrativeRequest,
+  buildEvaluationSummaryRequest,
   chooseOptionV2,
   createDefaultEndingConfig,
   createLookup,
@@ -16,6 +17,7 @@ import {
   equipErrorCodeOf,
   equipV2,
   evaluateLifeV2,
+  finalizeEvaluationSummary,
   playerVisibleEntries,
   projectArchiveForPlayer,
   projectSnapshotV2,
@@ -25,7 +27,7 @@ import {
   type ConditionContext,
   type TurnPipelineConfig,
 } from "@life-sim/game-core";
-import { BattleCommandSchema, EndingNarrativeOutputSchema } from "@life-sim/shared";
+import { BattleCommandSchema, EndingNarrativeOutputSchema, EvaluationSummaryOutputSchema } from "@life-sim/shared";
 import type { EndingConfig, EndingRecord, V2Snapshot, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
 import { getEndingConfig, getEvaluationConfig, getOpeningTemplates, getTemplateFingerprint, loadTemplates } from "./templates.js";
 import { dataDir, hydrate, loadPersistedWorlds, worldStore } from "./store.js";
@@ -536,6 +538,21 @@ app.post("/api/worlds/:id/archive", async (request, reply) => {
   const masked = isMaskedEnding(resolution);
   const evaluation = evaluateLifeV2(found.world, cfg.evaluationConfig);
 
+  // R2.7 · T-S2：人生总结接真实 LLM。只经 finalizeEvaluationSummary 替换 summary / summarySource；
+  // dimensions / evidenceIds / overall 逐字段不变（strict schema 拒任何篡改）。
+  // 隐藏结局同裁决 6：一并跳过 LLM 装饰与 adapter 注入，保留模板文案。
+  const summaryOutcome = masked
+    ? TEMPLATE_OUTCOME
+    : await generateNarrative(
+        buildEvaluationSummaryRequest(evaluation),
+        EvaluationSummaryOutputSchema,
+        llmProvider,
+      );
+  logNarrativeDiagnostic(summaryOutcome.diagnostic);
+  const finalEvaluation = masked
+    ? evaluation
+    : finalizeEvaluationSummary(evaluation, adapterFromOutcome(summaryOutcome));
+
   // R2.7 · T-S1：结局叙事接真实 LLM。outcome 同时用于响应层装饰
   // `snapshot.ending.narrativeSource`（主理人裁决 3：玩家可见准绳）。
   const endingOutcome = masked
@@ -556,7 +573,7 @@ app.post("/api/worlds/:id/archive", async (request, reply) => {
     found.template,
     found.lookup,
     ending,
-    evaluation,
+    finalEvaluation,
     resolution.endingConfig.endings,
   );
   // 响应层装饰：纯函数、不改 state / 不改 V2Snapshot 类型；hidden 结局自动跳过
