@@ -269,6 +269,17 @@ export interface WorldStateV2 {
 
 export interface WheelResultView {
   eventId: string;
+  /**
+   * 转盘所属事件的标题（D-16），即 `EventV2.title`，如「日常占卜」「巡逻」。
+   *
+   * 为什么带在结果里而不是让前端用 `eventId` 去 `triggeredEvents` 查：
+   * `triggeredEvents` 只存在于**当次**轮次响应里，刷新后为空 ⇒ 双转盘卡片标题会回落成
+   * 「随机事件」（QA P2-2）。把标题随结果一起持久化，刷新/旧档重放都不再依赖响应上下文。
+   *
+   * 可选是为了兼容**旧档**：历史 `lastWheel` / `lastWheels` 没有该字段，读侧按缺省处理，
+   * 前端用 `wheel.title ?? "随机事件"` 兜底（由前端决定显示文案，内核不编造默认标题）。
+   */
+  title?: string;
   /** 命中的扇区 */
   label: string;
   /** 全扇区（含权重，供前端播放转盘动画） */

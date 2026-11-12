@@ -139,6 +139,32 @@ describe("加载校验（R-PS-02/05）", () => {
     expect(roundTrip.lastWheels).toEqual([]);
   });
 
+  it("D-16 旧档兼容：lastWheel/lastWheels 缺 title 仍通过校验，投影不报错且字段缺省", () => {
+    const state = makeRealWorld();
+    const template = makeTemplate();
+    const lookup = createLookup(template);
+
+    // 旧档形态：转盘结果只有 eventId / label / segments（D-16 之前写下的档）
+    state.lastWheel = { eventId: "ev-legacy", label: "平", segments: [{ label: "平", weight: 1 }] };
+    state.lastWheels = [{ ...state.lastWheel }];
+    worldStore.save(state);
+    const legacy = WorldStateV2Schema.parse(readEnvelope(state.id).state);
+    expect(legacy.lastWheel?.title).toBeUndefined();
+    expect(legacy.lastWheels?.[0].title).toBeUndefined();
+    const legacySnap = projectSnapshotV2(legacy, template, lookup);
+    // 缺省就是 undefined，绝不是字符串 "undefined"（否则前端 `?? "随机事件"` 会失效）
+    expect(legacySnap.lastWheels[0].title).toBeUndefined();
+    expect(legacySnap.lastWheel?.title).toBeUndefined();
+
+    // 新档带 title ⇒ 落盘往返保留，投影直接透传
+    state.lastWheel = { eventId: "ev-new", title: "日常占卜", label: "大吉", segments: [{ label: "大吉", weight: 1 }] };
+    state.lastWheels = [{ ...state.lastWheel }];
+    worldStore.save(state);
+    const fresh = WorldStateV2Schema.parse(readEnvelope(state.id).state);
+    expect(fresh.lastWheels?.[0].title).toBe("日常占卜");
+    expect(projectSnapshotV2(fresh, template, lookup).lastWheels[0].title).toBe("日常占卜");
+  });
+
   it("D-03 旧档加载后投影 lastWheels 恒为 []（状态侧可选 / 投影侧必填的读侧兜底）", () => {
     const state = makeRealWorld();
     const template = makeTemplate();

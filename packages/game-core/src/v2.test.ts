@@ -484,6 +484,9 @@ describe("V2 引擎 · 事件轮次", () => {
     expect(res.snapshot.lastWheels.length).toBe(2);
     expect(res.snapshot.lastWheels.map((w) => w.label)).toEqual(["上上签", "平"]);
     expect(res.snapshot.lastWheels.map((w) => w.eventId)).toEqual(["ev-wheel-a", "ev-wheel-b"]);
+    // D-16：标题随结果落进状态，刷新后不必回查本轮 triggeredEvents
+    expect(res.snapshot.lastWheels.map((w) => w.title)).toEqual(["晨间占卜", "夜间抽签"]);
+    expect(res.snapshot.lastWheel?.title).toBe("夜间抽签");
     // 向后兼容：单槽 lastWheel / V2TurnResult.wheelResult 仍是「最后一个」
     expect(res.snapshot.lastWheel?.label).toBe("平");
     expect(res.wheelResult?.label).toBe("平");

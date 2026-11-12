@@ -135,6 +135,8 @@ const PendingEventSchema = z
 const WheelResultViewSchema = z
   .object({
     eventId: z.string().min(1),
+    /** D-16：所属事件标题；可缺省以兼容无该字段的旧档（读侧由前端兜底文案） */
+    title: z.string().min(1).optional(),
     label: z.string(),
     segments: z.array(z.object({ label: z.string(), weight: z.number() }).strict()),
   })

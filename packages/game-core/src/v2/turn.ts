@@ -333,6 +333,9 @@ function triggerEventV2(
     const seg = wheel.segments[idx];
     result.wheelResult = {
       eventId: event.id,
+      // D-16：标题随结果持久化 —— 刷新后前端不再依赖本次响应的 triggeredEvents 反查，
+      // 双转盘卡片的标题也不会回落成「随机事件」。
+      title: event.title,
       label: seg.label,
       segments: wheel.segments.map((s) => ({ label: s.label, weight: Math.max(0, s.weight) })),
     };
