@@ -59,6 +59,10 @@
 
 | B-12 | ~~NPC `birthTime` / `ageAt` 派生~~ **已实现（ADR-0021）** | `packages/game-core` | `V2Npc.birthTime`（可选，读侧按 `toMinutes(-age)` 反推）+ 投影期 `ageAt` 现算（年差口径）；同时修了 `CalendarAdapter` 负分钟（原 `Math.max(0,…)` 钳位导致 `toMinutes(-15y)` 静默返回 0）。遗留：玩家侧仍用 `playerAgeAtStart + elapsedYears`，未统一（ADR-0021 明确不做）。 |
 | B-11 | `apps/web` 无任何自动化测试（仓库本就没有 web 测试基建） | 工程 | 前端回归全靠可复跑脚本 + 截图，成本偏高 |
+| B-19 | **玩家关系双真相**：`npc.relationship` 标量与关系边 `value` 各存一份、互不同步（标量由 `adjustRelation` 标量形态改，边由边形态/`addRelationEdge` 改）。代价不只是展示可能矛盾：模板现有 4 处 `{ relation: npc-x, gte: N }` 条件全是**标量形态**（`endings.yaml:238-239`、`events.yaml:1931/2007/2580`），而一旦有人写成 `{relation, kind}` 形态就会改读边值（`relation-projection.test.ts:110-118` 已固化该语义）⇒ 同一个语义问题两套数值 | `npc.ts` / `relation-effects` / `packages/shared/src/schema/common.ts` | **延后**。统一牵动 `adjustRelation` 双写语义与条件 DSL 取值口径，属协议变更（T-2，需 ADR）。参考：ADR-0014 决策 3 原意是「标量由种子边生成」，实现从未落地 |
+| B-20 | **`playerTemplate.relations` 缺失** ⇒ 无法**静态**声明「玩家视 NPC 为 X」（`characters[].relations` 的 `from` 隐含为该角色，只能表达 NPC→玩家）；且 `V2Snapshot.player` 无 `relations` 字段 ⇒ 玩家侧没有关系面板。现状「NPC 视你为 X」只能靠 `characters.yaml` 补 `to: player` 边（T-1），反向要靠 `opening.worldSetup.effects.addRelationEdge {fromId: player}`（运行期，亦 T-1） | `packages/shared/src/schema/world.ts:74-89`（`PlayerTemplateSchema` 为 `.strict()`）、`projection.ts` | **延后**。加字段＝改协议面（T-2，需 ADR）+ 投影契约 + 前端面板，属独立一刀 |
+| B-21 | **`flags["infoVisibility:<npcId>"]` 只写不读**：`opening.ts:153-163` 写了一套 `known/inferred/unknown` 信息可见度，全仓唯一消费点是测试断言它被写，投影与条件均未读取 | `v2/opening.ts`、`flags` | **延后 / 需 ADR**。**明确禁止**拿它当投影红线（未登场/隐藏）的判据：它是模板可读写的 flag，把「hidden 不外泄」的裁决权交给模板作者等于自废红线，且会与 `lifecycle` 形成两套真相。启用它＝新机制上线 |
+| B-22 | **`characters[].visibility: "hidden"` 未参与上屏过滤**：`turn.ts:126-160`（`filter(c => !c.isEnemy)`）与 `projection.ts`（只滤 `unspawned`）都没有按角色 `visibility` 过滤 ⇒ 声明 `hidden` 的角色（如 `npc-riko`）照常建实例、照常上屏。与 ADR-0020「`visibility` 过滤仍在 `turn.ts` 建实例时按 `isEnemy`/`visibility` 处理」的记载不符 | `v2/turn.ts`、`v2/projection.ts` | **存量偏差，未裁决**。撤下屏属展示口径变更（且影响既有面板验收），不得顺带修；另记一条决策后再动 |
 
 ## 4. 环境 / 工具链坑（不改产品代码也应知道）
 

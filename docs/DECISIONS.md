@@ -1057,6 +1057,54 @@ resolveCombatRefs(state, settle) -> { enemies, allies, enemiesExhausted: boolean
   实例化队列 + unspawned 不上屏、出生后转 alive 且年龄取规则值、重复调用幂等、不自动触发、
   未知 ruleId 抛错、`npcState` 可判 unspawned、加载期三类拒载）；shared 62/62。
 
+### ADR-0022 补记 D-1（2026-11-12）：关系投影必须剔除未登场端点
+
+> **性质**：**投影契约补记（T-2 轻量）**，不是新决策。决策 4 只写了「人物列表」，没写「关系边与称谓子图」，
+> 本补记把同一条意图补齐到关系面。属**实现缺陷修复**（现状违反既有口径），方向未变；
+> `packages/shared` 零改动、不升 `schemaVersion`、存档结构不动。
+
+- **问题（实证）**：`projection.ts:152-153` 只用 `lifecycle.state !== "unspawned"` 过滤**上屏 NPC 列表**，
+  而 `:200-216` 的 `relations` 只按 `e.from === npc.id || e.to === npc.id` 过滤，**未剔除另一端未登场的边**；
+  `:206-207` 的称谓推导又用未过滤的 `visibleRelations`（整张 known/inferred 子图）。
+  复现：`characters.yaml:62` 有 `npc-gojo → npc-yuta {kind: relative, gap: true}`，而 `npc-yuta` 由
+  `world.yaml:170-171` 的 `npcSpawnRules[rule-yuta-arrival]` 管辖、建世界期为 `unspawned`
+  ⇒ 面板出现「五条悟视 `npc-yuta` 为亲戚 · 远亲」（未上屏的端点连名字都取不到，直接露出开发者 id）。
+- **决策 1（判据）**：关系边端点「已显影」的判据 = **该 id 有 NPC 实例且 `lifecycle.state !== "unspawned"`**；
+  一条边的**任一端**处于 `unspawned` ⇒ 整条边不进投影（列表行与称谓子图同时剔除）。
+  - **否证「不在投影后 NPC 集合内」**（听起来更省事，实为错判据），两条反例：
+    1. **敌人永不实例化**：模板敌人（`enemy-*`）不在 `state.npcs` 里，用该判据会把「A 视 B 为敌人」这类
+       **公开信息**一并误杀——`relation-projection.test.ts:47` 现在正是正向断言 `["enemy-x","player"]` 必须存在。
+       这与 ADR-0020 兼容段同一条教训同源（写入侧「找不到该 id 的关系端点按可写处理，只拦确知非在世」），
+       投影侧必须同口径，否则同一个坑换一层再踩一次。
+    2. **`inactive` 必须保留边与称谓**：ADR-0020 决策 6「`inactive` 照常上屏、只带状态标注」+
+       `relations.ts` 的 `freezeOnDeath` 注释「逝去的祖父依旧是祖父」。「不在列表内」是**结果**不是判据，
+       用它会让「上屏规则」与「关系过滤规则」互相引用，任何列表口径调整都会静默改掉关系可见性。
+- **决策 2（`player` 端点硬保留）**：`player` 没有 NPC 实例，永不进 `hiddenNodeIds`。这条要写成实现侧的
+  注释级硬约束 + 测试用例（防止后续被改造成「白名单」时静默丢掉 NPC↔玩家边，正好反噬本补记要修的另一半）。
+- **决策 3（称谓子图必须收敛）**：`kinshipTerm(...)` 的入参必须是**过滤后的同一份边集**，
+  与列表行共用一次收敛结果。依据 `specs/core/GAME_RULES.md §6`：「中文称谓**只在可见子图上推导**
+  （否则 hidden 边会成为推理侧信道）」——未登场角色不是「可见」。`projection.ts:40-41` 的注释本就是这个
+  意图，本补记只是把它落实到 `unspawned` 这一档。
+- **决策 4（不可达 vs 断代，两种「算不出」不许混用）**：
+  - **不可达 ⇒ 不下发 `kinshipTerm`**（`shortestPath` 为 null）；
+  - **可达但断代（`gap`）/ 库无解 ⇒ 「远亲」**（`COARSE_KINSHIP_TITLE`，`exact: false`，ADR-0014 决策 5 原口径）。
+  - **禁止**用「远亲」兜底「有路径但算不出」（即路径经过未登场节点）：那会向玩家**断言一条他没有任何边支撑的
+    亲属关系**，并暗示「中间还有一个你不知道的人」，正是要堵的侧信道。同理**禁止**生成「未知的某人」占位行。
+  - 典型场景裁定：A、B 都在屏，唯一亲属路径经未登场 C ⇒ A 与 B 之间**既无行也无称谓**（不是「远亲」）。
+- **决策 5（修复点单一）**：过滤**只能**发生在 `projectSnapshotV2`（投影期）。
+  **严禁写入 state 层**（改 `state.relations`）：那会同时打坏引擎侧条件（`relation` 边形态 / `npcState` 仍需读
+  未登场角色）、存档内容与确定性。反过来说，正因为只动投影期，**旧档零迁移**。
+- **测试反改背书**：`v2.test.ts:981-991` 现有断言（注释「五条 → 乙骨 的远亲边应带粗称谓」、
+  `expect(kin?.kinshipTerm).toBe("远亲")`）**固化的是本补记认定的缺陷行为**，本次按本补记**反改**该断言，
+  不得以「保持既有测试绿」为由保留泄漏。
+- **本次未做（明确记录）**：
+  - 不动 `characters[].visibility`（隐藏角色的上屏过滤）——与 ADR-0020 记载的既有偏差另记 BACKLOG，
+    把本判据建立在 `visibility` 上会顺手改掉未裁决的展示口径。
+  - 不起用 `flags["infoVisibility:<npcId>"]`（`opening.ts` 只写不读）作为投影红线判据——属新机制，另需 ADR。
+- **验证（实施验收口径）**：`pnpm typecheck` 0 错；`v2/relation-projection.test.ts` 新增「未登场端点剔除 /
+  称谓不跨未登场节点 / player 与敌人端点保留」三例；`v2.test.ts:981-991` 反改后转绿；
+  `playthrough.test.ts` 6 种子不受影响（引擎路径不变，该文件不调 `projectSnapshotV2`）。
+
 ---
 
 ## ADR-0023 运行时生成 NPC 实例：`generated` 刷新规则（「造实例」≠「生成配置层定义」）
