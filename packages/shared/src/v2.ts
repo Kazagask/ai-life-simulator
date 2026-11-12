@@ -309,6 +309,13 @@ export interface BattleView {
     skills: Array<{ id: string; name: string; description: string; costMp: number; cooldownLeft: number }>;
     items: Array<{ itemId: string; name: string; count: number }>;
     canFlee: boolean;
+    /**
+     * 本回合是否允许使用战斗道具（D-08）。由投影层用与引擎**同一**控制判定
+     * （`controlOf(battle.player.statuses, "cannot_use_items")`）算出，
+     * 前端据此禁用道具按钮，不要自己查 status id 或补正表。
+     * 为 false 时引擎也会以 `bound_items` 拒绝，二者同源。
+     */
+    canUseItems: boolean;
   };
   enemies: BattleEnemyView[];
   allies: BattleEnemyView[];

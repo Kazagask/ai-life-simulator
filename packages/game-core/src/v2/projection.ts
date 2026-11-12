@@ -13,6 +13,7 @@ import { moodBand, maxHp, maxMp } from "./engine.js";
 import { createTimeAdapter } from "./time.js";
 import type { TemplateLookup } from "./lookup.js";
 import { pendingEventView } from "./turn.js";
+import { controlOf } from "./battle.js";
 import { isKinshipKind, kinshipTerm, projectVisibleRelations } from "./relations.js";
 
 /**
@@ -311,6 +312,11 @@ function battleView(state: WorldStateV2, lookup: TemplateLookup, template: World
         .filter(([itemId, count]) => count > 0 && lookup.item(itemId)?.usableInBattle)
         .map(([itemId, count]) => ({ itemId, name: lookup.item(itemId)?.name ?? itemId, count })),
       canFlee: battle.settle.canFlee ?? false,
+      /**
+       * D-08：与引擎同一判定（battle.ts 的 controlOf），输入取**战斗镜像**的补正列表
+       * —— 这正是 performBattleAction 检查 `pc.statuses` 的来源，二者不会漂移。
+       */
+      canUseItems: !controlOf(battle.player.statuses, "cannot_use_items", lookup),
     },
     enemies: battle.enemies.map((e) => ({
       instanceId: e.instanceId,

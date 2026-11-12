@@ -85,6 +85,7 @@ const RAW_TEMPLATE: Record<string, unknown> = {
   statuses: [
     { id: "st-mute", name: "禁攻", duration: { turns: 1 }, stacking: "refresh" as const, combat: { control: ["cannot_attack" as const] }, visibility: "known" as const },
     { id: "st-confuse", name: "混乱", duration: { turns: 1 }, stacking: "refresh" as const, combat: { control: ["forced_target_self" as const] }, visibility: "known" as const },
+    { id: "st-bound", name: "束缚", duration: { turns: 2 }, stacking: "refresh" as const, combat: { control: ["cannot_use_items" as const] }, visibility: "known" as const },
   ],
   events: [],
 };
@@ -257,5 +258,36 @@ describe("Schema 校验 · 显示名与状态栏引用完整性", () => {
       },
     ];
     expect(() => WorldTemplateV2Schema.parse(withFlee)).toThrow(/fleeCheck/);
+  });
+});
+
+describe("D-08 · 投影告知「本回合能否使用道具」（与引擎同一判定）", () => {
+  it("正常状态下 canUseItems === true", () => {
+    const { template, lookup, state } = setup();
+    const snap = projectSnapshotV2(state, template, lookup);
+    expect(snap.battle?.player.canUseItems).toBe(true);
+  });
+
+  it("带 cannot_use_items 补正时 canUseItems === false，且引擎同样拒绝（bound_items）", () => {
+    const { template, lookup, state } = setup();
+    state.battle!.player.statuses.push({ statusId: "st-bound", stacks: 1, appliedTurn: 0 });
+
+    // 投影：前端据此禁用按钮，无需点一次收 400
+    const snap = projectSnapshotV2(state, template, lookup);
+    expect(snap.battle?.player.canUseItems).toBe(false);
+    // 状态仍对玩家可见（known），禁用原因可解释
+    expect(snap.battle?.player.statuses.some((s) => s.id === "st-bound")).toBe(true);
+    // 引擎：同一判定 ⇒ 拒绝码不变（投影与引擎不漂移）
+    expect(() => performBattleAction(state, { type: "item", itemId: "item-charm" }, lookup, createRng(5))).toThrow(
+      "bound_items",
+    );
+  });
+
+  it("补正到期移除后 canUseItems 恢复 true（判定读战斗镜像，不做一次性缓存）", () => {
+    const { template, lookup, state } = setup();
+    state.battle!.player.statuses.push({ statusId: "st-bound", stacks: 1, appliedTurn: 0 });
+    expect(projectSnapshotV2(state, template, lookup).battle?.player.canUseItems).toBe(false);
+    state.battle!.player.statuses = [];
+    expect(projectSnapshotV2(state, template, lookup).battle?.player.canUseItems).toBe(true);
   });
 });

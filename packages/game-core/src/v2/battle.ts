@@ -105,7 +105,14 @@ function maxHpOf(target: Combatant, state: WorldStateV2, battle: BattleState, lo
   return unit?.maxHp ?? target.hp;
 }
 
-function controlOf(statuses: StatusInstance[], semantic: string, lookup: TemplateLookup): boolean {
+/**
+ * 控制类补正判定（协议 §6.3）：状态实例里任一 `combat.control` 含该语义即为真。
+ *
+ * **规则只写一处**（D-08）：引擎的 performBattleAction 与本模块外部的投影层
+ * （projection.ts 的 canUseItems）都调用本函数，投影不得自行查 status id 复制判定，
+ * 否则「引擎会拒、投影不告知」的漂移会再次出现。
+ */
+export function controlOf(statuses: StatusInstance[], semantic: string, lookup: TemplateLookup): boolean {
   return statuses.some((inst) => {
     const control = lookup.status(inst.statusId)?.combat?.control;
     return control?.includes(semantic as never) ?? false;
