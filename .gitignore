@@ -14,3 +14,8 @@ coverage
 .workbuddy/memory/
 test-junc/
 packages/game-core/test-output.txt
+
+# 本地调试残留（curl cookie jar / 发布产物），不入库
+ck.txt
+.wbapp_*.genie
+.workbuddy/applications.yaml
