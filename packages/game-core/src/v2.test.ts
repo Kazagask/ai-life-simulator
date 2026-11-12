@@ -373,6 +373,44 @@ describe("V2 引擎 · 世界创建", () => {
   });
 });
 
+describe("V2 引擎 · 章节进度投影（D-07）", () => {
+  /** 章节机起点由开局 `worldSetup.flags.chapter = 1` 建立（jjk-2006 opening.yaml 同一语义）。 */
+  function worldWithChapterOpening(): { state: WorldStateV2; template: WorldTemplateV2; lookup: ReturnType<typeof createLookup> } {
+    const template = makeTestTemplate();
+    const lookup = createLookup(template);
+    const opening = {
+      ...createDefaultOpeningTemplate(),
+      worldSetup: { flags: { chapter: 1 } },
+    };
+    const state = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed: 42 }, template, "w-chapter", opening);
+    return { state, template, lookup };
+  }
+
+  it("开局后 storyChapter === 1（数字透出，不是字符串/布尔）", () => {
+    const { state, template, lookup } = worldWithChapterOpening();
+    const view = projectSnapshotV2(state, template, lookup);
+    expect(view.storyChapter).toBe(1);
+  });
+
+  it("flags.chapter 推进到 3 ⇒ 投影为 3（setFlag 语义一致）", () => {
+    const { state, template, lookup } = worldWithChapterOpening();
+    state.flags.chapter = 3;
+    expect(projectSnapshotV2(state, template, lookup).storyChapter).toBe(3);
+  });
+
+  it("未使用章节机的世界（无 flags.chapter）⇒ 字段缺省（undefined，不是 0 / null）", () => {
+    const { state, template } = makeState();
+    const lookup = createLookup(template);
+    expect(state.flags.chapter).toBeUndefined();
+    const view = projectSnapshotV2(state, template, lookup);
+    expect(view.storyChapter).toBeUndefined();
+    expect("storyChapter" in view).toBe(false); // 键本身不出现
+    // 非数字 flag（模板作者误写字符串）同样不透出，避免前端渲染 "第三章"
+    state.flags.chapter = "3";
+    expect(projectSnapshotV2(state, template, lookup).storyChapter).toBeUndefined();
+  });
+});
+
 describe("V2 引擎 · 事件轮次", () => {
   it("普通事件进入待决队列，选项按 visibleWhen 过滤", () => {
     const { state, template } = makeState();

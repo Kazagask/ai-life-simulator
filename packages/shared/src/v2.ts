@@ -358,6 +358,17 @@ export interface V2Snapshot {
   lifeStageLabel: string;
   startYear: number;
   /**
+   * 章节进度（D-07）：主线章节机的**数字**进度，取自 `flags.chapter`（模板在
+   * `opening.yaml#worldSetup.flags.chapter` 起 1，事件用 `setFlag` 推进）。
+   * 仅当该 flag 是 number 时下发；未使用章节机的世界缺省该字段（不输出 null / 0），
+   * 前端据此判断「是否显示章节指示」。
+   *
+   * 命名用 `storyChapter` 而非 `chapter`：`chapter` 是模板自有的 flag 键，
+   * 快照字段名不应与模板键名混同；`story` 前缀表明这是**剧情进度展示位**。
+   * 引擎不编造章节中文名（模板无章节名表），只给数字。
+   */
+  storyChapter?: number;
+  /**
    * 模板驱动的展示名（statusBar 与 attributes.labels 的解析结果）。
    * 前端渲染资源条/属性名一律读这里，不得再硬编码世界观用词。
    */

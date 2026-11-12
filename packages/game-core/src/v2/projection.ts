@@ -94,6 +94,12 @@ export function projectSnapshotV2(
     lifeStage,
     lifeStageLabel: adapter.lifeStageLabel(lifeStage),
     startYear: template.meta.startYear,
+    /**
+     * D-07：章节进度对玩家可见。读 `flags.chapter`（模板 opening.yaml 起 1、setFlag 推进），
+     * **仅当它是 number 时**下发；否则字段缺省（不输出 0/null，前端不渲染章节指示）。
+     * 引擎不提供章节中文名（模板无章节名表），前端只用数字。
+     */
+    ...(typeof state.flags.chapter === "number" ? { storyChapter: state.flags.chapter } : {}),
     labels: {
       resources: { hp: lookup.resourceLabel("hp"), mp: lookup.resourceLabel("mp") },
       attributes: lookup.attributeLabels(),
