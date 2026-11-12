@@ -32,7 +32,7 @@ import {
   type ConditionContext,
   type EffectContextV2,
 } from "./engine.js";
-import { createBattle, finishBattle, performBattleAction } from "./battle.js";
+import { createBattle, finishBattle, performBattleAction, resolveCombatRefs } from "./battle.js";
 import { nextInstanceId } from "./equipment.js";
 import { runNpcActionsV2 } from "./npc.js";
 import type { TemplateLookup } from "./lookup.js";
@@ -217,7 +217,19 @@ interface TriggerResult {
   wheelResult: WheelResultView | null;
   /** 效果推进时间 / 新入队 ⇒ 请求在安全边界再 drain 一轮（§3.4.5 断链保护） */
   drainRequested?: boolean;
+  /**
+   * 本条触发被跳过的原因（ADR-0021 决策 1.4 的可诊断性补偿）。
+   * **非持久化**：不进存档 / 投影 / 玩家端 API，只供测试与本地排障断言
+   * 「这场为什么没打」。当前取值见 `SKIP_ALL_ENEMIES_INACTIVE`。
+   */
+  skipped?: string;
 }
+
+/**
+ * combat 事件的全部敌人过滤后为空 ⇒ 整条触发跳过。
+ * 取值被测试断言，故收敛为常量，字符串只写这一处。
+ */
+export const SKIP_ALL_ENEMIES_INACTIVE = "all_enemies_inactive";
 
 /** 效果可在 onFire 内推进时间或再入队；每轮整体结束后才开启下一轮，避免在 drain 循环内递归。 */
 const MAX_DRAIN_PASSES = 8;
@@ -312,6 +324,17 @@ function triggerEventV2(
   // combat 事件：同一时刻至多一场。已有进行中战斗时整条跳过——不写 firedEvents/triggered/history，
   // 避免「战斗并未发生，却留下触发提示、历史记录并消耗 once/冷却」的不一致（事件冲突议题见 OPEN_QUESTIONS）。
   if (event.kind === "combat" && state.battle && !state.battle.over) return;
+  if (event.kind === "combat") {
+    // ADR-0021 决策 1.2：敌人全部「确知非在世」⇒ 战斗不成立，整条跳过。
+    // 位置与上面的并发 skip 同一处（recordFire 之前），口径完全复用：不写
+    // firedEvents/lastFiredIndex/eventFires、不入 pendingEvents、不进 triggered、不写 history、
+    // 不消耗 once/冷却、不推 timeCost、不动链状态。友军滤空不跳过（照常打，只是没有友军）。
+    // 判活是纯读 + 零 RNG，重复调用 resolveCombatRefs 只为保持 createBattle 独立可用。
+    if (resolveCombatRefs(event.settle.combat, state, lookup).enemiesExhausted) {
+      result.skipped = SKIP_ALL_ENEMIES_INACTIVE;
+      return;
+    }
+  }
   recordFire(state, event.id);
   result.triggered.push({ id: event.id, title: event.title, narrative: event.narrative });
   pushHistory(state, lookup.template, {

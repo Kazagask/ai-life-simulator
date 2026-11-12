@@ -145,6 +145,61 @@ function effectiveAttrsOf(c: Combatant, lookup: TemplateLookup, state?: WorldSta
   return effectiveAttributes(c.attributes, c.statuses, c.mood, lookup, equipment, gate);
 }
 
+// ---------- 参战 ref 判活（ADR-0021 决策 1） ----------
+
+/** 参战引用（与模板 `settle.combat.enemies/allies` 同形） */
+export interface CombatRef {
+  ref: string;
+  levelScale?: number;
+}
+
+/** 判活后的参战列表（纯读结果，不落盘；`inactiveNpcIds` 仅供诊断/测试断言） */
+export interface ResolvedCombatRefs {
+  enemies: CombatRef[];
+  allies: CombatRef[];
+  /** 过滤后敌人为空 ⇒ 战斗不成立（空 enemies 会被 checkBattleEnd 判即胜，白送 onVictory） */
+  enemiesExhausted: boolean;
+  /** 被移出参战列表的 NPC 实例 id（非持久化诊断信息） */
+  inactiveNpcIds: string[];
+}
+
+/**
+ * 参战 ref 判活的**单一入口**（ADR-0021 决策 1.1；与 `controlOf` 的 D-08 同型：
+ * 多消费点共用一个函数，规则只写一处）。
+ *
+ * 判据：在 `state.npcs` 找到**同 id 实例**且 `lifecycle.state !== "alive"` ⇒ 确知非在世，
+ * 移出参战列表；**找不到实例 ⇒ 视为可用**（模板角色未实例化，如纯敌人定义 `enemy-*`
+ * 永不建实例，若按死亡处理会把全部战斗清空）。同口径先例：ADR-0020 关系冻结
+ * 「只拦确知非在世，找不到端点按可写处理」。
+ *
+ * **不报错**：死者重新出现在 ref 里不视为模板错误，只是「该单位不在场」（ADR-0012 决策 2 修订）。
+ * `lookup.character(ref)` 缺失仍抛 `character_not_found`（引用完整性错误，与判活无关，
+ * 故校验先于过滤：改成过滤优先会让「死引用 + 未知 id」静默通过）。
+ *
+ * 纯函数：只读 state / lookup，不调 rng、不写状态 ⇒ 同 seed 结果不受影响。
+ */
+export function resolveCombatRefs(
+  refs: Pick<CombatSettle, "enemies" | "allies">,
+  state: WorldStateV2,
+  lookup: TemplateLookup,
+): ResolvedCombatRefs {
+  const inactiveNpcIds: string[] = [];
+  const keepAlive = (list: readonly CombatRef[] | undefined): CombatRef[] =>
+    (list ?? []).filter((r) => {
+      const def = lookup.character(r.ref);
+      if (!def) throw new Error(`character_not_found: ${r.ref}`);
+      const instance = state.npcs.find((n) => n.id === r.ref);
+      if (instance && instance.lifecycle.state !== "alive") {
+        inactiveNpcIds.push(r.ref);
+        return false;
+      }
+      return true;
+    });
+  const enemies = keepAlive(refs.enemies);
+  const allies = keepAlive(refs.allies);
+  return { enemies, allies, enemiesExhausted: enemies.length === 0, inactiveNpcIds };
+}
+
 // ---------- 建场 ----------
 
 export function createBattle(
@@ -153,8 +208,10 @@ export function createBattle(
   state: WorldStateV2,
   lookup: TemplateLookup,
 ): BattleState {
-  const enemies = buildUnits(settle.enemies, state, lookup);
-  const allies = buildUnits(settle.allies ?? [], state, lookup);
+  // 判活一次，敌人/友军共用同一份解析结果（规则只写一处）
+  const resolved = resolveCombatRefs(settle, state, lookup);
+  const enemies = buildUnits(resolved.enemies, state, lookup);
+  const allies = buildUnits(resolved.allies, state, lookup);
 
   return {
     eventId,
@@ -173,9 +230,12 @@ export function createBattle(
   };
 }
 
-/** 从角色引用构建战斗单位（敌人/友军共用；资源池 = 公式上限按原始属性 × levelScale） */
+/**
+ * 从**已判活**的角色引用构建战斗单位（敌人/友军共用；资源池 = 公式上限按原始属性 × levelScale）。
+ * 入参必须是 `resolveCombatRefs` 的输出——本函数不做生命周期判断，避免判定散落两处。
+ */
 function buildUnits(
-  refs: Array<{ ref: string; levelScale?: number }>,
+  refs: readonly CombatRef[],
   state: WorldStateV2,
   lookup: TemplateLookup,
 ): BattleEnemy[] {
