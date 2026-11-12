@@ -98,6 +98,40 @@ interface LastResult {
   wheel: WheelResultView | null;
 }
 
+// ---------- 本轮转盘结果（D-03 / D-09） ----------
+
+/** 转盘去重键：同一事件同轮抽中同一扇区，视觉上就是同一次揭示。 */
+function wheelKey(wheel: WheelResultView): string {
+  return `${wheel.eventId}::${wheel.label}`;
+}
+
+/**
+ * 合并「本轮全部转盘结果」（D-03）。
+ *
+ * 权威来源是服务端持久化的 `snapshot.lastWheels`：按触发顺序、当轮清空、刷新后仍在。
+ * 瞬态 `lastResult.wheel` 只保留作兜底——它只是本次响应里的「最后一个」结果，
+ * 旧服务端尚未下发 `lastWheels` 时靠它兜住单转盘场景；与新字段重复时按 `wheelKey` 去重，
+ * 保证同一次揭示不会显示两份。
+ */
+function mergeWheels(
+  persistent: WheelResultView[] | undefined,
+  transient: WheelResultView | null,
+): WheelResultView[] {
+  const list = [...(persistent ?? [])];
+  const seen = new Set(list.map(wheelKey));
+  if (transient && !seen.has(wheelKey(transient))) list.push(transient);
+  return list;
+}
+
+/**
+ * 「本轮已读过」的转盘签名：轮次 + 本轮持久化转盘集合。
+ * 只取 `lastWheels`（不掺瞬态），因此点过「继续」后再来的瞬态清理不会让签名抖动；
+ * 轮次一变签名即失效，不需要额外的清理逻辑。
+ */
+function wheelSignature(turnIndex: number, persistent: WheelResultView[] | undefined): string {
+  return `${turnIndex}|${(persistent ?? []).map(wheelKey).join(",")}`;
+}
+
 /**
  * 槽位占位者（用户 2026-11-11 裁决）：轮次槽位 = 事件区的呈现单位，
  * 「正常事件 / 随机事件 / 战斗 / 自由行动」四者共用一个区域，一个轮次只呈现一个。
@@ -122,6 +156,9 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<LastResult | null>(null);
+  // 本轮转盘是否已被「继续」读掉（签名 = 轮次 + 本轮转盘集合，见 wheelSignature）。
+  // 放在 App 而不是 LifeTab：切页签会卸载 LifeTab，本状态必须活过重挂载。
+  const [dismissedWheelSig, setDismissedWheelSig] = useState<string | null>(null);
   // 竞态锁：React state 同帧不生效，双击会双发请求（第二个撞 409）——用 ref 同步判断
   const busyRef = React.useRef(false);
   const worldIdRef = React.useRef<string | null>(worldId);
@@ -175,6 +212,7 @@ function App() {
     setTab("life");
     setNotice(null);
     setLastResult(null);
+    setDismissedWheelSig(null);
   }, []);
 
   const wrap = useCallback(
@@ -300,6 +338,7 @@ function App() {
     setSnapshot(null);
     setNotice(null);
     setLastResult(null);
+    setDismissedWheelSig(null);
   }, []);
 
   if (!worldId || !snapshot) {
@@ -325,6 +364,12 @@ function App() {
   const battleActive = snapshot.battle !== null && snapshot.battle.over === null;
   const interacting = battleActive || snapshot.pendingEvent !== null;
 
+  // 本轮全部转盘（D-03）：权威来源是服务端持久化列表，刷新后仍在（D-09）。
+  // 「继续」读掉之后按签名压制，避免同一轮重复呈现。
+  const wheels = mergeWheels(snapshot.lastWheels, lastResult?.wheel ?? null);
+  const wheelSig = wheelSignature(snapshot.turnIndex, snapshot.lastWheels);
+  const visibleWheels = dismissedWheelSig === wheelSig ? [] : wheels;
+
   return (
     <div className="shell">
       <header className="topbar">
@@ -346,13 +391,14 @@ function App() {
             snapshot={snapshot}
             busy={busy}
             lastResult={lastResult}
+            wheels={visibleWheels}
             onAdvance={advance}
             onChoose={choose}
             onBattle={battle}
             onUseItem={useItem}
             onArchive={archive}
             onEndLife={endLife}
-            onDismissWheel={() => setLastResult((prev) => (prev ? { ...prev, wheel: null } : prev))}
+            onDismissWheel={() => setDismissedWheelSig(wheelSig)}
           />
         )}
         {tab === "people" && <PeopleTab snapshot={snapshot} />}
@@ -671,6 +717,7 @@ function LifeTab({
   snapshot,
   busy,
   lastResult,
+  wheels,
   onAdvance,
   onChoose,
   onBattle,
@@ -682,6 +729,8 @@ function LifeTab({
   snapshot: V2Snapshot;
   busy: boolean;
   lastResult: LastResult | null;
+  /** 本轮**待呈现**的转盘结果（已按「继续」签名过滤；空数组 = 本轮无转盘可看） */
+  wheels: WheelResultView[];
   onAdvance: (action: { type: string; description: string }) => void;
   onChoose: (optionId: string) => void;
   onBattle: (command: BattleCommand) => void;
@@ -695,21 +744,26 @@ function LifeTab({
 
   // 槽位唯一：一个轮次的事件区只呈现一个占位者。
   // 转盘（随机事件，服务端已结算）> 战斗 > 待决事件 > 自由行动（空槽）。
-  const wheel = lastResult?.wheel ?? null;
-  const occupant: SlotOccupant = wheel
-    ? "wheel"
-    : snapshot.battle
-      ? "battle"
-      : snapshot.pendingEvent
-        ? "event"
-        : "action";
+  // 转盘标题沿用既有写法：拿 eventId 去本轮触发事件里找标题，找不到回退「随机事件」。
+  const wheelItems = wheels.map((wheel) => ({
+    wheel,
+    title: (lastResult?.events ?? []).find((e) => e.id === wheel.eventId)?.title ?? "随机事件",
+  }));
+  const occupant: SlotOccupant =
+    wheelItems.length > 0
+      ? "wheel"
+      : snapshot.battle
+        ? "battle"
+        : snapshot.pendingEvent
+          ? "event"
+          : "action";
 
   // 「本轮还发生了什么」：已结算的其它事件叙述。
-  // 待决事件由事件面板呈现、随机事件由转盘呈现，都不在底栏重复。
+  // 待决事件由事件面板呈现、转盘由转盘区呈现（本轮可能多个），都不在底栏重复。
+  const wheelEventIds = new Set(wheels.map((w) => w.eventId));
   const alsoHappened = (lastResult?.events ?? []).filter(
-    (e) => e.id !== snapshot.pendingEvent?.eventId && e.id !== wheel?.eventId,
+    (e) => e.id !== snapshot.pendingEvent?.eventId && !wheelEventIds.has(e.id),
   );
-  const wheelTitle = (lastResult?.events ?? []).find((e) => e.id === wheel?.eventId)?.title ?? "随机事件";
 
   return (
     <div className="stack">
@@ -733,12 +787,8 @@ function LifeTab({
           {lastResult?.elapsed && <p className="slot-elapsed">过去{lastResult.elapsed}</p>}
 
           <div className="slot-body">
-            {occupant === "wheel" && wheel && (
-              <WheelReveal
-                wheel={wheel}
-                title={wheelTitle}
-                onContinue={() => onDismissWheel()}
-              />
+            {occupant === "wheel" && wheelItems.length > 0 && (
+              <WheelDeck items={wheelItems} onContinue={onDismissWheel} />
             )}
             {occupant === "battle" && (
               <BattlePanel
@@ -778,7 +828,7 @@ function LifeTab({
         </section>
       )}
 
-      {lastResult && !ended && alsoHappened.length === 0 && !wheel && !snapshot.pendingEvent && !snapshot.battle && (
+      {lastResult && !ended && alsoHappened.length === 0 && wheelItems.length === 0 && !snapshot.pendingEvent && !snapshot.battle && (
         <p className="muted result-quiet">世界平静地流转着。</p>
       )}
     </div>
@@ -844,18 +894,19 @@ function sectorPath(a0: number, a1: number): string {
 }
 
 /**
- * 随机事件揭示：服务端已用 RNG 结算（`wheelResult`），前端只做视觉呈现，不参与抽取。
- * 扇区面积按权重等比——玩家看到的概率就是真实概率，不另做「假均匀」美化。
- * 旋转量 = 整圈数 + 把命中扇区中心转到指针（12 点）所需的补角；动画结束后落定并给「继续」。
+ * 随机事件揭示：服务端已用 RNG 结算（`wheelResult` / `lastWheels`），前端只做视觉呈现，
+ * 不参与抽取。扇区面积按权重等比——玩家看到的概率就是真实概率，不另做「假均匀」美化。
+ * 旋转量 = 整圈数 + 把命中扇区中心转到指针（12 点）所需的补角；动画结束后回调 `onSettled`，
+ * 「继续」按钮由外层 `WheelDeck` 统一提供（一轮可能有多枚转盘）。
  */
 function WheelReveal({
   wheel,
   title,
-  onContinue,
+  onSettled,
 }: {
   wheel: WheelResultView;
   title: string;
-  onContinue: () => void;
+  onSettled: () => void;
 }) {
   const segs = wheel.segments;
   const total = segs.reduce((sum, s) => sum + Math.max(0, s.weight), 0) || segs.length;
@@ -884,6 +935,10 @@ function WheelReveal({
     const raf = requestAnimationFrame(() => setSpinning(true));
     return () => cancelAnimationFrame(raf);
   }, []);
+
+  useEffect(() => {
+    if (settled) onSettled();
+  }, [settled, onSettled]);
 
   return (
     <div className="wheel">
@@ -947,12 +1002,64 @@ function WheelReveal({
 
       <div className="wheel-foot" aria-live="polite">
         {settled ? (
-          <>
-            <p className="wheel-result">{hit.label}</p>
-            <button className="primary wheel-continue" onClick={onContinue}>
-              继续
-            </button>
-          </>
+          <p className="wheel-result">{hit.label}</p>
+        ) : (
+          <p className="wheel-spinning-text">轮盘转动中…</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 本轮转盘揭晓序列（D-03 一轮多个转盘）。
+ *
+ * 取舍：**第一枚走完整旋转动画，其余在首枚落定时一次性快速揭示**。
+ * - 为什么不让每枚都转：同轮多个 `kind: random` 事件是同一批结算结果，逐枚连转 = 3×2.6s 的
+ *   纯等待，且玩家并没有「为下一枚做决定」的余地，动画只是过场。
+ * - 为什么不把结果一次性全列出来：首枚的旋转仍是「这一轮发生了什么」的主要反馈，
+ *   保留它让玩家看清转盘机制（概率 = 扇区面积）。
+ * - 后续结果不加转盘，只给「事件标题 + 命中扇区」的紧凑卡片（带淡入），
+ *   玩家一眼扫完即可点一次「继续」进入下一步。
+ */
+function WheelDeck({
+  items,
+  onContinue,
+}: {
+  items: Array<{ wheel: WheelResultView; title: string }>;
+  onContinue: () => void;
+}) {
+  const [firstSettled, setFirstSettled] = useState(false);
+  const handleFirstSettled = useCallback(() => setFirstSettled(true), []);
+  const first = items[0];
+  const rest = items.slice(1);
+  if (!first) return null;
+
+  return (
+    <div className="wheel-deck">
+      <WheelReveal wheel={first.wheel} title={first.title} onSettled={handleFirstSettled} />
+
+      {firstSettled && rest.length > 0 && (
+        <div className="wheel-rest" aria-live="polite">
+          <p className="wheel-rest-title">同一轮另有 {rest.length} 次命运抉择</p>
+          {rest.map((item, i) => (
+            <div
+              key={`${item.wheel.eventId}-${i}`}
+              className="wheel-rest-item"
+              style={{ animationDelay: `${i * 90}ms` }}
+            >
+              <span className="wheel-rest-name">{item.title}</span>
+              <strong className="wheel-rest-hit">{item.wheel.label}</strong>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="wheel-foot">
+        {firstSettled ? (
+          <button className="primary wheel-continue" onClick={onContinue}>
+            继续
+          </button>
         ) : (
           <p className="wheel-spinning-text">轮盘转动中…</p>
         )}
