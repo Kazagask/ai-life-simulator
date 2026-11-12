@@ -526,6 +526,9 @@ events:
       probability: 0.25
       cooldown: { value: 3, unit: day }
       priority: 6
+      # 开局 13 步是瞬时仪式（timeCost 全 0），用时间闸挡住日常池插入
+      conditions:
+        - { time: { gte: { value: 1, unit: hour } } }
     kind: random
     settle:
       random:
@@ -1137,6 +1140,7 @@ events:
       source: pool
       probability: 1
       priority: 100
+      once: true
       conditions:
         - { flag: chapter, eq: 1 }
         - { flag: ready1, eq: true }
@@ -1316,6 +1320,7 @@ events:
       source: pool
       probability: 1
       priority: 100
+      once: true
       conditions:
         - { flag: chapter, eq: 2 }
         - { flag: ready2, eq: true }
@@ -1492,6 +1497,7 @@ events:
       source: pool
       probability: 1
       priority: 100
+      once: true
       conditions:
         - { flag: chapter, eq: 3 }
         - { flag: ready3, eq: true }
@@ -1595,6 +1601,7 @@ events:
       source: pool
       probability: 1
       priority: 100
+      once: true
       conditions:
         - { flag: chapter, eq: 4 }
         - { flag: ready4, eq: true }
@@ -1697,6 +1704,7 @@ events:
       source: pool
       probability: 1
       priority: 100
+      once: true
       conditions:
         - { flag: chapter, eq: 5 }
         - { flag: ready5, eq: true }

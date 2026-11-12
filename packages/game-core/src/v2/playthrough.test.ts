@@ -87,6 +87,16 @@ function play(seed: number, openingIdx: number) {
     day: Math.round(state.worldTime / 1440),
     turns: state.turnIndex,
     chapters: chapters.join("→"),
+    /**
+     * 章节/尾声事件的实际触发次数（事实层 `eventFires` 是 append-only）。
+     * `chapters` 只记录**变化**，看不出「同一章被抽中多次」，故单列计数。
+     */
+    chapterFires: state.eventFires.reduce<Record<string, number>>((acc, f) => {
+      if (/^ev-ch\d-/.test(f.eventId) || f.eventId === "ev-epilogue") {
+        acc[f.eventId] = (acc[f.eventId] ?? 0) + 1;
+      }
+      return acc;
+    }, {}),
     ending: state.termination?.endingId ?? "(none)",
     source: state.termination?.source ?? "-",
     wins: state.flags.battleWins ?? 0,
@@ -132,6 +142,11 @@ describe("咒术转盘 · 整局回归（固定种子的自动通关）", () => 
       expect(r.chapters.split("→").length, `seed ${r.seed} 章节推进不足：${r.chapters}`).toBeGreaterThanOrEqual(3);
       expect(r.turns, `seed ${r.seed} 回合数异常`).toBeLessThan(600);
       expect(r.day, `seed ${r.seed} 结束时间异常`).toBeGreaterThanOrEqual(60);
+      // 章节触发器必须一局一次：`once` 挡掉「待决期间每轮 drain 重复入队」
+      // （QA D-01：曾出现 ch5×4 / epilogue×4，而 chapter 数值变化看不出来）
+      const dup = Object.entries(r.chapterFires).filter(([, n]) => n > 1);
+      expect(dup, `seed ${r.seed} 章节事件重复触发：${JSON.stringify(dup)}（全量 ${JSON.stringify(r.chapterFires)}）`).toEqual([]);
+      expect(r.chapterFires["ev-ch1-call"], `seed ${r.seed} 第一章未触发`).toBe(1);
     }
     // 终局内容可达：至少一个种子活到涩谷并走完学年
     expect(rows.some((r) => r.keys.includes("shibuyaSurvived") || r.keys.includes("storyDone"))).toBe(true);
