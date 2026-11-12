@@ -801,3 +801,215 @@ NPC 现无任何存活状态：死亡/失联的 NPC 照样被效用评分选中�
   投影透出）；shared 62/62；`pnpm build` 通过。
   浏览器实测（注入 `lifecycle: inactive` 的灰原，430×932）：卡片降饱和 0.72、胶囊与生命周期块均显示
   「已故 / 失联 · 阵亡」，控制台零报错。**注入已还原，模板不留该声明。**
+
+---
+
+## ADR-0021 NPC 生命周期补强：原因展示 / 属性投影 / 战斗参战判活 / 出生时间派生
+
+- **状态**：**已裁决方向（2026-11-12 用户四条反馈）· 待 G1 门禁**。
+  四条反馈分别动了引擎判定点（战斗参战 ref）、投影契约（`npcs[].attributes`）、
+  状态 schema（`V2Npc.birthTime`）与展示口径（`reasonCode`），按 `AGENTS.md` §0.3 全部落在 **T-2**，故先出本条 ADR。
+  本条**局部修订 ADR-0012 决策 2**（「整条跳过并记一条事实」→ 单位级过滤 + 不落盘事实）
+  与**决策 4 的实施边界**（先只做 NPC 侧，玩家 `playerAgeAtStart` 统一延后）。
+- **起草人**：系统架构师（高见远）；核实基线 HEAD `465c636`。
+
+### 用户原始反馈（2026-11-12，原文）
+
+> 1. npc ref判活必须做 否则模板侧所有战斗都要写很长的dsl判断
+> 2. 引擎不认reasonCode是对的 但是前端需要渲染具体的原因 模板需要区分具体场景 是阵亡 失踪 叛逃 前端不应该展示已故/失联 只展示阵亡
+> 3. 模板层面 现在支持npc自定义属性的渲染吗 支持的话生得术式应该有属性的 补正是术式的副产物 如查理的预见未来 称金次的大奖
+> 4. birthTime如果改yaml就能解决 顺手改了
+
+### 现状核实（以代码为准，不是以旧 spec 为准）
+
+| 事项 | 核实结论 | 证据 |
+|---|---|---|
+| 战斗参战 ref 判活 | **未做**。`buildUnits` 只按 `lookup.character(ref.ref)` 取模板定义，完全不读 `state.npcs` 的 `lifecycle` | `battle.ts:150-157`、`battle.ts:177-208` |
+| 敌人是否有实例 | **没有**。`createWorldV2` 只实例化 `!isEnemy` 的角色；`enemy-*` 21 个角色全部被滤掉 | `turn.ts:115-116`；`characters.yaml` 21 处 `isEnemy: true` |
+| 友军是否有实例 | **有**（`npc-geto / npc-yuta / npc-gojo / npc-yuji / npc-megumi` 都是实例 NPC） | `events.yaml` 5 处 `allies:` |
+| NPC 属性在实例层 | **已在**（`V2Npc extends V2CombatantBase` 就有 `attributes`，建实例时从模板拷入） | `v2.ts:42-47`、`turn.ts:122` |
+| NPC 属性在投影 | **没有**（`npcs[]` 无 `attributes`；`labels.attributes` 是全局的，可直接复用） | `projection.ts:150-198`、`v2.ts:497-537` |
+| `birthTime` | **不存在**。`V2Npc.age` 是 `identity.age` 静态快照，此后从不重算 | `turn.ts:121`；全仓 `grep birthTime` 零命中 |
+| 历法负分钟 | **不支持**。`minutesToView` 首行 `Math.max(0, …)` 把负值钳为 0；`viewToMinutes` 只从 `startYear` 正向累加 | `time.ts:130`、`time.ts:147` |
+| `elapsedYears` 口径 | `approx` = `floor(minutes/525600)`；历法 = `max(0, view(minutes).year − startYear)`（**相对 startYear**） | `time.ts:215`、`time.ts:291-294` |
+| `reasonCode` 现状 | 投影原样透出，前端却优先渲染通用态标签「已故 / 失联 · 阵亡」 | `projection.ts:174-179`、`main.tsx:2088-2118` |
+
+### 决策 1：战斗参战 ref 判活 —— 单位级过滤，敌人耗尽才整条跳过
+
+**1.1 判据单一入口**（新增纯函数，`battle.ts` 导出）
+
+```ts
+resolveCombatRefs(state, settle) -> { enemies, allies, enemiesExhausted: boolean }
+```
+
+- 对每个 `{ ref, levelScale }`：在 `state.npcs` 找同 id 实例，**存在且 `lifecycle.state !== "alive"` ⇒ 确知非在世，移出参战列表**；**找不到实例 ⇒ 视为可用**（不猜）。
+  依据：敌人角色永不实例化（见上表），若把「无实例」当死亡，jjk-2006 全部 12 场战斗的敌人会被清空。
+  同口径先例：ADR-0020 关系冻结「只拦确知非在世，找不到端点按可写处理」。
+- `buildUnits` 改签名（接收**已解析**的 refs，不再自己从 `settle` 取），`createBattle` 只调一次 `resolveCombatRefs`。
+  规则只写一处（与 `controlOf` 的 D-08 同型：多消费点共用一个函数，不各自复制判定）。
+
+**1.2 处置规则**
+
+- **allies 过滤后为空 ⇒ 战斗照常。** 友军是可选支援（`settle.allies` 本就 optional），缺席不改战斗成立性。
+  典型：`ev-sj-02` 的 `npc-gojo` 若被封（`reasonCode: 封印`），涩谷终战仍要打，只是没有五条在场——
+  这正是用户第 1 条的诉求：模板不必为每条 combat 写一遍 `npcState` 长条件。
+- **enemies 过滤后为空 ⇒ 战斗不成立，整条触发跳过。**
+  理由：`checkBattleEnd` 对空 `enemies` 的判定是 `every(!alive) === true`（`battle.ts:488`）⇒ 建场即「胜利」，白送 `onVictory`（声望、flag、`nextEventId` 推进），是可利用漏洞。
+  跳过位置与既有 combat 并发 skip **同一处**（`triggerEventV2` 入口、`recordFire` 之前，`turn.ts:312-314`），口径完全复用：
+  **不写 `firedEvents`/`eventFires`/`lastFiredIndex`、不入 `pendingEvents`、不进 `triggered`（无触发提示）、不写 history、不消耗 once/冷却、不推进 `timeCost`、不动链状态。**
+
+**1.3 与 ADR-0012 原句「不在建场期硬报错……事件条件层可用 `npcState` 把关」如何共存**
+
+- **仍然不报错**。死者重新出现不视为模板错误，而是「该单位不在场」——「分支里先死、之后仍引用同一 NPC 的战斗」继续成立，剧情不断。
+- 「`npcState` 把关」保留为**可选**能力，不再是**必需**：模板要「这场彻底不发生」（整段剧情作废）才写条件；只想要「他不在场」就什么都不用写。
+- **修订点**：ADR-0012 决策 2 的「跳过该场战斗整条触发并记一条事实」改为「单位级过滤；仅敌人耗尽才跳过整条；**不落盘事实**」（理由见 1.4）。
+
+**1.4 「记的那条事实」放哪 —— 裁定：不落盘**（对 ADR-0012 决策 2 的显式修订）
+
+| 候选 | 否决理由 |
+|---|---|
+| `state.flags` | ADR-0010 决策 2 明令系统内部记录不得进 flags（模板条件可读引擎内部记录＝层级墙穿透） |
+| `missedEvents` | schema 要求每条记录必须对应 `scheduledEvents` 里的 `instanceId`（`v2.ts:168-178`），链内/action-hook 战斗没有排程实例；`MissReason` 只有 `window_expired`/`miss_when`，扩枚举＝协议变更且语义误导（不是时间错过，是剧情不成立） |
+| `eventFires` | 那是「已触发」日志（append-only 触发事实）；给未触发事件写一条＝伪造事实，并污染 `lastFiredIndex` 的 once/冷却推导 |
+| `history` | 事实层里唯一玩家可见的叙事通道；写「因为某人已死，这场没发生」会把调度内部原因变成玩家叙事，且每场一条噪音 |
+| 新事实层字段 | 违反「不为不达状态提前建抽象」；该信息已在实例层 `lifecycle.state/sinceTurn/sinceWorldTime`，模板用 `npcState` 即可读，另存＝第二真源 |
+
+⇒ 结论：「该死的人不在场」由 **`lifecycle` 实例字段**承担（append-only、可投影、可条件读取），不新增任何持久化记录。
+**可诊断性补偿**：`TriggerResult`（`turn.ts:215-220`，引擎内部类型，不进存档/投影/API）增加**非持久化**字段
+`skipped?: Array<{ eventId, reason: "combat_refs_inactive", npcIds: string[] }>`，供测试与本地排障断言「这场为什么没打」。
+若主理人认为连这个也不必要，可退化为零记录（测试改用副作用断言）——功能语义不受影响。
+
+**1.5 明确不做（决策 1 边界）**
+
+- **不做**模板期 / 建世界期的「combat 全 enemies 恒非在世」静态矛盾校验：当前 12 场战斗的敌人全是无实例的 `enemy-*`，不可能失败触发；真写了属内容错误。顺带记录事实：`character_not_found` 现在也是**建场期**抛错（`battle.ts:184`），不是 ADR-0012 所说的加载期——引用完整性校验在建仓时就不存在，本 ADR 不补。→ 登记 `BACKLOG`。
+- **不新增** `ChainStatus` 枚举、不修「链因战斗被跳过而悬空」：`evaluateChain` 只看「队列 waiting / 待决 / 该步定义存在」（`scheduler.ts:327-341`），跳过不改链 ⇒ 链停在 active。该风险在**既有** combat 并发 skip 上已存在（同型缺陷，不是本决策引入）；正确解法是新状态 `broken` + 协议变更，另立项。→ 登记 `BACKLOG`。
+
+### 决策 2：reasonCode 展示口径 —— 具体原因优先，通用标签降级为兜底
+
+- **投影不变**：`npcs[].lifecycle.reasonCode` 继续原样透传（`projection.ts:174-179`），引擎仍不解释、不映射、不校验取值。
+- **前端口径**（`main.tsx:2088-2092 / 2113-2118 / 2188-2190`）：
+  1. `state !== "alive"` 且 `reasonCode` 存在 ⇒ **只显示 `reasonCode`**，去掉 `NPC_LIFECYCLE_LABEL[state] + " · "` 前缀。
+  2. `reasonCode` 缺失 ⇒ 回退通用标签，且**文案收窄**：`inactive` 由「已故 / 失联」改为「**已离场**」。
+     理由：「已故」「失联」都是在无数据时对原因做推测（用户明确反对界面上出现这两个词），而 `inactive` 的引擎语义只是「非在世 / 不参与」，叛逃、封印、下落不明同落一态；与其二选一猜错，不如给中性词。
+     `unspawned` 保持「尚未登场」，`alive` 不显示标签。卡片降饱和 / 删除线保持不变。
+- **模板约定（不是引擎约束）**：每个非在世场景应给具体 `reasonCode`（阵亡／失踪／叛逃／封印／下落不明…）。
+  引擎**不**提供枚举、**不**做必填校验、**不**维护中文映射表——世界观词表属模板（AGENTS.md §5「不得把世界观专属规则硬编码进通用引擎」）。
+  现有范例：`ev-bs-05` 的 `setNpcLifecycle npc-haibara inactive reasonCode 阵亡`（ADR-0020）。
+- **明确不做**：不给 `reasonCode` 加白名单/枚举；不在投影做 code→中文；不因缺失而告警（缺省不是错误）。
+
+### 决策 3：NPC 属性投影 —— 下发模板声明的 base 属性，不新增派生值
+
+- `V2Snapshot.npcs[].attributes: Record<string, number>`（**必填，空对象而非缺省**——前端直接遍历，`undefined` 会炸）。
+  数据源已在实例层（`turn.ts:122`），**本决策纯投影 + 前端，无状态模型改动**。这也直接回答了用户第 3 条的前半句：
+  **属性一直存在，只是没下发。**
+- **键集**：只透 `template.attributes.order` 内的键，按 `order` 顺序构造；order 外的键一律不透（避免把内部/派生键，如玩家侧的 `proficiency*`，漏成新 API 面）。
+- **值**：base 原值（模板声明值；`levelScale` 与补正一概不叠）。**不新增** `attributeModifiers` / `effectiveAttributes` / `attributesDelta` 等派生字段。三条理由：
+  1. 与玩家面板同口径（`player.attributes` 也是 base + 独立 `statuses` 列表），前端可复用同一渲染；
+  2. 面板若要显示「实效值」，必须先按 `visibility=known` 过滤补正再算，结果必然与引擎实算不一致（hidden 术式补正被滤掉）——面板数字与战斗数字不符，比不显示更坏；反之不过滤即成 hidden 侧信道（ADR-0019 已立的红线）；
+  3. 若复用 `engine.effectiveAttributes()` 求同源，则必须接受输入未经可见性过滤 ⇒ 直接泄漏 hidden 补正差值，二者不可兼得（`engine.ts:71-101`）。
+- **术式与补正的分层（回答用户第 3 条后半句）**：
+  - 术式在模板里**就是状态**（`statuses.yaml` 的 `tech-*`，带 `simulation.attributeModifiers`，如 `tech-ten-shadow → { cursedEnergy: 4, intellect: 1 }`），因此它在人物面板上表现为**补正一项**，不进 base 属性——「补正是术式的副产物」的现有表达已经成立。
+  - 若要让「术式带来的属性」出现在属性区，走**模板约定**（内容侧，T-1 单独立项）：把永久天赋并入 `characters[].attributes`，同时**不要**再在同一术式状态里重复声明同一份 `attributeModifiers`（否则战斗侧双算）。引擎不提供叠加计算，也不替模板判断该放哪边。
+  - base 与实效值不相等在界面上是**可接受**的：玩家面板本来就这么显示。
+- **维持 ADR-0019 其余边界**：`hp/mp/mood` 仍不下发（战斗域数值），关系另一端名字仍不内联。
+- **ADR-0019「不下发 attributes」一条被本条部分替代**：原文理由「NPC 战斗数值属战斗域，暴露即成推理材料」让位于用户明确的展示诉求；实际风险有限——`attributes` 是模板公有声明，不含 hidden 派生值。
+
+### 决策 4：birthTime 与年龄派生 —— 先做 NPC 侧，玩家侧延后
+
+**4.1 数据模型**
+
+- `V2Npc.birthTime?: number`（**世界分钟，可为负**；负＝世界起点之前出生）。**可选 + 读侧反推，不升 `schemaVersion`**（沿用 `lifecycle` 先例，`v2-state.ts:64-77`）。
+- 反推口径：缺失时 `birthTime = yearsBack(npc.age, 0)`——按整年从**世界起点**回溯，与 `identity.age` 的语义（世界起点时的年龄）严格对齐，保证 `ageAt(birthTime, 0) === npc.age`。
+- **`V2Npc.age` 语义收窄**：由「当前年龄」降级为「起始年龄快照」，唯一合法读者是反推兜底；建实例仍写 `identity.age`（旧档字节兼容），此后不再重算、也不再被投影读。
+- **投影**：`npcs[].age = ageAt(birthTime, worldTime)`，**形状不变**（前端 `npc.age` 消费点零改动，`main.tsx:2107 / 2193`）；`lifeStage` 顺势改用派生年龄（`projection.ts:153`）。
+
+**4.2 派生函数（关键：不要写 `elapsedYears(now − birthTime)`）**
+
+- `CalendarAdapter` 新增 `yearOf(minute): number` 与 `ageAt(birth, now) = yearOf(now) − yearOf(birth)`。
+- **为什么不能复用 `elapsedYears`**：它的语义是「相对 `startYear` 的整年差」，把它喂给「两个时刻之差」得到的是**生日口径**（满周年才加岁），与 ADR-0013 修订 R1 已定的「**跨年界即 +1**」不一致，二者在 gregorian/custom 下会差 1 岁。
+  真实反例：生于 1991-04-03、观察点 2007-01-15 —— 跨年界口径 16 岁；`elapsedYears(now − birth)` = 15 岁。
+  `approx` 下两者**恰好等价**（525600 整除，`age × Y` 是整数倍），所以这个坑只会在 jjk-2006 这类 `preset: gregorian` 模板上炸。
+
+**4.3 前置阻塞（必须一起做，否则 gregorian 下静默算错）**
+
+- `CalendarAdapter` 当前**不支持负分钟**：`minutesToView` 首行 `Math.max(0, Math.floor(minutes))` 钳位（`time.ts:130`），`viewToMinutes` 只从 `startYear` 正向累加（`time.ts:147`）。
+  于是 `toMinutes({ value: -15, unit: "year" }, 0)` 会**静默返回 0**，`yearOf(负分钟)` 全部退化成 `startYear`。
+  而 15 岁角色在世界起点的出生分钟必然是负值（−15 年）——**不修负分钟，birthTime 在 gregorian 下根本无法成立**。
+- ⇒ 本决策包含一处**必要的 `time.ts` 扩展**：`minutesToView` 支持从 `startYear-01-01` 向回走整年、`viewToMinutes` 支持 `year < startYear` 的负累加（`eraYearBase` 已有手写负分支 `time.ts:169-185`，复用同款思路）。
+  约束：`minutes ≥ 0` 的全部输出**字节不变**（现有 `time.test.ts` 必须全绿）。
+- 附带收益：R3 时间穿越需要的「回拨 / 负时间」seam 由「被钳位封死」变为「可用」，**加强**而非封死预留点。
+- **注意回答用户第 4 条的原话**：`birthTime` **不可能只改 yaml 解决**。yaml 能声明出生时间（配置层），但「按世界时间推进年龄」必须有引擎参与——现状年龄是静态快照、投影直读该快照，引擎不重算就永远不变；且本仓没有任何 `birthTime` 字段可写。所以这条**必须**改 `packages`（T-2，走 ADR），不是 T-1。
+
+**4.4 玩家侧：不做统一、不退役 `playerAgeAtStart`**（对 ADR-0012 决策 4 的范围修订）
+
+1. 玩家派生**已正确**：`player.age = playerAgeAtStart + elapsedYears(worldTime)`（`engine.ts:491/499`、`turn.ts:768/853`），ADR-0013 修订 R1 已确认口径，无缺陷可修；
+2. 退役要动 `v2-state.ts:198` 必填字段 + `setIdentity`（ADR-0018，`engine.ts:359-368`）+ 至少 6 处断言（`v2.test.ts:166/903`、`r25-acceptance.test.ts:99`、`identity-effect.test.ts` 4 例）⇒ 改动面是 NPC 侧的 2 倍，且动的是**当前在绿**的功能；
+3. **语义等价、不会漂移**：birth 由整年回溯构造时，`playerAgeAtStart + (yearOf(now) − yearOf(0))` ≡ `yearOf(now) − yearOf(birth)`，两条路径数值恒等；
+4. **无跨读**：全仓无条件 DSL 读 age（`schema/common.ts` 无 age 条件）、评分不读 age（`life-evaluation.ts` 零命中）、战斗不读 age（`battle.ts` 只读 attributes）⇒ 两条路径彼此不可见。
+
+⇒ 登记 `BACKLOG B-12` 改写：**NPC 部分由本 ADR 关闭**；「玩家 `birthTime` 统一」仍为独立一刀（届时 `setIdentity` 等价改写为 `birthTime = yearsBack(age, worldTime)`，无新语义）。
+
+**4.5 明确不做**：`identity.birthday`（月日精度）与「生日未到不加岁」维持 `OPEN_QUESTIONS #47` 不实现；`spawnNpc`（ADR-0010 决策 4 路径）仍缺，故 `birthTime` **只在建世界期反推一次，不新增写入点**。
+
+### 决策 5：确定性影响
+
+| 改动 | RNG 消耗 | 状态写入 | 同 seed 结果 |
+|---|---|---|---|
+| 战斗 ref 判活过滤 | **零**（纯读，不调 rng） | 无 | 仅当存在「确知非在世」ref 时，该场**单位构成**变化 ⇒ 该场战斗骰序不同。当前 12 场战斗 `enemies` 全是未实例化的 `enemy-*`（恒不触发），`allies` 是实例 NPC ⇒ 只有「友军已非在世」才触发 |
+| `npcs[].attributes` | 零 | 零（纯读实例） | 不变 |
+| `reasonCode` 展示 | 零 | 零（纯前端） | 不变 |
+| `birthTime` 派生 | 零 | 零（**投影期计算**，不写 `state.npcs[].age`） | 不变；但 `npcs[].age` 由「恒定」变为「随世界时间增长」⇒ 依赖恒定值的旧断言需改写 |
+| `time.ts` 负分钟支持 | 零 | 零 | `minutes ≥ 0` 输出不变 |
+
+| 不变量 | 现状 | 本改动影响 | 保护措施 |
+|---|---|---|---|
+| 同 seed 同输入同结果 | 绿 | 判活引入状态读取，但仍是纯函数 | `resolveCombatRefs` 无 rng 入参；`replay.test.ts` + 新增夹具 |
+| hidden 不进入玩家端 API | 绿 | 属性下发面扩大 | 只透 `attributes.order` 内键；不新增 effective/派生值 |
+| 世界观规则只进模板 | 绿 | `reasonCode` 文案与术式加成落点都在模板 | 引擎不校验/不映射 `reasonCode`；不硬编码「阵亡」等词 |
+| 时间/随机/ID 可注入 | 绿 | `ageAt` 走注入的 `CalendarAdapter` | 纯历法运算，不引入 `Date` |
+| R3 穿越 seam 未被封死 | **负分钟被封死** | 由本次修复转为可用 | `yearOf/ageAt` 支持负分钟，`toMinutes` 负值语义用测试固化 |
+
+### 被否决的备选
+
+- **只在建场期过滤（最省事）**：敌人全被滤空 ⇒ `checkBattleEnd` 立即胜利 ⇒ `onVictory` 白送（`battle.ts:488`）。必须配「敌人耗尽 ⇒ 不建场」。
+- **只在触发前整条跳过（ADR-0012 字面口径）**：一条命中的死敌人就让整场战斗消失，与「先死一半敌人、剩下照打」冲突；且 `ev-sj-02` 友军被封会整场不打，直接断掉终章。
+- **建场期硬报错 / 加载期报错**：ADR-0012 已否决（分支先死是合法剧情），且把「可变状态」与「模板错误」混为一谈。
+- **把跳过写进 `flags` / `missedEvents` / 新增事实字段**：见决策 1.4 逐条排除。
+- **投影下发 `effectiveAttributes`**：hidden 补正过滤与「面板＝战斗」不可兼得，且构成第二真源。
+- **用 `elapsedYears(now − birth)` 算年龄**：gregorian 下与 ADR-0013 R1 的跨年界口径差 1 岁（反例见 4.2）。
+- **从 schema 删掉 `age`、只留 `birthTime`**：`CombatantBaseSchema.age` 是 strict 存档必填（`v2-state.ts:35`），删字段＝旧档全拒载 + 玩家侧连带，收益为零。
+- **本轮顺手统一玩家 `birthTime`**：动在绿路径、改动面翻倍、语义等价无收益（见 4.4）。
+
+### 后果 / 影响面
+
+- `packages/shared/src/v2.ts`：`NpcView` 增 `attributes`（必填）；`V2Npc` 增 `birthTime?`。
+- `packages/shared/src/v2-state.ts`：`V2NpcSchema` 增 `birthTime: z.number().optional()`（注释沿用 lifecycle 口径；**不升 schemaVersion**）。
+- `packages/game-core/src/v2/battle.ts`：新增导出 `resolveCombatRefs`；`buildUnits` 改签名；`createBattle` 走解析结果。
+- `packages/game-core/src/v2/turn.ts`：`triggerEventV2` 的 combat 前置门增「enemies 耗尽 ⇒ return」（与并发 skip 同一位置）；建实例写 `birthTime`；`TriggerResult` 增非持久化 `skipped?`。
+- `packages/game-core/src/v2/time.ts`：`yearOf` / `ageAt` / 负分钟支持。
+- `packages/game-core/src/v2/projection.ts`：`npcs[].attributes` + `age = ageAt(...)`。
+- `apps/web/src/main.tsx`：`NpcCard` 增属性区（复用 `PlayerCard` 的 `labelOrder` + 排序逻辑，抽公共组件）；`reasonCode` 优先展示；`inactive` 兜底文案改「已离场」。
+- **模板零改动**：本 ADR 不碰 `specs/data/templates/**` ⇒ 模板指纹不变，**不因本 ADR 拒载存档**（`birthTime` 可选带来的读侧兼容）。
+- 迁移成本：旧档无感（反推在读取侧）；测试新增约 10 例、改写 1 类断言（NPC age 恒定）。
+
+### 验证要点（必须有测试）
+
+1. **死人不参战（友军）**：置 `npc-gojo` inactive ⇒ `ev-sj-02` 照打、`battle.allies` 不含 gojo、敌人列表不变。
+2. **死人不参战（敌人，合成夹具）**：两敌一死一活 ⇒ 只滤死者、照打。
+3. **敌人耗尽 ⇒ 整条跳过**：`eventFires`/`firedEvents`/`history`/`pendingEvents` 全无新增、`triggered` 不含该 id、once/冷却未消耗、`worldTime` 未被 `timeCost` 推进。
+4. **友军为空照打**：allies 全滤空、enemies 非空 ⇒ 建场成功、`battle.allies === []`。
+5. **未知 ref id（无实例）⇒ 视为可用、不跳过**（防「把整场战斗干掉」回归）。
+6. **属性透出**：键集 ⊆ `attributes.order`；注入 order 外键不出现；值等于模板声明；无声明 ⇒ `{}`。
+7. **`reasonCode` 展示**：有值 ⇒ 界面只出现该值（不含「已故」「失联」字样）；无值 ⇒ 回退「已离场」。
+8. **跨年 +1（gregorian）**：世界时间越过 1 月 1 日 ⇒ 投影 `npcs[].age` +1，而 `state.npcs[].age` 不变。
+9. **旧档缺 `birthTime`**：加载后投影 `age === identity.age`，且随世界时间推进增长（反推正确）。
+10. **负分钟**：`yearOf(-n)` / `ageAt` 回溯 / `minutes ≥ 0` 输出字节不变（现有 `time.test.ts` 全绿 + 新增负值用例）。
+
+### 建议拆任务（4 个 T-2 任务，按序施工）
+
+| 序 | 任务 | 主改点 | 依赖 |
+|---|---|---|---|
+| T1 | 战斗参战 ref 判活 | `battle.ts`（`resolveCombatRefs`）+ `turn.ts`（前置门） | 无 |
+| T2 | NPC 属性投影 + 前端属性区 | `projection.ts` + `main.tsx` | 无 |
+| T3 | 展示口径：`reasonCode` 优先 + 「已离场」兜底 | `main.tsx` | 可与 T2 合并为同一前端提交 |
+| T4 | `birthTime` 派生 | `time.ts`（负分钟 + `yearOf/ageAt`）→ `v2.ts`/`v2-state.ts`/`turn.ts`/`projection.ts` | **内部顺序不可反**：先历法能力、后数据字段（否则 gregorian 下年龄静默算错） |
