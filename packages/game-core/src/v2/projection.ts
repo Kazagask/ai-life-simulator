@@ -12,7 +12,7 @@ import type {
 import { moodBand, maxHp, maxMp } from "./engine.js";
 import { birthTimeFromAge, createTimeAdapter } from "./time.js";
 import type { TemplateLookup } from "./lookup.js";
-import { slotEventView } from "./turn.js";
+import { pendingEventView, slotEventView } from "./turn.js";
 import { controlOf } from "./battle.js";
 import { isKinshipKind, kinshipTerm, projectVisibleRelations } from "./relations.js";
 
@@ -245,7 +245,10 @@ export function projectSnapshotV2(
           }),
         };
       }),
-    pendingEvent: ended ? null : slotEventView(state, lookup),
+    // ADR-0034 §5：投影只给"当前在演什么"（`slotEvent`），不投影队列内容与长度。
+    slotEvent: ended ? null : slotEventView(state, lookup),
+    // @deprecated 旧前端过渡（= slotEvent 的 normal 子集）：前端切换后删除。
+    pendingEvent: ended ? null : pendingEventView(state, lookup),
     battle,
     lastWheel: state.lastWheel,
     // D-03：当轮全部转盘结果（旧档无该字段 ⇒ 空数组，前端据此不渲染转盘区）

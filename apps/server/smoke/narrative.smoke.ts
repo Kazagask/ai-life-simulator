@@ -120,6 +120,8 @@ function makeSnapshot(ending: EndingView | null): V2Snapshot {
       inventory: [],
     },
     npcs: [],
+    // ADR-0034 §5：呈现槽视图（派生字段）；本夹具槽为空 ⇒ null。
+    slotEvent: null,
     pendingEvent: null,
     battle: null,
     lastWheel: null,

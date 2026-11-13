@@ -9,6 +9,7 @@ import type {
   HistoryEntryV2,
   HistoryVisibility,
   PendingEventView,
+  SlotEventView,
   TimeAmount,
   UseItemCommand,
   V2Snapshot,
@@ -1130,28 +1131,60 @@ export function useItemV2(
 // ---------- 呈现槽视图（选项按 visibleWhen 过滤） ----------
 
 /**
- * 槽内事件的呈现视图（ADR-0034 §2 步 1）：**效果未应用、`turnIndex` 不变**。
- * 只有 `normal` 有选项面；`combat` / `random` 走各自视图（战斗面板 / 转盘），此处返回 null。
+ * 槽的呈现视图（ADR-0034 §5 / §8-⑩）：**效果未应用、`turnIndex` 不变**。
+ *
+ * `kind` 是前端的**行为开关**：`normal` 呈现选项、`random` 呈现已掷出的那一格并等待"确认"、
+ * `combat` 走战斗面板。空槽返回 `null`。
  */
-export function slotEventView(state: WorldStateV2, lookup: TemplateLookup): PendingEventView | null {
+export function slotEventView(state: WorldStateV2, lookup: TemplateLookup): SlotEventView | null {
   const scene = state.slot;
   if (scene === null) return null;
   const event = lookup.event(scene.eventId);
-  if (!event || event.kind !== "normal") return null;
-  // ADR-0024 决策 2.3 #6（只读防御）：队首前提已假 ⇒ 不呈现（正常流程已在呈现前复核过）。
+  if (!event) return null;
+  // ADR-0024 决策 2.3 #6（只读防御）：前提已假 ⇒ 不呈现（正常流程已在呈现前复核过）。
   const premiseRng = scanStream(state);
   if (!checkEventPremise(event, { state, lookup, rng: premiseRng }).ok) return null;
-  const rng = createRng(deriveTurnSeed(state.seed + 7, state.turnIndex));
-  const ctx: ConditionContext = { state, lookup, rng };
-  return {
-    eventId: event.id,
-    title: event.title,
-    narrative: event.narrative,
-    options: event.settle.normal.options
-      .filter((o) => checkAllConditions(o.visibleWhen, ctx))
-      .map((o) => ({ id: o.id, text: o.text })),
-  };
+
+  if (event.kind === "normal") {
+    const rng = createRng(deriveTurnSeed(state.seed + 7, state.turnIndex));
+    const ctx: ConditionContext = { state, lookup, rng };
+    return {
+      eventId: event.id,
+      from: scene.from,
+      kind: "normal",
+      title: event.title,
+      narrative: event.narrative,
+      options: event.settle.normal.options
+        .filter((o) => checkAllConditions(o.visibleWhen, ctx))
+        .map((o) => ({ id: o.id, text: o.text })),
+    };
+  }
+  if (event.kind === "random") {
+    // 呈现时已掷出（`presentRandomSlot` 写入 `lastWheels`）；这里只读出来给前端演。
+    const shown = (state.lastWheels ?? []).find((w) => w.eventId === event.id);
+    return {
+      eventId: event.id,
+      from: scene.from,
+      kind: "random",
+      title: event.title,
+      narrative: event.narrative,
+      ...(shown !== undefined ? { wheel: shown } : {}),
+    };
+  }
+  return { eventId: event.id, from: scene.from, kind: "combat", title: event.title, narrative: event.narrative };
 }
 
-/** 兼容旧名（提交 2 会把投影字段改名为 `slotEvent`）。 */
-export const pendingEventView = slotEventView;
+/**
+ * @deprecated 旧前端过渡包装：只保留 `normal` 子集（= `slotEvent` 去掉 kind/from/wheel）。
+ * 前端切换完成后连同 `V2Snapshot.pendingEvent` 一起删除。
+ */
+export function pendingEventView(state: WorldStateV2, lookup: TemplateLookup): PendingEventView | null {
+  const view = slotEventView(state, lookup);
+  if (view === null || view.kind !== "normal") return null;
+  return {
+    eventId: view.eventId,
+    title: view.title,
+    narrative: view.narrative,
+    options: view.options ?? [],
+  };
+}

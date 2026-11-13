@@ -433,7 +433,11 @@ app.get("/api/worlds/:id", async (request, reply) => {
   };
 });
 
-/** 推进轮次；有待决事件/进行中战斗时拒绝（前端应先调用相应交互接口）。 */
+/**
+ * 推进轮次（自由行动）。
+ * 拒绝条件（ADR-0034 §5）：`slot` 被占（`pending_event_required`）或战斗进行中（`battle_in_progress`）。
+ * **例外**：槽内是 `random` 时本接口即「转盘确认」——请求体里的 `action` 被忽略（不校验、不报错）。
+ */
 app.post("/api/worlds/:id/turns", async (request, reply) => {
   const { id } = request.params as { id: string };
   const found = getWorld(id);
@@ -741,6 +745,9 @@ app.post("/api/worlds/:id/archive", async (request, reply) => {
 function handleEngineError(request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply, error: unknown) {
   request.log.error(error);
   const message = error instanceof Error ? error.message : String(error);
+  // ADR-0034 §5：错误码**不新增**，语义随模型重述——
+  // `pending_event_required` 现在表示「呈现槽被占，须先处理槽内事件」（不再叫"待决事件队列"）；
+  // 例外：槽内是 `random` 时 `turns` 被解释为「转盘确认」（ADR-0034 §8-⑩），不会走到这里。
   const interactionErrors = new Set([
     "pending_event_required",
     "battle_in_progress",

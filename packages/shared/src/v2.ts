@@ -362,6 +362,32 @@ export interface EventOptionView {
   text: string;
 }
 
+/**
+ * 呈现槽的事件视图（ADR-0034 §5）：投影**只给"当前在演什么"**，
+ * 不下发队列内容、也不下发队列长度（反作弊，§8-⑥：否则"队列里有一条关于某人的事件"
+ * 会泄露该人未死/将出现）。
+ */
+export interface SlotEventView {
+  eventId: string;
+  /** 场景来源（与 `SlotScene.from` 同枚举）：诊断与前端解释"这一格为什么在演" */
+  from: "successor" | "opening" | "death" | "hook" | "queueTake";
+  /**
+   * **前端必须按它决定"继续"按钮的语义**（ADR-0034 §8-⑩）：
+   * - `normal` ⇒ 呈现选项，玩家选择后走 `events/choose`；
+   * - `random` ⇒ **已掷出**转盘结果由 `wheel` 给出，"继续" = **确认**（走 `turns`，不带行动语义）；
+   * - `combat` ⇒ 战斗进行中，命令走 `battle`；
+   * - 空槽不产出本字段（`slotEvent === null`）。
+   */
+  kind: "normal" | "random" | "combat";
+  title: string;
+  narrative: string;
+  /** `kind === "normal"` 时按 `visibleWhen` 过滤后的可选项 */
+  options?: EventOptionView[];
+  /** `kind === "random"` 时已掷出的那一格（幂等：同一槽重复呈现同一结果） */
+  wheel?: WheelResultView;
+}
+
+/** @deprecated 兼容旧前端：等价于 `slotEvent` 的 normal 子集，提交批的下一个前端单会删掉它。 */
 export interface PendingEventView {
   eventId: string;
   title: string;
@@ -595,7 +621,17 @@ export interface V2Snapshot {
       sinceWorldTime: number;
     };
   }>;
-  pendingEvent: PendingEventView | null;
+  /**
+   * 呈现槽（ADR-0034 §5）：`null` = 空槽（可自由行动）。**唯一**的呈现真源。
+   * 只描述"当前在演什么"，不含队列内容与长度。
+   */
+  slotEvent: SlotEventView | null;
+  /**
+   * @deprecated 旧前端的过渡字段（= `slotEvent` 的 normal 子集）。
+   * 保留原因：`apps/web` 的切换由前端单独立项；一旦前端改读 `slotEvent` 即删除本字段。
+   * **新代码一律读 `slotEvent`**，不要再消费本字段。
+   */
+  pendingEvent?: PendingEventView | null;
   battle: BattleView | null;
   /** 最近一次转盘结果（向后兼容的单槽视图，等价于 `lastWheels` 的末项） */
   lastWheel: WheelResultView | null;
