@@ -246,6 +246,8 @@ R2 原方案（补充方案 §2/§6）拟引入六阶段 Lifecycle 状态机（`
 - 迭代期每次改模板 YAML，旧档作废（指纹拒绝）——接受该代价，模板稳定后可引入迁移机制。
 - 与 `R-AR-03` 的关系：R-AR-03 说"首版沿用现有存档机制"，本轮把该机制从内存补成落盘，不是新增独立存档子系统。
 
+> **〔被 ADR-0031 补充，2026-11-13〕** 决策 3 的「`schemaVersion` 格式不兼容变更时递增」**不适用于** ADR-0031：本次只在 `state` 内新增两个**可选字段**（`pendingWheels` / `wheelSeqCounter`，读侧缺省 `[]` / `0`），信封结构、文件布局、指纹算法与四道加载关**全部不变** ⇒ `schemaVersion` 保持 2，旧档照常载入。判定口径与本 ADR 之后的三次可选字段追加（`lastWheels` / `history.visibility` / `spawnRules`）一致：**「旧档缺该字段」必须能表达一个精确语义**（此处 = 旧档不存在待结算转盘，因为旧档的 random 都是即时结算的），才允许不升版；表达不出精确语义时仍须升版拒载。
+
 ## ADR-0008 背包与装备栏物理分离：库存只存未穿戴物品
 
 状态：**已接受**（2026-11-11，R2.4 用户裁决）
@@ -618,6 +620,8 @@ NPC 现无任何存活状态：死亡/失联的 NPC 照样被效用评分选中�
   刷新后必然查空 ⇒ 标题回落「随机事件」。写进结果后刷新与旧档均自洽。**旧档无法追溯**（历史上没存过），仍显示兜底文案——属数据缺失，非缺陷复发。
 - 存档兼容：`lastWheels` 在状态 schema 与 TS 均为**可选**、读侧 `?? []`，**不升 `schemaVersion`**（升版会拒载 `data/worlds/` 下全部在跑存档，
   为 P2 呈现缺陷付此代价不成比例）；沿用 `history.visibility` 的既有兼容先例。
+
+> **〔被 ADR-0031 修订，2026-11-13〕** `lastWheels` / `lastWheel` 的语义**收窄为「已结算」**：转盘的「决定」（选扇区）与「落账」（应用 effects）被拆开，未结算项改由新增的 `WorldStateV2.pendingWheels`（可选 + 读侧 `?? []`）承接，`lastWheel(s)` 改在**结算时**追加而非触发时写入。**顺序口径随之修订**：`lastWheels` 由「当轮触发顺序」改为「**结算顺序**（= 玩家点击顺序）」；D-03 关心的「同轮多条不再互相覆盖」不变，触发顺序仍可从 `PendingWheel.seq` 追溯（不进投影）。`title` 持久化的理由（D-16）同样适用于 `PendingWheel.title`。**`schemaVersion` 仍不升**（沿用本决策的可选字段先例）。
 
 ### 决策 5（展示策略）：`storyChapter` 仅数字，评价分项仅结局/归档展示
 
@@ -2684,3 +2688,219 @@ combat 被 `pendingEvents` 挡（对称洞）/ `pendingEventPriority` 在单槽�
 |---|---|
 | ADR-0011 决策 5 末尾（本文件 `:358`，紧接 ADR-0026 的注记之后） | 「槽位唯一」的语义边界被扩围为四方共用位；ADR-0026 的单槽 ≤1 不撤销，只对应 `event` 一类；准入判据改由 `slotTakenFor()` 派生 |
 | ADR-0026 末尾（本文件 `:2118`） | 决策 1/2 的单槽定义、决策 3 的「combat / random 不受影响」被证伪为盲区；附量化基线（normal 6→0、combat 2 次未覆盖）；本 ADR 决策 5 的「可整块删除回退」性质保留，但删除后的行为不再视为正确行为 |
+
+> **〔被 ADR-0031 补充，2026-11-13〕** 准入谓词在 L1/L2/L3 之前**新增 L0 层**：`(state.pendingWheels?.length ?? 0) > 0`（未结算转盘），**对所有 kind 生效**（normal / random / combat 一律被挡）；自身豁免同样成立——结算入口在移除 `pendingWheels` 项**之后**才执行效果，故轮盘触发的事件不会被「自己」挡住。依据与前端 `SlotOccupant` 优先级完全一致（`apps/web/src/main.tsx:1308-1315`：`wheel > battle > event > action`）。**本 ADR 决策 5 的两句话须按此收窄**：`normal / random / combat × L1(pendingEvents)` 的组合表不变，但「combat / random 不受守卫影响」仅对 **L1** 成立，对 **L0** 不成立。槽位层级完整顺序：**L0 wheel → L1 pending → L2 battle → L3 chainReserve**。
+
+## ADR-0031 随机事件延迟结算：决定与落账分离
+
+> **本条覆盖**：把 `kind: "random"`（转盘）的「**选扇区**」与「**应用效果**」拆成两个时点——选扇区仍在触发当轮完成（RNG 位置不变），效果改由玩家**点击**触发的独立入口落账。属 **T-2 协议/契约变更**（新增 `WorldStateV2` 字段、新增投影字段、新增 API 与两个封闭错误码、改 `lastWheels` 语义）⇒ 必须先 ADR（`AGENTS.md` §0.3）。
+> **本条与 ADR-0030 正交但相邻**：ADR-0030 管「谁可以占呈现槽」，本条管「转盘占着槽时要等玩家点」。两者的接缝由本文**决策 5** 定义为 ADR-0030 准入谓词的新增 L0 层。
+
+- **状态**：**已接受（2026-11-13，待用户批准实施）**。
+- **起草人**：系统架构师（高见远）。
+- **用户原话**：「现在随机事件后端直接结算了，前端看起来就是转盘还在转，但是状态、事件已经打上了……会降低期待感。把随机事件的结算时机改成前端点击，后端只返回结果，前端点击才结算。」
+- **关联**：ADR-0030（呈现槽准入，本文补 L0 层）、ADR-0017 决策 4（`lastWheels` / D-03 / D-16 的既定语义，**被本文修订顺序口径**）、ADR-0007（存档信封与 `schemaVersion` 口径）、ADR-0024 决策 8（独立派生流的盐约定）、ADR-0029（模板热加载的快照隔离，本文「定义缺失」兜底的不可达性依据）。
+
+### 现状核实（以代码为准）
+
+| 事项 | 事实 | 证据 |
+|---|---|---|
+| 选扇区 | `pickIndex(weights, rng)` —— 按 `weight` + `weightBy` 现算权重后**吃 1 次 RNG** | `turn.ts:502-512`、`:539-548` |
+| 落账 | 同一处紧接着 `applyEffectsV2(seg.effects)` + `triggerChainStarts` + `advanceChainOnSettle(seg.nextEventId)` | `turn.ts:525-532` |
+| 事实与投影写入 | `recordFire` / `pushHistory` **在 kind 分支之前**（对所有 kind 生效）；`lastWheel` / `lastWheels` 在 random 分支内写 | `turn.ts:487-495`、`:523-524` |
+| 前端只是表演 | 落点角 = `360*4 + (360 - hit.center)`，由**服务端给的 label** 反算；动画 `transition: transform 2.6s cubic-bezier(.13,.72,.06,1)`；动画结束才出「继续」按钮 | `apps/web/src/main.tsx:1523`、`:1580`、`:1649-1652` |
+| 同轮多转盘 | `lastWheels` 承接当轮全部，轮次起点清空（D-03）；前端 `wheel-rest` 列表**直接把其它转盘的 `label` 也显示出来** | `turn.ts:521-524`、`main.tsx:1770-1782` |
+| 效果是否吃 RNG | **不吃**：`engine.ts` 全部效果分支零 `rng()` 调用，唯一 `rng()` 在条件 DSL 的 `random` 条件（`engine.ts:258`） | `grep rng()` |
+
+⇒ 缺陷确认：玩家看到指针还在转的时候，属性 / 道具 / flag / 历史已经全部落账，且刷新即可见结果；「继续」只是个装饰按钮。
+
+### 决策 1：切分点 —— 选扇区留原处，落账搬到点击
+
+1. **`pickIndex` 必须留在触发当轮**（`turn.ts:511` 不动）。理由：前端要用「命中扇区」算落点角（`main.tsx:1523`），没有结果就没有动画；且 RNG 消耗位置一旦挪动，同 seed 的后续序列全部漂移。
+2. **搬到结算时执行的清单**：`applyEffectsV2(seg.effects)`（`:526`）、`triggerChainStarts(segCtx.startedChains)`（`:530`）、`advanceChainOnSettle(event, seg.nextEventId)`（`:531`）、`result.drainRequested` 的置位与随后的 `drainDue`（`:529`）。
+3. **不搬的清单**：`recordFire`（`:487`）、`pushHistory`（事件叙述，`:489-495`）、`pickIndex`、`lastWheel/lastWheels` 的**写入位置**（写入动作搬，见决策 2）。理由：`once` / 冷却 / 事实日志的时点保持「事件发生的那一轮」，与 ADR-0026 决策 2「只在真正发生时记一次火」同口径；轮盘事件确实在那一轮发生了，只是「结果的影响」延后落地。
+4. **确定性不变量（本文最重要的一条）**：`pickIndex` 的调用次数与位置不变 ⇒ **命中扇区与今天逐 seed 完全一致**；当前模板的全部 wheel 扇区 `effects` 零 RNG（上表已核实），故**落账搬走不改任何随机序列**。唯一变化是「效果生效的世界时刻」从触发轮变成结算轮。
+5. **结算侧的 RNG 必须用固化派生流**：结算时执行 `triggerChainStarts` / `advanceChainOnSettle` 会再次进入 `triggerEventV2`，其后代事件的条件 DSL 里若有 `random` 条件就会吃 RNG。裁定：结算 rng = `createRng(deriveTurnSeed(state.seed + 53, whl.seq))`：
+   - 盐 **53** 取自既有约定 `{0, +7, +13, +29, +37}` 之外（ADR-0024 决策 8 先例），不污染主轮 / 选项 / 战斗 / 物品 / 复核流；
+   - 键取 `seq`（全局单调触发序号）而非 `turnIndex` ⇒ **结算结果与「玩家什么时候点、隔几轮点、刷新几次再点」无关**，这是延迟结算能保住确定性的关键；
+   - 预期漂移：凡「random 事件的效果带 `startChain` 或扇区带 `nextEventId`」者，其下游触发改用该独立流 ⇒ 逐事件时序可能变化（一次性、可复现），按 ADR-0026 决策 6 口径属**预期非回归**。
+
+### 决策 2：待结算状态的持久化
+
+1. **新增实例层（与 `pendingEvents` / `scheduledEvents` 同级，不是事实层）**：
+
+```ts
+export interface PendingWheel {
+  wheelId: string;          // `whl-<seq>`；客户端唯一句柄，不透明，前端不得解析
+  seq: number;              // 全局单调触发序号：排序 + 结算 RNG 派生键
+  eventId: string;
+  title: string;            // 同 D-16 理由：刷新/重连不依赖本次响应上下文
+  segments: Array<{ label: string; weight: number }>;  // 供动画，与 WheelResultView 同形
+  segmentIndex: number;     // 已决定的命中扇区（RNG 已在触发轮消费，此处只固化结果）
+  label: string;            // 冗余但必要：定义被改/丢时的兜底显示
+  turnIndex: number;        // 触发轮：诊断 + 兜底排序，不参与 RNG 派生
+}
+```
+`WorldStateV2.pendingWheels?: PendingWheel[]` + `WorldStateV2.wheelSeqCounter?: number`（与 `enqueueSeqCounter` 同族的纯状态计数器，不消耗 RNG）。
+
+2. **`schemaVersion` 不升（结论）**：两个字段均为**可选 + 读侧 `?? []` / `?? 0`**，与 `lastWheels`（ADR-0017 决策 4）、`history.visibility`、`spawnRules`（ADR-0022）完全同策略。旧档缺该字段的语义是**精确的**——旧档的 random 全部是即时结算的，不存在待结算项，补 `[]` 即等价。**不复制 ADR-0007 的「格式不兼容才递增」**：这里格式兼容。→ 需用户确认（见文末裁决点，理由：这是唯一会让 `data/worlds/` 下存量档命运分歧的一条）。
+3. **与 `lastWheel` / `lastWheels` 的关系（裁定：并存，且语义收窄）**：
+   - `pendingWheels` = **未结算**（含已决定但未落账的扇区）；
+   - `lastWheel` / `lastWheels` = **已结算**（玩家已经看过、效果已经落账），继续承担 D-09 刷新回放 / D-16 标题持久化 / D-03 同轮多条；
+   - 触发时**不再**写 `lastWheel(s)`（今天在 `turn.ts:523-524` 写），改由结算入口追加。
+   - **自洽性论证**：`advanceTurnV2` 在轮次起点清空 `lastWheels`（`:896`），而结算必然发生在下一轮推进**之前**（决策 3 的 `pending_wheel_required` 保证）⇒ 追加时机永远早于清空时机，不存在「结算结果被下一轮清掉」的窗口。
+
+### 决策 3：结算入口、幂等与阻断范围
+
+1. **引擎入口（唯一）**：`settleWheelV2(state, { wheelId }, template, lookup, pipeline?) → V2TurnResult`。**引擎内不存在任何自动结算路径**——这是硬约束，测试须断言（见验证要点 6）。
+2. **HTTP**：`POST /api/worlds/:id/wheels/settle`，body `{ wheelId: string }`（Zod strict）。返回与 `events/choose` 同形：`{ worldId, snapshot, triggeredEvents, wheelResult, eventFlavors }`，其中 `wheelResult` 是**本次结算的**那一枚（供前端点亮命中扇区）。**返回完整快照**而非增量：与既有四个写入口一致，前端不需要自己合并。
+3. **幂等语义（裁定）**：结算的落账点是 `pendingWheels` 的**移除**，因此「同一 `wheelId` 只会被应用一次」。重复提交（连点 / 网络重试 / 多标签）第二次必得 `409 wheel_not_pending`，**不会重复应用效果**——这是天然的、不依赖任何去重表的幂等。前端收到 409 的正确反应是「重取快照」而非报错。
+4. **阻断范围**：未结算转盘存在时，以下写操作一律被引擎拒绝（抛 `pending_wheel_required`，服务端映射 409）：`advanceTurnV2`（自由行动）、`chooseOptionV2`、`battleActionV2`、`useItemV2`、`equipV2` / `unequipV2`。
+   - **为什么连 `battle` 也挡**：前端占位优先级是 `wheel > battle`（`main.tsx:1308-1315`）⇒ 轮盘未结算时战斗 UI 本就不可达；不挡会让「世界里已有一个未落账的效果」与「玩家正在做战斗决策」并存，破坏因果一致性。
+   - **不挡**：`settleWheelV2` 本身、`archive`（终局是逃生口，见决策 4）、全部 `GET`（`/history`、`/api/worlds`、records）。
+   - 位置：与 `pending_event_required`（`turn.ts:893`）同一处门禁区、同一风格（引擎抛错 + `handleEngineError` 映射），不放服务端各自判断。
+
+### 决策 4：玩家永不点击怎么办（裁定：**永不自动结算**）
+
+1. **不自动结算**。「下一轮推进时自动落账」会把用户要的「点击才结算」退化成「延迟一拍的自动结算」，期待感归零；且需要「上一轮有未结算转盘」的隐式状态机，比持久化 `pendingWheels` 更脏。
+2. **持久化即答案**：关页面 / 刷新 / 换设备（同档）后，`pendingWheels` 仍在存档里 ⇒ 重新进入看到同一个未结算转盘、停在同一个命中扇区（`segmentIndex` 已固化，不需重转），点掉才继续。**这正是用户要的体验**。
+3. **逃生口只有一个：`archive`（结束这一生）**。除此之外没有任何「跳过 / 放弃 / 超时」通道——不引入基于真实时钟的超时（`Date.now` 不可注入，违反 `AGENTS.md` §2）。
+4. **两端必须配合的文案约束**：转盘区在未结算时不得出现「继续」以外的推进出口；自由行动区必须显示「先把命运之轮点掉」而非静默禁用。→ 需用户确认是否接受「不点就完全不能继续」（见文末裁决点）。
+
+### 决策 5：与 ADR-0030 槽模型的交互 —— 未结算转盘**占槽**，且是最优先的 L0 层
+
+ADR-0030 的准入谓词（`slotTakenFor`）由 L1 `pendingEvents` / L2 `battle` / L3 `chainReserve` 三层构成，**不含未结算转盘**。本文补一层：
+
+```
+L0 wheel : (state.pendingWheels?.length ?? 0) > 0     // 对所有 kind 生效（含 normal / random / combat）
+```
+- 依据与前端完全一致：`SlotOccupant` 的优先级就是 `wheel > battle > event > action`（`main.tsx:1308-1315`）；引擎不按同一优先级占位，就必然出现「轮盘还没点，先弹一张事件卡/开一场战斗」。**compat 说明**：`turn.ts:470` 的注释「combat / random 走各自分支、不经 pendingEvents，不受本守卫影响」在本文之后只对 L1 成立，对 L0 不成立。
+- 自身豁免同样适用：结算入口内部触发的事件不得被「自己」挡住（结算在移除 `pendingWheels` 项**之后**再执行效果，天然满足）。
+
+### 决策 6：投影契约 —— 只下发「落在哪一格」，不下发「这一格做了什么」
+
+1. **新增** `V2Snapshot.pendingWheels: PendingWheelView[]`（缺省 `[]`）：
+```ts
+export interface PendingWheelView {
+  wheelId: string;
+  eventId: string;
+  title: string;
+  segments: Array<{ label: string; weight: number }>;
+  label: string;            // 命中扇区：必须下发，否则前端无法算落点
+}
+```
+2. **必须下发的理由**：`label` 是演出所需（`main.tsx:1523` 由 `hit.center` 反算角度），它**不是**「剧透」——指针最终停在哪一格本来就是这次转盘的公开结果。真正要藏的是「这一格干了什么」。
+3. **不得下发**：扇区 `effects`（任何形态）、结算后的属性/物品/flag/关系数值、`PendingWheel.segmentIndex` 与 `seq`（内部实现细节，暴露无益）。**现状 `WheelResultView` 也没有 `effects` 字段**（`shared/v2.ts:338-355`）⇒ 本条是「维持不扩散」，不是新增约束。
+4. 结算之后，效果通过既有三条路呈现：`history`（`log` 效果写的公开条目）、`triggeredEvents`（续步事件）、`snapshot`（数值已变）。
+
+### 决策 7：多转盘同轮 —— **逐个点击结算，一次一枚**
+
+1. 一次请求只结算 body 指定的那一个 `wheelId`；其余留在 `pendingWheels` 里，前端按 `seq` 升序（= 触发顺序）**逐枚**呈现与结算。
+2. **不做「一键全部结算」**：与决策 4 的期待感取向冲突（用户要的是「每转一次都点一下」）。
+3. **`lastWheels` 的顺序语义随之修订**：由「当轮触发顺序」改为「**结算顺序**（= 玩家点击顺序）」。理由：玩家实际体验的顺序由点击决定，且点击顺序属于命令流，天然可复现。D-03 关心的「多条不再互相覆盖」不受影响；触发顺序仍可从 `seq` 追溯（不进投影）。
+
+### 决策 8：失败路径与错误码
+
+| 场景 | HTTP | `error` | 前端文案要点 |
+|---|---|---|---|
+| world 不存在 | 404 | `world_not_found` | 回列表 |
+| world 存在但不可载（指纹/版本） | 409 | `world_unloadable`（既有） | 沿用既有 R-TG-10 文案 |
+| body 缺 / 非法 `wheelId` | 400 | `invalid_body`（既有） | 不该出现；属前端 bug |
+| `wheelId` 不在该 world 的 `pendingWheels` | **409** | **`wheel_not_pending`** | 「这一转已经结算过了」+ 自动重取快照 |
+| 未结算时提交其它写操作 | **409** | **`pending_wheel_required`** | 「先把命运之轮点掉」+ 高亮轮盘区 |
+| 已终止 / 已归档 | 409 | `terminated` / `archived`（既有） | 沿用既有 |
+| 事件定义或扇区下标解析失败 | —— | **不外抛** | 理论上不可达（ADR-0029 的世界自持模板快照 + 内容漂移 ⇒ 重启后 `template_content_drift` 拒载）；仍兜底为「移除该项 + 写一条公开 `history`」以免永久锁死 |
+
+- 「不存在 / 已结算 / 属于别的世界」**必须合并为同一个码** `wheel_not_pending`：细分等于向客户端确认「这个 id 在别处存在」，是无必要的跨世界信息泄露。
+- 两个新码必须加进 `apps/server/src/index.ts:744-752` 的 `interactionErrors` 集合（409 语义，不是 400）。
+
+### 决策 9：唯一入口原则与自动通关/回放脚本的强制改造
+
+1. **引擎内不存在自动结算**（决策 3.1）；因此**所有**驱动脚本必须显式点掉转盘：
+   - `playthrough.test.ts`（6 种子 × 2 开局）：主循环需在 `pendingEvents` 分支**之前**处理 `state.pendingWheels`，调用 `settleWheelV2({ wheelId: pendingWheels[0].wheelId })`；否则 `advanceTurnV2` 会抛 `pending_wheel_required` ⇒ **整关卡死**。这是本条最需要提前告知实施方的约束。
+   - `replay.ts`（`advanceTurnV2` 单指令循环，`:46-48`）同理；`ReplaySpec.commands` 需能表达「结算某一枚」（或回放内部直接按 `seq` 顺序结算，并在注释里声明「回放不含玩家迟疑」）。
+2. 开局侧无需特别处理：`ev-opening-wheel` 是 **normal**（`events.yaml:28-40`，「转动命数转盘」卡片 → `startChain`），创建链里唯一的 random 是 `ev-w12`（`events.yaml:553-580`，扇区级 `nextEventId: ev-w13`）⇒ 玩家点到第 12 步才会遇到第一枚待结算转盘，点掉才推进到 `ev-w13`。语义正确，不加特例。
+
+### 被否决的备选
+
+- **触发时照常落账，只是前端晚 2.6 秒揭示**（纯前端延后渲染）：世界状态已经变了，刷新即剧透，存档/GM 视角同样穿帮；且无法解决「同轮其它转盘的 label 被 `wheel-rest` 提前列出」。**否决**（不解决用户提的问题）。
+- **把 `pendingWheels` 做成事实日志（append-only，加状态位）**：读侧要每次过滤，且 `pendingEvents` / `scheduledEvents` 的既有形态都是「实例层 + status」，无 status 的 append-only 表会引入第二套生命周期。**否决**。
+- **用 `scheduledEvents` 承载待结算转盘**（`start = +∞` 之类）：转盘不是时间触发的，塞进时间队列会污染排序键与 `evaluateChain` 的 waiting 判定，还会让它被 drain 自动消费——**恰好违反决策 4「永不自动结算」**。**否决**。
+- **`schemaVersion` 升 3 并拒载旧档**：为两个可选字段付「`data/worlds/` 存量全灭」的代价，与 ADR-0017 决策 4、ADR-0022 的既定选择相反。**否决**。
+- **结算时直接用主轮 rng / `turnIndex+1` 派生**：结算发生时 `turnIndex` 已变，同一次点击在「隔一轮点」与「当场点」下会得到不同结果 ⇒ 引入「取决于玩家手速」的非确定性。**否决**（改用 `seq` 键 + `+53` 盐）。
+- **提供「一键结算全部」或超时自动结算**：与用户明确的期待感取向冲突。**否决**。
+
+### 影响面与文件归属
+
+| 改动点 | 归属 | 依据 | 写冲突 |
+|---|---|---|---|
+| `PendingWheel` / `PendingWheelView` / `WorldStateV2.pendingWheels` / `wheelSeqCounter` / `V2Snapshot.pendingWheels` | `packages/shared/src/{v2.ts,v2-state.ts}` | 协议面（schema 可选字段 + 读侧缺省） | 与任何改 `shared` 的任务串行 |
+| random 分支切分 + `settleWheelV2` + `pending_wheel_required` 门禁 | `packages/game-core/src/v2/turn.ts:501-533`、门禁区 `:890-900` | 引擎唯一入口 | **与 ADR-0030 的 `turn.ts` 实施强冲突**（同一函数、同一门禁区）⇒ 必须排在 ADR-0030 之后或与之同批串行 |
+| 新增路由 + `interactionErrors` 两个码 | `apps/server/src/index.ts`（新 `POST /wheels/settle` + `:744-752`） | 服务端编排 | 低 |
+| 前端四处 | `apps/web/src/main.tsx`（见下） | 展示层 | 低 |
+
+**前端影响面（ADR 不管视觉参数，但必须改的四处）**：
+1. **落点演出**：`WheelItem`（`main.tsx:1545-1652`）的 `transition: transform 2.6s cubic-bezier(.13,.72,.06,1)` 要改成「越转越慢、缓慢落针」——推荐 CSS `@keyframes`（先快后慢再极慢收尾）或分段 transition，时长 ≥3s；`prefers-reduced-motion` 分支保持「直接停位」。
+2. **标签折行与截断**：SVG `<text>{s.label}`（`:1592-1607`）需改为 `<tspan>` 多行（或 `foreignObject`），每行上限 **20 字**（暂定，建议提为常量 `WHEEL_LABEL_MAX = 20`），超出省略号；`aria-label` 同步。
+3. **点击态**：现在「继续」按钮在动画结束后出现并直接推进（`:1649-1652`）；改为**先调 `wheels/settle`**：请求期间禁用按钮（防连点）、失败按决策 8 文案提示、成功后展示效果并进入下一枚或回到正常界面。
+4. **`wheel-rest` 列表去剧透**：`main.tsx:1770-1782` 现在把同轮其它转盘的 `item.wheel.label` 直接显示出来；必须改为只显示标题 + 「另有 N 次命运抉择（依次转动）」，`label` 一律不显示。
+
+### 不变量检查表
+
+| 不变量 | 现状 | 本决策影响 | 保护措施 |
+|---|---|---|---|
+| 同 seed 同输入同结果 | 成立 | 命中扇区**不变**（`pickIndex` 位置不变）；下游触发改走 `+53` 独立流 ⇒ 时序一次性变化 | 结算 rng 以 `seq` 为键 ⇒ 与点击时点无关；断言「同 seed 同点击序列 ⇒ 逐字段相同」 |
+| hidden 不进入玩家端 API | 成立 | 新增投影字段只含 `label` / `segments` / `title` | 决策 6 明确禁止下发 `effects` / 结算后数值 / `segmentIndex` / `seq` |
+| 世界观规则只进模板 | 成立 | 无影响 | 引擎只做「取扇区 / 执行模板 effects」，不新增任何按模板分支的逻辑 |
+| 时间/随机/ID 可注入 | 成立 | 新增 `wheelSeqCounter`（纯状态计数，无随机）；结算 rng 由 `seed + 53` 派生 | 不引入 `Date` / `Math.random`；不做基于真实时钟的超时 |
+| R3 穿越 seam 未被封死 | 未硬化 | 中性：`PendingWheel` 固化的是「结果」而非「时间窗口」，时间回拨不会让已决定的扇区失效 | 结算不重掷扇区（`segmentIndex` 只读） |
+| 呈现槽唯一（ADR-0030） | 三层准入 | **新增 L0**：未结算转盘对所有 kind 占位 | 决策 5；L0 在 L1/L2/L3 之前求值 |
+| `pendingEvents` 单槽（≤1） | 成立 | 不变 | 不触碰 L1 |
+| 引擎无自动落地路径 | —— | **新增硬约束** | 验证要点 6 断言「不调 `settleWheelV2` 则效果永不落账」 |
+
+### 验证要点
+
+1. **切分正确**：触发一枚转盘 ⇒ `pendingWheels` 长 1、`pendingWheels[0].label` 等于按 seed 复算的命中扇区、`lastWheels` 仍为空、属性/物品/flag **未变**、`history` 只有事件叙述无效果叙述。
+2. **结算落账**：`settleWheelV2` 后 ⇒ 属性按扇区 `effects` 改变、`lastWheels` +1、`pendingWheels` 空、`history` 出现效果条目、扇区 `nextEventId` 的续步被触发。
+3. **幂等**：同一 `wheelId` 连点两次 ⇒ 第二次 409 `wheel_not_pending`，且属性**只变一次**（用「属性差值」断言，不要只看错误码）。
+4. **阻断**：`pendingWheels` 非空时 `advanceTurnV2` / `chooseOptionV2` / `battleActionV2` / `useItemV2` 全部抛 `pending_wheel_required`；`archive` 与 `GET` 不受影响。
+5. **L0 占槽**：`pendingWheels` 非空时触发一个 normal / 一个 pool 事件 ⇒ 均被挡（照 ADR-0030 的 `slotDeferred.by` 断言机制）；`pendingWheels` 清空后它们回到槽位。
+6. **无自动结算**：跑 30 轮不调 `settleWheelV2` ⇒ 断言效果始终未落账、`advanceTurnV2` 始终抛 `pending_wheel_required`（这条锁死「不得偷偷自动结算」）。
+7. **投影不剧透**：`V2Snapshot` 里 `pendingWheels[0]` 的键集恰为 `{wheelId,eventId,title,segments,label}`；断言不含 `effects` / `segmentIndex` / `seq`。
+8. **存档往返**：`persistence.test.ts` 需覆盖 `pendingWheels` / `wheelSeqCounter` 的写读一致；**缺该字段的旧档**加载后 `pendingWheels === []` 且可继续玩（`schemaVersion` 不升的证据）。
+9. **多转盘**：同轮两枚 ⇒ 逐个结算，`lastWheels` 顺序等于点击顺序（先点第二枚则它在先）。
+
+### 回归影响清单（必须先告知实施方）
+
+| 受影响 | 影响 | 处置 |
+|---|---|---|
+| `playthrough.test.ts`（6 种子 × 2 开局） | **不点转盘就抛 `pending_wheel_required`，整关卡死** | 主循环在 `pendingEvents` 分支之前加「有 `pendingWheels` 就先结算」；`day` / 章节基线可能微动，结构性断言必须仍绿 |
+| `replay.ts` / `replay.test.ts` | 同上（单指令循环） | 回放内部按 `seq` 顺序结算，并在注释声明「回放不含玩家迟疑」 |
+| `v2.test.ts`（15 处 `lastWheels`/`wheelResult` 断言） | 触发后不再写 `lastWheels`；`wheelResult` 改由结算响应给出 | 逐处改写：触发侧断言 `pendingWheels`，结算侧断言 `lastWheels`/`wheelResult` |
+| `combat-refs.test.ts` / `lifecycle-switch.test.ts` / `slot-admission.test.ts` | 含 `kind: "random"` 的事件不再即时落账 | 断言前先调 `settleWheelV2`，或改用 normal 事件构造 |
+| `persistence.test.ts` | 状态 schema 新增两个可选字段 | 补往返用例 + 旧档缺字段用例 |
+| `apps/server/src/index.ts` | 新路由 + `interactionErrors` 两个码 | 补路由级用例（409 语义） |
+| 前端 | 四处（见影响面） | 由前端任务承担；`wheel-rest` 去剧透是**必修**，不是优化 |
+
+### 明确不做
+
+- 转盘的视觉参数（动画时长 / 缓动曲线 / 配色 / 尺寸）——不进 ADR，由前端与用户验收决定；本文只给「必须能表达越转越慢 + 20 字截断」的约束。
+- 不改 `pendingEvents` / `scheduledEvents` 的任何既有语义（含 ADR-0030 的 L1/L2/L3）。
+- 不引入「跳过 / 放弃 / 超时自动结算」中的任何一种。
+- 不改 `WheelResultView` 的既有字段（只新增 `PendingWheelView`）。
+- 不升 `schemaVersion`、不做旧档迁移脚本。
+- 不让 random 事件的 **定义** 进 `pendingEvents`（它仍不进；`pendingWheels` 是独立实例层）。
+
+### 待用户裁决点
+
+1. **`schemaVersion` 是否保持 2**（本文结论：保持，靠可选字段 + 读侧缺省；代价是「新档在旧版本服务端上会被 `strict` 拒」——但那本来就被 `templateFingerprint` 挡着）。
+2. **「不点就完全不能继续」是否接受**（本文结论：接受，唯一逃生口是「结束这一生」；若用户要求更强的兜底，需要新开 ADR 定义「放弃转盘」语义与其因果代价）。
+3. 以下两条我**已直接定**，如你或用户不同意请回退指示：`battle` 也受 `pending_wheel_required` 约束（决策 3.4）；`lastWheels` 顺序语义改为「结算顺序」（决策 7.3）。
+
+### 回指注记（append-only，已落地）
+
+| 位置 | 注记摘要 |
+|---|---|
+| ADR-0017 决策 4 末尾 | `lastWheels` / `lastWheel` 的语义收窄为「**已结算**」；新增 `pendingWheels` 承接未结算；`lastWheels` 顺序口径由「触发顺序」改为「结算顺序」；`schemaVersion` 仍不升 |
+| ADR-0030 末尾 | 准入谓词增加 **L0 `wheel`** 层（未结算转盘对所有 kind 占位，优先级与前端 `SlotOccupant` 一致）；ADR-0030 决策 5 的「combat / random 不受守卫影响」只对 L1 成立 |
+| ADR-0007 决策 3 末尾 | 本条不递增 `schemaVersion`：信封结构未变，`state` 内新增字段均为可选 + 读侧缺省（同 `lastWheels` 先例），与决策 3「格式不兼容变更才递增」不冲突 |
