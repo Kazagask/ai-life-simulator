@@ -521,9 +521,41 @@ function poolDrawConfig(template: WorldTemplateV2): { skipWhenSlotOccupied: bool
 }
 
 /**
+ * 池阈值的**计数口径**（ADR-0034 §13.5 A2'）：只数「**当前可上桌**」的 `waiting` 实例。
+ *
+ * 为什么不能直接数 `waiting` 长度（seed 5 主线停摆的根因）：
+ * §3-3 要求「条件不满足必须留队」，§3-6 又按「队列长度 ≥ N 不摇」封顶 ⇒ 一条**入队时合法、
+ * 之后永久不成立**的实例（例：`era == 1` 的日常在 `era` 升到 3 之后）会永久占据名额，
+ * 队列恒满 ⇒ 池永久停摆 ⇒ `source: pool` 的章节门永远摇不出来 ⇒ 主线卡死到 `timeReached`。
+ * 两条规则各自正确，组合致命：没有人负责回答「队列里的东西会不会永远出不去」。
+ *
+ * 口径 = `status === "waiting"` ∧ 定义存在 ∧ 未过期 ∧ **前提此刻成立**：
+ * - 定义缺失 / 已过期 ⇒ 扫描会把它们摘掉，不算"待演的内容"；
+ * - 前提不成立（`conditions` / `missWhen`）⇒ 现在不能演，不该挤占抽取名额；
+ * - **冷却中的实例仍计入**：冷却会自然解除，属"活内容"，不计入会把阈值开得过大。
+ *
+ * 求值用**独立派生流**（`scanStream`，`seed + 37`）：条件里若含 `random`，每轮重复求值
+ * 不得扰动主轮 RNG（§3-5 同源裁定）。纯读：不改任何实例、不写状态、不记错失。
+ */
+function countPresentableQueue(state: WorldStateV2, lookup: TemplateLookup): number {
+  const rng = scanStream(state);
+  let presentable = 0;
+  for (const inst of state.delayQueue) {
+    if (inst.status !== "waiting") continue;
+    const def = lookup.event(inst.definitionId);
+    if (!def) continue;
+    if (inst.hasEnd && inst.window.end !== undefined && state.worldTime > inst.window.end) continue;
+    if (!checkEventPremise(def, { state, lookup, rng }).ok) continue;
+    presentable += 1;
+  }
+  return presentable;
+}
+
+/**
  * pool = 抽取器（R-EV-08/13）。**只写 `delayQueue`、没有写 `slot` 的权限**（ADR-0034 §10）：
  * 与「取队列实例 → 写 slot」是两个不同函数，结构上保证"摇出事件"这个判断不占槽。
- * 阈值 = `slot !== null`（可按配置关掉）或 `delayQueue.length >= N` ⇒ 本轮不摇。
+ * 阈值 = `slot !== null`（可按配置关掉）或「**当前可上桌**的实例数 ≥ N」⇒ 本轮不摇
+ * （计数口径见 `countPresentableQueue`，ADR §13.5 A2'）。
  */
 function resolvePoolV2(
   state: WorldStateV2,
@@ -533,8 +565,7 @@ function resolvePoolV2(
 ): void {
   const draw = poolDrawConfig(template);
   if (draw.skipWhenSlotOccupied && state.slot !== null) return;
-  const queued = state.delayQueue.filter((i) => i.status === "waiting").length;
-  if (queued >= draw.maxQueueLength) return;
+  if (countPresentableQueue(state, lookup) >= draw.maxQueueLength) return;
 
   const ctx: ConditionContext = { state, lookup, rng };
   const calendar = createTimeAdapter(template);

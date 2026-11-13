@@ -196,6 +196,15 @@ const EV = {
     kind: "combat",
     settle: { combat: { enemies: [{ ref: "enemy-x", levelScale: 1 }], onVictory: { effects: [] } } },
   },
+  /** 池里的必中事件（G2-3）：拿它观测「池今天摇不摇得出来」。 */
+  gate: {
+    id: "ev-gate",
+    title: "章节门",
+    narrative: "主线节点。",
+    trigger: { source: "pool", probability: 1, priority: 100, once: true },
+    kind: "normal",
+    settle: { normal: { options: [{ id: "opt-ok", text: "继续" }] } },
+  },
 } as const;
 
 function template(events: unknown[]): WorldTemplateV2 {
@@ -405,5 +414,64 @@ describe("G2-2 · 求值时点固定在「被取出那一刻」（§3-4）", () 
     const taken = scanDelayQueue(state, lookup, createRng(7));
     expect(taken.kind).toBe("taken");
     if (taken.kind === "taken") expect(taken.definition.id).toBe("ev-due-cond");
+  });
+});
+
+// ---------- G2-3（ADR-0034 §13.5 A2' 的回归锁）----------
+
+describe("G2-3 · 池阈值的计数口径 = 「当前可上桌」的实例（§13.5 A2'）", () => {
+  /**
+   * **缺陷实况（seed 5）**：§3-3「条件不满足必须留队」× §3-6「队列长度 ≥ N 不摇」⇒
+   * 三条 `era == 1/2` 的日常在 `era` 升到 3 之后永久 hold，把队列顶满 ⇒ 池永久停摆 ⇒
+   * `source: pool` 的章节门永远摇不出来 ⇒ 主线卡在第 7 章直到 `timeReached`。
+   *
+   * 修法 A2'：阈值只数「**当前可上桌**」的 `waiting` 实例（前提此刻成立、未过期、定义存在）。
+   * 本组用例是它的回归锁——两条必须同时成立，否则等于把阈值改成"永不生效"或"永远生效"：
+   * ① 队列塞满**永久失效**实例 ⇒ 池**仍会**摇；
+   * ② 队列塞满**可上桌**实例 ⇒ 池**不**摇。
+   */
+  it("① 三条永久失效（甲已退场）实例顶满队列 ⇒ 池仍然摇得出章节门", () => {
+    const { state, template: tpl, lookup } = world([EV.gated, EV.gate], "w-g23a");
+    killA(state);
+    // 三条前提已死的实例（入队时它们曾经合法：这正是 seed 5 的形态）
+    for (let i = 0; i < 3; i += 1) enqueueDue(state, "ev-gated");
+    expect(state.delayQueue.filter((i) => i.status === "waiting")).toHaveLength(3);
+
+    advanceTurnV2(state, REST, tpl, lookup);
+
+    // 池没有被死实例挡住：章节门被摇出并上桌
+    expect(state.delayQueue.some((i) => i.definitionId === "ev-gate")).toBe(true);
+    expect(state.slot).toMatchObject({ eventId: "ev-gate", from: "queueTake" });
+    // 三条死实例仍留队（§3-3 不变），只是不再挤占名额
+    expect(state.delayQueue.filter((i) => i.definitionId === "ev-gated" && i.status === "waiting")).toHaveLength(3);
+  });
+
+  it("② 三条可上桌实例顶满队列 ⇒ 池不摇（阈值没有被改成永久放行）", () => {
+    const { state, template: tpl, lookup } = world([EV.free, EV.gate], "w-g23b");
+    for (let i = 0; i < 3; i += 1) enqueueDue(state, "ev-free");
+    expect(state.delayQueue.filter((i) => i.status === "waiting")).toHaveLength(3);
+
+    advanceTurnV2(state, REST, tpl, lookup);
+
+    // 队列里的东西都是"现在能演"的 ⇒ 按 §3-6 不积压，不摇新事件
+    expect(state.delayQueue.some((i) => i.definitionId === "ev-gate")).toBe(false);
+    expect(state.slot).toMatchObject({ eventId: "ev-free", from: "queueTake" });
+  });
+
+  it("③ 同一条实例在前提恢复后重新计入（计数是现求值，不是入队时快照）", () => {
+    const { state, template: tpl, lookup } = world([EV.gated, EV.gate], "w-g23c");
+    killA(state);
+    for (let i = 0; i < 3; i += 1) enqueueDue(state, "ev-gated");
+    // 让甲复活（前提变真）⇒ 三条重新算"可上桌" ⇒ 池重新被封顶
+    state.npcs.find((n) => n.id === "npc-a")!.lifecycle = {
+      state: "alive",
+      sinceTurn: 0,
+      sinceWorldTime: 0,
+    };
+
+    advanceTurnV2(state, REST, tpl, lookup);
+
+    expect(state.delayQueue.some((i) => i.definitionId === "ev-gate")).toBe(false);
+    expect(state.slot).toMatchObject({ eventId: "ev-gated", from: "queueTake" });
   });
 });
