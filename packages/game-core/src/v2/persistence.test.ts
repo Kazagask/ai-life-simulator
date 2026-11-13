@@ -63,6 +63,9 @@ function registryOf(entries: readonly ReadyTemplateEntry[]): TemplateRegistry {
   const byKey = new Map(entries.map((entry) => [`${entry.ref.id}@${entry.ref.version}`, entry]));
   return {
     dir: "<memory>",
+    // 内存注册表没有磁盘可刷：ensureFresh 是空操作（R2.8 / T-TG-11 的接口要求）。
+    ensureFresh: () => {},
+    diagnostics: () => ({ statCount: 0, rescanCount: 0 }),
     idExists: (id) => entries.some((entry) => entry.ref.id === id),
     versionDirExists: (id, version) => byKey.has(`${id}@${version}`),
     get: (ref) => byKey.get(`${ref.id}@${ref.version}`),

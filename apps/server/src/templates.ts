@@ -32,8 +32,8 @@ import { createLookup, type TemplateLookup, type TurnPipelineConfig } from "@lif
  *   仅用于诊断，**不参与任何拒载判定**（H-2 / C-3）。
  * - **失败哲学按时机分两套**（B-4）：启动期 `loadTemplates()` fail-fast（任一含 yaml 的
  *   版本校验失败 / `meta.id` ≠ 目录名 ⇒ throw，进程退出；空版本目录只 warn）；运行期
- *   单目录隔离（`scanAll({ failFast: false })` ⇒ 该版本标 `invalid` + reason，不退出），
- *   由 T-TG-11 的请求驱动热加载复用。
+ *   请求驱动热加载（I-1..I-5）：`ensureFresh()` 只重扫 mtime 变了的版本，单目录隔离失败
+ *   （有旧 Entry 保留旧的、无旧 Entry 标 `invalid`），**绝不 throw、绝不退出进程**。
  */
 
 /** 版本目录名格式（A-3，已裁决 B）。`2` 与 `2.0.0` 是**不同**版本，不做等价归一。 */
@@ -112,8 +112,8 @@ export interface TemplateRef {
 
 interface TemplateEntryBase {
   ref: TemplateRef;
-  /** 版本目录内所有文件 mtime 的最大值（顶层 yaml + `assets/**` 递归，**不用目录 mtime**）。
-   *  本批只记录不消费；T-TG-11 的 `ensureFresh()` 以此为变更检测基准。 */
+  /** 版本目录内所有文件 mtime 的最大值（顶层文件 + `assets/**` 递归，**不用目录 mtime**）。
+   *  `ensureFresh()` 以此为变更检测基准（T-TG-11 / R-TG-16）。 */
   mtime: number;
 }
 
@@ -171,23 +171,35 @@ export interface TemplateSummary {
 export interface TemplateScanLogger {
   warn(obj: Record<string, unknown>, msg: string): void;
   error(obj: Record<string, unknown>, msg: string): void;
+  info(obj: Record<string, unknown>, msg: string): void;
 }
 
 export interface TemplateRegistry {
   /** 扫描根目录（`TEMPLATES_DIR`）。 */
   readonly dir: string;
+  /**
+   * 请求驱动热加载入口（I-1 / R-TG-16）：比对每个版本目录的**文件 mtime 最大值**，
+   * 只重扫变化的版本；无定时器、无文件监听 API。`resolve` / `versionsOf` / `listTemplates`
+   * 入口已自动调用，路由在「先判 id 存在、再取版本」的路径上需显式调一次。
+   */
+  ensureFresh(): void;
   /** 模板层目录是否存在（用于把 `template_missing` 与 `template_version_missing` 分开）。 */
   idExists(id: string): boolean;
   /** 版本目录是否存在——含「空版本目录 / 被忽略的目录」，用于拒载原因细分。 */
   versionDirExists(id: string, version: string): boolean;
-  /** 任一状态（ready / invalid）的注册记录。 */
+  /** 任一状态（ready / invalid）的注册记录（**不**触发刷新，仅供已解析 ref 的复查）。 */
   get(ref: TemplateRef): TemplateEntry | undefined;
-  /** 仅 `ready`（可载入）版本；`invalid` 版本返回 undefined。 */
+  /** 仅 `ready`（可载入）版本；`invalid` 版本返回 undefined。先 `ensureFresh()`。 */
   resolve(ref: TemplateRef): ReadyTemplateEntry | undefined;
-  /** 某 id 下已注册的全部版本（ready + invalid）；未注册的 id 返回空数组。 */
+  /** 某 id 下已注册的全部版本（ready + invalid）；未注册的 id 返回空数组。先 `ensureFresh()`。 */
   versionsOf(id: string): TemplateEntry[];
-  /** 两级结构（ready + invalid 都列，invalid 带 `loadable:false` + `reason`）。 */
+  /** 两级结构（ready + invalid 都列，invalid 带 `loadable:false` + `reason`）。先 `ensureFresh()`。 */
   listTemplates(): TemplateSummary[];
+  /**
+   * 诊断计数（R-TG-16 AC⑥/⑧）：`statCount` = `ensureFresh()` 累计 stat 调用数；
+   * `rescanCount` = 累计**实际重扫**版本次数（mtime 未变时恒不增长）。测试/运维用。
+   */
+  diagnostics(): { statCount: number; rescanCount: number };
 }
 
 function templatesDir(): string {
@@ -249,16 +261,14 @@ function walkFiles(root: string): Array<{ rel: string; abs: string }> {
 interface AssetScan {
   fingerprint: string;
   count: number;
-  mtime: number;
 }
 
 function scanAssets(versionDir: string, logger: TemplateScanLogger, ref: TemplateRef): AssetScan {
   const root = path.join(versionDir, "assets");
   if (!existsSync(root)) {
-    return { fingerprint: EMPTY_ASSET_FINGERPRINT, count: 0, mtime: 0 };
+    return { fingerprint: EMPTY_ASSET_FINGERPRINT, count: 0 };
   }
   const files: Array<{ rel: string; abs: string }> = [];
-  let mtime = 0;
   for (const file of walkFiles(root)) {
     const ext = path.extname(file.rel).toLowerCase();
     if (FORBIDDEN_ASSET_EXTS.has(ext)) {
@@ -269,13 +279,11 @@ function scanAssets(versionDir: string, logger: TemplateScanLogger, ref: Templat
       continue;
     }
     files.push(file);
-    mtime = Math.max(mtime, statMtime(file.abs));
   }
   files.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
   return {
     fingerprint: hashPairs(files.map((f) => ({ name: f.rel, content: readFileSync(f.abs, "utf8") }))),
     count: files.length,
-    mtime,
   };
 }
 
@@ -291,7 +299,13 @@ function statMtime(file: string): number {
 function loadTemplate(versionDir: string, files: ReadonlySet<string>): WorldTemplateV2 {
   const merged: Record<string, unknown> = {};
   for (const file of [...files].filter((f) => TEMPLATE_MERGE_FILES.has(f)).sort()) {
-    const doc = parse(readFileSync(path.join(versionDir, file), "utf8")) as Record<string, unknown> | null;
+    // 解析失败必须能定位到**文件**（只报行号不足以判断是哪个分域文件坏了）。
+    let doc: Record<string, unknown> | null;
+    try {
+      doc = parse(readFileSync(path.join(versionDir, file), "utf8")) as Record<string, unknown> | null;
+    } catch (error) {
+      throw new Error(`${file}: ${firstIssue(error)}`);
+    }
     if (doc === null || typeof doc !== "object") {
       throw new Error(`${file}: yaml 根节点必须是映射`);
     }
@@ -312,7 +326,12 @@ function loadTemplate(versionDir: string, files: ReadonlySet<string>): WorldTemp
 function loadOpenings(versionDir: string, files: ReadonlySet<string>): OpeningTemplate[] {
   if (!files.has("opening.yaml")) return [];
   const file = path.join(versionDir, "opening.yaml");
-  const list = z.array(OpeningTemplateSchema).parse(parse(readFileSync(file, "utf8")));
+  let list: OpeningTemplate[];
+  try {
+    list = z.array(OpeningTemplateSchema).parse(parse(readFileSync(file, "utf8")));
+  } catch (error) {
+    throw new Error(`opening.yaml: ${firstIssue(error)}`);
+  }
   const ids = new Set<string>();
   for (const t of list) {
     if (ids.has(t.openingId)) throw new Error(`opening.yaml: openingId 重复：${t.openingId}`);
@@ -329,16 +348,49 @@ function loadOptionalConfig<T>(
   schema: { parse: (input: unknown) => T },
 ): T | undefined {
   if (!files.has(file)) return undefined;
-  return schema.parse(parse(readFileSync(path.join(versionDir, file), "utf8")));
+  try {
+    return schema.parse(parse(readFileSync(path.join(versionDir, file), "utf8")));
+  } catch (error) {
+    throw new Error(`${file}: ${firstIssue(error)}`);
+  }
 }
 
 type VersionScan = { ok: true; entry: ReadyTemplateEntry } | { ok: false; reason: string; mtime: number };
+
+/** stat 计数回调（R-TG-16 AC⑧）：只在运行期 `ensureFresh()` 里挂，启动期不计数。 */
+type StatCounter = (() => void) | undefined;
+
+/**
+ * 版本目录的「变更检测基准」= **目录内所有文件 mtime 的最大值**（顶层文件 + `assets/**` 递归）。
+ *
+ * 🔴 **不得用目录 mtime 代替**（R-TG-16 AC①/AC⑨）：就地编辑一个已存在的文件**不会**改变
+ * 其父目录的 mtime，只 stat 目录会漏掉最常见的那种改动（改文案 / 调数值）。
+ * 允许 stat 文件、禁止「readdir 后直接 stat 目录」。
+ */
+function versionMaxMtime(versionDir: string, onStat?: StatCounter): number {
+  let max = 0;
+  for (const entry of readdirSync(versionDir, { withFileTypes: true })) {
+    if (entry.isFile()) {
+      onStat?.();
+      max = Math.max(max, statMtime(path.join(versionDir, entry.name)));
+      continue;
+    }
+    if (entry.isDirectory() && entry.name === "assets") {
+      for (const file of walkFiles(path.join(versionDir, "assets"))) {
+        onStat?.();
+        max = Math.max(max, statMtime(file.abs));
+      }
+    }
+  }
+  return max;
+}
 
 /**
  * 扫描一个版本目录。
  *
  * 返回 `{ ok: false }` 表示「含 ≥1 个白名单 yaml 但加载失败」——调用方按时机决定
- * throw（启动期）还是标 `invalid`（运行期）。空版本目录返回 `null`（调用方 warn + 忽略）。
+ * throw（启动期）还是标 `invalid` / 保留旧 Entry（运行期）。空版本目录返回 `null`
+ * （调用方 warn + 忽略）。
  */
 function scanVersion(
   id: string,
@@ -348,7 +400,6 @@ function scanVersion(
 ): VersionScan | null {
   const ref: TemplateRef = { id, version };
   const declarative: string[] = [];
-  let mtime = 0;
 
   let dirEntries: Dirent[];
   try {
@@ -361,18 +412,17 @@ function scanVersion(
     const rel = entry.name;
     if (entry.isFile() && DECLARATIVE_SET.has(rel)) {
       declarative.push(rel);
-      mtime = Math.max(mtime, statMtime(path.join(versionDir, rel)));
       continue;
     }
     if (entry.isFile()) {
-      // 非白名单文件（游离 notes.yaml / .md / .png / .wheel.json …）：warn + 忽略，不拒载（H-1）。
+      // 非白名单文件（游离 notes.yaml / .md / .png …）：warn + 忽略，不拒载（H-1）。
       logger.warn(
         { templateId: id, version, file: rel },
         "template_file_ignored: 非白名单声明式文件不参与加载与指纹",
       );
       continue;
     }
-    if (entry.isDirectory() && rel === "assets") continue; // 下面统一扫
+    if (entry.isDirectory() && rel === "assets") continue; // 由 scanAssets 统一扫
     if (entry.isDirectory()) {
       logger.warn(
         { templateId: id, version, dir: rel },
@@ -383,8 +433,9 @@ function scanVersion(
 
   if (declarative.length === 0) return null; // 空版本目录：占位，不是模板（B-4 第 3 条）
 
+  // 变更检测基准与 Entry.mtime 同源（顶层全部文件 + assets/**），不是目录 mtime。
+  const mtime = versionMaxMtime(versionDir);
   const asset = scanAssets(versionDir, logger, ref);
-  mtime = Math.max(mtime, asset.mtime);
 
   const present = new Set(declarative);
   try {
@@ -433,6 +484,8 @@ interface ScanResult {
   entries: Map<string, TemplateEntry>;
   idDirs: Set<string>;
   versionDirs: Set<string>;
+  /** 每个版本目录的变更检测基准（文件 mtime 最大值），含被忽略的空版本目录。 */
+  mtimes: Map<string, number>;
 }
 
 /**
@@ -447,6 +500,7 @@ function scanAll(dir: string, logger: TemplateScanLogger, failFast: boolean): Sc
   const entries = new Map<string, TemplateEntry>();
   const idDirs = new Set<string>();
   const versionDirs = new Set<string>();
+  const mtimes = new Map<string, number>();
   if (!existsSync(dir)) throw new Error(`templates_dir_missing: ${dir}`);
 
   for (const idEntry of readdirSync(dir, { withFileTypes: true })) {
@@ -477,7 +531,16 @@ function scanAll(dir: string, logger: TemplateScanLogger, failFast: boolean): Sc
         continue;
       }
       versionDirs.add(keyOf({ id, version }));
-      const scan = scanVersion(id, version, path.join(idDir, version), logger);
+      const versionDir = path.join(idDir, version);
+      // 变更检测基准：即便该版本是空目录 / 坏模板也要记，运行期才不会每次请求重扫。
+      let mtime = 0;
+      try {
+        mtime = versionMaxMtime(versionDir);
+      } catch {
+        mtime = 0; // 读不了就当 0：由 scanVersion 给出可诊断原因
+      }
+      mtimes.set(keyOf({ id, version }), mtime);
+      const scan = scanVersion(id, version, versionDir, logger);
       if (scan === null) {
         logger.warn(
           { templateId: id, version },
@@ -501,79 +564,214 @@ function scanAll(dir: string, logger: TemplateScanLogger, failFast: boolean): Sc
       });
     }
   }
-  return { entries, idDirs, versionDirs };
+  return { entries, idDirs, versionDirs, mtimes };
 }
 
-function createRegistry(dir: string, result: ScanResult): TemplateRegistry {
+function createRegistry(dir: string, result: ScanResult, logger: TemplateScanLogger): TemplateRegistry {
   const byKey = new Map(result.entries);
   const ids = new Set(result.idDirs);
   const versionDirs = new Set(result.versionDirs);
+  const mtimeByKey = new Map(result.mtimes);
+  const counters = { statCount: 0, rescanCount: 0 };
+  let rootMissingLogged = false;
 
-  const versionsOf = (id: string): TemplateEntry[] =>
+  /** 纯读（不刷新）：`listTemplates` 内部用，避免一次调用多次 ensureFresh。 */
+  const entriesOf = (id: string): TemplateEntry[] =>
     [...byKey.values()].filter((entry) => entry.ref.id === id);
+
+  /**
+   * 单个版本重扫（I-3：**运行期隔离，绝不 throw、绝不退出进程**）。
+   *
+   * - 成功 ⇒ 换入新 Entry（同 `(id,version)` 内容变了就顶替旧的，I-1）；
+   * - 失败 ⇒ 有旧 Entry 就**保留旧 Entry 继续服务** + `log.error`（含目录与原因）；
+   *   没有旧 Entry 才标 `invalid`（带 reason），其余版本与进程不受影响；
+   * - 变成空目录 ⇒ 移除 Entry（不再是模板版本）。
+   */
+  function reloadVersion(id: string, version: string, versionDir: string, mtime: number): void {
+    const key = keyOf({ id, version });
+    const previous = byKey.get(key);
+    let scan: VersionScan | null;
+    try {
+      scan = scanVersion(id, version, versionDir, logger);
+    } catch (error) {
+      // scanVersion 已把已知失败收敛成返回值；这里兜住意料之外的异常，同样不向上抛。
+      logger.error(
+        { templateId: id, version, dir: versionDir, reason: firstIssue(error) },
+        "template_reload_failed: 保留旧 Entry 继续服务",
+      );
+      return;
+    }
+    if (scan === null) {
+      byKey.delete(key);
+      logger.warn(
+        { templateId: id, version },
+        "template_version_empty: 版本目录内已无任何白名单 yaml，移除该版本",
+      );
+      return;
+    }
+    if (scan.ok) {
+      byKey.set(key, scan.entry);
+      logger.info({ templateId: id, version, fingerprint: scan.entry.semanticFingerprint }, "template_reloaded");
+      return;
+    }
+    if (previous) {
+      logger.error(
+        { templateId: id, version, dir: versionDir, reason: scan.reason },
+        "template_reload_failed: 保留旧 Entry 继续服务",
+      );
+      return;
+    }
+    logger.error(
+      { templateId: id, version, dir: versionDir, reason: scan.reason },
+      "template_reload_failed: 无旧 Entry，标 invalid",
+    );
+    byKey.set(key, { ref: { id, version }, status: "invalid", reason: scan.reason, mtime });
+  }
+
+  /**
+   * 请求驱动热加载（I-1 / R-TG-16）：比对每个 `<id>/<version>` 的**文件 mtime 最大值**
+   * （顶层文件 + `assets/**` 递归，不是目录 mtime），只重扫变化的版本。
+   *
+   * - 无定时器、无文件监听 API（AC⑦，全仓 grep 零命中）；每次调用只做 `stat`，
+   *   未变化时**不重解析 yaml**（AC⑧）；
+   * - 新增版本目录 ⇒ 立即注册；版本目录消失 ⇒ 移除 Entry（I-4）；
+   * - 只影响新建世界与后续载入：已载入世界的 `record.entry` 是快照，不被回溯改写（I-2）。
+   *
+   * 已知局限：受 mtime 精度与竞态影响，最多**晚一次请求**才看到变更。
+   */
+  function ensureFresh(): void {
+    if (!existsSync(dir)) {
+      if (!rootMissingLogged) {
+        logger.error({ dir }, "templates_dir_missing: 运行期模板根目录消失，注册表清空");
+        rootMissingLogged = true;
+      }
+      byKey.clear();
+      ids.clear();
+      versionDirs.clear();
+      mtimeByKey.clear();
+      return;
+    }
+    rootMissingLogged = false;
+
+    const seenKeys = new Set<string>();
+    const seenIds = new Set<string>();
+    for (const idEntry of readdirSync(dir, { withFileTypes: true })) {
+      if (!idEntry.isDirectory()) continue; // 启动期已 warn 过，运行期不重复刷日志
+      const id = idEntry.name;
+      seenIds.add(id);
+      for (const versionEntry of readdirSync(path.join(dir, id), { withFileTypes: true })) {
+        if (!versionEntry.isDirectory()) continue;
+        const version = versionEntry.name;
+        if (!VERSION_PATTERN.test(version)) continue;
+        const key = keyOf({ id, version });
+        seenKeys.add(key);
+        const versionDir = path.join(dir, id, version);
+        let mtime: number;
+        try {
+          mtime = versionMaxMtime(versionDir, () => {
+            counters.statCount += 1;
+          });
+        } catch (error) {
+          logger.error({ templateId: id, version, dir: versionDir, reason: firstIssue(error) }, "template_stat_failed");
+          continue; // 保留现状：读不了不改判定
+        }
+        if (mtimeByKey.get(key) === mtime) continue; // AC⑥：mtime 未变 ⇒ 不重扫
+        mtimeByKey.set(key, mtime);
+        counters.rescanCount += 1;
+        reloadVersion(id, version, versionDir, mtime);
+      }
+    }
+
+    // 目录被删 / 改名 ⇒ 移除 Entry（I-4）；已载入世界靠 record.entry 快照继续跑。
+    for (const key of [...byKey.keys()]) {
+      if (!seenKeys.has(key)) {
+        const entry = byKey.get(key)!;
+        byKey.delete(key);
+        logger.warn({ templateId: entry.ref.id, version: entry.ref.version }, "template_version_removed: 版本目录已消失");
+      }
+    }
+    for (const key of [...mtimeByKey.keys()]) if (!seenKeys.has(key)) mtimeByKey.delete(key);
+
+    ids.clear();
+    for (const id of seenIds) ids.add(id);
+    versionDirs.clear();
+    for (const key of seenKeys) versionDirs.add(key);
+  }
+
+  /** 两级列表（纯函数投影，供 `listTemplates` 使用）。 */
+  function buildList(): TemplateSummary[] {
+    const grouped = new Map<string, TemplateEntry[]>();
+    for (const entry of byKey.values()) {
+      const list = grouped.get(entry.ref.id);
+      if (list) list.push(entry);
+      else grouped.set(entry.ref.id, [entry]);
+    }
+    return [...grouped.keys()].sort().map((id) => {
+      const list = entriesOf(id).sort((a, b) => compareVersions(a.ref.version, b.ref.version));
+      const ready = list.filter((entry): entry is ReadyTemplateEntry => entry.status === "ready");
+      // startVersion = 默认选中版本：优先最高可载版本；全不可载时退回最高注册版本。
+      const start = ready.at(-1) ?? list.at(-1);
+      const versions: TemplateVersionSummary[] = list.map((entry) =>
+        entry.status === "ready"
+          ? {
+              id,
+              version: entry.ref.version,
+              name: entry.template.meta.name,
+              description: entry.template.meta.description,
+              startYear: entry.template.meta.startYear,
+              openings: entry.openings.map((o) => ({
+                id: o.openingId,
+                name: o.name,
+                description: o.description,
+              })),
+              assetCount: entry.assetCount,
+              assetFingerprint: entry.assetFingerprint,
+              loadable: true,
+            }
+          : { id, version: entry.ref.version, loadable: false, reason: entry.reason },
+      );
+      const nameOfStart = start?.status === "ready" ? start.template.meta.name : (start?.ref.id ?? id);
+      return {
+        id,
+        name: nameOfStart,
+        ...(start !== undefined ? { startVersion: start.ref.version } : {}),
+        versions,
+      };
+    });
+  }
 
   return {
     dir,
+    ensureFresh,
     idExists: (id) => ids.has(id),
     versionDirExists: (id, version) => versionDirs.has(keyOf({ id, version })),
     get: (ref) => byKey.get(keyOf(ref)),
     resolve: (ref) => {
+      ensureFresh();
       const entry = byKey.get(keyOf(ref));
       return entry?.status === "ready" ? entry : undefined;
     },
-    versionsOf,
-    listTemplates: () => {
-      const grouped = new Map<string, TemplateEntry[]>();
-      for (const entry of byKey.values()) {
-        const list = grouped.get(entry.ref.id);
-        if (list) list.push(entry);
-        else grouped.set(entry.ref.id, [entry]);
-      }
-      return [...grouped.keys()].sort().map((id) => {
-        const list = versionsOf(id).sort((a, b) => compareVersions(a.ref.version, b.ref.version));
-        const ready = list.filter((entry): entry is ReadyTemplateEntry => entry.status === "ready");
-        // startVersion = 默认选中版本：优先最高可载版本；全不可载时退回最高注册版本。
-        const start = ready.at(-1) ?? list.at(-1);
-        const versions: TemplateVersionSummary[] = list.map((entry) =>
-          entry.status === "ready"
-            ? {
-                id,
-                version: entry.ref.version,
-                name: entry.template.meta.name,
-                description: entry.template.meta.description,
-                startYear: entry.template.meta.startYear,
-                openings: entry.openings.map((o) => ({
-                  id: o.openingId,
-                  name: o.name,
-                  description: o.description,
-                })),
-                assetCount: entry.assetCount,
-                assetFingerprint: entry.assetFingerprint,
-                loadable: true,
-              }
-            : { id, version: entry.ref.version, loadable: false, reason: entry.reason },
-        );
-        const nameOfStart =
-          start?.status === "ready" ? start.template.meta.name : (start?.ref.id ?? id);
-        return {
-          id,
-          name: nameOfStart,
-          ...(start !== undefined ? { startVersion: start.ref.version } : {}),
-          versions,
-        };
-      });
+    versionsOf: (id) => {
+      ensureFresh();
+      return entriesOf(id);
     },
+    listTemplates: () => {
+      ensureFresh();
+      return buildList();
+    },
+    diagnostics: () => ({ statCount: counters.statCount, rescanCount: counters.rescanCount }),
   };
 }
 
 /**
  * 启动期加载（R-TG-04 fail-fast）：扫描 `TEMPLATES_DIR/<id>/<version>/`，任一含 yaml 的
  * 版本校验失败 / `meta.id` ≠ 目录名 ⇒ 抛错（进程退出）；整个目录零模板 ⇒ 抛错。
+ * 之后的变更由 `registry.ensureFresh()` 在请求驱动下增量换入（T-TG-11）。
  */
 export function loadTemplates(logger: TemplateScanLogger): TemplateRegistry {
   const dir = templatesDir();
   const result = scanAll(dir, logger, true);
   const readyCount = [...result.entries.values()].filter((e) => e.status === "ready").length;
   if (readyCount === 0) throw new Error(`no_templates_found_in: ${dir}`);
-  return createRegistry(dir, result);
+  return createRegistry(dir, result, logger);
 }

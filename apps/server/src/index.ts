@@ -350,6 +350,9 @@ app.post("/api/worlds", async (request, reply) => {
     return reply.code(400).send({ error: "invalid_body", detail: parsed.error.flatten() });
   }
   const { templateId, templateVersion } = parsed.data;
+  // R-TG-16 / I-1：模板存在性判定前先做一次请求驱动的增量刷新，这样「刚 mkdir 的版本目录」
+  // 在本请求就可见（`versionsOf` 内部也会刷，但 idExists 不刷，故这里显式调一次）。
+  registry.ensureFresh();
   if (!registry.idExists(templateId)) {
     return reply.code(404).send({ error: "template_not_found", templateId });
   }
@@ -387,8 +390,9 @@ app.post("/api/worlds", async (request, reply) => {
   if (parsed.data.openingId !== undefined) {
     const allowed = entry.openings.map((o) => o.openingId);
     if (!allowed.includes(parsed.data.openingId)) {
+      // R-TG-14 AC③：提交不属于所选 `(id, version)` 的 openingId ⇒ **400** 且错误含允许集合。
       return reply
-        .code(404)
+        .code(400)
         .send({ error: "opening_not_found", openingId: parsed.data.openingId, allowed });
     }
   }
