@@ -9,7 +9,7 @@
 
 - openingId: op-190-chenliu
   name: 190 · 陈留会盟
-  description: 十八路诸侯讨董，你也在场。转盘会决定你是诸侯、谋士、小兵，还是一头乌角鲨；第八天，天意会把一切拉回主线。
+  description: 十八路诸侯讨董，你也在场。转盘会决定你是诸侯、谋士、小兵、一头乌角鲨，还是刘备、曹操、袁绍本人；七条故事都从陈留出发，第八天，天意会把一切拉回主线。
   entryConditions: []
   steps:
     - { id: step-enter-chenliu, kind: required }
@@ -24,6 +24,9 @@
       anchor1Done: false
       mainline: 讨董
       feastCount: 0
+  # 这两条关系指向「可能被玩家占用」的曹操 / 刘备：实例在世界创建时始终存在，
+  # 只是 unspawned 时会被投影剔除（hiddenNodeIds）。玩家 roll 到他们时该边自然不可达，
+  # 不需要在这里按身份分支，也不需要在事件里手工清理 —— 生命周期是单一事实源。
   npcSetup:
     relations:
       - { npcId: npc-caocao, value: 6, source: 会盟同席 }

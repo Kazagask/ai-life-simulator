@@ -1,4 +1,9 @@
 # 三国演义 · 人物 · characters.yaml
+# ⚠ 防分身：npc-liubei / npc-caocao / npc-yuan-shao 由 world.yaml 的 npcSpawnRules 管辖，
+#   开局 unspawned（不上屏）。玩家 roll 到该人物时，转盘不会 spawn 对应规则 ⇒ 世界里
+#   只存在一个此人（就是玩家自己）。三人的定义仍然保留，供另外六种身份的局使用。
+#   玩家若是刘备，ev-zifen（叙述「刘备拔剑」）等以其为第三视角的池事件会被 origin 条件排除，
+#   改由专属剧情链用第二人称讲同一件事 —— 叙事层也不出现第二个自己。
 # 讨董一章出场阵容。台词技能由事件解锁给玩家，NPC 只挂基础攻击（避免张冠李戴）。
 # 关系边 `{ from: A, to: B, kind: father }` 的语义是「B 是 A 的父亲」，本小样不写边，
 # 只用 relationship 标量，省得把方向写反（jjk-2006 的夜蛾坑见其 characters.yaml 头注释）。

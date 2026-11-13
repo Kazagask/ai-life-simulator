@@ -1,7 +1,9 @@
 # 三国演义 · 结局 / 终止 · endings.yaml（协议 V2.1 §17）
 #
 # 「胜利目标说」：每个角色有独立胜利目标，达成才能摆脱天意的制裁（二创派生理论）。
-# 小样只留两个结局：天意收束的常规结局，以及隐藏结局「摆脱天意」。
+# 结局按 origin 分化：三名真实人物各有一篇收束（priority 10，高于通用结局 0，
+# 低于隐藏结局 100），虚构身份共用「天意如此」，隐藏结局对所有身份开放。
+# ⚠ 三条身份线各自给被排除的池事件补了 fork flag 来源，所以 origin 不会把隐藏结局变成死路。
 # 终止判据只用声明式条件与 playerRequested，**不得以 HP 数值 / HP 归零为判据**（R-EN-07）。
 
 terminationConditions:
@@ -29,6 +31,43 @@ endings:
       source: template
       title: 天意如此
       summary: 玉玺还在，馒头还在，乌角鲨也还在。所有人都觉得，讨董本来就是这么打的。
+
+  # ── 三名真实人物：同一场天意，三份不同的余味 ──
+  - endingId: end-tianyi-liubei
+    name: 还是得带着他们走
+    description: 刘备线收束。名分先到了，兵还是那几百个；想退场的那一夜没人记得。
+    triggerConditions:
+      - { flag: origin, eq: 刘备 }
+    priority: 10
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 还是得带着他们走
+      summary: 第八天之后，没有人记得你曾在夜里想一个人先走。玉玺、馒头、乌角鲨都还在原处，盟主仍旧没下令。你清点了一遍带来的人，比来时少了两个，于是把名字写进名册，继续往徐州走。天意要你回主线，你要的只是路上的人别丢。
+
+  - endingId: end-tianyi-caocao
+    name: 留个记录
+    description: 曹操线收束。四个字没人听见，却被写进了檄文。
+    triggerConditions:
+      - { flag: origin, eq: 曹操 }
+    priority: 10
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 留个记录
+      summary: 那四个字到底没人听见，可它被写进檄文，檄文传了出去。第八天，所有人都觉得讨董本来就该这么打，只有你还记得灶膛里的灰。你把刀收好，接着往前走——这一世没能把责任交出去，倒是把名字留了下来。
+
+  - endingId: end-tianyi-yuanshao
+    name: 主位
+    description: 袁绍线收束。有没有下过那道军令，后来谁也说不清。
+    triggerConditions:
+      - { flag: origin, eq: 袁绍 }
+    priority: 10
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 主位
+      summary: 盟主的位子你一直坐到散席。有没有下过那道军令，后来谁也说不清；史书只写「盟主召集了十八路诸侯」。第八天，天意把这件事抹平得干干净净。你松了口气，又觉得那口气比这一整章都长。
 
   # 「胜利目标说」：把每条支线都浪一遍、且侵蚀度攒够，才够格摆脱天意。
   # 阈值说明：冒烟实测第一章（41 天）侵蚀度可到 49，故单看 tianyi 会过松，

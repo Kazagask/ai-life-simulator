@@ -18,14 +18,34 @@
 #   「是啊，吃什么？」= 第 5 集「吃什么！是啊，是啊！」语序转写；
 #   「这个乱世害了你」存在「阿瞒/孟德/我害了你」多版本，集数第 2/3 集来源冲突，故不写死。
 # ⚠ 「我剑也未尝不利」是 94 版老三国袁绍，不是新三国梗，本模板不用。
+#
+# ══════════════ 剧本结构（本轮新增） ══════════════
+# 命数转盘 7 格 = 7 条故事，都是**先讲人、再放梗**：
+#   虚构身份×4 → ev-intro-*（1 事件，各自处境）→ ev-tangdong-open
+#   刘备 → ev-line-liu-1/2/3    （末席 → 名分 → 想退场却被拦）
+#   曹操 → ev-line-cao-1/2/3    （拢人 → 伯父 → 没喊出口的四个字）
+#   袁绍 → ev-line-yuan-1/2/3   （主位 → 体面 → 没说出口的军令）
+# 三条线最后都汇入同一场讨董大会 ⇒ 第 8 天天意锚点 ⇒ 第 41 天新三国道。
+# **主线不因身份改变**：锚点仍是 schedule + once + priority 100，tianyi 锚点与 ch2-gate 原样保留。
+# 身份差异落在「处境、选择、目标、结局」上，梗只作为场景里的台词或背景，
+# 不再让每个事件都承担一个梗；三条真实人物线各只有 1~2 处考据句，且都服务人物。
+#
+# 【防分身】三名真实人物在 world.yaml 由 npcSpawnRules 置为开局 unspawned（不上屏）。
+# 转盘每格的 effects 用 spawnNpc 显式刷出「玩家没占用」的人，玩家是谁就不刷谁：
+#   刘备 → caocao + yuan-shao ；曹操 → liubei + yuan-shao ；袁绍 → liubei + caocao
+#   虚构身份 → 三人全部
+# 叙事层同样去重：以某人为第三视角叙述的池事件用 `{ flag: origin, ne: ... }` 排除，
+# 改由该身份的专属链用第二人称讲同一件事（ev-zifen / ev-lv-boshe / ev-wujiaosha）；
+# ev-tangdong-open 与 ev-canteen 的旁白改成不指名，任何身份读都不出现「另一个自己」。
+# 隐藏结局的五个 fork flag 在每条身份线都留了来源，排除池事件不会让隐藏结局变成死路。
 # ══════════════════════════════════════════════════════════════════════════
 
 events:
-  # ────────────── 开局：命数转盘 ──────────────
+  # ────────────── 开局：命数转盘（7 格 → 7 条故事） ──────────────
 
   - id: ev-opening-wheel
     title: 命数转盘 · 陈留
-    narrative: 190 年，陈留。会盟的帐外摆着一台不知谁留下的旧转盘，它自己转了起来。十八路诸侯正在里面争论谁当盟主，没人注意到你。
+    narrative: 190 年，陈留。会盟的帐外摆着一台不知谁留下的旧转盘，它自己转了起来。十八路诸侯正在里面争论谁当盟主，没人注意到你。转盘上刻着七种活法，其中三种有名字——是你听过很多遍的名字。
     trigger:
       source: chain
     kind: normal
@@ -38,9 +58,12 @@ events:
               - { type: log, text: 转盘开始转了。天意在旁边看着，暂时没有发力。, visibility: public }
             nextEventId: ev-wheel-fate
 
+  # 每格 effects 里的 spawnNpc 就是「防分身」的全部实现：玩家是谁，就不刷谁。
+  # 三名真实人物开局 unspawned（world.yaml 的 npcSpawnRules），只有这里能把他们请上场。
+  # setFlag objective 覆盖 opening.yaml 的默认值 ⇒ 二创「胜利目标说」按身份分化。
   - id: ev-wheel-fate
-    title: 命数转盘 · 你这辈子是什么
-    narrative: 第一格是出身。诸侯、谋士、小兵……以及一个谁也没见过、但所有人都觉得合情合理的选项。
+    title: 命数转盘 · 你这辈子是谁
+    narrative: 第一格是出身。诸侯、谋士、小兵……一个谁也没见过却所有人都觉得合情合理的选项，以及三张你认得的脸。
     trigger:
       source: chain
     kind: random
@@ -52,39 +75,517 @@ events:
               label: 一路诸侯
               effects:
                 - { type: setFlag, id: origin, value: 诸侯 }
+                - { type: setFlag, id: objective, value: 让这面旗活过这一章 }
+                - { type: spawnNpc, ruleId: rule-liubei-arrival }
+                - { type: spawnNpc, ruleId: rule-caocao-arrival }
+                - { type: spawnNpc, ruleId: rule-yuan-shao-arrival }
                 - { type: adjustAttribute, attribute: command, value: 3 }
                 - { type: adjustAttribute, attribute: reputation, value: 4 }
-              nextEventId: ev-tangdong-open
+              nextEventId: ev-intro-lord
             - weight: 3
               label: 帐下谋士
               effects:
                 - { type: setFlag, id: origin, value: 谋士 }
+                - { type: setFlag, id: objective, value: 找到一句值得写进信里的话 }
+                - { type: spawnNpc, ruleId: rule-liubei-arrival }
+                - { type: spawnNpc, ruleId: rule-caocao-arrival }
+                - { type: spawnNpc, ruleId: rule-yuan-shao-arrival }
                 - { type: adjustAttribute, attribute: intellect, value: 3 }
                 - { type: adjustMood, value: 3 }
-              nextEventId: ev-tangdong-open
+              nextEventId: ev-intro-advisor
             - weight: 3
               label: 一个普通小兵
               effects:
                 - { type: setFlag, id: origin, value: 小兵 }
+                - { type: setFlag, id: objective, value: 活到有人肯问你名字那天 }
+                - { type: spawnNpc, ruleId: rule-liubei-arrival }
+                - { type: spawnNpc, ruleId: rule-caocao-arrival }
+                - { type: spawnNpc, ruleId: rule-yuan-shao-arrival }
                 - { type: adjustAttribute, attribute: physique, value: 3 }
                 - { type: grantItem, itemId: item-mantou, count: 2 }
-              nextEventId: ev-tangdong-open
+              nextEventId: ev-intro-soldier
             - weight: 1
               label: 一头乌角鲨
               effects:
                 - { type: setFlag, id: origin, value: 乌角鲨 }
+                - { type: setFlag, id: objective, value: 游到第八天看一眼天意长什么样 }
                 - { type: setIdentity, gender: wujiaosha }
+                - { type: spawnNpc, ruleId: rule-liubei-arrival }
+                - { type: spawnNpc, ruleId: rule-caocao-arrival }
+                - { type: spawnNpc, ruleId: rule-yuan-shao-arrival }
                 - { type: adjustAttribute, attribute: physique, value: 5 }
                 - { type: adjustAttribute, attribute: tianyi, value: 2 }
                 - { type: grantItem, itemId: item-wujiaosha, count: 1 }
                 - { type: log, text: 你是一头乌角鲨。所有人都不觉得这有什么不对——天意已经提前打过招呼了。, visibility: public }
-              nextEventId: ev-tangdong-open
+              nextEventId: ev-intro-shark
+
+            # ── 真实历史人物：不刷自己那一条规则，避免帐里坐着另一个自己 ──
+            - weight: 2
+              label: 刘备
+              effects:
+                - { type: setFlag, id: origin, value: 刘备 }
+                - { type: setFlag, id: objective, value: 把跟着你的人活着带出陈留 }
+                - { type: setIdentity, age: 29 }
+                - { type: adjustAttribute, attribute: command, value: 2 }
+                - { type: adjustAttribute, attribute: reputation, value: 2 }
+                - { type: adjustAttribute, attribute: tianyi, value: 1 }
+                - { type: spawnNpc, ruleId: rule-caocao-arrival }
+                - { type: spawnNpc, ruleId: rule-yuan-shao-arrival }
+                - { type: log, text: 你叫刘备。这一世，帐里不会再有第二个刘备。, visibility: public }
+              nextEventId: ev-line-liu-1
+            - weight: 2
+              label: 曹操
+              effects:
+                - { type: setFlag, id: origin, value: 曹操 }
+                - { type: setFlag, id: objective, value: 把散掉的人拢成一支能打的东西 }
+                - { type: setIdentity, age: 35 }
+                - { type: adjustAttribute, attribute: command, value: 2 }
+                - { type: adjustAttribute, attribute: intellect, value: 2 }
+                - { type: spawnNpc, ruleId: rule-liubei-arrival }
+                - { type: spawnNpc, ruleId: rule-yuan-shao-arrival }
+                - { type: log, text: 你叫曹操。陈留会盟里不会再有人在席上替你说话。, visibility: public }
+              nextEventId: ev-line-cao-1
+            - weight: 2
+              label: 袁绍
+              effects:
+                - { type: setFlag, id: origin, value: 袁绍 }
+                - { type: setFlag, id: objective, value: 让主位上那句话终于说得出口 }
+                - { type: setIdentity, age: 40 }
+                - { type: adjustAttribute, attribute: reputation, value: 4 }
+                - { type: adjustAttribute, attribute: command, value: 1 }
+                - { type: spawnNpc, ruleId: rule-liubei-arrival }
+                - { type: spawnNpc, ruleId: rule-caocao-arrival }
+                - { type: log, text: 你叫袁绍。盟主只有一个，这一世就是你自己。, visibility: public }
+              nextEventId: ev-line-yuan-1
+
+  # ────────────── 四条虚构身份：各自的一段处境 ──────────────
+  # 只讲「你此刻站在哪儿、手里有什么」，不塞梗；一句话把身份放进场，然后都进大会。
+
+  - id: ev-intro-lord
+    title: 一面旗
+    narrative: 你有一面旗、一乘车、二十来个愿意跟着走的人，没有粮，也没有名分。盟军门槛前排着队，报名字的人一个比一个响亮。你把旗插在最靠边的位置，发现风一直往那边吹。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-lord-plant
+            text: 先把旗插稳，别让人看出你没底
+            effects:
+              - { type: setFlag, id: lordOath, value: true }
+              - { type: adjustAttribute, attribute: command, value: 1 }
+              - { type: log, text: 旗插稳了。没有人问你是谁。, visibility: public }
+            nextEventId: ev-tangdong-open
+          - id: opt-lord-borrow
+            text: 先去借粮，人得先吃饱
+            effects:
+              - { type: grantItem, itemId: item-mantou, count: 2 }
+              - { type: adjustRelation, npcId: npc-gongsun-zan, value: 2 }
+              - { type: adjustMood, value: -1 }
+            nextEventId: ev-tangdong-open
+          - id: opt-lord-seat
+            text: 先把座次争明白
+            effects:
+              - { type: adjustAttribute, attribute: reputation, value: 1 }
+              - { type: adjustRelation, npcId: npc-yuan-shao, value: -1 }
+            nextEventId: ev-tangdong-open
+
+  - id: ev-intro-advisor
+    title: 三封信
+    narrative: 你带着三封没送出去的信：一封给袁绍，一封给曹操，一封没写收信人。帐里人人都在等盟主发话，你却在数谁开口前别人会先安静下来。三封信在袖子里被汗浸软了。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-advisor-yuan
+            text: 把第一封信递出去
+            effects:
+              - { type: setFlag, id: advisorChoice, value: 袁绍 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: adjustRelation, npcId: npc-yuan-shao, value: 2 }
+            nextEventId: ev-tangdong-open
+          - id: opt-advisor-cao
+            text: 把第二封信递出去
+            effects:
+              - { type: setFlag, id: advisorChoice, value: 曹操 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: adjustRelation, npcId: npc-caocao, value: 2 }
+            nextEventId: ev-tangdong-open
+          - id: opt-advisor-none
+            text: 谁也不投，先把今天记下来
+            effects:
+              - { type: setFlag, id: advisorWatch, value: true }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: log, text: 你把每人开口前那一瞬的安静记了下来。天意喜欢安静。, visibility: hidden }
+            nextEventId: ev-tangdong-open
+
+  - id: ev-intro-soldier
+    title: 抬席子的人
+    narrative: 你负责把席子抬进中军帐，再抬出去。诸侯说话时你就在三步之内，谁也没把你算进人数里。也正因为在三步之内，里屋压得极低的半句话，你听得清清楚楚。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-soldier-listen
+            text: 把席子摆到能听见里屋的位置
+            effects:
+              - { type: setFlag, id: soldierHeard, value: true }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: log, text: 室外大喊无人听见，室内小声必被偷听——你还没总结，就已经在用了。, visibility: hidden }
+            nextEventId: ev-tangdong-open
+          - id: opt-soldier-mantou
+            text: 趁乱摸两个馒头
+            effects:
+              - { type: grantItem, itemId: item-mantou, count: 2 }
+              - { type: adjustMood, value: 4 }
+            nextEventId: ev-tangdong-open
+          - id: opt-soldier-report
+            text: 把听到的话报上去
+            effects:
+              - { type: adjustAttribute, attribute: reputation, value: 1 }
+              - { type: adjustRelation, npcId: npc-yuan-shao, value: 1 }
+            nextEventId: ev-tangdong-open
+
+  - id: ev-intro-shark
+    title: 给水留的席位
+    narrative: 你是一头乌角鲨。没人问你从哪来，也没人觉得席位上放一盆水有什么不对——天意已经提前跟所有人打过招呼了。你顺着水沟游过整座营，听见的都是人的打算。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-shark-camp
+            text: 游进中军帐，占一个听得见的位置
+            effects:
+              - { type: setFlag, id: forkShark, value: true }
+              - { type: grantItem, itemId: item-wujiaosha, count: 1 }
+              - { type: applyStatus, status: st-wujiaosha-aura }
+              - { type: adjustAttribute, attribute: tianyi, value: 2 }
+            nextEventId: ev-tangdong-open
+          - id: opt-shark-kitchen
+            text: 顺着水沟去后厨
+            effects:
+              - { type: grantItem, itemId: item-mantou, count: 2 }
+              - { type: adjustMood, value: 3 }
+            nextEventId: ev-tangdong-open
+          - id: opt-shark-wait
+            text: 什么都不做，等第八天
+            effects:
+              - { type: adjustAttribute, attribute: tianyi, value: 1 }
+              - { type: log, text: 你浮在水里，等天意发力。, visibility: public }
+            nextEventId: ev-tangdong-open
+
+  # ────────────── 刘备线：一个想退场的人，被推到台前 ──────────────
+  # 人物弧：末席 → 名分先于兵到 → 想走却走不掉。梗只留第 36 集原句与二创「天意护体」，
+  # 合成句「三军听令，自刎归天」不在这里用（留给非刘备身份的池事件）。
+
+  - id: ev-line-liu-1
+    title: 末席
+    narrative: 你带着关羽、张飞和几百个平原乡勇赶到陈留。席位按兵马多寡排，你的在最末，紧挨着放兵器的架子。你不是来争盟主的——你想问的是打完这一仗，路上那些人怎么办。可每回你开口，总有人先把酒递过来。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-liu-people
+            text: 替路上那些人问一句
+            effects:
+              - { type: setFlag, id: liuOath, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 2 }
+              - { type: adjustRelation, npcId: npc-gongsun-zan, value: 1 }
+              - { type: adjustMood, value: -2 }
+              - { type: log, text: 话问出去了。有人给你夹了一个馒头。, visibility: public }
+            nextEventId: ev-line-liu-2
+          - id: opt-liu-sit
+            text: 什么也不说，先坐下
+            effects:
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: adjustMood, value: -1 }
+            nextEventId: ev-line-liu-2
+          - id: opt-liu-scout
+            text: 让关张去打听粮草
+            effects:
+              - { type: adjustAttribute, attribute: command, value: 1 }
+              - { type: grantItem, itemId: item-mantou, count: 1 }
+            nextEventId: ev-line-liu-2
+
+  - id: ev-line-liu-2
+    title: 中山靖王之后
+    narrative: 袁绍隔着半张席问你祖上是谁。你答了，帐里安静了一瞬——有人信，有人没信，更多人只是等下一道菜。从那一刻起，你被推成了「义」那一边的人，可你连自己带来的人都没点齐。名分比兵先到了。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-liu-accept
+            text: 认下这个名分
+            effects:
+              - { type: setFlag, id: liuName, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 3 }
+              - { type: adjustAttribute, attribute: command, value: -1 }
+              - { type: log, text: 名分记在册上了，兵还是那几百个。, visibility: hidden }
+            nextEventId: ev-line-liu-3
+          - id: opt-liu-deflect
+            text: 说自己只是来帮忙的
+            effects:
+              - { type: adjustMood, value: 2 }
+              - { type: adjustRelation, npcId: npc-yuan-shao, value: 1 }
+            nextEventId: ev-line-liu-3
+          - id: opt-liu-brothers
+            text: 把话头让给关张
+            effects:
+              - { type: adjustAttribute, attribute: command, value: 2 }
+              - { type: adjustRelation, npcId: npc-gongsun-zan, value: -1 }
+            nextEventId: ev-line-liu-3
+
+  # 第 36 集携民渡江原句「列位弟兄，随我接战，战至最后一刻！」在此作人物台词；
+  # 二创「灵魂锁链单向链 / 天意护体」写成「想退场却总被叫住」，不是一句玩梗说明。
+  - id: ev-line-liu-3
+    title: 战至最后一刻
+    narrative: 入夜，探马报华雄已到关前。满帐诸侯都等盟主下令，盟主在擦杯子。你站起来想说「我去」，话到嘴边却成了「列位弟兄，随我接战，战至最后一刻」——你忽然很想就此退场，把这副担子交给别人。可每次你往门口走，总有一件事把你叫回来：有人要你签字，有人问明日几时开拔。走不掉。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-liu-fight
+            text: 「列位弟兄，随我接战，战至最后一刻！」（第 36 集原句）
+            effects:
+              - { type: adjustAttribute, attribute: command, value: 2 }
+              - { type: adjustResource, resource: hp, value: -10 }
+            nextEventId: ev-tangdong-open
+          - id: opt-liu-withdraw
+            text: 试着一个人先走，把这一章留给别人
+            effects:
+              - { type: setFlag, id: forkSuicide, value: true }
+              - { type: applyStatus, status: st-tianyi-protection }
+              - { type: adjustAttribute, attribute: tianyi, value: 3 }
+              - { type: log, text: 天意护体：死不了，也走不掉。灵魂锁链是单向的。, visibility: public }
+            nextEventId: ev-tangdong-open
+          - id: opt-liu-wait
+            text: 坐回去，等盟主先开口
+            effects:
+              - { type: adjustMood, value: -3 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+            nextEventId: ev-tangdong-open
+
+  # ────────────── 曹操线：喊话的人，想把口号变成一支能打的兵 ──────────────
+  # 人物弧：拢人 → 把责任交给谁 → 明知没人听也要留个记录。
+  # 吕伯奢一段写成夜里独白（原句的考据与集数冲突见下），不摆成梗展示柜。
+
+  - id: ev-line-cao-1
+    title: 洛阳来的一个人
+    narrative: 你是从洛阳逃出来的。刺董没成，名字倒先传遍了各郡；一路上有人给你送粮，也有人关门。到陈留时你身上还带着那把没派上用场的刀，身后是吕伯奢家灶膛里没凉透的灰。你来会盟不是为了坐席，是想把散掉的人重新拢成一支能打的东西。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-cao-muster
+            text: 先点兵，不问座次
+            effects:
+              - { type: setFlag, id: caoResolve, value: true }
+              - { type: adjustAttribute, attribute: command, value: 3 }
+              - { type: adjustResource, resource: mp, value: -3 }
+            nextEventId: ev-line-cao-2
+          - id: opt-cao-write
+            text: 先写檄文
+            effects:
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustAttribute, attribute: reputation, value: 1 }
+            nextEventId: ev-line-cao-2
+          # forkMeal 的来源：玩家=曹操时 ev-canteen 被 origin 条件排除，
+          # 隐藏结局仍需这一条 flag，故在此由「大食堂」选项补上。
+          - id: opt-cao-kitchen
+            text: 先去厨房看看有没有吃的
+            effects:
+              - { type: setFlag, id: forkMeal, value: true }
+              - { type: grantItem, itemId: item-mantou, count: 2 }
+              - { type: adjustMood, value: 2 }
+              - { type: log, text: 陈留大食堂永远在营业，哪怕你就是那个该发檄文的人。, visibility: hidden }
+            nextEventId: ev-line-cao-2
+
+  # 原句「伯父，不是阿瞒害了你，是这个乱世害了你呀」；另有「孟德」版本，
+  # 集数第 2/3 集来源冲突（草案 §1），故只写「误杀之后」，不写死集数。
+  - id: ev-line-cao-2
+    title: 伯父
+    narrative: 夜里你一个人坐着。那顿饭原本是准备好了的：酒温过，猪也绑好了，你却听见了磨刀声。后来你知道那是误会，可人已经没了。你可以把这件事认下来，也可以把它交给这个世道——反正这世道确实烂得足够承担它。你把那句话在心里念了一遍，念完发现自己轻松了一点，这让你更不舒服。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-cao-blame-era
+            text: 「不是我害了你，是这个乱世害了你」
+            effects:
+              - { type: setFlag, id: forkBlameEra, value: true }
+              - { type: adjustAttribute, attribute: tianyi, value: 2 }
+              - { type: adjustMood, value: 2 }
+              - { type: applyStatus, status: st-tianyi-erosion }
+              - { type: log, text: 天意侵蚀 · 精神错乱：从现在起，徐州是中原第一雄关。, visibility: public }
+            nextEventId: ev-line-cao-3
+          - id: opt-cao-confess
+            text: 认下来，不甩锅
+            effects:
+              - { type: setFlag, id: caoConfessed, value: true }
+              - { type: adjustMood, value: -6 }
+              - { type: adjustAttribute, attribute: reputation, value: 1 }
+              - { type: adjustAttribute, attribute: tianyi, value: -1 }
+            nextEventId: ev-line-cao-3
+          - id: opt-cao-silence
+            text: 什么都不说，把碗收了
+            effects:
+              - { type: adjustMood, value: -2 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+            nextEventId: ev-line-cao-3
+
+  - id: ev-line-cao-3
+    title: 没喊出口的四个字
+    narrative: 天亮前你把明天要喊的那句话练了一遍，没出声。你清楚得很：长乐宫前站着百官和西凉卫兵，喊得再响也没人会回头；倒是帐里压低嗓子说的话，隔三里都有人知道。你还是决定喊——不是为了让人听见，是为了让这件事在世上留个记录。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-cao-ready
+            text: 把刀收好，等天亮
+            effects:
+              - { type: setFlag, id: caoReady, value: true }
+              - { type: adjustAttribute, attribute: command, value: 1 }
+            nextEventId: ev-tangdong-open
+          - id: opt-cao-note
+            text: 把「室外大喊无人听见，室内密谋必被偷听」记下来
+            effects:
+              - { type: setFlag, id: caoRule, value: true }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustAttribute, attribute: tianyi, value: 1 }
+              - { type: log, text: 你把这条规律写进了袖子里的纸。后来它比檄文还管用。, visibility: hidden }
+            nextEventId: ev-tangdong-open
+          - id: opt-cao-sleep
+            text: 先睡一个时辰
+            effects:
+              - { type: adjustResource, resource: hp, value: 10 }
+              - { type: adjustMood, value: 1 }
+            nextEventId: ev-tangdong-open
+
+  # ────────────── 袁绍线：坐在主位的人，说不出那句下令的话 ──────────────
+  # 人物弧：主位 → 体面压过脾气 → 军令咽回去。老三国「我剑也未尝不利」不用。
+  # 第 11 集公孙瓒「一对笑面虎，两头乌角鲨」在此写成兄弟处境，不是笑点陈列。
+
+  - id: ev-line-yuan-1
+    title: 主位
+    narrative: 四世三公，盟主之位除了你没有第二个答案。你坐上去的时候，十八路诸侯一起看着你，等一句话。你清了清嗓子，先问的是座次排得对不对。弟弟袁术在旁边小声催你，你没接。你知道他们等的不是座次，可那句话太重，你想再等等。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-yuan-seats
+            text: 先把座次定明白
+            effects:
+              - { type: setFlag, id: yuanDelay, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 1 }
+              - { type: adjustMood, value: 2 }
+            nextEventId: ev-line-yuan-2
+          - id: opt-yuan-order
+            text: 直接议兵
+            effects:
+              - { type: adjustAttribute, attribute: command, value: 2 }
+              - { type: adjustMood, value: -2 }
+            nextEventId: ev-line-yuan-2
+          - id: opt-yuan-brother
+            text: 让袁术替你开口
+            effects:
+              - { type: adjustRelation, npcId: npc-yuan-shu, value: 2 }
+              - { type: adjustAttribute, attribute: reputation, value: -1 }
+            nextEventId: ev-line-yuan-2
+
+  - id: ev-line-yuan-2
+    title: 体面
+    narrative: 帐外飘进来一句评语，说你兄弟俩是「一对笑面虎，两头乌角鲨」。袁术当场要发作，你按住他——不是不生气，是盟主第一天不能为一句笑话翻脸。可你按着按着，忽然发现帐外真的游过一头乌角鲨，而且没人觉得该拦。你决定不提这件事。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-yuan-hold
+            text: 按住袁术，当没听见
+            effects:
+              - { type: setFlag, id: yuanFace, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 2 }
+              - { type: adjustMood, value: -3 }
+            nextEventId: ev-line-yuan-3
+          - id: opt-yuan-ask
+            text: 让公孙瓒把话说完
+            effects:
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: adjustRelation, npcId: npc-gongsun-zan, value: 1 }
+            nextEventId: ev-line-yuan-3
+          # forkShark 的来源：玩家=袁绍时 ev-wujiaosha 被 origin 条件排除。
+          - id: opt-yuan-shark
+            text: 追究那头「乌角鲨」到底是什么东西
+            effects:
+              - { type: setFlag, id: forkShark, value: true }
+              - { type: grantItem, itemId: item-wujiaosha, count: 1 }
+              - { type: applyStatus, status: st-wujiaosha-aura }
+              - { type: adjustAttribute, attribute: tianyi, value: 2 }
+              - { type: log, text: 一头乌角鲨游进了中军帐。所有人都觉得事情本来就是这样。, visibility: public }
+            nextEventId: ev-line-yuan-3
+
+  - id: ev-line-yuan-3
+    title: 一句没说出口的军令
+    narrative: 华雄到了关前。所有人都看着主位，等你下令。你想说的其实是「再等等，等他们先耗」——这句话在心里转了三圈，最后变成一句「诸位以为如何」。于是帐里又议论起中午吃什么。你松了口气，又有点说不出的空。后来史书会写：盟主召集了十八路诸侯。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-yuan-defer
+            text: 「诸位以为如何」
+            effects:
+              - { type: setFlag, id: yuanDecree, value: false }
+              - { type: adjustMood, value: 2 }
+              - { type: adjustAttribute, attribute: tianyi, value: 1 }
+              - { type: log, text: 没有人记得盟主到底下没下令。, visibility: public }
+            nextEventId: ev-tangdong-open
+          - id: opt-yuan-command
+            text: 终于下令，点一名将领出战
+            effects:
+              - { type: setFlag, id: yuanDecree, value: true }
+              - { type: adjustAttribute, attribute: command, value: 2 }
+              - { type: adjustRelation, npcId: npc-sun-jian, value: 2 }
+            nextEventId: ev-tangdong-open
+          - id: opt-yuan-feast
+            text: 先开席，边吃边议
+            effects:
+              - { type: setFlag, id: forkMeal, value: true }
+              - { type: grantItem, itemId: item-mantou, count: 2 }
+              - { type: adjustMood, value: 4 }
+              - { type: adjustAttribute, attribute: tianyi, value: 1 }
+            nextEventId: ev-tangdong-open
 
   # ────────────── 讨董大会（梗 1） ──────────────
 
+  # 七条身份线汇入同一场戏，故旁白一律不指名：玩家是曹操时「有人」就是自己，
+  # 玩家不是曹操时「有人」是席上那位 NPC —— 两种读法都不出现第二个自己。
   - id: ev-tangdong-open
     title: 十八路诸侯 · 长乐宫前
-    narrative: 王允借六十大寿密谋反董，独不请曹操。长乐宫前，袁隗追问曹操侍的是哪家的贼；当着百官与西凉卫兵，曹操高声喊出了那四个字。卫兵无动于衷，董卓毫无察觉。
+    narrative: 王允借六十大寿密谋反董，席上少了一个人。长乐宫前，袁隗追问侍的是哪家的贼；当着百官与西凉卫兵，有人高声喊出了那四个字。卫兵无动于衷，董卓毫无察觉。倒是帐里压低嗓子说的话，隔三里都有人知道。
     trigger:
       source: chain
     kind: normal
@@ -94,10 +595,12 @@ events:
           # 原句：曹操，新三国第 1 集「国贼董卓嘛！」
           # 二创「窃听机制」的反例：室外大喊必无人听见；室内小声密谋必被偷听。
           - id: opt-shout-guozhei
-            text: 「国贼董卓嘛！」（曹操原句，第 1 集）
+            text: 「国贼董卓嘛！」（第 1 集原句）
             effects:
               - { type: setFlag, id: shoutedTraitor, value: true }
               - { type: adjustAttribute, attribute: tianyi, value: 1 }
+              # 玩家=曹操时 npc-caocao 仍是 unspawned，引擎按 lifecycle 判活忽略这条关系调整，
+              # 不会凭空造出一个自己；其余六种身份下这条边正常生效。
               - { type: adjustRelation, npcId: npc-caocao, value: 3 }
               - { type: log, text: 喊声很大，西凉卫兵一个也没回头。室外大喊必无人听见——窃听机制的反例。, visibility: public }
           - id: opt-stay-silent
@@ -120,9 +623,11 @@ events:
   # 梗 6「是啊，吃什么？」——**衍生句**，不是逐字台词。
   # 原剧第 5 集陈留大食堂：袁术闹着告老还乡，曹操「袁公路……你走了，我们吃什么？」
   # 众诸侯（镜头给傻笑的公孙瓒）「吃什么！是啊，是啊！」，二创才转写成「是啊，吃什么？」
+  # 旁白不指名 ⇒ 任何身份都不会读到「另一个自己」在说话。
+  # 玩家=曹操时排除（这句是曹操的台词，不该由别人替他说），forkMeal 改由 ev-line-cao-1 提供。
   - id: ev-canteen
     title: 陈留大食堂
-    narrative: 军议开到一半，袁术被刘关张气到要告老还乡。曹操挽留：「袁公路……你走了，我们吃什么？」满帐诸侯异口同声：「吃什么！是啊，是啊！」没有人记得刚才在讨论讨董。
+    narrative: 军议开到一半，袁术被刘关张气到要告老还乡。席间有人挽留：「袁公路……你走了，我们吃什么？」满帐诸侯异口同声：「吃什么！是啊，是啊！」没有人记得刚才在讨论讨董。
     trigger:
       source: pool
       weight: 3
@@ -131,6 +636,7 @@ events:
       conditions:
         - { flag: chapter, eq: 1 }
         - { flag: anchor1Done, eq: false }
+        - { flag: origin, ne: 曹操 }
     kind: normal
     settle:
       normal:
@@ -190,6 +696,8 @@ events:
 
   # 梗 5「一对笑面虎，两头乌角鲨」——公孙瓒，第 11 集，评袁绍袁术。
   # 「乌角鲨」现实中不存在，系编剧自造；本模板把它做成真实生物，魔幻化主投放口。
+  # 玩家=袁绍时排除：这一幕已由 ev-line-yuan-2「体面」用第一人称讲过，
+  # 再刷一次等于让公孙瓒当着玩家点评玩家本人；forkShark 改由袁绍线 opt-yuan-shark 提供。
   - id: ev-wujiaosha
     title: 笑面虎与乌角鲨
     narrative: 陶谦之子求援，袁绍袁术都不发兵。公孙瓒慢悠悠地下了评语：「这对儿堂兄弟，可谓是一对笑面虎，两头乌角鲨。」帐外恰好游过一头。
@@ -201,6 +709,7 @@ events:
       conditions:
         - { flag: chapter, eq: 1 }
         - { flag: anchor1Done, eq: false }
+        - { flag: origin, ne: 袁绍 }
     kind: normal
     settle:
       normal:
@@ -221,6 +730,8 @@ events:
 
   # 梗 3「是这个乱世害了你啊」——曹操祭吕伯奢，原句「伯父，不是阿瞒害了你，是这个乱世害了你呀」。
   # 另有「不是孟德害了你」版本；集数第 2/3 集来源冲突，模板只写「误杀吕伯奢之后」。
+  # 玩家=曹操时排除：祭拜的人就是玩家自己，改由 ev-line-cao-2「伯父」用第二人称讲；
+  # forkBlameEra 也由该事件的 opt-cao-blame-era 提供，隐藏结局不会因此断路。
   - id: ev-lv-boshe
     title: 是这个乱世害了你
     narrative: 误杀之后，曹操对着吕伯奢的遗体祭拜，把个人恶行平稳地甩给了大环境。「他已经把吃的喝的都准备好了，如果我们不回去他不是白死了吗」——陈留大食堂的前置梗。
@@ -232,6 +743,7 @@ events:
       conditions:
         - { flag: chapter, eq: 1 }
         - { flag: anchor1Done, eq: false }
+        - { flag: origin, ne: 曹操 }
     kind: normal
     settle:
       normal:
@@ -253,6 +765,8 @@ events:
   # 梗 2「三军听令，自刎归天」——**两句剪辑合成的二创句**，不是剧中逐字台词。
   # ① 徐州时期刘备「三军听令，开城迎敌」；② 第 36 集携民渡江「列位弟兄，随我接战，战至最后一刻，自刎归天！」
   # 二创解读：刘备想提前下线脱离天意，但「天意护体」总把他拦住（灵魂锁链单向链）。
+  # 玩家=刘备时排除：拔剑的人就是玩家自己，改由 ev-line-liu-3「战至最后一刻」讲；
+  # forkSuicide 由该事件的 opt-liu-withdraw 提供。合成句只在这条为非刘备身份保留。
   - id: ev-zifen
     title: 战至最后一刻
     narrative: 大江在前，曹操铁骑在后。刘备拔出双股剑，回头看了一眼关张。二创把这一幕和徐州那句军令剪到了一起，于是成了「三军听令，自刎归天」。
@@ -264,6 +778,7 @@ events:
       conditions:
         - { flag: chapter, eq: 1 }
         - { flag: anchor1Done, eq: false }
+        - { flag: origin, ne: 刘备 }
     kind: normal
     settle:
       normal:
