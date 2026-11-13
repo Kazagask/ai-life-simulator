@@ -5,7 +5,7 @@
 > **〔本轮状态说明 · 云端工程适配，2026-11-13〕**（本段为状态注记；下方 EARS 正文、需求编号、验收条目、追溯矩阵原文一律不动）
 > - **实现**：9 条 ACTIVE 需求（`R-LLM-01..06` / `R-NAR-01..03`）**全部实现**，对应 8 个 `T-*` 任务完成（10 个功能 / 规格 commit `42ffa17`..`ba889ba`）；契约面 `schemaVersion=2`、`WorldStateV2` 零改动、零 `*.yaml` 改动 ⇒ 模板指纹不变、旧档可直载。
 > - **验证口径（按用户裁决仅冒烟级）**：`pnpm typecheck` 0 错、定向 `narrative-llm.test.ts` 12 例 + `event-flavor.test.ts` 5 例、服务端冒烟 6 项、`apps/web` build、加载期 200。
-> - **明确未跑 / 未出结论**：`pnpm test` / 全量 vitest 套件 / `playthrough.test.ts` 6 种子结构性回归 / UI e2e / 任何全流程测试 / 真实外部 LLM 端点联网调用；全量回归报告 `tasks/reports/R27-FULL-REGRESSION.md` 不存在，仍待在云端补跑，**不得把未跑项写成已验证**。
+> - **明确未跑 / 未出结论**：UI e2e 与真实外部 LLM 端点联网调用（后者仍排除，无凭据且属 `OPEN_QUESTIONS #49` 待决）；全量回归报告 `tasks/reports/R27-FULL-REGRESSION.md` 已由 `8e4b4f7` 产出（L0 typecheck 0 错 / L1 shared 67 / L2 game-core 478 / L2b 6 种子 × 2 开局 playthrough 全绿 / L3 叙事冒烟 6 PASS / L4 web build / CT-02 cloud.smoke.mjs 6 PASS + 1 SKIP；UI e2e 与真实外部 LLM 联网未跑项如实登记），**不得把未跑项写成已验证**。
 > - **流程**：ADR-0027 为**事后补记**（`0f42bd0`）；G1 前置门禁本次免除、未走正式评审，故**未宣告按标准流程关闭**；该「免前置 ADR + 事后补记」仅适用本次任务、不延续，后续恢复 `AGENTS.md §0.3` 的 G1 / G2 正常门禁。
 > - **追溯**：`tasks/reports/R27-COMPLETION.md`、`docs/DECISIONS.md` ADR-0027〔事后补记〕。
 
