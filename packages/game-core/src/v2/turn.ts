@@ -459,9 +459,19 @@ function settleRandomSlot(
 ): void {
   if (def.kind !== "random") return;
   const wheel = def.settle.random.wheel;
-  const shown = (state.lastWheels ?? []).find((w) => w.eventId === def.id);
-  // 未确认前一定呈现过（S2：呈现是结算的前置）；兜底按 label 找不到时取首段（不静默吞掉结算）
+  // 呈现在**上一个**轮次（`presentRandomSlot` 写 `lastWheel(s)`）；确认这一轮必须**按呈现的那一格**结算：
+  // 先查本轮呈现集，再退回单槽 `lastWheel`（单槽在 `presentRandomSlot` 写入且不被轮次起点清空）。
+  const shown =
+    (state.lastWheels ?? []).find((w) => w.eventId === def.id) ??
+    (state.lastWheel !== null && state.lastWheel.eventId === def.id ? state.lastWheel : undefined);
   const seg = wheel.segments.find((s) => s.label === shown?.label) ?? wheel.segments[0]!;
+  // 确认轮也要把"这一格是什么"回填给前端（否则点完"继续"只看得到 turnIndex 变了）
+  if (shown !== undefined) {
+    result.wheelResult = shown;
+    if (!(state.lastWheels ?? []).some((w) => w.eventId === def.id)) {
+      (state.lastWheels ??= []).push(shown);
+    }
+  }
   settleSlotEvent({
     state,
     template,
@@ -600,7 +610,7 @@ function postSettleJudgements(
  * **`nextTurn` 判定链**（ADR-0034 §2，全模型唯一的推进入口）。
  *
  * ```
- * 槽有 ⇒ 只处理它；random 呈现即结算；combat 建战斗后等战斗命令；normal 等选择
+ * 槽有 ⇒ 只处理它；random **只呈现不结算**（等 `/turns` 的转盘确认）；combat 建战斗后等战斗命令；normal 等选择
  * 槽空 ⇒ 扫队列，取出即写 slot（from: "queueTake"）再处理
  * 都没有 ⇒ 返回（空槽 = 可自由行动）
  * ```
@@ -771,8 +781,6 @@ export function advanceTurnV2(
   if (state.battle !== null && !state.battle.over) throw new Error("battle_in_progress");
   // 清理上一场已结束的战斗（战斗是槽的内部过程，会话不该跨轮残留）
   state.battle = null;
-  // 本轮呈现集在**轮次起点**清空（D-03）：被拒的指令不会清掉上一轮的可见结果
-  state.lastWheels = [];
 
   const rng = ctx?.rng ?? createRng(deriveTurnSeed(state.seed, state.turnIndex + 1));
   const adapter = createTimeAdapter(template);
@@ -800,6 +808,10 @@ export function advanceTurnV2(
       playerVisibleHistory: [],
     };
   }
+  // 本轮呈现集在**轮次起点**清空（D-03）：被拒的指令不会清掉上一轮的可见结果。
+  // ⚠ 必须放在「转盘确认」分支**之后**：确认本身就是一轮，它要读的是**上一轮呈现、
+  // 本轮确认**的那一格；提前清空会让确认拿不到自己演的是哪一段（确定性取 segments[0]）。
+  state.lastWheels = [];
 
   // ---- 1. 时间账（自由行动的时间在行动本身，不在轮次） ----
   let elapsed: TimeAmount;
