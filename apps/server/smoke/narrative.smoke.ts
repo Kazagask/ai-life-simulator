@@ -122,11 +122,9 @@ function makeSnapshot(ending: EndingView | null): V2Snapshot {
     npcs: [],
     // ADR-0034 §5：呈现槽视图（派生字段）；本夹具槽为空 ⇒ null。
     slotEvent: null,
-    pendingEvent: null,
     battle: null,
     lastWheel: null,
     lastWheels: [],
-    activeChains: [],
     availableActions: [],
     evaluation: { summary: "模板总结", canonDeviation: 0 },
     status: "terminated",

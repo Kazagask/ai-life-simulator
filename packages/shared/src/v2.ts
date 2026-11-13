@@ -405,14 +405,6 @@ export interface SlotEventView {
   wheel?: WheelResultView;
 }
 
-/** @deprecated 兼容旧前端：等价于 `slotEvent` 的 normal 子集，提交批的下一个前端单会删掉它。 */
-export interface PendingEventView {
-  eventId: string;
-  title: string;
-  narrative: string;
-  options: EventOptionView[];
-}
-
 export interface BattleEnemyView {
   instanceId: string;
   name: string;
@@ -644,12 +636,6 @@ export interface V2Snapshot {
    * 只描述"当前在演什么"，不含队列内容与长度。
    */
   slotEvent: SlotEventView | null;
-  /**
-   * @deprecated 旧前端的过渡字段（= `slotEvent` 的 normal 子集）。
-   * 保留原因：`apps/web` 的切换由前端单独立项；一旦前端改读 `slotEvent` 即删除本字段。
-   * **新代码一律读 `slotEvent`**，不要再消费本字段。
-   */
-  pendingEvent?: PendingEventView | null;
   battle: BattleView | null;
   /** 最近一次转盘结果（向后兼容的单槽视图，等价于 `lastWheels` 的末项） */
   lastWheel: WheelResultView | null;
@@ -658,7 +644,6 @@ export interface V2Snapshot {
    * 空数组表示本轮没有转盘（前端据此不渲染转盘区）。
    */
   lastWheels: WheelResultView[];
-  activeChains: Array<{ id: string; status: string }>;
   availableActions: Array<{ id: string; label: string; description: string; duration?: TimeAmount }>;
   evaluation: {
     summary: string;

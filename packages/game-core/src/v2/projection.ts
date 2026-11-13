@@ -12,7 +12,7 @@ import type {
 import { moodBand, maxHp, maxMp } from "./engine.js";
 import { birthTimeFromAge, createTimeAdapter } from "./time.js";
 import type { TemplateLookup } from "./lookup.js";
-import { pendingEventView, slotEventView } from "./turn.js";
+import { slotEventView } from "./turn.js";
 import { controlOf } from "./battle.js";
 import { isKinshipKind, kinshipTerm, projectVisibleRelations } from "./relations.js";
 
@@ -246,25 +246,14 @@ export function projectSnapshotV2(
         };
       }),
     // ADR-0034 §5：投影只给"当前在演什么"（`slotEvent`），不投影队列内容与长度。
+    // **唯一真源**：过渡字段 `pendingEvent` / `activeChains` 已在前端切换（`c693814`）后删除，
+    // 现存消费方一律读本字段；顺带消除 ADR §12-5 记的"投影重复求值"（旧实现为
+    // `pendingEvent` 再调一次 `slotEventView`，同一场景算两遍）。
     slotEvent: ended ? null : slotEventView(state, lookup),
-    /**
-     * @deprecated **兼容包装**（= `slotEvent` 的 normal 子集）。切到 `slotEvent` 后与字段一起删除。
-     *
-     * 2026-11-13 裁定：**保持写入**，不得改成恒 `null`。事实依据：`apps/web/src/main.tsx`
-     * 仍在 5 处读它（`533` 交互判定 / `1313` 呈现位 / `1321` 候选过滤 / `1418` 空态 /
-     * `1876` EventPanel 正文），且**完全没有引用 `slotEvent`**；改成恒 null 会让类型检查照绿
-     * 但运行期直接坏（`1876` 拿到 null 抛错、`1313` 永远判 action ⇒ 事件卡不再上屏）。
-     * ⇒ 删除顺序固定为「前端先切 `slotEvent` 并删这 5 处引用 → 再删本字段」，
-     *   任何中间提交都不允许出现「web 读 null」。
-     */
-    pendingEvent: ended ? null : pendingEventView(state, lookup),
     battle,
     lastWheel: state.lastWheel,
     // D-03：当轮全部转盘结果（旧档无该字段 ⇒ 空数组，前端据此不渲染转盘区）
     lastWheels: state.lastWheels ?? [],
-    // ADR-0034 §5：`chains[]` 已删除 ⇒ `activeChains` 无真源。保留空数组仅为兼容既有消费者，
-    // 提交 2 会连同前端一起移除（此处不臆造"链还在跑"的信息）。
-    activeChains: [],
     availableActions: ended
       ? []
       : (template.actions ?? []).map((a) => ({

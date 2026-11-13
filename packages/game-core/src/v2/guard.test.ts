@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { OpeningTemplate, WorldTemplateV2 } from "@life-sim/shared";
 import { createLookup } from "./lookup.js";
-import { advanceTurnV2, chooseOptionV2, createWorldV2, pendingEventView } from "./turn.js";
+import { advanceTurnV2, chooseOptionV2, createWorldV2, slotEventView } from "./turn.js";
 import { createActiveWorldV2 } from "./test-utils.js";
 import { EndingGuardError, markTerminated } from "./ending.js";
 import { createDefaultOpeningTemplate } from "./opening.js";
@@ -143,7 +143,7 @@ describe("T2-02 · 门禁：openingCompleted=true 首轮推进", () => {
     expect(state.slot).toBeNull();
   });
 
-  it("handoff 交接的即时事件进入 pendingEvents，可被 pendingEventView 消费", () => {
+  it("handoff 交接的即时事件占槽（from: opening），可被 slotEventView 呈现", () => {
     const template = makeTemplate();
     const lookup = createLookup(template);
     const opening: OpeningTemplate = {
@@ -152,6 +152,8 @@ describe("T2-02 · 门禁：openingCompleted=true 首轮推进", () => {
     };
     const state = createActiveWorldV2(INPUT, template, "w-active-pending", opening);
     expect(state.openingCompleted).toBe(true);
-    expect(pendingEventView(state, lookup)?.eventId).toBe("ev-handoff-normal");
+    // ADR-0034 §5：`pendingEventView` 已随过渡字段删除，唯一读取入口是 `slotEventView`
+    expect(slotEventView(state, lookup)).toMatchObject({ eventId: "ev-handoff-normal", kind: "normal" });
+    expect(state.slot).toMatchObject({ eventId: "ev-handoff-normal", from: "opening" });
   });
 });

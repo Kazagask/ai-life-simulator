@@ -319,16 +319,19 @@ describe("T1-09 · 确定性与玩家端投影边界", () => {
     ]) {
       expect(Object.keys(snapshot)).not.toContain(key);
     }
-    // npcs / activeChains 是既有白名单投影：只允许公开字段，隐藏字段一律不出现。
+    // npcs 是既有白名单投影：只允许公开字段，隐藏字段一律不出现。
     const projectedNpcs = snapshot["npcs"] as Array<Record<string, unknown>> | undefined;
     for (const npc of projectedNpcs ?? []) {
       for (const key of ["goals", "traits", "knowledge", "secrets", "isEnemy"]) {
         expect(Object.keys(npc)).not.toContain(key);
       }
     }
-    const projectedChains = snapshot["activeChains"] as Array<Record<string, unknown>> | undefined;
-    for (const chain of projectedChains ?? []) {
-      for (const key of ["stepIndex", "startedTurn"]) expect(Object.keys(chain)).not.toContain(key);
-    }
+    /**
+     * 负向锁（ADR-0034 §5 收尾）：`activeChains` 与 `pendingEvent` 两个过渡字段已删除
+     * （前端 `c693814` 切到 `slotEvent` 后移除）。这里钉住它们**不会复活**——
+     * 正向断言（"键里没有"）会随字段删干净而空转，故用 `in` 直接问对象形状。
+     */
+    expect("activeChains" in snapshot).toBe(false);
+    expect("pendingEvent" in snapshot).toBe(false);
   });
 });

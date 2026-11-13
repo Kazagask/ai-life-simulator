@@ -493,21 +493,21 @@ describe("结局投影与归档", () => {
     expect(ending?.evidenceIds).toEqual([]);
   });
 
-  it("终止后 slotEvent / pendingEvent 投影为 null（不让已结束的世界继续弹事件）", () => {
+  it("终止后 slotEvent 投影为 null（不让已结束的世界继续弹事件）", () => {
     const template = makeTemplate();
     const cfg = endingConfig();
     const state = makeActive(template);
     state.slot = { eventId: "ev-not-exists", from: "queueTake" };
     const snapshot = projectSnapshotV2(state, template, createLookup(template), null, cfg.endings);
     expect(snapshot.slotEvent).toBeNull();
-    // `pendingEvent` 是**兼容包装**（= slotEvent 的 normal 子集），字段与语义均保留到前端切换后
-    expect(snapshot.pendingEvent).toBeNull();
     expect(snapshot.status).toBe("running"); // 未终止时仍按 running 投影
     state.termination = { reason: "r", worldTime: 0, turnIndex: 0, source: "condition", endingId: "end-long" };
     const ended = projectSnapshotV2(state, template, createLookup(template), null, cfg.endings);
     expect(ended.slotEvent).toBeNull();
-    expect(ended.pendingEvent).toBeNull();
     expect(ended.status).toBe("terminated");
+    // 负向锁：ADR-0034 §5 的两个过渡字段已删除（前端 `c693814` 切换完成后移除），不得复活
+    expect("pendingEvent" in ended).toBe(false);
+    expect("activeChains" in ended).toBe(false);
   });
 
   it("归档世界投影为 archived 且保留结局", () => {

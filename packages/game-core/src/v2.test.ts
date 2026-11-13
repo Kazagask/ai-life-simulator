@@ -456,9 +456,9 @@ describe("V2 引擎 · 事件轮次", () => {
     const { state, template } = makeState();
     const lookup = createLookup(template);
     const res = advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
-    // ADR-0034 §5：唯一真源是 `slotEvent`；`pendingEvent` 是它的 normal 子集兼容包装（前端未切换）
+    // ADR-0034 §5：`slotEvent` 是唯一真源（过渡字段 `pendingEvent` 已随前端切换删除）
     expect(res.snapshot.slotEvent).toMatchObject({ eventId: "ev-normal", kind: "normal" });
-    expect(res.snapshot.pendingEvent?.eventId).toBe("ev-normal");
+    expect(res.snapshot.slotEvent?.eventId).toBe("ev-normal");
     const optionIds = res.snapshot.slotEvent!.options!.map((o) => o.id);
     expect(optionIds).toContain("opt-plain");
     expect(optionIds).not.toContain("opt-secret");

@@ -8,7 +8,6 @@ import type {
   EventV2,
   HistoryEntryV2,
   HistoryVisibility,
-  PendingEventView,
   SlotEventView,
   TimeAmount,
   UseItemCommand,
@@ -1265,19 +1264,4 @@ export function slotEventView(state: WorldStateV2, lookup: TemplateLookup): Slot
     };
   }
   return { eventId: event.id, from: scene.from, kind: "combat", title: event.title, narrative: event.narrative };
-}
-
-/**
- * @deprecated 旧前端过渡包装：只保留 `normal` 子集（= `slotEvent` 去掉 kind/from/wheel）。
- * 前端切换完成后连同 `V2Snapshot.pendingEvent` 一起删除。
- */
-export function pendingEventView(state: WorldStateV2, lookup: TemplateLookup): PendingEventView | null {
-  const view = slotEventView(state, lookup);
-  if (view === null || view.kind !== "normal") return null;
-  return {
-    eventId: view.eventId,
-    title: view.title,
-    narrative: view.narrative,
-    options: view.options ?? [],
-  };
 }
