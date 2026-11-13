@@ -91,4 +91,59 @@ endings:
         title: ？？？
         summary: 有一条世界线，天意没有发力。
 
+  # ══════════════ 第四轮 · 第二章（徐州 → 官渡）结局 ══════════════
+  # chapter=3 由第 58 天 ev-tianyi-anchor-2 写入；优先级高于第一章结局（0 / 10），
+  # 仍低于隐藏结局（100）⇒「摆脱天意」依旧是所有身份的最高目标。
+  # 三条人物线的余味延续第一章：刘备数人、曹操留记录、袁绍守主位。
+  - endingId: end-guandu
+    name: 初平元年，官渡
+    description: 第二章通用收束。四本账册合成一行，你写的那一页没人撕，只是没人再提。
+    triggerConditions:
+      - { flag: chapter, eq: 3 }
+    priority: 20
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 初平元年，官渡
+      summary: 三本年号不同的账册被抄成一行，天意把年号拨回初平。徐州开过的城门、兖州留着的空行、河北没定下的日子，一件也没被撤销，只是所有人都觉得本来就该这样。你把自己那一本收进怀里，跟着队伍往官渡走。
+
+  - endingId: end-guandu-liubei
+    name: 还是那批人
+    description: 刘备线第二章收束。换过三本册子，点的始终是同一批人。
+    triggerConditions:
+      - { flag: chapter, eq: 3 }
+      - { flag: origin, eq: 刘备 }
+    priority: 25
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 还是那批人
+      summary: 陈留到官渡，你换过三本册子，点的始终是同一批人。徐州的印绶放到落灰你也没拿，城门倒是先开了。今夜又点了一遍名，比来时少了两个，你把名字写进空行旁边。天意要你回主线，你要的仍只是路上的人别丢。
+
+  - endingId: end-guandu-caocao
+    name: 落款写今年
+    description: 曹操线第二章收束。兖州那笔账没交给世道，檄文落款终于写了年号。
+    triggerConditions:
+      - { flag: chapter, eq: 3 }
+      - { flag: origin, eq: 曹操 }
+    priority: 25
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 落款写今年
+      summary: 兖州空营那次，你没再把责任交给乱世，而是写进自己名下。官渡前夜重抄檄文，落款那一栏空了很久，最后还是写了年号。四个字没人听见的那一章，好歹留下了一份能传出去的东西。天意把账册抄回初平，抄不掉落款。
+
+  - endingId: end-guandu-yuanshao
+    name: 主位空着
+    description: 袁绍线第二章收束。这一夜第一次觉得，不说话也是一种交代。
+    triggerConditions:
+      - { flag: chapter, eq: 3 }
+      - { flag: origin, eq: 袁绍 }
+    priority: 25
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 主位空着
+      summary: 河北那句「诸位以为如何」你又说了一次，史书后来只写「盟主召诸将议事」。官渡前夜你把主位留空，没人敢坐，也没人问为什么。天意把三本账册合成一行，替你把没下的那道军令抹平；你松了口气，又觉得这口气比两章都长。
+
 fallback: end-tianyi-normal

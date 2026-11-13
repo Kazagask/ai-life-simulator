@@ -6,7 +6,16 @@
 #   而不是随机池或线性链。已核实：所有 schedule 定义在**建世界时**按 window.start
 #   一次性换算成绝对分钟实例入队（packages/game-core/src/v2/scheduler.ts），
 #   到点必然触发 —— 正好对应二创「天意到点发力」的必然性。
-#   支线用 pool 随便浪；锚点第 8 天收束；第 41 天是下一章落点（新三国道）。
+#   锚点第 8 天收束；第 41 天是下一章落点（新三国道）。
+#
+# 【第四轮 · 事件流从随机池改为日程】原先 7 条梗是 source: pool 加权随机抽一，
+#   priority 在 pickWeighted 里其实不影响抽样，且「抽中先入队、后触发」会让同一条
+#   事件在 fire 前被重复入队（实测 10 次触发只有 6 条不同）⇒ 顺序乱、段子重复。
+#   现改为 source: schedule + window.start，第 1~7 天各一条，按原剧集数排序：
+#     1 吕伯奢(第2/3集) → 2 大食堂(第5集) → 3 玉玺(第6集) → 4 乌角鲨(第11集)
+#     → 5 邢道荣 / 6 大宝（三国杀插曲）→ 7 自刎归天(第36集，最后放，避免开局乱入)
+#   window.end 统一第 8 天，被 origin 排除或错过的实例自动过期，不堆积、不呈现。
+#   **随机性保留在开局 7 格转盘与各事件的分歧选项**，不再用随机搅乱时间线。
 #
 # 因果纪律：支线后果**不撤销**。锚点只 setFlag 主线进度 + log 认知改写，
 #   不清 flag、不回滚属性/资源/物品 —— 这正是二创「世界修正」的原义
@@ -616,9 +625,11 @@ events:
               - { type: applyStatus, status: st-collective-distraction }
               - { type: adjustFlag, id: feastCount, value: 1 }
 
-  # ────────────── 支线池：随便浪 ──────────────
-  # 全部 source: pool；conditions 限定第一章且锚点未收束。
-  # 锚点触发后 anchor1Done=true，池自然停摆，不会在第二章继续刷梗。
+  # ────────────── 第一章梗日程（第四轮起，按剧集数排序） ──────────────
+  # 全部 source: schedule + window.start 第 1~7 天各一条、end 第 8 天，
+  #   conditions 限定第一章且锚点未收束；被 origin 排除或错过的实例到期静默过期。
+  #   原先的加权随机池会重复入队、乱序（详见本文件头注释），故整组改为日程。
+  #   锚点触发后 chapter=2、anchor1Done=true，梗不会再出现在第二章。
 
   # 梗 6「是啊，吃什么？」——**衍生句**，不是逐字台词。
   # 原剧第 5 集陈留大食堂：袁术闹着告老还乡，曹操「袁公路……你走了，我们吃什么？」
@@ -629,10 +640,10 @@ events:
     title: 陈留大食堂
     narrative: 军议开到一半，袁术被刘关张气到要告老还乡。席间有人挽留：「袁公路……你走了，我们吃什么？」满帐诸侯异口同声：「吃什么！是啊，是啊！」没有人记得刚才在讨论讨董。
     trigger:
-      source: pool
-      weight: 3
+      source: schedule
+      window: { start: { value: 2, unit: day }, end: { value: 8, unit: day } }
+      once: true
       priority: 5
-      cooldown: { value: 2, unit: day }
       conditions:
         - { flag: chapter, eq: 1 }
         - { flag: anchor1Done, eq: false }
@@ -667,10 +678,10 @@ events:
     title: 传国玉玺
     narrative: 焚毁的长乐宫里，孙坚军得到一块石头。孙策捧玺跪贺，嗓门大得整条宫道都听见了。玉玺本未公开，可袁术不知怎么当场就知道了。
     trigger:
-      source: pool
-      weight: 2
+      source: schedule
+      window: { start: { value: 3, unit: day }, end: { value: 8, unit: day } }
+      once: true
       priority: 5
-      cooldown: { value: 2, unit: day }
       conditions:
         - { flag: chapter, eq: 1 }
         - { flag: anchor1Done, eq: false }
@@ -702,10 +713,10 @@ events:
     title: 笑面虎与乌角鲨
     narrative: 陶谦之子求援，袁绍袁术都不发兵。公孙瓒慢悠悠地下了评语：「这对儿堂兄弟，可谓是一对笑面虎，两头乌角鲨。」帐外恰好游过一头。
     trigger:
-      source: pool
-      weight: 2
+      source: schedule
+      window: { start: { value: 4, unit: day }, end: { value: 8, unit: day } }
+      once: true
       priority: 5
-      cooldown: { value: 2, unit: day }
       conditions:
         - { flag: chapter, eq: 1 }
         - { flag: anchor1Done, eq: false }
@@ -736,10 +747,10 @@ events:
     title: 是这个乱世害了你
     narrative: 误杀之后，曹操对着吕伯奢的遗体祭拜，把个人恶行平稳地甩给了大环境。「他已经把吃的喝的都准备好了，如果我们不回去他不是白死了吗」——陈留大食堂的前置梗。
     trigger:
-      source: pool
-      weight: 2
+      source: schedule
+      window: { start: { value: 1, unit: day }, end: { value: 8, unit: day } }
+      once: true
       priority: 5
-      cooldown: { value: 2, unit: day }
       conditions:
         - { flag: chapter, eq: 1 }
         - { flag: anchor1Done, eq: false }
@@ -771,10 +782,10 @@ events:
     title: 战至最后一刻
     narrative: 大江在前，曹操铁骑在后。刘备拔出双股剑，回头看了一眼关张。二创把这一幕和徐州那句军令剪到了一起，于是成了「三军听令，自刎归天」。
     trigger:
-      source: pool
-      weight: 2
+      source: schedule
+      window: { start: { value: 7, unit: day }, end: { value: 8, unit: day } }
+      once: true
       priority: 5
-      cooldown: { value: 2, unit: day }
       conditions:
         - { flag: chapter, eq: 1 }
         - { flag: anchor1Done, eq: false }
@@ -801,10 +812,10 @@ events:
     title: 说出吾名
     narrative: 一位零陵上将军拦在营门口，坚持先报完名号再打。你隐约觉得这个名字在哪里听过，而且不止一个版本。
     trigger:
-      source: pool
-      weight: 2
+      source: schedule
+      window: { start: { value: 5, unit: day }, end: { value: 8, unit: day } }
+      once: true
       priority: 3
-      cooldown: { value: 2, unit: day }
       conditions:
         - { flag: chapter, eq: 1 }
         - { flag: anchor1Done, eq: false }
@@ -830,10 +841,10 @@ events:
     title: 犯大吴疆土者
     narrative: 徐盛在帐外擦甲，忽然抬头说了一句很长的话。翻译过来大概是：别过来。
     trigger:
-      source: pool
-      weight: 2
+      source: schedule
+      window: { start: { value: 6, unit: day }, end: { value: 8, unit: day } }
+      once: true
       priority: 3
-      cooldown: { value: 2, unit: day }
       conditions:
         - { flag: chapter, eq: 1 }
         - { flag: anchor1Done, eq: false }
@@ -880,8 +891,15 @@ events:
               - { type: setFlag, id: anchor1Done, value: true }
               - { type: setFlag, id: mainline, value: 陈留 }
               - { type: adjustAttribute, attribute: tianyi, value: -3 }
-              - { type: advanceTo, value: { value: 40, unit: day } }
+              # 第四轮「修随机时间」：原来一口气跳到第 40 天，中间 32 天什么都没有，
+              # 玩家在场却看不到自己的作用。改成只折起 12 天，并用 chain 出口把
+              # 20→41 天铺成 5 段有序的第二人称剧情（ev-road-1..5，timeCost 合计 21 天）。
+              # 锚点仍然是 schedule + once + priority 100，chapter/anchor1Done/mainline
+              # 与「不回滚后果」的口径一字未改 ⇒ 主线结构不变，只把黑洞填上。
+              - { type: advanceTo, value: { value: 20, unit: day } }
               - { type: log, text: 支线 flag 全部保留，后果不撤销，只改写认知（二创「世界修正」原义）。, visibility: hidden }
+              - { type: log, text: 三十二天被天意折成了十二天。日子短了，你带走的名册、账册和馒头一个没少。, visibility: public }
+            nextEventId: ev-road-1
 
   # 新三国道：同一条山路复用二十余次，跨时空传送点。
   # 任何离谱支线，走到这里都算回到下一锚点。第 41 天落点，为整条主线预留接口。
@@ -1151,6 +1169,7 @@ events:
               - { type: clearFlag, id: warRegion }
               - { type: adjustAttribute, attribute: tianyi, value: 1 }
               - { type: log, text: 天意发力了：战势记在功簿上，年号统一抄回初平。点兵还是点兵，开席还是开席。, visibility: public }
+            nextEventId: ev-ch2-1
           - id: opt-war-return
             text: 照实收兵，回营
             effects:
@@ -1160,3 +1179,528 @@ events:
               - { type: clearFlag, id: warRegion }
               - { type: adjustAttribute, attribute: tianyi, value: 1 }
               - { type: log, text: 天意发力了：三本账册合成一行，日常行动恢复。你记得打过一仗，只是记不清是哪一年。, visibility: public }
+            nextEventId: ev-ch2-1
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # 第四轮 · 修「随机时间」：把锚点后的黑洞铺成有序的第二人称剧情
+  #
+  # 问题：第三轮之前，第 8 天锚点 advanceTo 直接跳到第 40 天，中间 32 天没有
+  #   任何事件（池事件条件是 chapter=1，锚点已改成 2）；战争沙盘收兵后同样空转。
+  #   主角一直在场，世界却没有任何反应 ⇒「完全看不出主角参与」。
+  # 做法：锚点只折起 12 天（advanceTo 20），用 chain 出口接 ev-road-1..5。
+  #   5 段 timeCost 合计 21 天（4+4+4+4+5）⇒ 第 20 天走到第 41 天，正好接上
+  #   原样保留的 ev-ch2-gate（schedule 41）。收兵再接 ev-ch2-1..5（各 2 天）
+  #   ⇒ 第 58 天 ev-tianyi-anchor-2，第 59 天 ev-ch3-gate，第 60 天终止。
+  #   **整条时间线没有空白段**，且 chain 严格有序（不再是加权随机抽一）。
+  #
+  # 主角参与：每段都是第二人称，按 origin 给专属选项，引用第一章留下的 flag
+  #   （forkMeal / forkEmperor / liuOath / caoReady / yuanDelay / eraDraft …），
+  #   并用 visibleWhen 的 relation 条件（含边形态）按关系强度分岔。
+  # 关系：用 addRelationEdge 建可见边、关系边形态 adjustRelation 做增量，
+  #   前端人物面板会渲染「X视Y为…」；方向语义见 characters.yaml 头注释。
+  # 主线纪律：锚点 1/2 都是 schedule + once + priority 100；ch2-gate（41 天）
+  #   与战争沙盘（42 天）原样未动；所有支路都不写 chapter、不 advanceTo。
+  # ══════════════════════════════════════════════════════════════════════════
+
+  # ── 路上 1/5 · 出陈留 ──
+  - id: ev-road-1
+    title: 出陈留 · 名册
+    narrative: 天意把三十二天折成了十二天，可你手里那本名册还是一样厚。离开陈留时没人送，只有一个人在营门口问你：名册上还有我吗。你没答，先把册子翻开了。
+    trigger:
+      source: chain
+      timeCost: { value: 4, unit: day }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-road-1-roll
+            text: 把名册摊开，一个一个对名字
+            effects:
+              - { type: setFlag, id: roadRollKeep, value: true }
+              - { type: addRelationEdge, fromId: npc-gongsun-zan, toId: player, kind: friend, visibility: known, value: 20 }
+              - { type: adjustMood, value: 2 }
+              - { type: log, text: 你把名字念了一遍。念到最后一个时，门口那人没再问第二遍。, visibility: public }
+            nextEventId: ev-road-2
+          - id: opt-road-1-liu
+            text: 先把路上的人安顿好，再点名
+            visibleWhen:
+              - { flag: origin, eq: 刘备 }
+            effects:
+              - { type: setFlag, id: roadLiuPeople, value: true }
+              - { type: adjustRelation, fromId: npc-gongsun-zan, toId: player, kind: friend, value: 8 }
+              - { type: adjustAttribute, attribute: command, value: 1 }
+              - { type: log, text: 名册先记人，再记兵。你在陈留没争到座次，倒是把这件事定下来了。, visibility: public }
+            nextEventId: ev-road-2
+          - id: opt-road-1-cao
+            text: 先数还能拿得动刀的人
+            visibleWhen:
+              - { flag: origin, eq: 曹操 }
+            effects:
+              - { type: setFlag, id: roadCaoMuster, value: true }
+              - { type: adjustRelation, fromId: npc-xun-yu, toId: player, kind: colleague, value: 8 }
+              - { type: adjustAttribute, attribute: command, value: 1 }
+              - { type: log, text: 你没问谁愿意走，只问谁还站得住。荀彧把这一条记进了册子边角。, visibility: public }
+            nextEventId: ev-road-2
+          - id: opt-road-1-yuan
+            text: 先问这本名册是谁抄的
+            visibleWhen:
+              - { flag: origin, eq: 袁绍 }
+            effects:
+              - { type: setFlag, id: roadYuanSeats, value: true }
+              - { type: adjustRelation, fromId: npc-yuan-shu, toId: npc-yuan-shao, kind: elder-brother, value: 5 }
+              - { type: log, text: 抄册的人被问住了。你没追究，只是把册子收进自己袖里 —— 主位上的事，先弄清楚是谁写的。, visibility: public }
+            nextEventId: ev-road-2
+
+  # ── 路上 2/5 · 一顿饭（承接第一章 forkMeal） ──
+  - id: ev-road-2
+    title: 路上 · 那顿饭
+    narrative: 又摆开一张桌子，菜和陈留那顿一模一样。有人抬头问你：「你走了，我们吃什么？」——这次是问你的。碗筷摆得比人齐。
+    trigger:
+      source: chain
+      timeCost: { value: 4, unit: day }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-road-2-eat
+            text: 坐下，先把饭吃完
+            effects:
+              - { type: setFlag, id: roadAte, value: true }
+              - { type: adjustRelation, fromId: npc-gongsun-zan, toId: player, kind: friend, value: 5 }
+              - { type: grantItem, itemId: item-mantou, count: 1 }
+              - { type: adjustMood, value: 3 }
+            nextEventId: ev-road-3
+          - id: opt-road-2-remember
+            text: 你记得上一顿，也记得谁没吃
+            visibleWhen:
+              - { flag: forkMeal, eq: true }
+            effects:
+              - { type: addRelationEdge, fromId: npc-yuan-shu, toId: player, kind: rival, visibility: known, value: 12 }
+              - { type: adjustMood, value: 4 }
+              - { type: log, text: 你在陈留听过一模一样的一句。这次你把空位留给了上次没坐下的人，天意没有反对。, visibility: public }
+            nextEventId: ev-road-3
+          - id: opt-road-2-zan
+            text: 替公孙瓒把话接下去
+            visibleWhen:
+              - { relation: npc-gongsun-zan, gte: 10 }
+            effects:
+              - { type: adjustRelation, fromId: npc-gongsun-zan, toId: player, kind: friend, value: 4 }
+              - { type: adjustAttribute, attribute: reputation, value: 1 }
+              - { type: log, text: 「吃什么！是啊，是啊！」——你说完才发觉，这回接话的人变成了你。, visibility: public }
+            nextEventId: ev-road-3
+
+  # ── 路上 3/5 · 刻字的石头（改元伏笔，叙事层） ──
+  # ⚠ 这里用 eraDraft / eraName flag 做「剧情层改元」。显示层仍是 world.yaml 的
+  #   全局静态正朔 era「初平」（T-1）；按地区/阵营切换年号显示属 T-2，
+  #   需扩 CalendarConfigSchema + CalendarAdapter，见 SANGUO_TEMPLATE_BRIEF.md §9.4，
+  #   本轮未做、未写 ADR、未动契约面。
+  - id: ev-road-3
+    title: 岔路 · 刻字的石头
+    narrative: 岔路口有人蹲着往一块石头上刻字，说该换个年号了。你手里的账册还空着一页，风把纸翻得哗哗响，像在催你写点什么。
+    trigger:
+      source: chain
+      timeCost: { value: 4, unit: day }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-road-3-chuping
+            text: 照旧写「初平」
+            effects:
+              - { type: setFlag, id: eraDraft, value: 初平 }
+              - { type: adjustRelation, fromId: npc-xun-yu, toId: player, kind: colleague, value: 4 }
+              - { type: log, text: 你写了朝廷的正朔。刻字的人没抬头，只说了一句「先记着吧」。, visibility: public }
+            nextEventId: ev-road-4
+          - id: opt-road-3-zhongjia
+            text: 跟着寿春写「仲家」
+            effects:
+              - { type: setFlag, id: eraDraft, value: 仲家 }
+              - { type: addRelationEdge, fromId: npc-yuan-shu, toId: player, kind: friend, visibility: known, value: 18 }
+              - { type: adjustAttribute, attribute: tianyi, value: 1 }
+              - { type: log, text: 你写下一个还没有朝廷承认的年号。写完之后，路上的人看你的眼神变了一点点。, visibility: public }
+            nextEventId: ev-road-4
+          - id: opt-road-3-tianyi
+            text: 干脆写「天意元年」
+            visibleWhen:
+              - { flag: forkEmperor, eq: true }
+            effects:
+              - { type: setFlag, id: eraDraft, value: 天意 }
+              - { type: adjustAttribute, attribute: tianyi, value: 2 }
+              - { type: log, text: 石头上那块玉玺的传言你没拆穿。你只是把天意写进了年号，像给它记一笔账。, visibility: public }
+            nextEventId: ev-road-4
+          - id: opt-road-3-blank
+            text: 不写，把空页留着
+            effects:
+              - { type: setFlag, id: eraDraft, value: 未定 }
+              - { type: log, text: 你把账册合上了。空页后来一直空着，天意也没替你填。, visibility: public }
+            nextEventId: ev-road-4
+
+  # ── 路上 4/5 · 夜营（承接三条人物线的第一章 flag） ──
+  - id: ev-road-4
+    title: 夜营 · 没说出口的话
+    narrative: 火堆快灭了。有个人坐在火边，把白天该说的那句又说了一遍，只说给自己听。你可以装作没听见，也可以坐过去。
+    trigger:
+      source: chain
+      timeCost: { value: 4, unit: day }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-road-4-sit
+            text: 坐过去，不接话
+            effects:
+              - { type: adjustRelation, fromId: npc-liubei, toId: player, kind: friend, value: 4 }
+              - { type: adjustMood, value: 2 }
+              - { type: log, text: 你们一起把火拨亮了一点。那句话到底没说出口，但两个人都知道说的是哪句。, visibility: public }
+            nextEventId: ev-road-5
+          - id: opt-road-4-liu
+            text: 把「还是得带着他们走」说完
+            visibleWhen:
+              - { flag: origin, eq: 刘备 }
+              - { flag: liuOath, eq: true }
+            effects:
+              - { type: adjustRelation, fromId: npc-gongsun-zan, toId: player, kind: friend, value: 6 }
+              - { type: adjustAttribute, attribute: command, value: 1 }
+              - { type: log, text: 陈留那晚你想一个人先走。今晚你把这句话说完了，说完反而没那么想走了。, visibility: public }
+            nextEventId: ev-road-5
+          - id: opt-road-4-cao
+            text: 把刀放在伸手能拿到的地方
+            visibleWhen:
+              - { flag: origin, eq: 曹操 }
+              - { flag: caoReady, eq: true }
+            effects:
+              - { type: adjustRelation, fromId: npc-xun-yu, toId: player, kind: colleague, value: 6 }
+              - { type: log, text: 那顿没吃成的饭你没再提。你只是把刀挪近了一点，天亮还要点兵。, visibility: public }
+            nextEventId: ev-road-5
+          - id: opt-road-4-yuan
+            text: 再说一次「诸位以为如何」
+            visibleWhen:
+              - { flag: origin, eq: 袁绍 }
+              - { flag: yuanDelay, eq: true }
+            effects:
+              - { type: adjustRelation, fromId: npc-yuan-shu, toId: npc-yuan-shao, kind: elder-brother, value: 4 }
+              - { type: log, text: 火边没人应声，正好合你的意。这句话你练了一路，越练越像一道军令的替身。, visibility: public }
+            nextEventId: ev-road-5
+
+  # ── 路上 5/5 · 国道口（timeCost 5 天，正好走到第 41 天 ch2-gate） ──
+  - id: ev-road-5
+    title: 国道口 · 总账
+    narrative: 山路又出现了，布景没换，连远处那棵树都没换。你把手里的东西摊在石头上：名册、写了半页的账册、馒头，也许还有一头乌角鲨。天意不撤销任何一件，只是让所有人都觉得，本来就该带着这些往前走。
+    trigger:
+      source: chain
+      timeCost: { value: 5, unit: day }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-road-5-pack
+            text: 收好，往前走
+            effects:
+              - { type: setFlag, id: roadDone, value: true }
+              - { type: adjustAttribute, attribute: tianyi, value: -1 }
+              - { type: log, text: 你把石头上的东西一件件收回怀里。二十一天的路走完了，前面的山路还是那条山路。, visibility: public }
+          - id: opt-road-5-shark
+            text: 把乌角鲨也带上
+            visibleWhen:
+              - { flag: forkShark, eq: true }
+            effects:
+              - { type: setFlag, id: roadDone, value: true }
+              - { type: grantItem, itemId: item-wujiaosha, count: 1 }
+              - { type: log, text: 它自己游进了你的行囊。没有人觉得这有什么不对，包括你。, visibility: public }
+          - id: opt-road-5-xusheng
+            text: 让徐盛走最前
+            visibleWhen:
+              - { relation: npc-xu-sheng, gte: 6 }
+            effects:
+              - { type: setFlag, id: roadDone, value: true }
+              - { type: adjustRelation, fromId: npc-xu-sheng, toId: player, kind: friend, value: 4 }
+              - { type: adjustAttribute, attribute: command, value: 1 }
+              - { type: log, text: 江东的铁壁走在前头，逢人只说一句「别过来」。这一路果然没人过来。, visibility: public }
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # 第二章 · 徐州 → 官渡（从 ev-war-close 收兵接出，chain 严格有序）
+  # 三条真实人物线在徐州/兖州/河北各有自己的处境与选择，梗只作场景里的台词，
+  # 最后全部汇入官渡前夜 ⇒ 第 58 天 ev-tianyi-anchor-2（schedule 必发）。
+  # 主线不因身份改变；chain 各段 timeCost 2 天，收兵后约 10 天走完。
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - id: ev-ch2-1
+    title: 徐州 · 让城
+    narrative: 徐州城下，陶谦病重，印绶被推到你面前。城外还站着路上跟来的人，他们只问一句：城门今天开不开。没人问你愿不愿意接。
+    trigger:
+      source: chain
+      timeCost: { value: 2, unit: day }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ch2-1-open
+            text: 先开城门，印绶放一边
+            effects:
+              - { type: setFlag, id: ch2GateOpen, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 1 }
+              - { type: addRelationEdge, fromId: npc-gongsun-zan, toId: player, kind: friend, visibility: known, value: 22 }
+              - { type: log, text: 城门先开了。印绶在案上放到落灰，也没有人催你拿。, visibility: public }
+            nextEventId: ev-ch2-2
+          - id: opt-ch2-1-liu
+            text: 接下名分，但先把名册上的人安置进城
+            visibleWhen:
+              - { flag: origin, eq: 刘备 }
+            effects:
+              - { type: setFlag, id: ch2LiuAccept, value: true }
+              - { type: adjustRelation, fromId: npc-gongsun-zan, toId: player, kind: friend, value: 8 }
+              - { type: log, text: 你在陈留学会的第一件事是点人，不是点兵。徐州接不接得下，先看路上那些人有没有地方睡。, visibility: public }
+            nextEventId: ev-ch2-2
+          - id: opt-ch2-1-cao
+            text: 先点仓，别急着接印
+            visibleWhen:
+              - { flag: origin, eq: 曹操 }
+            effects:
+              - { type: setFlag, id: ch2CaoGranary, value: true }
+              - { type: adjustRelation, fromId: npc-xun-yu, toId: player, kind: colleague, value: 8 }
+              - { type: log, text: 城可以明天接，粮得今天数。你把这句话写进文书，落款只写了「先记着」。, visibility: public }
+            nextEventId: ev-ch2-2
+          - id: opt-ch2-1-yuan
+            text: 先问是谁举荐的
+            visibleWhen:
+              - { flag: origin, eq: 袁绍 }
+            effects:
+              - { type: setFlag, id: ch2YuanSeats, value: true }
+              - { type: adjustRelation, fromId: npc-yuan-shu, toId: npc-yuan-shao, kind: elder-brother, value: 5 }
+              - { type: log, text: 印绶摆得端不端正，比城门开不开更要紧 —— 至少主位上是这么算的。你没说破。, visibility: public }
+            nextEventId: ev-ch2-2
+
+  # ── 改元 · 剧情层（T-1 纯 yaml），显示层多地区切换仍属 T-2 未做 ──
+  - id: ev-ch2-2
+    title: 改元 · 三本账册
+    narrative: 寿春送来文书：袁术改元「仲家」，即日起账册不用朝廷正朔。江东仍写「初平」，也有人干脆写「天意元年」。三本账册摆在你面前，军吏捧着墨等你写第四本。
+    trigger:
+      source: chain
+      timeCost: { value: 2, unit: day }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ch2-2-chuping
+            text: 写「初平」
+            effects:
+              - { type: setFlag, id: eraName, value: 初平 }
+              - { type: adjustRelation, fromId: npc-xun-yu, toId: player, kind: colleague, value: 5 }
+              - { type: log, text: 你照朝廷的正朔写。军吏松了口气，寿春那本还摊在旁边，没人去合上。, visibility: public }
+            nextEventId: ev-ch2-3
+          - id: opt-ch2-2-zhongjia
+            text: 写「仲家」
+            effects:
+              - { type: setFlag, id: eraName, value: 仲家 }
+              - { type: addRelationEdge, fromId: npc-yuan-shu, toId: player, kind: friend, visibility: known, value: 20 }
+              - { type: adjustAttribute, attribute: tianyi, value: 2 }
+              - { type: log, text: 你写下寿春送来的年号。写完抬头，发现三本账册上的人都在看你，包括本该最不关心的那个。, visibility: public }
+            nextEventId: ev-ch2-3
+          - id: opt-ch2-2-tianyi
+            text: 把路上那一页抄过来：天意元年
+            visibleWhen:
+              - { flag: eraDraft, eq: 天意 }
+            effects:
+              - { type: setFlag, id: eraName, value: 天意 }
+              - { type: adjustAttribute, attribute: tianyi, value: 2 }
+              - { type: log, text: 岔路口那块石头上的字，被你抄进了正式账册。天意没有阻止，只是把墨迹吹干得快了些。, visibility: public }
+            nextEventId: ev-ch2-3
+          - id: opt-ch2-2-unwritten
+            text: 不写年号，只写「路上的人还在」
+            visibleWhen:
+              - { flag: origin, eq: 刘备 }
+            effects:
+              - { type: setFlag, id: eraName, value: 未书 }
+              - { type: log, text: 你把年号那一栏空着，另起一行记了人数。军吏没敢问，天意也没补。, visibility: public }
+            nextEventId: ev-ch2-3
+          - id: opt-ch2-2-blank
+            text: 先空着，等打完再说
+            effects:
+              - { type: setFlag, id: eraName, value: 未定 }
+              - { type: log, text: 你把笔搁下了。三本账册并排摆着，谁的年号也没能说服谁。, visibility: public }
+            nextEventId: ev-ch2-3
+
+  # ── 兖州 · 曹操线核心 ──
+  - id: ev-ch2-3
+    title: 兖州 · 空营
+    narrative: 回营时灶还温着，人少了一截。名册摊在案上，最后几行是空的，墨还没干。你想起陈留那顿没吃成的饭，和那句被推给世道的话。
+    trigger:
+      source: chain
+      timeCost: { value: 2, unit: day }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ch2-3-roll
+            text: 把名册补完，空行也留着
+            effects:
+              - { type: setFlag, id: ch2RollKept, value: true }
+              - { type: adjustAttribute, attribute: command, value: 1 }
+              - { type: adjustMood, value: -3 }
+              - { type: log, text: 你把走掉的名字划掉，又在旁边留了一行空白。这一行后来一直没人填。, visibility: public }
+            nextEventId: ev-ch2-4
+          - id: opt-ch2-3-cao-own
+            text: 这次不交给世道，认下来
+            visibleWhen:
+              - { flag: origin, eq: 曹操 }
+              - { flag: forkBlameEra, eq: true }
+            effects:
+              - { type: setFlag, id: ch2CaoOwn, value: true }
+              - { type: adjustAttribute, attribute: tianyi, value: -2 }
+              - { type: adjustRelation, fromId: npc-xun-yu, toId: player, kind: colleague, value: 8 }
+              - { type: log, text: 第一章你把那句话交给了乱世。这一章你把它收了回来，写进自己的名下 —— 天意这次没插手。, visibility: public }
+            nextEventId: ev-ch2-4
+          - id: opt-ch2-3-xunyu
+            text: 让荀彧重新造册
+            visibleWhen:
+              - { relation: npc-xun-yu, kind: colleague, to: player, gte: 10 }
+            effects:
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: adjustRelation, fromId: npc-xun-yu, toId: player, kind: colleague, value: 5 }
+              - { type: log, text: 他把册子重抄了一遍，顺口说了句「徐州城不愧为中原第一雄关」，然后自己愣了一下。天意侵蚀照常发作。, visibility: public }
+            nextEventId: ev-ch2-4
+          - id: opt-ch2-3-ashes
+            text: 先埋灶灰，明天再说
+            effects:
+              - { type: adjustMood, value: 2 }
+              - { type: log, text: 你把灶灰埋了，手在袖子里攥了很久。名册留到明天，反正它也不会自己长回名字。, visibility: public }
+            nextEventId: ev-ch2-4
+
+  # ── 河北 · 袁绍线核心 ──
+  - id: ev-ch2-4
+    title: 河北 · 再等等
+    narrative: 河北大营，田丰和许攸各递一封文书，主位上人人等你一句话。你已经把「再等等」在心里转了三圈，出口却还是那句「诸位以为如何」。
+    trigger:
+      source: chain
+      timeCost: { value: 2, unit: day }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ch2-4-date
+            text: 这次先把日子定下来
+            effects:
+              - { type: setFlag, id: ch2DateSet, value: true }
+              - { type: adjustAttribute, attribute: command, value: 1 }
+              - { type: adjustRelation, fromId: npc-yuan-shao, toId: npc-caocao, kind: rival, value: 6 }
+              - { type: log, text: 你在文书上写了一个日期。写完满帐安静，像是有人替你把那句「再等等」咽了回去。, visibility: public }
+            nextEventId: ev-ch2-5
+          - id: opt-ch2-4-yuan
+            text: 还是「诸位以为如何」
+            visibleWhen:
+              - { flag: origin, eq: 袁绍 }
+              - { flag: yuanDelay, eq: true }
+            effects:
+              - { type: setFlag, id: ch2YuanDefer, value: true }
+              - { type: adjustAttribute, attribute: tianyi, value: 1 }
+              - { type: adjustRelation, fromId: npc-yuan-shu, toId: npc-yuan-shao, kind: elder-brother, value: 5 }
+              - { type: log, text: 陈留那句你说了一整章，河北又说了一次。史书后来只写「盟主召诸将议事」，没写你其实什么都没定。, visibility: public }
+            nextEventId: ev-ch2-5
+          - id: opt-ch2-4-yuanshu
+            text: 让袁术先签
+            visibleWhen:
+              - { relation: npc-yuan-shu, kind: elder-brother, to: npc-yuan-shao, gte: 32 }
+            effects:
+              - { type: addRelationEdge, fromId: npc-yuan-shu, toId: player, kind: friend, visibility: known, value: 16 }
+              - { type: adjustAttribute, attribute: reputation, value: 1 }
+              - { type: log, text: 他签得极快，还顺手把「仲家」两个字写在了年号栏。你没拦 —— 天意会管，但那是后面的事。, visibility: public }
+            nextEventId: ev-ch2-5
+          - id: opt-ch2-4-both
+            text: 两封都收下，都不批
+            effects:
+              - { type: adjustMood, value: 1 }
+              - { type: log, text: 你把两封文书叠齐压在案角。谁也没输，谁也没赢，仗照旧要打。, visibility: public }
+            nextEventId: ev-ch2-5
+
+  # ── 官渡前夜 · 三条线汇合 ──
+  - id: ev-ch2-5
+    title: 官渡前夜 · 三本账
+    narrative: 三方在同一条国道口扎营，隔着一条河能看见彼此的火。三本年号不同的账册摆在一起，有人提议合成一本。你手里还留着自己那一本，路上写的那半页也在。
+    trigger:
+      source: chain
+      timeCost: { value: 2, unit: day }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ch2-5-merge
+            text: 把自己的那本也放上去
+            effects:
+              - { type: setFlag, id: ch2Done, value: true }
+              - { type: setFlag, id: ch2BooksMerged, value: true }
+              - { type: log, text: 四本账册叠成一摞。谁的年号都没被撕掉，只是最上面那本还没定。, visibility: public }
+          - id: opt-ch2-5-liu
+            text: 先点一遍带来的人，再谈合账
+            visibleWhen:
+              - { flag: origin, eq: 刘备 }
+            effects:
+              - { type: setFlag, id: ch2Done, value: true }
+              - { type: adjustRelation, fromId: npc-gongsun-zan, toId: player, kind: friend, value: 6 }
+              - { type: log, text: 陈留到官渡，你换过三本册子，点的始终是同一批人。今夜又点了一遍，比来时少了两个。, visibility: public }
+          - id: opt-ch2-5-cao
+            text: 把檄文再抄一份，落款写今年
+            visibleWhen:
+              - { flag: origin, eq: 曹操 }
+            effects:
+              - { type: setFlag, id: ch2Done, value: true }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: log, text: 落款那一栏你空了很久，最后还是写了年号。四个字没人听见的那一章，好歹留下了一份能传出去的东西。, visibility: public }
+          - id: opt-ch2-5-yuan
+            text: 让主位空着，谁都不用先说话
+            visibleWhen:
+              - { flag: origin, eq: 袁绍 }
+            effects:
+              - { type: setFlag, id: ch2Done, value: true }
+              - { type: adjustMood, value: 2 }
+              - { type: log, text: 你把主位留空了。没人敢坐，也没人问为什么 —— 这一夜你第一次觉得，不说话也是一种交代。, visibility: public }
+
+  # ── 第二次天意锚点：schedule + once + priority 100，到点必发 ──
+  # conditions 含 ch2Done：若玩家还没走完第二章，实例会 hold 留队（不是错失），
+  # 走完后才 fire ⇒ 和第一章锚点一样「天意一定会发力」。
+  - id: ev-tianyi-anchor-2
+    title: 天意 · 第二次世界线修正
+    narrative: 第五十八天。三本账册被抄成一行，年号拨回初平。徐州、兖州、河北各自发生的事一件也没被撤销 —— 名册还在，空行还在，你写过的那一页也还在；只是所有人都觉得，本来就该是往官渡走。天意又发力了。
+    trigger:
+      source: schedule
+      window: { start: { value: 58, unit: day } }
+      once: true
+      priority: 100
+      conditions:
+        - { flag: chapter, eq: 2 }
+        - { flag: ch2Done, eq: true }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-tianyi-2-accept
+            text: 「迅雷乃天意，世人谁敢不畏天意？」（第 20 集原句）
+            effects:
+              - { type: log, text: 天意发力了。世界线收束回主线：官渡还是官渡，年号还是初平。, visibility: public }
+              - { type: setFlag, id: chapter, value: 3 }
+              - { type: setFlag, id: anchor2Done, value: true }
+              - { type: setFlag, id: mainline, value: 官渡 }
+              # 叙事层改元的收束：天意把各营私改的年号拨回正朔，但玩家写过的
+              # eraDraft / eraName 不清除 ⇒ 后果不撤销，只改写认知（与锚点 1 同口径）。
+              - { type: setFlag, id: eraName, value: 初平 }
+              - { type: adjustAttribute, attribute: tianyi, value: -3 }
+              - { type: log, text: 三份战报、四本账册合成一行。你仍记得自己写过什么，别人只记得初平元年，官渡。, visibility: public }
+              - { type: log, text: 支线 flag 全部保留，后果不撤销，只改写认知（二创「世界修正」原义）。, visibility: hidden }
+
+  # ── 第三章接口（只留一句预告，不铺开内容） ──
+  - id: ev-ch3-gate
+    title: 新三国道 · 官渡在前面
+    narrative: 还是这条山路，布景没换，那棵树也没换。官渡已经排好了，天意照例先到一步。你把自己那一本账册收进怀里，往前走。
+    trigger:
+      source: schedule
+      window: { start: { value: 59, unit: day } }
+      once: true
+      conditions:
+        - { flag: chapter, eq: 3 }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ch3-enter
+            text: 往前走
+            effects:
+              - { type: log, text: 第二章到此为止。后续章节在此接续，主线仍是天意说了算。, visibility: public }

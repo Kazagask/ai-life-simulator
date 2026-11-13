@@ -5,8 +5,18 @@
 #   玩家若是刘备，ev-zifen（叙述「刘备拔剑」）等以其为第三视角的池事件会被 origin 条件排除，
 #   改由专属剧情链用第二人称讲同一件事 —— 叙事层也不出现第二个自己。
 # 讨董一章出场阵容。台词技能由事件解锁给玩家，NPC 只挂基础攻击（避免张冠李戴）。
-# 关系边 `{ from: A, to: B, kind: father }` 的语义是「B 是 A 的父亲」，本小样不写边，
-# 只用 relationship 标量，省得把方向写反（jjk-2006 的夜蛾坑见其 characters.yaml 头注释）。
+#
+# 【关系图谱 · 第四轮】本轮起正式使用 R2.6 / ADR-0014 的 `relations` 关系边，
+#   `relationship` 标量保留为「NPC→玩家」便捷投影。⚠ 方向语义：
+#   `{ to: B, kind: father }` 读作「**B 是 A 的父亲**」（jjk-2006 夜蛾坑见其头注释）。
+#   亲属边只在孙坚/孙策、二袁之间使用，方向已逐条对照；其余一律用社会边
+#   （friend / rival / colleague），避免把「谋主」「部将」误写成亲属。
+#   visibility: known 才进玩家投影（前端渲染「X视Y为…」）；inferred 供推断得知的展示，
+#   unknown / hidden 不上屏 —— 遵循 R-OP-05「默认不认识」。
+#   指向 player 的边在玩家占用该 NPC 时会随 unspawned 节点一并被投影剔除，
+#   生命周期是单一事实源，不需要按 origin 手工清理。
+#   事件层用 addRelationEdge / 关系边形态 adjustRelation 让关系随剧情变化，
+#   并用 `{ relation: ..., kind: ..., to: ... }` 条件做选项分岔。
 characters:
   - id: npc-caocao
     isEnemy: false
@@ -23,6 +33,11 @@ characters:
       goals: [survive, outwit-tianyi]
       traits: [bold, suspicious]
     relationship: 6
+    relations:
+      - { to: npc-xun-yu, kind: colleague, visibility: known, value: 62 }
+      - { to: npc-lv-boshe, kind: friend, visibility: known, value: 35 }
+      - { to: npc-yuan-shao, kind: rival, visibility: known, value: 30 }
+      - { to: player, kind: colleague, visibility: known, value: 12 }
 
   - id: npc-liubei
     isEnemy: false
@@ -39,6 +54,10 @@ characters:
       goals: [protect-people, escape-tianyi]
       traits: [caring, dramatic]
     relationship: 5
+    relations:
+      - { to: npc-gongsun-zan, kind: friend, visibility: known, value: 58 }
+      - { to: npc-caocao, kind: rival, visibility: known, value: 18 }
+      - { to: player, kind: friend, visibility: known, value: 10 }
 
   - id: npc-sun-jian
     isEnemy: false
@@ -54,6 +73,10 @@ characters:
       goals: [win-battle]
       traits: [stern]
     relationship: 3
+    relations:
+      # 孙策是孙坚的儿子 ⇒ kind: son（不是 father）
+      - { to: npc-sun-ce, kind: son, visibility: known, value: 82 }
+      - { to: npc-yuan-shu, kind: rival, visibility: known, value: 25 }
 
   - id: npc-sun-ce
     isEnemy: false
@@ -69,6 +92,11 @@ characters:
       goals: [please-father]
       traits: [loud, confident]
     relationship: 2
+    relations:
+      # 孙坚是孙策的父亲 ⇒ kind: father
+      - { to: npc-sun-jian, kind: father, visibility: known, value: 85 }
+      - { to: npc-xu-sheng, kind: colleague, visibility: known, value: 30 }
+      - { to: player, kind: friend, visibility: known, value: 8 }
 
   - id: npc-gongsun-zan
     isEnemy: false
@@ -84,6 +112,10 @@ characters:
       goals: [eat, watch]
       traits: [easygoing]
     relationship: 4
+    relations:
+      - { to: npc-liubei, kind: friend, visibility: known, value: 54 }
+      - { to: npc-yuan-shao, kind: rival, visibility: known, value: 38 }
+      - { to: player, kind: friend, visibility: known, value: 14 }
 
   - id: npc-yuan-shao
     isEnemy: false
@@ -99,6 +131,11 @@ characters:
       goals: [lead-alliance]
       traits: [proud]
     relationship: 0
+    relations:
+      # 袁术是袁绍的（同父异母）弟 ⇒ kind: younger-brother
+      - { to: npc-yuan-shu, kind: younger-brother, visibility: known, value: 34 }
+      - { to: npc-caocao, kind: rival, visibility: known, value: 28 }
+      - { to: npc-gongsun-zan, kind: rival, visibility: known, value: 35 }
 
   - id: npc-yuan-shu
     isEnemy: false
@@ -114,6 +151,10 @@ characters:
       goals: [become-emperor]
       traits: [petty, hungry]
     relationship: -1
+    relations:
+      # 袁绍是袁术的兄 ⇒ kind: elder-brother
+      - { to: npc-yuan-shao, kind: elder-brother, visibility: known, value: 30 }
+      - { to: npc-sun-jian, kind: rival, visibility: known, value: 20 }
 
   - id: npc-lv-boshe
     isEnemy: false
@@ -129,6 +170,8 @@ characters:
       goals: [host]
       traits: [kind]
     relationship: 0
+    relations:
+      - { to: npc-caocao, kind: friend, visibility: known, value: 40 }
 
   - id: npc-xun-yu
     isEnemy: false
@@ -144,6 +187,10 @@ characters:
       goals: [advise]
       traits: [diligent]
     relationship: 2
+    relations:
+      - { to: npc-caocao, kind: colleague, visibility: known, value: 66 }
+      # inferred：只是帐外点过头，前端会标注「推断得知」
+      - { to: player, kind: colleague, visibility: inferred, value: 6 }
 
   # 三国杀「大宝」= 界徐盛，技能「破军」。台词在此处作为角色 short quote 出现。
   - id: npc-xu-sheng
@@ -160,6 +207,9 @@ characters:
       goals: [defend]
       traits: [stern, loyal]
     relationship: 3
+    relations:
+      - { to: npc-sun-ce, kind: colleague, visibility: known, value: 36 }
+      - { to: player, kind: friend, visibility: known, value: 16 }
 
   # 邢道荣同时是新三国梗与三国杀武将，双关最好用。
   - id: npc-xing-daorong
@@ -176,6 +226,8 @@ characters:
       goals: [be-famous]
       traits: [boastful]
     relationship: -4
+    relations:
+      - { to: npc-liubei, kind: rival, visibility: known, value: 24 }
 
   - id: npc-hua-xiong
     isEnemy: true
@@ -191,6 +243,8 @@ characters:
       goals: [hold-pass]
       traits: [silent]
     relationship: -8
+    relations:
+      - { to: npc-dong-zhuo, kind: colleague, visibility: known, value: 52 }
 
   - id: npc-dong-zhuo
     isEnemy: true
@@ -206,8 +260,11 @@ characters:
       goals: [hold-power]
       traits: [arrogant]
     relationship: -10
+    relations:
+      - { to: npc-hua-xiong, kind: colleague, visibility: known, value: 50 }
 
   # 魔幻化主投放口：把「乌角鲨」做成真实生物，并允许它成为敌人甚至玩家身份。
+  # 它不进关系图谱：谁也说不清该用哪条边描述一头游进中军帐的鱼。
   - id: enemy-wujiaosha
     isEnemy: true
     visibility: public
@@ -227,6 +284,7 @@ characters:
   # 注意：华雄本人已是 npc-hua-xiong（在人物面板里），不能再造一个「华雄」当敌人，
   # 否则玩家=华雄相关剧情会出现分身。这里让**旗号**上阵：出来的不是那个人，
   # 是那面旗和旗后面的人 —— 两军都不追究，正是本模板要的魔幻感。
+  # 同样不进关系图谱：一面旗不该有旧识。
   - id: enemy-xiliang-commander
     isEnemy: true
     visibility: public
