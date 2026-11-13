@@ -380,6 +380,60 @@ s5 end-secret-thrice day4755 t346 ch=1→2→…→14→15
 
 ---
 
+## 8. 追加验证（第二轮基线 `eebae60`）
+
+> 第一轮验收结束时仓库落了一条纠偏提交 `eebae60`（"撤回 `pendingEvent` 恒 null + 计数流顺序消费与相关性断言"）。因为**它改了引擎代码**，我不能用第一轮的结论直接放行，于是在干净 worktree（`_qa-head` 已 `git checkout eebae60`）把关键项**全部重跑**。
+
+### 8.1 `eebae60` 改了什么（我逐行读过 diff）
+
+| 文件 | 改动 | 我的判定 |
+|---|---|---|
+| `projection.ts` | `pendingEvent: null` → `pendingEvent: ended ? null : pendingEventView(...)`（兼容包装）+ 注释写死删除顺序 | **解决 B-2**：`slotEvent` 仍是唯一真源，`pendingEvent` 只是它的 normal 子集；`apps/web` 5 处引用不再拿到 `null` |
+| `v2.test.ts` / `ending-pipeline.test.ts` | 两条断言同步改回 | 与实现一致，无"断言与实现各说各话" |
+| `turn.ts` `countPresentableQueue` | ① 一轮**一条**派生流（不变）；② 遍历顺序 `state.delayQueue` → **`sortScheduled(delayQueue)`**；③ 注释把 RNG 纪律写死 | **正确**：与 `scanDelayQueue` 同一全序 ⇒ 骰值消费顺序只由世界状态决定。**不是**我在变异实验里看到的那版（每实例一条流） |
+| `slot-invariants.test.ts` | 新增「计数流相关性」用例：二分法实测每个消费者看到的骰值，断言第 2 个 ≠ 第 1 个 | **真锁**（见 8.3）|
+
+### 8.2 重跑结果（全部我自己跑）
+
+| 命令 | 目录 | 结果 |
+|---|---|---|
+| `pnpm typecheck` | 主干（`eebae60`，干净） | **0 错** |
+| `pnpm typecheck` | `_qa-head`（`eebae60`，无探针） | **0 错** |
+| `pnpm --filter @life-sim/shared test` | 主干 | **67 passed** |
+| `npx vitest run` | `_qa-head`（`eebae60`，**原生**） | **38 文件 / 548 用例 passed** |
+| `npx vitest run`（含我的 19 例探针） | `_qa-head` | **39 文件 / 567 用例 passed** |
+| `npx vitest run src/v2/playthrough.test.ts`（带 `chapterFires` 打印） | `_qa-head` | s1–s6 与 §5 **逐字节相同**：s1 death/t325、s2 death/t349、s3 thrice/t333、s4 death/t349、**s5 thrice/t346**、s6 death/t341；**6 个种子 × 7 个章节门全部各 1 次**；章节段数 14/14/15/14/**15**/14；overall 94.45/94.73/94.70/94.93/**95.01**/94.68 |
+
+> ⚠️ **对实施方自验数字的更正（善意提醒，非指责）**：`eebae60` 提交信息写"**39 文件 / 567 用例**"。实测**原生是 38 文件 / 548 用例**；39/567 = 原生 + 我那个临时探针（+1 文件 / +19 用例）。⇒ 他们那次自验把我放在树里的探针算进去了。以后自验请先 `git status` 确认树里没有别人的文件。
+
+### 8.3 我独立做了变异复验：那把"相关性锁"是真的
+
+在**我自己的** worktree 里把 `turn.ts` 的 `rng` 改回"每实例一条流"（故意破坏，只改我这份），然后跑 `slot-invariants.test.ts`：
+
+```
+     → expected 0 to be greater than 0.01
+⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+AssertionError: expected 0 to be greater than 0.01
+      Tests  1 failed | 12 passed (13)
+```
+
+⇒ **只有**新增的相关性用例红，其余 12 条全绿。这正是我第一轮担心的形态（"同 seed 两次跑一致"照绿、但两个含 `random` 条件的实例拿到同一个骰值）。**这把锁成立**，`eebae60` 的降级/回滚会被告警。变异已 `git checkout --` 还原，我那份 worktree 的 `git status` 干净。
+
+### 8.4 第二轮裁定
+
+| 项 | 第一轮 | 第二轮（`eebae60`） |
+|---|---|---|
+| 必验清单 10 项 | 全 PASS | **全 PASS（不变）** |
+| 六种子 | §5 数值 | **逐字节不变** |
+| B-1 工作区脏 / 变异污染 | 阻断 | **已收口** |
+| B-2 `pendingEvent` 口径冲突 | 阻断 | **已收口（主理人裁定 + 实现/断言一致）** |
+| A2' 计数 RNG 纪律 | 只有"同 seed 两次一致"这一层证据 | **补强**：一条流 + 全序消费 + 相关性锁（我独立变异验证过） |
+| 遗留 | P2-1 / P2-2 / P2-3 | **同样适用**（`eebae60` 未触及这三项） |
+
+**第二轮裁决：通过（P2 三项进 BACKLOG，不阻断）。** 除 §6.2 的三个 P2 与 §6.3 的已知欠账外，没有剩余的必须修复项；`apps/web` 切 `slotEvent` 属另一条线（不在这棵树的验收范围）。
+
+---
+
 ## 9. 第三轮：探针移出仓库 + `pendingEvent` 一致性 + P2 收口（最终基线 `e954494`）
 
 ### 9.1 探针已移出仓库（主理人要求）
@@ -1326,55 +1380,3 @@ describe("QA-pendingEvent · 过渡兼容层与 slotEvent 的一致性", () => {
 | P2 三项修复 | `git diff eebae60 e954494`：`playthrough.test.ts`(+9) / `slot-invariants.test.ts`(标题) / `shared/v2.ts`(注释) |
 
 ---
-
-## 8. 追加验证（第二轮基线 `eebae60`）
-
-> 第一轮验收结束时仓库落了一条纠偏提交 `eebae60`（"撤回 `pendingEvent` 恒 null + 计数流顺序消费与相关性断言"）。因为**它改了引擎代码**，我不能用第一轮的结论直接放行，于是在干净 worktree（`_qa-head` 已 `git checkout eebae60`）把关键项**全部重跑**。
-
-### 8.1 `eebae60` 改了什么（我逐行读过 diff）
-
-| 文件 | 改动 | 我的判定 |
-|---|---|---|
-| `projection.ts` | `pendingEvent: null` → `pendingEvent: ended ? null : pendingEventView(...)`（兼容包装）+ 注释写死删除顺序 | **解决 B-2**：`slotEvent` 仍是唯一真源，`pendingEvent` 只是它的 normal 子集；`apps/web` 5 处引用不再拿到 `null` |
-| `v2.test.ts` / `ending-pipeline.test.ts` | 两条断言同步改回 | 与实现一致，无"断言与实现各说各话" |
-| `turn.ts` `countPresentableQueue` | ① 一轮**一条**派生流（不变）；② 遍历顺序 `state.delayQueue` → **`sortScheduled(delayQueue)`**；③ 注释把 RNG 纪律写死 | **正确**：与 `scanDelayQueue` 同一全序 ⇒ 骰值消费顺序只由世界状态决定。**不是**我在变异实验里看到的那版（每实例一条流） |
-| `slot-invariants.test.ts` | 新增「计数流相关性」用例：二分法实测每个消费者看到的骰值，断言第 2 个 ≠ 第 1 个 | **真锁**（见 8.3）|
-
-### 8.2 重跑结果（全部我自己跑）
-
-| 命令 | 目录 | 结果 |
-|---|---|---|
-| `pnpm typecheck` | 主干（`eebae60`，干净） | **0 错** |
-| `pnpm typecheck` | `_qa-head`（`eebae60`，无探针） | **0 错** |
-| `pnpm --filter @life-sim/shared test` | 主干 | **67 passed** |
-| `npx vitest run` | `_qa-head`（`eebae60`，**原生**） | **38 文件 / 548 用例 passed** |
-| `npx vitest run`（含我的 19 例探针） | `_qa-head` | **39 文件 / 567 用例 passed** |
-| `npx vitest run src/v2/playthrough.test.ts`（带 `chapterFires` 打印） | `_qa-head` | s1–s6 与 §5 **逐字节相同**：s1 death/t325、s2 death/t349、s3 thrice/t333、s4 death/t349、**s5 thrice/t346**、s6 death/t341；**6 个种子 × 7 个章节门全部各 1 次**；章节段数 14/14/15/14/**15**/14；overall 94.45/94.73/94.70/94.93/**95.01**/94.68 |
-
-> ⚠️ **对实施方自验数字的更正（善意提醒，非指责）**：`eebae60` 提交信息写"**39 文件 / 567 用例**"。实测**原生是 38 文件 / 548 用例**；39/567 = 原生 + 我那个临时探针（+1 文件 / +19 用例）。⇒ 他们那次自验把我放在树里的探针算进去了。以后自验请先 `git status` 确认树里没有别人的文件。
-
-### 8.3 我独立做了变异复验：那把"相关性锁"是真的
-
-在**我自己的** worktree 里把 `turn.ts` 的 `rng` 改回"每实例一条流"（故意破坏，只改我这份），然后跑 `slot-invariants.test.ts`：
-
-```
-     → expected 0 to be greater than 0.01
-⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
-AssertionError: expected 0 to be greater than 0.01
-      Tests  1 failed | 12 passed (13)
-```
-
-⇒ **只有**新增的相关性用例红，其余 12 条全绿。这正是我第一轮担心的形态（"同 seed 两次跑一致"照绿、但两个含 `random` 条件的实例拿到同一个骰值）。**这把锁成立**，`eebae60` 的降级/回滚会被告警。变异已 `git checkout --` 还原，我那份 worktree 的 `git status` 干净。
-
-### 8.4 第二轮裁定
-
-| 项 | 第一轮 | 第二轮（`eebae60`） |
-|---|---|---|
-| 必验清单 10 项 | 全 PASS | **全 PASS（不变）** |
-| 六种子 | §5 数值 | **逐字节不变** |
-| B-1 工作区脏 / 变异污染 | 阻断 | **已收口** |
-| B-2 `pendingEvent` 口径冲突 | 阻断 | **已收口（主理人裁定 + 实现/断言一致）** |
-| A2' 计数 RNG 纪律 | 只有"同 seed 两次一致"这一层证据 | **补强**：一条流 + 全序消费 + 相关性锁（我独立变异验证过） |
-| 遗留 | P2-1 / P2-2 / P2-3 | **同样适用**（`eebae60` 未触及这三项） |
-
-**第二轮裁决：通过（P2 三项进 BACKLOG，不阻断）。** 除 §6.2 的三个 P2 与 §6.3 的已知欠账外，没有剩余的必须修复项；`apps/web` 切 `slotEvent` 属另一条线（不在这棵树的验收范围）。
