@@ -158,6 +158,11 @@ CI（`.github/workflows/ci.yml`）L0 → L1 → L2 → L2b → L4 → L5 全绿�
 - R2.7 特征仍在：`eventFlavors` / `narrativeSource` / `summarySource`、WorkBuddy 登录回调 `handleWorkBuddyCallback`。
 - **不构成证据的项**：线上 bundle `pendingEvents` 零命中，但本地前端本来也不引用该字段（0 命中），**不能**据此判定 `pendingEvents` 已退役。
 - **未找到直接证据的项**：口述第 3 项「转盘结果前端确认才生效」在前端 bundle 里没有新增端点（API 路径清单与本地一致），`确认` 命中来自 `window.confirm("删除这一局？")`。可能是同一 `POST /turns` 内的语义变化，须旧机源码确认。
+- **服务端契约差异的直接证据（2026-11-14 补查）**：线上 `GET /api/templates` 完整响应为
+  `{id:"jjk-2006", name, startVersion:"1.0.0", versions:[{id, version:"1.0.0", name, description, startYear:2006, openings:[…], assetCount:0, assetFingerprint:"sha256:e3b0c44298fc…b855", loadable:true}]}`；
+  本地 R2.7 的 handler（`apps/server/src/index.ts:299-310`）**只返回** `{id, name, description, startYear, openings}`。
+  ⇒ 缺失版本改过 `/api/templates` 的响应结构，新增**版本化模板（`startVersion` / `versions[]`）、资产指纹（`assetFingerprint`）、`loadable` 标志**；`assetCount:0` 且指纹为 `sha256("")`（空串哈希）说明该模板无额外资产文件。这是不依赖前端 bundle 的**服务端契约差异**，比 `llm-credentials` 更直接，也说明旧机的模板注册/校验机制很可能已不同于本地 R2.7。
+- 线上**仅注册 `jjk-2006` 一套模板**；`GET /api/templates/<id>` → 404 `not_found`（无模板详情端点）。线上 bundle 与本地路由清单均无上传 / 写文件端点，唯一写文件发生在 `store.ts`（写存档 JSON）。
 
 ### 6.3 结论与红线
 
@@ -165,3 +170,25 @@ CI（`.github/workflows/ci.yml`）L0 → L1 → L2 → L2b → L4 → L5 全绿�
 - 🔴 **红线：找回前禁止对「咒术转盘人生」执行任何重新发布 / 部署**（`workbuddy_sites_deploy` 是覆盖式更新，会用当前 R2.7 代码替换沙箱里的源码包，可能永久抹掉缺失版本），也禁止 `unpublish`。
 - 证据留存：`D:\code\_recovery_evidence\`（仓库外）保存 `index-FTlUlvkM.js` + `index-B3ryDvHb.css` 与 sha256，供日后比对；**不提交进仓库**。
 - 待办：请主理人在 WorkBuddy 客户端「设置 → 数据管理 → 已发布应用」查看该应用是否有沙箱文件 / 源码包导出入口；旧机磁盘仍是首选找回源。
+
+### 6.4 「只把模板目录搬到线上沙箱」可行性勘查（2026-11-14 00:0x）
+
+主理人提出：不重新发布，只把新模板目录增量放进沙箱 `specs/data/templates/` 的对应位置。**结论：当前工具与运行时都不支持，且找回前不该做。**
+
+| # | 障碍 | 核实依据 |
+|---|---|---|
+| 1 | 发布工具只有「整目录源码压缩包覆盖」粒度 | `workbuddy_sites_deploy` 仅 `deploy` / `unpublish`；deploy 压缩上传**整个** `directory`（排除 `node_modules` / `.git` / build output），复用同一沙箱并替换线上内容，**没有任何单目录 / 单文件增量参数**。把 `directory` 指向模板子目录会被当成另一个项目：无 start entry 会被拒、或按静态站发布到别处，绝不会写进原沙箱 |
+| 2 | 沙箱文件系统无读写接口 | 已发布应用只能查看 / 发布 / 下线 / 删除；云存储 `storage_list_objects` **只读**（写操作不在该端点），且云存储是用户数据区、不是源码目录；资料库上传只是把文件存进资料库 |
+| 3 | HTTP 面没有写源码的入口 | 线上 bundle 与本地 `apps/server/src/index.ts` 的路由清单均无上传 / 写文件端点；`/api/templates/<id>` 404；唯一写文件是 `store.ts` 写存档 JSON |
+| 4 | 模板是**启动期一次性**加载 | `templates.ts:44-47` 的 `templatesDir()` 遍历目录，`loadTemplates()` 启动时装入内存 registry，`/api/templates` 直接返回该 Map；**无 reload / watch 端点**。即使文件奇迹般塞进去，不重启进程也不会出现在列表里 |
+| 5 | 重启等于覆盖红线 | 沙箱进程的重启只能靠重新发布，而重新发布会用本地 R2.7 覆盖沙箱源码包 ⇒ §6.3 红线 |
+
+**因此不执行、也不会在找回前执行任何 `workbuddy_sites_deploy`。**「把模板送上线」的收益远小于抹掉两个大版本的风险。
+
+**可行的近似解（本地 / 旧机侧，全程不碰线上）**：
+
+- `templatesDir()` 支持 `process.env.TEMPLATES_DIR` 覆盖 ⇒ 新模板可做成**完全自包含的独立目录**放在仓库外，用 `TEMPLATES_DIR=<外部根>` 启动本地 server 做加载期校验，零侵入、不动 `jjk-2006` 指纹、不改任何源码。
+- 旧机有完整源码 + 两个大版本，把该目录拷进 `specs/data/templates/sanguo-*/`（或同样外挂）即可被自动注册，重启**本地**服务即可验证 —— 不经过云端。
+- 交付形态：一个目录 + 一个 `git format-patch` / zip，按 `RECOVERY_OLD_MACHINE.md §5` 搬运，符合「只搬模板、别动别的」的诉求。
+
+⚠️ **对模板写法的实质影响**：线上 `/api/templates` 已是**版本化 + 资产指纹**结构（§6.2），旧机的模板注册 / 校验机制很可能已不同于本地 R2.7 ⇒ 新模板的文件集与 `meta` 结构**必须等找回旧机源码后确认**，不能照本地 8 文件朴素结构想当然。
