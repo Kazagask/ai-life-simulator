@@ -2125,6 +2125,8 @@ RNG ⇒ 「逐字节等价重构」立刻不成立（RNG 流被多扣一次，�
 
 > **〔守卫条件被 ADR-0033 替换，2026-11-13〕** 本 ADR 决策 2 的守卫条件 `event.kind === "normal" && state.pendingEvents.length > 0` **被替换为** `event.kind === "normal" && occupantOf(state) !== "action"`（ADR-0033 决策 3；`occupantOf` 见同 ADR 决策 1）。**决策 2 的其余部分（命中动作 = `enqueueScheduled(ZERO_SPEC)` 后 return、位于 `recordFire` 之前、不记火不写历史）全部保留不变**，决策 5 的「可整块删除回退」性质也保留（回退即恢复旧条件）。本 ADR 的量化基线与「normal 串行化」成果仍有效。
 
+> **〔被 ADR-0034 取代，2026-11-13〕** 本 ADR 的「槽 = `pendingEvents ≤ 1`」与"入队互斥式守卫"**整体作废**：用户口述模型把槽定为**状态字段** `WorldStateV2.slot`（记录"下一个要处理的事件"），`pendingEvents` 字段被删除；"准入"问题随之消失（写 `slot` 的入口只有两个：队列取出、当前事件的后继）。本 ADR 保留的只有**事实与教训**：量化基线（normal 链中断 6→0 / combat 2 次）、守卫必须位于 `recordFire` 之前、以及「运行期约定不等同结构保证」这一方法论。
+
 ## ADR-0027 AI 叙事层接入：LLM Provider 抽象 + 服务端编排 + 确定性边界
 
 > **本条覆盖**：将 2026-11-13 与用户讨论确定的「AI 叙事层（LLM 接入）」落地为正式决策——`LLMProvider` 统一接口（Mock / WorkBuddy 云服务 SDK / OpenAI 兼容）、服务端凭证路由、确定性边界、strict Zod + 证据白名单回退、事件 flavor 异步生成。属于 **T-2 协议/契约变更**（动 server/engine 编排契约 + shared schema 新增），须先写 ADR（AGENTS §0.3）。
@@ -2698,6 +2700,8 @@ combat 被 `pendingEvents` 挡（对称洞）/ `pendingEventPriority` 在单槽�
 
 > **〔其术语与分层被 ADR-0032 取代，2026-11-13〕** 本 ADR 已先被用户打回（见状态行下的注记），现进一步明确：**其术语（「呈现槽」的用法）与分层（L1/L2/L3、`slotTakenFor`）不再作为团队口径**，一律以 ADR-0032 §1（术语表）与 §3（不变量两栏）为准。本 ADR 可复用的部分只剩事实与证据：**「问题」节的四类占位者结构性事实、量化基线（normal 链中断 6→0 / combat 2 次）、以及 `state.chains` 无法覆盖伪链的论证**——后者是 ADR-0032 §5 Q3 的输入。任何重新设计都必须先引用 ADR-0032，不得直接复活 L 分层。
 
+> **〔被 ADR-0034 取代，2026-11-13〕** 本 ADR 的全部决策（L0–L3 分层准入、`slotTakenFor`、F1–F5、`slotDeferred` 诊断位）**作废**：`slot` 成为标量状态字段后，"谁可以占位"不再是一个判定问题，而由"两个写入口"结构保证（ADR-0034 §4 S4）。本 ADR 可复用的只有「问题」节的四类占位者观察与量化基线。
+
 ## ADR-0031 随机事件延迟结算：决定与落账分离
 
 > **本条覆盖**：把 `kind: "random"`（转盘）的「**选扇区**」与「**应用效果**」拆成两个时点——选扇区仍在触发当轮完成（RNG 位置不变），效果改由玩家**点击**触发的独立入口落账。属 **T-2 协议/契约变更**（新增 `WorldStateV2` 字段、新增投影字段、新增 API 与两个封闭错误码、改 `lastWheels` 语义）⇒ 必须先 ADR（`AGENTS.md` §0.3）。
@@ -2915,6 +2919,8 @@ export interface PendingWheelView {
 
 > **〔其术语与分层被 ADR-0032 取代，2026-11-13〕** 本 ADR 与 ADR-0030 同因被用户打回，且**其术语（尤其是把「未结算呈现物」当作准入分层 L0）与全部分层设计被 ADR-0032 取代**，一律以 ADR-0032 §1 术语表与 §4（P1/P3）为准。本 ADR 可复用的部分只剩两条**事实**：①「`random` 的效果落账早于演出、玩家看到指针还在转时属性/道具/flag/历史已变」（`turn.ts:501-533`，`applyEffectsV2` 在 `:526`）；②`engine.ts` 全部效果分支零 `rng()`（唯一 `rng()` 在条件 DSL `engine.ts:258`）——后者是 ADR-0032 §5 Q5 的输入。**`pendingWheels` / `wheelSeqCounter` / `settleWheelV2` / `/wheels/settle` / `pending_wheel_required` 等设计不进入任何口径**，重设计时按 ADR-0032 §5 Q1（呈现槽是否成为一等对象）重新取舍。
 
+> **〔被 ADR-0034 取代，2026-11-13〕** 本 ADR 的全部设计（`pendingWheels` / `wheelSeqCounter` / `settleWheelV2` / `/wheels/settle` / `pending_wheel_required` / L0 层 / `lastWheels` 顺序口径）**作废**：在单槽模型中，转盘不需要独立容器——它就是当前 `slot` 场景的内部过程，"未确认"是 `slot` 的天然状态（ADR-0034 §6）。本 ADR 保留两条**事实**：①`random` 的效果落账早于演出（`turn.ts:501-533`）；②`engine.ts` 效果分支零 `rng()`（唯一 `rng()` 在条件 DSL）。这两条对 ADR-0034 的"槽内结算"仍是有效证据。
+
 ## ADR-0032 概念模型：呈现槽 / 待决事件队列 / 待触发队列 / 行动与轮次
 
 > **本条覆盖**：在用户打回 ADR-0030/0031 之后，先把「槽 / 事件队列 / 行动 / 轮次」四个概念的**命名与边界**定死（唯一术语、可判定定义、归属、不变量两栏、三条默认口径、重设计待解问题）。**本条不做机制设计**：不含任何准入算法、字段增删、路由、错误码实现，也不再给「怎么改」的方案。
@@ -3054,6 +3060,8 @@ export interface PendingWheelView {
 - **不给 Q1–Q5 的答案**：那是重设计阶段的事，且必须逐条走 ADR。
 
 > **〔Q1/Q3/Q5 已由 ADR-0033 裁定，2026-11-13〕** 本 ADR §5 的五个待解问题进度：**Q1（呈现槽形态）+ Q3（伪链判据）→ ADR-0033 决策 1–3**（结论：`occupantOf` 一等**判据**但不持久化；伪链不升格、不动模板，靠「同栈续步优先 + 非占用者不得入槽」保证连续性，即 Q3-A）；**Q5（九类路径归类）→ ADR-0033 决策 6–7**（九行表 + 新不变量候选「产生新呈现物的代码只允许在推进轮次的入口里运行」）；**Q4 → 维持本 ADR 的「不拆」并加约束**（ADR-0033「明确不做」第 1 条）。**Q2 只做了一半**：ADR-0033 不拆 `scheduledEvents`，把「被退回的暂存」独立容器留作批次 4。§4 的 P1 已由 ADR-0033 决策 5 落地（P1-A）；**P2（主线暂歇可见标记）与 P3（未确认呈现物）尚未落地**，P3 属批次 3（待立 ADR-0034）。
+
+> **〔部分被 ADR-0034 取代，2026-11-13〕** 本 ADR 的**术语表 T2（`pendingEvents`）与 T3（`scheduledEvents`）作废**：前者被删除、后者改名 `delayQueue`；T1（呈现槽）由**状态字段 `slot`** 落地，不再是"引擎侧无对应物的派生量"；T6/T7 保留但按 ADR-0034 §2 重述（`turnIndex` 推进点后移到"内容落地之后"）。**§4 P3（未确认呈现物）不再需要**——`slot` 天然就是"未确认"，其"硬卡 + 语义逃生"三条逃生口语义仍有效。**§4 P1/P2 亦作废**：用户已明确"穿脱装备/战斗过程/查看信息不占槽、独立于轮次结算"（P1 的反向结论），P2 的"主线暂歇标记"无对应物（不再有"主线被日常占位"这回事）。**§3 不变量两栏的方法论继续有效**，并已被 ADR-0034 §4 沿用。
 
 ## ADR-0033 呈现槽单一判据 + 续步优先 + 待决期写入门禁（批次 1+2）
 
@@ -3215,3 +3223,141 @@ export function assertSlotFree(state: WorldStateV2): void  // 占位时按 occup
 3. **ADR-0024 的机制不回退**：`checkEventPremise` / `revalidatePendingV2` / `event_premise_invalidated` / `droppedPending` 全部保留（其触发面从「五个入口」收窄为「四个推进轮次的入口 + 提交自由行动时的入口复核」），仍属纵深防御。
 4. **受影响的测试补进必跑清单**：`packages/game-core/src/v2/pending-premise.test.ts`（上述两条，必改）、`packages/game-core/src/v2/ending-v2.test.ts`（含 `useItemV2` 调用，需核对是否在待决/战斗状态下调用）。
 5. **`items.yaml` 已核对（零暴露）**：`jjk-2006/1.0.0/items.yaml` 共 11 件物品，`use` 效果全部是 `adjustResource` / `cureStatus` / `adjustMood` 之类**纯数值效果**，**零处 `enqueueEvent` / `advanceTo` / `advanceBy`** ⇒ 决策 6 删除 `useItemV2` 内 `drainDue` 造成的「事件晚一轮」在**当前模板下无可观测影响**；该决策是为**未来模板**立规矩。
+
+> **〔被 ADR-0034 取代，2026-11-13〕** 本 ADR 的全部决策（`occupantOf` 作为准入判据、`V2Snapshot.occupant`、续步优先 F2、P1 门禁 `assertSlotFree`、删 `useItemV2` 的 drain、Q5 九行归类表）**作废**。逐条理由：①`occupantOf` 的准入用途随 `pendingEvents` 删除而失去对象（"谁占位"由 `slot` 直接回答）；②F2（续步优先于 drain）被 `slot` 的"后继直接占用"取代——不再有两件事竞争同一格；③P1 的 `equip/unequip` 禁用与用户原话**正面冲突**（用户明确"穿脱装备不占槽、独立于轮次结算"），以用户原话为准；④Q5 的"九类路径"分类保留**方法论**价值，但归类随模型变了（ADR-0034 §2 的六步链是新的唯一权威）。**仍有效的只有事实核查**：`items.yaml` 11 件物品零 `enqueueEvent`/`advanceTo`；`pending-premise.test.ts` 的排空断言位置。
+
+## ADR-0034 单槽 + 单队列 事件模型（用户口述模型的形式化）
+
+> **本条是形式化，不是设计**：模型由用户 2026-11-13 口述给定（原文见下），本条只把他的话落成可断言的状态机、不变量与破坏面。**凡与用户原话冲突处一律不改**，记为「需裁决」；凡他未说而实现必需的，记为「补定义」。
+> **唯一需求源（逐字）**：「槽 同一轮次只能发生，处理，结算一个事件 / 占槽 当前事件决定了下一回合要立即发生哪个事件 / 不占槽 不是事件 独立于轮次结算 如穿脱装备 战斗过程 查看信息 / 队列 仅有一个 就是延时事件队列 / nextTurn 时 1. 槽被占了嘛 if 是 then 处理这个事件 else 延时队列里有事件嘛 - if 是 then 尝试从延时队列拿出第一个满足触发条件的事件 处理这个事件 - else 自由行动 / 说明 满足条件的第一个事件：队头开始扫描 判断 when 和时间窗口 扫到开始事件 > 当前时间就可以不扫了 / 行动后 先处理 effect 然后 1. 要占槽吗 if 是 then 将下一个事件占上槽 2. 其他判定 如 miss 掉永久错过的事件 npc 行动 pool 要不要摇一个事件加入队列（pool 摇的事件不能占槽 想要尽快发生也是 delay 0） 然后 nextTurn / pool 可以设计成 槽被占了 或者池子里事件很多 就跳过 不要让事件积压很多 它的存在是来填充游戏内容的」。
+
+- **状态**：**已接受（2026-11-13；按用户口述模型形式化）**。
+- **起草人**：系统架构师（高见远）。**关系**：本条**取代** ADR-0026 / ADR-0030 / ADR-0031 / ADR-0033 的全部结论，并**部分取代** ADR-0032 的术语与状态层（见 §6）；ADR-0024 的前提复核机制、ADR-0011 的队列全序与 `TimeSpec` 口径**继续有效**。
+
+### 1. 状态模型
+
+```ts
+// WorldStateV2（schemaVersion 2 → 3）
+slot: SlotScene | null;                  // 占槽：下一次 nextTurn 必须立即处理的事件
+delayQueue: DelayedInstance[];           // 唯一队列（既有 ScheduledEventInstance 的形状，改名）
+
+interface SlotScene { eventId: string; from: "successor" | "opening" | "death" | "hook" | "queueTake"; fromEventId?: string; }
+```
+
+| 概念 | 用户定义 | 状态落点 | 进存档 |
+|---|---|---|---|
+| **槽** | 「同一轮次只能发生/处理/结算一个事件」 | `state.slot`（**只存"下一个要处理的事件"这一件事**，不存进度、不存玩家输入） | **是**（否则刷新即丢；这是 `pendingEvents` 曾被误用的原因） |
+| **队列** | 「仅有一个，就是延时事件队列」 | `state.delayQueue` | 是 |
+| **不占槽的东西** | 「不是事件、独立于轮次结算：穿脱装备、战斗过程、查看信息」 | **不进状态层**：装备写 `player.equipment/inventory`；战斗写 `state.battle`（`slot` 的**内部过程**）；查看信息是纯读 | 按各自既有字段 |
+
+**存废结论**：`pendingEvents` **删除**（被 `slot` 取代）；`scheduledEvents` **改名 `delayQueue`**（语义不变，仍是唯一队列）；`chains[]` **删除**（`advanceWhen: nextTurn` 实测 0 使用，`stepIndex` 无消费者；"链"退化为图上的边，不再有运行时状态）；`lastWheel(s)` **保留**为"本轮呈现记录"（不是队列，`wheel` 是当前 `slot` 的内部过程）。
+
+### 2. 状态机（`nextTurn` 判定链）
+
+```
+nextTurn(state):
+  if state.slot:  return present(state.slot)                 // ① 槽有 ⇒ 只处理它，不接受自由行动
+  inst = scanQueue(state)                                    // ② 槽空 ⇒ 扫队列（§3）
+  if inst: state.slot = take(inst); return present(inst)      //    取出即占槽 ⇒ 统一走 ①
+  return freeAction(state)                                   // ③ 都没有 ⇒ 自由行动
+```
+
+**「处理」的原子边界**（两份入口共用同一条链）：
+
+| 步 | 动作 | 关键约束 |
+|---|---|---|
+| 1 | **呈现** —— 投影下发 `slot` 的场景 | **效果未应用**；此时 `turnIndex` 不变 |
+| 2 | **输入** —— 选选项 / 战斗命令 / 转盘确认 | 战斗整场属于本步的内部过程，**不额外占轮次** |
+| 3 | **结算** —— `applyEffects` → `recordFire` → `pushHistory` → **`turnIndex += 1`** | 一轮恰好 +1，**且在内容落地之后**（既有实现是"行动开始就 +1"，本条把它后移，见 §4 S2） |
+| 4 | **占槽判定** —— 本次结算若声明了**无时间账的 `nextEventId`** ⇒ `slot = successor`；否则 `slot = null` | 这是**唯一**能写 `slot` 的两条路径之一（另一条是 §2 ②的 `queueTake`） |
+| 5 | **其他判定** —— ① `missWhen` 永久错过并记一次错失 ② NPC 自主行动 ③ pool 摇一个（受阈值约束，**只入队不占槽**） | 顺序固定；`pool` 在"占槽判定"之后，故槽被占时天然跳过 |
+| 6 | → 回 `nextTurn` | |
+
+**自由行动同构**：动作 → 时间推进 → 效果 → `turnIndex += 1` → 占槽判定（行动钩子可产生 `hook` 槽） → 其他判定 → `nextTurn`。
+
+### 3. 扫描语义（全部给死结论）
+
+1. **排序键**：`window.start asc → hasEnd（false 视为 +∞）→ window.end asc → enqueueSeq asc`（沿用既有全序实现：`scheduler.ts:71-82`）。`enqueueSeq` 全局唯一 ⇒ 比较函数不可能返回 0。
+2. **「扫到 `start > now` 就停」为何成立**：三条前提缺一不可 —— ①入队即按上述键排序（`enqueueScheduled` 唯一入口）；②`window.start` 在入队时**固化为绝对分钟**、运行期只读；③**世界时间单调不减**。⇒ 前提 ③ 在 **R3 时间穿越**下会破（回拨后 `start > now` 的项前面可能存在应被取出的项）；届时该 `break` 必须降级为 `continue` + 重排。**当前不做，作为 seam 注记**。
+3. **条件不满足的处置（死结论）**：**留在队列、不占位、继续扫下一个**。只有两种情况出队：`missWhen` 命中（移除 + 记 `miss_when`）或 `worldTime > window.end`（移除 + 记 `window_expired`）。**不得丢弃、不得卡住队头**。
+4. **求值时点**：队列实例在**被取出的那一刻**求值 `conditions`/`missWhen`；槽内事件在**每次呈现前**再求值一次（复用既有 `checkEventPremise`）。⇒ 「判定发生在真正上桌时」而不是入队时。
+5. **RNG（补定义）**：扫描求值会对同一实例**每轮重复求值**，若条件含 `random` 则反复消耗主轮 RNG。裁定：扫描/呈现前求值使用**独立派生流**（沿用 `deriveTurnSeed(seed + 37, …)` 先例），不进主轮流。
+6. **池阈值（补定义）**：判据 = `slot !== null || delayQueue.length >= N` ⇒ 本轮**不摇**。`N` 放模板配置（现状 `eventPools` 只存在于 `opening.yaml`，主循环 pool 由 `source: pool` 事件构成、**无容器**）⇒ 新增 `world.yaml` 的 `eventFlow.poolDraw: { skipWhenSlotOccupied: true, maxQueueLength: 3 }`。
+
+### 4. 不变量（两栏，禁止混写）
+
+**A. 结构保证（由数据形状/单一写入口保证，写错构不出状态）**
+
+| # | 不变量 | 由什么保证 |
+|---|---|---|
+| S1 | **一轮最多结算一个事件** | `slot` 是标量（`SlotScene \| null`），不存在"两个事件同时在槽"的形状；§2 步 3 每次只结算 `slot` |
+| S2 | **槽内事件未结算前轮次不前进** | `turnIndex += 1` 位于 §2 步 3（结算之后）。**这是相对现状的改动**：现实现把 `turnIndex += 1` 放在行动入口（`turn.ts:912/917/1051/1124`），本条要求收敛为"内容落地后一处" |
+| S3 | **延时队列唯一** | 状态层只有 `delayQueue` 一个队列字段；`pendingEvents` 删除后不存在第二个 |
+| S4 | **占槽只能由当前事件的后继（或队列取出）产生** | `slot` 只有两个写点：§2 步 4（后继承接）与 §2 ②（`queueTake`）。任何其它事件想上桌**没有写入口** |
+| S5 | 队列全序稳定 | 入队即排序 + `enqueueSeq` 唯一（`scheduler.ts:115-129`） |
+
+**B. 运行期约定（靠代码路径维持，可被旁路破）**
+
+| # | 约定 | 靠什么维持 | 能怎么破 |
+|---|---|---|---|
+| R1 | `nextTurn` 入口只有 §2 三条分支，不得跳过判定链 | 单一入口函数 | 若有第二个入口（如今日的 `useItemV2` 自带 drain），即可绕开 |
+| R2 | 队列取出后立刻占槽（不允许"取出但不处理"） | 实现顺序（同一函数内） | 中途抛异常则实例已从队列摘除而未占槽 ⇒ 需事务性（先占槽再摘除，或失败回滚） |
+| R3 | `pool` 不占槽 | `pool` 只写队列 | 若 `pool` 事件声明 `source: pool` 且其结算带 `nextEventId`，其**后继**仍会占槽（见 §8-②，需确认这是否符合用户原意） |
+| R4 | **G2（在场）由模板 `conditions`/`missWhen` 表达** | **模板** | 模板没写就没保障（见 §7 诚实结论） |
+
+### 5. 破坏面
+
+| 项 | 处置 |
+|---|---|
+| `pendingEvents` | **删除**（`slot` 取代）；`PendingEvent` 类型删除 |
+| `scheduledEvents` | **改名 `delayQueue`**，形状沿用（`ScheduledEventInstance`） |
+| `chains[]` / `ChainStateV2` | **删除**；`chain` 概念退化为模板边（`nextEventId`）；`evaluateChain` / `alignChainStep` 删除 |
+| `lastWheel(s)` | 保留（本轮呈现记录，非队列） |
+| `schemaVersion` | **2 → 3**；旧档**拒载**（用户已接受） |
+| 投影 | `V2Snapshot.pendingEvent` → **`slotEvent`**（场景 + 选项/转盘/战斗视图）；**不投影队列内容，也不投影队列长度**（反作弊：见 §8-⑥） |
+| 前端 | 呈现位判定**收敛为"读 `slotEvent`"**：非空即按 `slot.kind` 呈现，空则自由行动。**删除一切优先级三元式**（`apps/web/src/main.tsx:1299-1315`） |
+| 服务端 409 | `pending_event_required` **保留但语义重述**为「槽被占，须先处理槽内事件」；`battle_in_progress` 保留（战斗是槽内过程）；**不新增码** |
+| `items/use` / `equip|unequip` | 按用户原话「不占槽、独立于轮次结算」⇒ **不受槽占用限制**（**此处与 ADR-0033 P1-A 冲突，以用户原话为准**，见 §8-①） |
+| 既有测试 | `chains`/`evaluateChain`/`pendingEvents` 相关用例**整体重写**；`playthrough` 6 种子基线重录 |
+
+### 6. 与被作废 ADR 的关系（append-only 注记，原正文一字未改）
+
+| ADR | 被本条取代的部分 |
+|---|---|
+| ADR-0026 | 「槽 = `pendingEvents ≤ 1`」与"入队互斥式守卫"整体作废；`slot` 是**状态字段**而非运行时约束 |
+| ADR-0030 | L0–L3 分层准入、`slotTakenFor`、F1–F5、`slotDeferred` 全部作废（`slot` 标量使"准入"问题消失） |
+| ADR-0031 | `pendingWheels`/`wheelSeqCounter`/`settleWheelV2`/`pending_wheel_required`/L0 全部作废；但「效果落账早于演出」这一**事实**与「转盘确认属于槽内过程」的口径保留 |
+| ADR-0032 | 术语表 T2/T3/T6/T7 与 §2/§3 的**状态层**被取代（`pendingEvents` 不再存在）；其 §4 P3（未确认呈现物）**不再需要**——`slot` 天然就是"未确认" |
+| ADR-0033 | `occupantOf`（作为准入判据）、续步优先 F2、P1 门禁、`slot-gate`、删 `useItemV2` drain 全部作废；`occupantOf` 至多保留为**投影派生**（读 `slot`） |
+
+### 7. 测试与验收（G1 / G2 的可断言用例 + 诚实结论）
+
+| # | 现象 | 可断言用例 | 本模型靠什么保证 |
+|---|---|---|---|
+| **G1-1** | 后继被日常插队 | 事件 A 结算产生无 delay 的后继 B、同时队列里有到期的日常 C ⇒ 断言 `slot.eventId === B` 且 `C` 仍在 `delayQueue` | **结构保证（S4）**：C 没有写 `slot` 的入口 |
+| **G1-2** | 战斗期间上桌日常 | `slot` 为 combat 场景 ⇒ 断言 `nextTurn` 只接受战斗命令；任何 normal 事件无法进入 `slot` | **结构保证（S1/S4）** |
+| **G1-3** | 一轮结算多个事件 | 任意一轮结束后断言净 `turnIndex` 增量 = 1 | **结构保证（S2）** |
+| **G2-1** | 角色已死仍呈现其事件 | 队列中某事件的条件含「甲在世」，令甲退场后 `nextTurn` ⇒ 断言该实例**仍在 `delayQueue`**（条件不满足，跳过），后续 `missWhen` 补齐时才移除并记错失 | **运行期约定（R4）**：仍由模板条件表达 |
+| **G2-2** | 上桌那一刻才判定 | 同一实例在"条件成立时入队、条件失效后才到期"⇒ 断言取出时求值为不可触发 | **结构保证**（求值时点固定在取出/呈现前，非入队时）— 这是本模型对 G2 的**唯一**结构贡献 |
+
+**实话（不夸大）**：本模型**结构保证 G1**（因果不断裂、不被插队），因为"上桌的写入口只有一个"。**G2 不被结构保证**：内核不知道"这场戏该有谁"，它只保证「条件在真正上桌时求值 + 条件失效不静默丢弃而是留痕」。用户说的「miss 条件写好就没问题了」正是此意——**本模型把 G2 的时点做对了，但没把 G2 的负担从模板移走**。要移走需要"参与者集合"这类新概念，用户本次未采纳，**不在本条范围内**。
+
+### 8. 需裁决 / 补定义（单列，供主理人转达）
+
+| # | 类型 | 内容 |
+|---|---|---|
+| ① | **冲突（须用户裁）** | 用户把「穿脱装备」明确列为「不占槽、独立于轮次结算」⇒ **ADR-0033 P1-A 的 equip/unequip 禁用作废**。`items/use` 用户未提及：本条按同一原则处理为**不受槽限制**（与既有"用物品不消耗回合"一致），若用户要禁需另说 |
+| ② | **冲突（须用户裁）** | `source: pool` 的事件**本身**不占槽（用户已明确），但其**结算后继**（`nextEventId` 无 delay）是否算"占槽"？本条按"占槽由后继产生、与来源无关"处理。若用户认为 pool 事件的后继也应走队列（delay 0），规则要改成"来源为 pool 的路径全部不占槽" |
+| ③ | 补定义 | **取出即占槽**：用户只写"尝试从队列拿出…处理这个事件"，未说是否经过槽。本条统一为"先写 `slot` 再处理"，这样才能保证"槽是唯一事件入口"与 S1/S4 |
+| ④ | 补定义 | **`turnIndex` 推进点后移**：从"行动入口"移到"内容落地之后"（§2 步 3）。用户未提轮次计数，但这是 S2 成立的前提 |
+| ⑤ | 补定义 | **扫描求值用独立 RNG 流**（`seed + 37`），否则含 `random` 条件的事件每轮扫描都会扰动主轮流 |
+| ⑥ | 补定义（反作弊） | 投影**不下发队列内容与长度**：只给"当前在演什么"。否则"队列里有一条关于某人的事件"会泄露该人未死/将出现 |
+| ⑦ | 补定义 | **战斗**整场属 `slot` 内部过程、不推进轮次；战斗结束即该事件"结算完成"，此后才执行占槽判定与其他判定 |
+| ⑧ | seam 注记 | R3 时间穿越下"扫到 `start > now` 即停"不成立，需降级为 `continue` + 重排；当前不做 |
+| ⑨ | 补定义 | **池阈值配置位置**：主循环 pool 无容器（`eventPools` 只存在于 `opening.yaml`）⇒ 新增 `world.yaml` 的 `eventFlow.poolDraw.{skipWhenSlotOccupied,maxQueueLength}`，默认 `true / 3` |
+
+### 9. 明确不做
+
+- **不引入参与者集合 / 自动判活**：用户模型不含此概念；G2 仍由模板 `conditions`/`missWhen` 表达（§7 已说实话）。
+- **不做"随机事件链/按规则生成事件"**：用户后续想法，本轮只记 BACKLOG（B-34），不设计。
+- **不保留 `chains[]` 运行时状态**、不做 R3 时间穿越适配、不改模板（`nextEventId` 边零改动即可跑）。
