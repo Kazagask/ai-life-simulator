@@ -1,0 +1,96 @@
+# 三国演义 · 三国杀技能与台词 · skills.yaml
+# 台词属商业游戏文本：只做短句引用并在 description 标注武将/技能出处，不整段搬运。
+# 考据表见 docs/SANGUO_TEMPLATE_BRIEF.md §3。
+skills:
+  - id: sk-basic-strike
+    kind: combat
+    name: 寻常一击
+    description: 乱世里最不讲究的一招。不需要台词。
+    cost: { mp: 0 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: physique, defender: physique, baseChance: 0.7 }
+    damage:
+      - { preset: fixed, value: 8 }
+    cooldownTurns: 0
+    usableInBattle: true
+
+  # 界徐盛「大宝」· 破军：「犯大吴疆土者，盛必击而破之！」
+  # 「大宝」来自三国杀移动版藏珍阁首个「稀世珍宝」标签（另有原画像铁甲小宝一说）；
+  # 标徐盛对应「小宝」。用户口述「大宝犯大吴疆土」即此句缩写。
+  - id: sk-pojun
+    kind: combat
+    name: 破军 · 大宝
+    description: 界徐盛「破军」：「犯大吴疆土者，盛必击而破之！」（短句引用，注明出处）
+    cost: { mp: 8 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: command, defender: physique, baseChance: 0.75 }
+    damage:
+      - { preset: fixed, value: 20 }
+    cooldownTurns: 1
+    usableInBattle: true
+
+  # 麹义「白马」· 伏骑 / 骄恣：「白马？哼，定叫他有来无回！」
+  # 「白马」本指公孙瓒白马义从，被麹义台词抢走，正好与本模板公孙瓒同框。
+  - id: sk-fuqi
+    kind: combat
+    name: 伏骑 · 白马
+    description: 麹义「伏骑」：「白马？哼，定叫他有来无回！」（短句引用，注明出处）
+    cost: { mp: 10 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: command, defender: luck, baseChance: 0.6 }
+    damage:
+      - { preset: scaled, base: 12, scaleBy: command, multiplier: 1.4 }
+    cooldownTurns: 2
+    usableInBattle: true
+
+  # 邢道荣 · 虚猲：「说出吾名，吓汝一跳！」/「我乃是零陵上将军！」
+  # 与新三国同名梗双关，最适合做成「装逼被打脸」：伤害低，但会挂天意侵蚀。
+  - id: sk-xuhe
+    kind: combat
+    name: 虚猲 · 说出吾名
+    description: 邢道荣「虚猲」：「说出吾名，吓汝一跳！」（短句引用，注明出处）
+    cost: { mp: 5 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: command, defender: intellect, baseChance: 0.65 }
+    damage:
+      - { preset: fixed, value: 6 }
+    applyStatus:
+      - { status: st-tianyi-erosion, chance: 0.5 }
+    cooldownTurns: 1
+    usableInBattle: true
+
+  # 祖茂 · 引兵：「将军走此小道，追兵交我应付」
+  # 「走小道」是玩家逃跑黑话，做成以自身为目标的治疗/断后。
+  - id: sk-yinbing
+    kind: combat
+    name: 引兵 · 走此小道
+    description: 祖茂「引兵」：「将军走此小道，追兵交我应付」（短句引用，注明出处）
+    cost: { mp: 6 }
+    target: self
+    heal:
+      - { preset: fixed, value: 15 }
+    cooldownTurns: 2
+    usableInBattle: true
+
+  # 界马超 · 铁骑：「你可闪得过此一击」（空耳「洗衣机」）
+  - id: sk-tieqi
+    kind: combat
+    name: 铁骑
+    description: 界马超「铁骑」：「你可闪得过此一击」（短句引用，注明出处）
+    cost: { mp: 8 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: physique, defender: luck, baseChance: 0.7 }
+    damage:
+      - { preset: fixed, value: 14 }
+    applyStatus:
+      - { status: st-elo-pride, chance: 0.4, onSelf: true }
+    cooldownTurns: 1
+    usableInBattle: true
+
+  # 刘焉 · 立牧：「非英杰不图，吾既谋之且射毕」—— 割据/占地 flag 的通用技能形态。
+  - id: sk-limu
+    kind: general
+    name: 立牧
+    description: 刘焉「立牧」：「非英杰不图，吾既谋之且射毕」（短句引用，注明出处）
+    efficiency: { key: command, bonus: 1 }
+    proficiency: { maxLevel: 5, growthPerUse: 0.2 }

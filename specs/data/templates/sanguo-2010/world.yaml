@@ -1,0 +1,102 @@
+# 三国演义 · 新三国梗平行宇宙 · world.yaml
+# 〔T-1 纯 yaml 小样 / 讨董一章 / 草案阶段，未正式立项、未写 ADR〕
+#
+# 硬规则只有一条：**天意一定会把世界线拉回主线**（events.yaml 的 schedule 锚点）。
+# 其余随便荒诞。所有强行收束都用一句「天意发力了」买单，不回滚玩家已造成的后果，
+# 只改写所有人的认知 —— 这正是二创「世界修正」的原义。
+#
+# 梗的考据（原句 / 人物 / 集数 / 是否二创合成句）见 docs/SANGUO_TEMPLATE_BRIEF.md §1、§3。
+# 使用纪律（草案 §4.3）：叙事给原句、选项给流行句式；每条梗在 yaml 注释标明出处；
+# 梗是文案与事件，不是权威规则，不得为了让梗生效去改 schema 或内核。
+# 世界观专名只允许出现在模板与前端文案，game-core/src 零专名。
+
+meta:
+  id: sanguo-2010
+  name: 三国演义 · 天意发力了
+  description: 190 年，陈留。十八路诸侯会盟讨董，你转动命数转盘，可能是诸侯、谋士、小兵，也可能是一头乌角鲨。此后你可以把剧情浪到任何离谱的地方——当场称帝、集体自刎、把玉玺当石头、追问中午吃什么——但第八天，天意会发力，把所有人的认知悄悄改写回主线。
+  startYear: 190
+  engineProtocol: v2
+
+time:
+  defaultStep: { value: 1, unit: day }
+  calendar: { preset: gregorian }
+  lifeStageSteps:
+    childhood: { value: 1, unit: day }
+    youth: { value: 1, unit: day }
+    adulthood: { value: 1, unit: day }
+    elderhood: { value: 1, unit: day }
+  lifeStages:
+    - { id: childhood, label: 总角, maxAge: 14 }
+    - { id: youth, label: 弱冠, maxAge: 29 }
+    - { id: adulthood, label: 而立, maxAge: 59 }
+    - { id: elderhood, label: 暮年 }
+
+# 性别是世界自定义枚举（非二元）。「乌角鲨」在本世界是**真实存在的生物**，因此也是合法身份：
+# 新三国第 11 集公孙瓒「这对儿堂兄弟，可谓是一对笑面虎，两头乌角鲨」的魔幻化。
+# 编剧朱苏进自造词，现实中无此鱼；有考证说是苏北方言「虎头鲨」谐音。
+genders:
+  - { id: male, label: 男 }
+  - { id: female, label: 女 }
+  - { id: wujiaosha, label: 乌角鲨 }
+
+mood:
+  min: 0
+  max: 100
+  defaultValue: 60
+  bands:
+    - { id: low, label: 是这乱世害了我, min: 0, max: 40, attributeModifiers: { intellect: -1 } }
+    - { id: normal, label: 平静, min: 41, max: 70, attributeModifiers: {} }
+    - { id: high, label: 接着奏乐接着舞, min: 71, max: 100, attributeModifiers: { command: 1 } }
+
+statusBar:
+  - { id: sb-identity, label: 基本, source: identity }
+  - { id: sb-mood, label: 心情, source: mood }
+  - { id: sb-hp, label: 生命, source: resource, key: hp }
+  - { id: sb-mp, label: 谋略, source: resource, key: mp }
+  - { id: sb-attrs, label: 属性, source: attribute, keys: [command, intellect, physique, luck, reputation, tianyi] }
+  - { id: sb-status, label: 补正, source: status }
+
+# tianyi = 天意侵蚀度（草案 §4.2 第 3 条）：离谱事件累加，锚点收束时回落。
+# 键必须 ⊆ order（所有出现属性的地方都要），加载期 fail-fast。
+attributes:
+  order: [command, intellect, physique, luck, reputation, tianyi]
+  defaults: { command: 5, intellect: 5, physique: 5, luck: 5, reputation: 0, tianyi: 0 }
+  caps: { tianyi: 99 }
+  labels: { command: 统御, intellect: 智略, physique: 武艺, luck: 运气, reputation: 声望, tianyi: 天意侵蚀度 }
+
+resources:
+  hp: { base: 80, perLevel: 10, perAttribute: { physique: 4 } }
+  mp: { base: 40, perLevel: 5, perAttribute: { intellect: 2 } }
+
+regen:
+  perTurn: { hp: 3, mp: 2 }
+  actions:
+    rest: { hp: 20, mp: 10 }
+
+# 玩家行动。池事件负责「随便浪」，行动负责稳定收益；
+# 天意是 schedule 事件，与玩家点不点行动无关 —— 到点必然发力。
+actions:
+  - id: drill
+    label: 点兵
+    description: 打熬武艺与统御。「三军听令」之前，总得先有三军。
+    duration: { value: 1, unit: day }
+    effects:
+      - { type: adjustAttribute, attribute: command, value: 1 }
+      - { type: adjustResource, resource: mp, value: -3 }
+  - id: feast
+    label: 开席
+    description: 陈留大食堂永远在营业。不管军情多急，先问一句吃什么。
+    duration: { value: 1, unit: day }
+    effects:
+      - { type: adjustMood, value: 5 }
+      - { type: adjustFlag, id: feastCount, value: 1 }
+  - id: consult
+    label: 问策
+    description: 找谋士聊聊。聊着聊着，通常会有人开始说地理常识错误。
+    duration: { value: 1, unit: day }
+    effects:
+      - { type: adjustAttribute, attribute: intellect, value: 1 }
+  - id: rest
+    label: 歇息
+    description: 回营休息，恢复 HP/MP。天意不会因为你睡着就不发力。
+    duration: { value: 1, unit: day }

@@ -1,0 +1,231 @@
+# 三国演义 · 人物 · characters.yaml
+# 讨董一章出场阵容。台词技能由事件解锁给玩家，NPC 只挂基础攻击（避免张冠李戴）。
+# 关系边 `{ from: A, to: B, kind: father }` 的语义是「B 是 A 的父亲」，本小样不写边，
+# 只用 relationship 标量，省得把方向写反（jjk-2006 的夜蛾坑见其 characters.yaml 头注释）。
+characters:
+  - id: npc-caocao
+    isEnemy: false
+    visibility: public
+    identity: { name: 曹操, age: 35, gender: male, description: 第 1 集在长乐宫前当着百官与西凉卫兵高喊「国贼董卓嘛！」，无人理会。 }
+    mood: { value: 62 }
+    attributes: { command: 9, intellect: 9, physique: 6, luck: 7, reputation: 8, tianyi: 2 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 敢在公开场合喊谋反口号，并且从不解释为什么没人听见。
+      knownGoals: [讨董, 活到下一章]
+    private:
+      secrets: [他其实知道天意在偷听]
+      goals: [survive, outwit-tianyi]
+      traits: [bold, suspicious]
+    relationship: 6
+
+  - id: npc-liubei
+    isEnemy: false
+    visibility: public
+    identity: { name: 刘备, age: 29, gender: male, description: 「三军听令，开城迎敌」与第 36 集「战至最后一刻，自刎归天！」都是他说的；二创把两句剪成一句。 }
+    mood: { value: 58 }
+    attributes: { command: 7, intellect: 6, physique: 6, luck: 9, reputation: 6, tianyi: 5 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 动不动就想下线，但天意护体总把他拦回来。
+      knownGoals: [保住百姓, 找个理由不死]
+    private:
+      secrets: [他知道「灵魂锁链」是单向的]
+      goals: [protect-people, escape-tianyi]
+      traits: [caring, dramatic]
+    relationship: 5
+
+  - id: npc-sun-jian
+    isEnemy: false
+    visibility: public
+    identity: { name: 孙坚, age: 35, gender: male, description: 长乐宫得传国玉玺，被儿子当场祝贺可以称帝。 }
+    mood: { value: 55 }
+    attributes: { command: 8, intellect: 5, physique: 9, luck: 5, reputation: 7, tianyi: 1 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 拿到一块石头之后，表情比打胜仗还复杂。
+      knownGoals: [讨董]
+    private:
+      goals: [win-battle]
+      traits: [stern]
+    relationship: 3
+
+  - id: npc-sun-ce
+    isEnemy: false
+    visibility: public
+    identity: { name: 孙策, age: 15, gender: male, description: 「恭喜爹可以称帝了！」——第 6 集约 16:15，捧玺跪贺。维基语录误归孙坚名下。 }
+    mood: { value: 74 }
+    attributes: { command: 7, intellect: 5, physique: 8, luck: 8, reputation: 3, tianyi: 3 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 嗓门很大。室内密谋必被偷听，这条规则有一半是他贡献的。
+      knownGoals: [让爹开心]
+    private:
+      goals: [please-father]
+      traits: [loud, confident]
+    relationship: 2
+
+  - id: npc-gongsun-zan
+    isEnemy: false
+    visibility: public
+    identity: { name: 公孙瓒, age: 38, gender: male, description: 第 11 集评袁绍袁术「一对笑面虎，两头乌角鲨」；第 5 集大食堂里傻笑附和「吃什么！是啊，是啊！」 }
+    mood: { value: 68 }
+    attributes: { command: 6, intellect: 5, physique: 7, luck: 6, reputation: 5, tianyi: 1 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 造词大师。乌角鲨这种不存在的鱼，他说得跟见过八百回一样。
+      knownGoals: [吃饱, 看戏]
+    private:
+      goals: [eat, watch]
+      traits: [easygoing]
+    relationship: 4
+
+  - id: npc-yuan-shao
+    isEnemy: false
+    visibility: public
+    identity: { name: 袁绍, age: 40, gender: male, description: 「一对笑面虎」中的一头。注意：「我剑也未尝不利」是 94 版老三国，不是本世界台词。 }
+    mood: { value: 52 }
+    attributes: { command: 7, intellect: 5, physique: 5, luck: 4, reputation: 9, tianyi: 2 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 面和心不和的专业户。
+      knownGoals: [当盟主]
+    private:
+      goals: [lead-alliance]
+      traits: [proud]
+    relationship: 0
+
+  - id: npc-yuan-shu
+    isEnemy: false
+    visibility: public
+    identity: { name: 袁术, age: 37, gender: male, description: 「两头乌角鲨」中的另一头。玉玺本未公开，他不知怎么就知道了。 }
+    mood: { value: 50 }
+    attributes: { command: 5, intellect: 4, physique: 5, luck: 4, reputation: 6, tianyi: 3 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 第 5 集闹着要告老还乡，被一句「你走了，我们吃什么？」留了下来。
+      knownGoals: [称帝, 先吃饭]
+    private:
+      goals: [become-emperor]
+      traits: [petty, hungry]
+    relationship: -1
+
+  - id: npc-lv-boshe
+    isEnemy: false
+    visibility: public
+    identity: { name: 吕伯奢, age: 60, gender: male, description: 误杀之后，曹操对着遗体说「伯父，不是阿瞒害了你，是这个乱世害了你呀」。集数第 2/3 集来源冲突，模板不写死。 }
+    mood: { value: 40 }
+    attributes: { command: 1, intellect: 4, physique: 2, luck: 1, reputation: 2, tianyi: 4 }
+    skills: []
+    public:
+      personality: 把吃的喝的都准备好了。
+      knownGoals: [招待客人]
+    private:
+      goals: [host]
+      traits: [kind]
+    relationship: 0
+
+  - id: npc-xun-yu
+    isEnemy: false
+    visibility: public
+    identity: { name: 荀彧, age: 28, gender: male, description: 「徐州城不愧为中原第一雄关啊」——天意侵蚀·精神错乱的教科书例子。 }
+    mood: { value: 60 }
+    attributes: { command: 5, intellect: 10, physique: 3, luck: 5, reputation: 6, tianyi: 6 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 一旦天意侵蚀发作，地理常识就会短暂离家出走。
+      knownGoals: [辅佐明主]
+    private:
+      goals: [advise]
+      traits: [diligent]
+    relationship: 2
+
+  # 三国杀「大宝」= 界徐盛，技能「破军」。台词在此处作为角色 short quote 出现。
+  - id: npc-xu-sheng
+    isEnemy: false
+    visibility: public
+    identity: { name: 徐盛, age: 32, gender: male, description: 三国杀界徐盛「大宝」：「犯大吴疆土者，盛必击而破之！」（商业游戏台词，短句引用并注明出处） }
+    mood: { value: 66 }
+    attributes: { command: 8, intellect: 6, physique: 9, luck: 6, reputation: 5, tianyi: 0 }
+    skills: [sk-pojun, sk-basic-strike]
+    public:
+      personality: 江东的铁壁。谁敢来犯，必叫他有来无回（这句其实是麹义的，别记混）。
+      knownGoals: [守疆土]
+    private:
+      goals: [defend]
+      traits: [stern, loyal]
+    relationship: 3
+
+  # 邢道荣同时是新三国梗与三国杀武将，双关最好用。
+  - id: npc-xing-daorong
+    isEnemy: true
+    visibility: public
+    identity: { name: 邢道荣, age: 34, gender: male, description: 「说出吾名，吓汝一跳！」「我乃是零陵上将军！」——新三国与三国杀同源。 }
+    mood: { value: 70 }
+    attributes: { command: 4, intellect: 2, physique: 7, luck: 3, reputation: 2, tianyi: 2 }
+    skills: [sk-xuhe, sk-basic-strike]
+    public:
+      personality: 报名字的音量与实战能力成反比。
+      knownGoals: [让人记住自己的名字]
+    private:
+      goals: [be-famous]
+      traits: [boastful]
+    relationship: -4
+
+  - id: npc-hua-xiong
+    isEnemy: true
+    visibility: public
+    identity: { name: 华雄, age: 36, gender: male, description: 讨董路上第一道关卡。潘凤请战后光速被斩，「我的大斧早就饥渴难耐了」。 }
+    mood: { value: 64 }
+    attributes: { command: 6, intellect: 3, physique: 9, luck: 4, reputation: 4, tianyi: 1 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 不太说话，主要靠别人替他铺垫。
+      knownGoals: [守住关口]
+    private:
+      goals: [hold-pass]
+      traits: [silent]
+    relationship: -8
+
+  - id: npc-dong-zhuo
+    isEnemy: true
+    visibility: public
+    identity: { name: 董卓, age: 55, gender: male, description: 被当众喊「国贼董卓嘛！」却毫无察觉——二创「室外大喊必无人听见」的活证据。 }
+    mood: { value: 72 }
+    attributes: { command: 8, intellect: 5, physique: 8, luck: 5, reputation: 9, tianyi: 4 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 听力似乎只对室内密谋生效。
+      knownGoals: [继续当国贼]
+    private:
+      goals: [hold-power]
+      traits: [arrogant]
+    relationship: -10
+
+  # 魔幻化主投放口：把「乌角鲨」做成真实生物，并允许它成为敌人甚至玩家身份。
+  - id: enemy-wujiaosha
+    isEnemy: true
+    visibility: public
+    identity: { name: 乌角鲨, age: 3, gender: wujiaosha, description: 现实中不存在，编剧自造；在本世界它真实存在，而且会游泳进中军帐。 }
+    mood: { value: 80 }
+    attributes: { command: 2, intellect: 1, physique: 9, luck: 9, reputation: 0, tianyi: 8 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 不解释，也不觉得需要解释。
+      knownGoals: [游过来]
+    private:
+      goals: [swim]
+      traits: [absurd]
+    relationship: 0
+
+# ══════════════ 玩家初始模板 ══════════════
+# 出身/性别/台词技能全部由命数转盘决定，这里只给「一个刚到陈留的人」应有的东西。
+playerTemplate:
+  identity:
+    age: 20
+    gender: male
+  mood: 60
+  attributes: { command: 5, intellect: 5, physique: 5, luck: 5, reputation: 0, tianyi: 0 }
+  skills: [sk-basic-strike]
+  items:
+    - { itemId: item-mantou, count: 1 }

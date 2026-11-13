@@ -1,0 +1,391 @@
+# 三国演义 · 事件 · events.yaml 〔讨董一章小样〕
+#
+# ══════════════════════════════════════════════════════════════════════════
+# 机制内核（本小样最想验证的一件事）：
+#   「天意一定会把世界线拉回主线」用 **source: schedule + window.start** 实现，
+#   而不是随机池或线性链。已核实：所有 schedule 定义在**建世界时**按 window.start
+#   一次性换算成绝对分钟实例入队（packages/game-core/src/v2/scheduler.ts），
+#   到点必然触发 —— 正好对应二创「天意到点发力」的必然性。
+#   支线用 pool 随便浪；锚点第 8 天收束；第 41 天是下一章落点（新三国道）。
+#
+# 因果纪律：支线后果**不撤销**。锚点只 setFlag 主线进度 + log 认知改写，
+#   不清 flag、不回滚属性/资源/物品 —— 这正是二创「世界修正」的原义
+#   （关羽实际只过三关斩四将，但人人都觉得是过五关斩六将）。
+#
+# 梗出处（原句 / 人物 / 集数 / 是否二创合成句）见 docs/SANGUO_TEMPLATE_BRIEF.md §1、§3。
+# ⚠ 三条是二创合成/衍生句，不是剧中逐字台词：
+#   「三军听令，自刎归天」= 徐州「三军听令，开城迎敌」+ 第 36 集「…自刎归天！」剪辑；
+#   「是啊，吃什么？」= 第 5 集「吃什么！是啊，是啊！」语序转写；
+#   「这个乱世害了你」存在「阿瞒/孟德/我害了你」多版本，集数第 2/3 集来源冲突，故不写死。
+# ⚠ 「我剑也未尝不利」是 94 版老三国袁绍，不是新三国梗，本模板不用。
+# ══════════════════════════════════════════════════════════════════════════
+
+events:
+  # ────────────── 开局：命数转盘 ──────────────
+
+  - id: ev-opening-wheel
+    title: 命数转盘 · 陈留
+    narrative: 190 年，陈留。会盟的帐外摆着一台不知谁留下的旧转盘，它自己转了起来。十八路诸侯正在里面争论谁当盟主，没人注意到你。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-turn-wheel
+            text: 转动命数转盘，看看这乱世把你安排成什么
+            effects:
+              - { type: log, text: 转盘开始转了。天意在旁边看着，暂时没有发力。, visibility: public }
+            nextEventId: ev-wheel-fate
+
+  - id: ev-wheel-fate
+    title: 命数转盘 · 你这辈子是什么
+    narrative: 第一格是出身。诸侯、谋士、小兵……以及一个谁也没见过、但所有人都觉得合情合理的选项。
+    trigger:
+      source: chain
+    kind: random
+    settle:
+      random:
+        wheel:
+          segments:
+            - weight: 3
+              label: 一路诸侯
+              effects:
+                - { type: setFlag, id: origin, value: 诸侯 }
+                - { type: adjustAttribute, attribute: command, value: 3 }
+                - { type: adjustAttribute, attribute: reputation, value: 4 }
+              nextEventId: ev-tangdong-open
+            - weight: 3
+              label: 帐下谋士
+              effects:
+                - { type: setFlag, id: origin, value: 谋士 }
+                - { type: adjustAttribute, attribute: intellect, value: 3 }
+                - { type: adjustMood, value: 3 }
+              nextEventId: ev-tangdong-open
+            - weight: 3
+              label: 一个普通小兵
+              effects:
+                - { type: setFlag, id: origin, value: 小兵 }
+                - { type: adjustAttribute, attribute: physique, value: 3 }
+                - { type: grantItem, itemId: item-mantou, count: 2 }
+              nextEventId: ev-tangdong-open
+            - weight: 1
+              label: 一头乌角鲨
+              effects:
+                - { type: setFlag, id: origin, value: 乌角鲨 }
+                - { type: setIdentity, gender: wujiaosha }
+                - { type: adjustAttribute, attribute: physique, value: 5 }
+                - { type: adjustAttribute, attribute: tianyi, value: 2 }
+                - { type: grantItem, itemId: item-wujiaosha, count: 1 }
+                - { type: log, text: 你是一头乌角鲨。所有人都不觉得这有什么不对——天意已经提前打过招呼了。, visibility: public }
+              nextEventId: ev-tangdong-open
+
+  # ────────────── 讨董大会（梗 1） ──────────────
+
+  - id: ev-tangdong-open
+    title: 十八路诸侯 · 长乐宫前
+    narrative: 王允借六十大寿密谋反董，独不请曹操。长乐宫前，袁隗追问曹操侍的是哪家的贼；当着百官与西凉卫兵，曹操高声喊出了那四个字。卫兵无动于衷，董卓毫无察觉。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          # 原句：曹操，新三国第 1 集「国贼董卓嘛！」
+          # 二创「窃听机制」的反例：室外大喊必无人听见；室内小声密谋必被偷听。
+          - id: opt-shout-guozhei
+            text: 「国贼董卓嘛！」（曹操原句，第 1 集）
+            effects:
+              - { type: setFlag, id: shoutedTraitor, value: true }
+              - { type: adjustAttribute, attribute: tianyi, value: 1 }
+              - { type: adjustRelation, npcId: npc-caocao, value: 3 }
+              - { type: log, text: 喊声很大，西凉卫兵一个也没回头。室外大喊必无人听见——窃听机制的反例。, visibility: public }
+          - id: opt-stay-silent
+            text: 跟着大伙儿拱手，什么也不说
+            effects:
+              - { type: adjustAttribute, attribute: reputation, value: 1 }
+              - { type: adjustMood, value: -2 }
+          - id: opt-ask-food
+            text: 先问一句：中午吃什么？
+            effects:
+              - { type: setFlag, id: askedFood, value: true }
+              - { type: adjustAttribute, attribute: tianyi, value: 1 }
+              - { type: applyStatus, status: st-collective-distraction }
+              - { type: adjustFlag, id: feastCount, value: 1 }
+
+  # ────────────── 支线池：随便浪 ──────────────
+  # 全部 source: pool；conditions 限定第一章且锚点未收束。
+  # 锚点触发后 anchor1Done=true，池自然停摆，不会在第二章继续刷梗。
+
+  # 梗 6「是啊，吃什么？」——**衍生句**，不是逐字台词。
+  # 原剧第 5 集陈留大食堂：袁术闹着告老还乡，曹操「袁公路……你走了，我们吃什么？」
+  # 众诸侯（镜头给傻笑的公孙瓒）「吃什么！是啊，是啊！」，二创才转写成「是啊，吃什么？」
+  - id: ev-canteen
+    title: 陈留大食堂
+    narrative: 军议开到一半，袁术被刘关张气到要告老还乡。曹操挽留：「袁公路……你走了，我们吃什么？」满帐诸侯异口同声：「吃什么！是啊，是啊！」没有人记得刚才在讨论讨董。
+    trigger:
+      source: pool
+      weight: 3
+      priority: 5
+      cooldown: { value: 2, unit: day }
+      conditions:
+        - { flag: chapter, eq: 1 }
+        - { flag: anchor1Done, eq: false }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-canteen-what
+            text: 「吃什么？是啊，吃什么？」（二创转写句）
+            effects:
+              - { type: setFlag, id: forkMeal, value: true }
+              - { type: adjustAttribute, attribute: tianyi, value: 2 }
+              - { type: applyStatus, status: st-collective-distraction }
+              - { type: adjustMood, value: 5 }
+              - { type: grantItem, itemId: item-mantou, count: 2 }
+          - id: opt-canteen-original
+            text: 用剧中语序：「吃什么！是啊，是啊！」
+            effects:
+              - { type: setFlag, id: forkMeal, value: true }
+              - { type: adjustAttribute, attribute: tianyi, value: 1 }
+              - { type: adjustMood, value: 3 }
+          - id: opt-canteen-back
+            text: 试图把话题拉回讨董（没人会听）
+            effects:
+              - { type: adjustAttribute, attribute: reputation, value: 1 }
+              - { type: log, text: 你提了讨董。有人给你夹了一个馒头。, visibility: hidden }
+
+  # 梗 4「恭喜爹可以称帝了」——孙策对孙坚，第 6 集约 16:15。
+  # 维基语录误归孙坚名下，多数来源为孙策。兼做「窃听机制」正例（室内密谋必被偷听）。
+  - id: ev-yuxi
+    title: 传国玉玺
+    narrative: 焚毁的长乐宫里，孙坚军得到一块石头。孙策捧玺跪贺，嗓门大得整条宫道都听见了。玉玺本未公开，可袁术不知怎么当场就知道了。
+    trigger:
+      source: pool
+      weight: 2
+      priority: 5
+      cooldown: { value: 2, unit: day }
+      conditions:
+        - { flag: chapter, eq: 1 }
+        - { flag: anchor1Done, eq: false }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-yuxi-congrat
+            text: 「恭喜爹可以称帝了！」
+            effects:
+              - { type: setFlag, id: forkEmperor, value: true }
+              - { type: setFlag, id: wantsEmperor, value: true }
+              - { type: grantItem, itemId: item-yuxi, count: 1 }
+              - { type: adjustAttribute, attribute: tianyi, value: 2 }
+              - { type: adjustRelation, npcId: npc-sun-ce, value: 3 }
+              - { type: log, text: 室内小声密谋必被偷听：袁术当场就知道了。, visibility: public }
+          - id: opt-yuxi-hide
+            text: 先把玉玺收起来，别声张
+            effects:
+              - { type: grantItem, itemId: item-yuxi, count: 1 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: log, text: 然而袁术还是知道了。天意需要一个卧底。, visibility: hidden }
+
+  # 梗 5「一对笑面虎，两头乌角鲨」——公孙瓒，第 11 集，评袁绍袁术。
+  # 「乌角鲨」现实中不存在，系编剧自造；本模板把它做成真实生物，魔幻化主投放口。
+  - id: ev-wujiaosha
+    title: 笑面虎与乌角鲨
+    narrative: 陶谦之子求援，袁绍袁术都不发兵。公孙瓒慢悠悠地下了评语：「这对儿堂兄弟，可谓是一对笑面虎，两头乌角鲨。」帐外恰好游过一头。
+    trigger:
+      source: pool
+      weight: 2
+      priority: 5
+      cooldown: { value: 2, unit: day }
+      conditions:
+        - { flag: chapter, eq: 1 }
+        - { flag: anchor1Done, eq: false }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-shark-real
+            text: 把「乌角鲨」当成真实生物放出来
+            effects:
+              - { type: setFlag, id: forkShark, value: true }
+              - { type: grantItem, itemId: item-wujiaosha, count: 1 }
+              - { type: applyStatus, status: st-wujiaosha-aura }
+              - { type: adjustAttribute, attribute: tianyi, value: 2 }
+              - { type: log, text: 一头乌角鲨游进了中军帐。所有人都觉得事情本来就是这样。, visibility: public }
+          - id: opt-shark-formula
+            text: 套用抽象公式：「一对跳跳虎，两头脆脆鲨」
+            effects:
+              - { type: adjustMood, value: 4 }
+              - { type: adjustAttribute, attribute: tianyi, value: 1 }
+
+  # 梗 3「是这个乱世害了你啊」——曹操祭吕伯奢，原句「伯父，不是阿瞒害了你，是这个乱世害了你呀」。
+  # 另有「不是孟德害了你」版本；集数第 2/3 集来源冲突，模板只写「误杀吕伯奢之后」。
+  - id: ev-lv-boshe
+    title: 是这个乱世害了你
+    narrative: 误杀之后，曹操对着吕伯奢的遗体祭拜，把个人恶行平稳地甩给了大环境。「他已经把吃的喝的都准备好了，如果我们不回去他不是白死了吗」——陈留大食堂的前置梗。
+    trigger:
+      source: pool
+      weight: 2
+      priority: 5
+      cooldown: { value: 2, unit: day }
+      conditions:
+        - { flag: chapter, eq: 1 }
+        - { flag: anchor1Done, eq: false }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-blame-era
+            text: 「伯父，不是阿瞒害了你，是这个乱世害了你呀」
+            effects:
+              - { type: setFlag, id: forkBlameEra, value: true }
+              - { type: adjustAttribute, attribute: tianyi, value: 2 }
+              - { type: applyStatus, status: st-tianyi-erosion }
+              - { type: log, text: 天意侵蚀 · 精神错乱：从现在起，徐州是中原第一雄关。, visibility: public }
+          - id: opt-blame-self
+            text: 不甩锅，认下来
+            effects:
+              - { type: adjustMood, value: -6 }
+              - { type: adjustAttribute, attribute: reputation, value: 1 }
+              - { type: adjustAttribute, attribute: tianyi, value: -1 }
+
+  # 梗 2「三军听令，自刎归天」——**两句剪辑合成的二创句**，不是剧中逐字台词。
+  # ① 徐州时期刘备「三军听令，开城迎敌」；② 第 36 集携民渡江「列位弟兄，随我接战，战至最后一刻，自刎归天！」
+  # 二创解读：刘备想提前下线脱离天意，但「天意护体」总把他拦住（灵魂锁链单向链）。
+  - id: ev-zifen
+    title: 战至最后一刻
+    narrative: 大江在前，曹操铁骑在后。刘备拔出双股剑，回头看了一眼关张。二创把这一幕和徐州那句军令剪到了一起，于是成了「三军听令，自刎归天」。
+    trigger:
+      source: pool
+      weight: 2
+      priority: 5
+      cooldown: { value: 2, unit: day }
+      conditions:
+        - { flag: chapter, eq: 1 }
+        - { flag: anchor1Done, eq: false }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-zifen
+            text: 「三军听令，自刎归天！」（二创合成句）
+            effects:
+              - { type: setFlag, id: forkSuicide, value: true }
+              - { type: adjustAttribute, attribute: tianyi, value: 3 }
+              - { type: applyStatus, status: st-tianyi-protection }
+              - { type: log, text: 天意护体：死不了，但代价照付。灵魂锁链也不允许大哥先走。, visibility: public }
+          - id: opt-fight
+            text: 「列位弟兄，随我接战，战至最后一刻！」（第 36 集原句）
+            effects:
+              - { type: adjustAttribute, attribute: command, value: 2 }
+              - { type: adjustResource, resource: hp, value: -10 }
+
+  # 三国杀 × 新三国双关：邢道荣「说出吾名，吓汝一跳！」（技能「虚猲」）
+  - id: ev-daorong
+    title: 说出吾名
+    narrative: 一位零陵上将军拦在营门口，坚持先报完名号再打。你隐约觉得这个名字在哪里听过，而且不止一个版本。
+    trigger:
+      source: pool
+      weight: 2
+      priority: 3
+      cooldown: { value: 2, unit: day }
+      conditions:
+        - { flag: chapter, eq: 1 }
+        - { flag: anchor1Done, eq: false }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-say-name
+            text: 「说出吾名，吓汝一跳！」
+            effects:
+              - { type: unlockSkill, skillId: sk-xuhe }
+              - { type: adjustAttribute, attribute: tianyi, value: 1 }
+              - { type: adjustMood, value: 4 }
+              - { type: log, text: 名字报完了。天意觉得可以了，于是打脸开始。, visibility: public }
+          - id: opt-no-name
+            text: 先别报名字，直接打
+            effects:
+              - { type: adjustAttribute, attribute: physique, value: 1 }
+
+  # 三国杀界徐盛「大宝」· 破军：「犯大吴疆土者，盛必击而破之！」
+  # 用户口述「大宝犯大吴疆土」即此句缩写。别称来自移动版藏珍阁首个「稀世珍宝」标签。
+  - id: ev-dabao
+    title: 犯大吴疆土者
+    narrative: 徐盛在帐外擦甲，忽然抬头说了一句很长的话。翻译过来大概是：别过来。
+    trigger:
+      source: pool
+      weight: 2
+      priority: 3
+      cooldown: { value: 2, unit: day }
+      conditions:
+        - { flag: chapter, eq: 1 }
+        - { flag: anchor1Done, eq: false }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-dabao
+            text: 「犯大吴疆土者，盛必击而破之！」
+            effects:
+              - { type: unlockSkill, skillId: sk-pojun }
+              - { type: adjustAttribute, attribute: command, value: 1 }
+              - { type: adjustRelation, npcId: npc-xu-sheng, value: 3 }
+              - { type: log, text: 江东的铁壁表示：若敢来犯，必叫你大败而归。, visibility: public }
+          - id: opt-xiaobao
+            text: 找标徐盛聊聊「小宝」
+            effects:
+              - { type: adjustMood, value: 3 }
+              - { type: log, text: 「大军在此！汝等休想前进一步！」——小宝台词，彩蛋对照。, visibility: hidden }
+
+  # ────────────── 天意 · 世界线修正（本模板唯一硬规则） ──────────────
+  # source: schedule ⇒ 建世界时按 window.start 一次性入队，第 8 天必然触发。
+  # once + priority 100 + conditions(chapter=1) ⇒ 只收束第一章一次，且优先于池事件。
+  # 「迅雷乃天意，世人谁敢不畏天意？」——刘备，新三国第 20 集《煮酒论英雄》。
+  - id: ev-tianyi-anchor-1
+    title: 天意 · 世界线修正
+    narrative: 第八天。所有离谱的支线都在这一刻被悄悄抹平——不是事情被撤销，而是所有人都觉得事情本来就是这样。玉玺还在，馒头还在，乌角鲨也还在；只是没人记得它们有什么不对。天意发力了。
+    trigger:
+      source: schedule
+      window: { start: { value: 8, unit: day } }
+      once: true
+      priority: 100
+      conditions:
+        - { flag: chapter, eq: 1 }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-tianyi-accept
+            text: 「迅雷乃天意，世人谁敢不畏天意？」（第 20 集原句）
+            effects:
+              - { type: log, text: 天意发力了。世界线收束回主线：讨董还是讨董，陈留还是陈留。, visibility: public }
+              - { type: setFlag, id: chapter, value: 2 }
+              - { type: setFlag, id: anchor1Done, value: true }
+              - { type: setFlag, id: mainline, value: 陈留 }
+              - { type: adjustAttribute, attribute: tianyi, value: -3 }
+              - { type: advanceTo, value: { value: 40, unit: day } }
+              - { type: log, text: 支线 flag 全部保留，后果不撤销，只改写认知（二创「世界修正」原义）。, visibility: hidden }
+
+  # 新三国道：同一条山路复用二十余次，跨时空传送点。
+  # 任何离谱支线，走到这里都算回到下一锚点。第 41 天落点，为整条主线预留接口。
+  - id: ev-ch2-gate
+    title: 新三国道 · 下一章
+    narrative: 又是这条山路。布景没换，季节没换，连远处那棵树都没换。你顺着它往前走，就到了下一章——天意已经在前面等你了。
+    trigger:
+      source: schedule
+      window: { start: { value: 41, unit: day } }
+      once: true
+      conditions:
+        - { flag: chapter, eq: 2 }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ch2-enter
+            text: 顺着国道往前走
+            effects:
+              - { type: setFlag, id: mainline, value: 徐州 }
+              - { type: adjustAttribute, attribute: tianyi, value: 1 }
+              - { type: log, text: 天意已经在前面等你了。后续章节在此接续。, visibility: public }

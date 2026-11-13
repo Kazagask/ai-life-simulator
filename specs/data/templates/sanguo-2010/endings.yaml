@@ -1,0 +1,55 @@
+# 三国演义 · 结局 / 终止 · endings.yaml（协议 V2.1 §17）
+#
+# 「胜利目标说」：每个角色有独立胜利目标，达成才能摆脱天意的制裁（二创派生理论）。
+# 小样只留两个结局：天意收束的常规结局，以及隐藏结局「摆脱天意」。
+# 终止判据只用声明式条件与 playerRequested，**不得以 HP 数值 / HP 归零为判据**（R-EN-07）。
+
+terminationConditions:
+  - type: timeReached
+    params:
+      conditions:
+        - { time: { gte: { value: 60, unit: day } } }
+    combinator: AND
+    terminationMode: afterSettle
+
+  - type: playerRequested
+    params:
+      conditions: []
+    combinator: AND
+    terminationMode: afterSettle
+
+endings:
+  - endingId: end-tianyi-normal
+    name: 天意如此
+    description: 无论你浪到哪儿，第八天之后，世界还是那个世界。天意发力了，然后一切照旧。
+    triggerConditions: []
+    priority: 0
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 天意如此
+      summary: 玉玺还在，馒头还在，乌角鲨也还在。所有人都觉得，讨董本来就是这么打的。
+
+  # 「胜利目标说」：把每条支线都浪一遍、且侵蚀度攒够，才够格摆脱天意。
+  # 阈值说明：冒烟实测第一章（41 天）侵蚀度可到 49，故单看 tianyi 会过松，
+  # 用「五条支线 flag 全齐 + tianyi ≥ 60」共同约束，避免隐藏结局变成必得结局。
+  - endingId: end-escape-tianyi
+    name: 摆脱天意的制裁
+    description: 隐藏结局。天意干涉得太频繁，反而露出了破绽。
+    triggerConditions: []
+    priority: 100
+    endingType: hidden
+    unlockConditions:
+      - { flag: forkMeal, eq: true }
+      - { flag: forkEmperor, eq: true }
+      - { flag: forkShark, eq: true }
+      - { flag: forkBlameEra, eq: true }
+      - { flag: forkSuicide, eq: true }
+      - { attribute: tianyi, gte: 60 }
+    narrativeConfig:
+      source: template
+      masked:
+        title: ？？？
+        summary: 有一条世界线，天意没有发力。
+
+fallback: end-tianyi-normal

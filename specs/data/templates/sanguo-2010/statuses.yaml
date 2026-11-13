@@ -1,0 +1,60 @@
+# 三国演义 · 天意补正 · statuses.yaml
+# 单定义双面（simulation / combat，至少其一）。天意侵蚀不是"惩罚"，是干涉的可见痕迹。
+# 二创机制对照见 docs/SANGUO_TEMPLATE_BRIEF.md §2。
+statuses:
+  # 【天意侵蚀 · 精神错乱】教科书例子：荀彧「徐州城不愧为中原第一雄关啊」（新三国）。
+  - id: st-tianyi-erosion
+    name: 天意侵蚀 · 精神错乱
+    description: 智力下降、记忆错乱、感官失能。你开始觉得徐州确实是中原第一雄关。
+    duration: { turns: 5 }
+    stacking: stack
+    simulation:
+      attributeModifiers: { intellect: -3 }
+      moodDeltaPerTurn: -1
+    combat:
+      hitChance: -0.1
+    visibility: known
+
+  # 【天意侵蚀 · 集体失焦】第 5 集陈留大食堂：正经会议集体跑偏，只关心吃什么。
+  - id: st-collective-distraction
+    name: 天意侵蚀 · 集体失焦
+    description: 「吃什么？是啊，吃什么？」——没人记得刚才在讨论讨董。
+    duration: { turns: 3 }
+    stacking: refresh
+    simulation:
+      attributeModifiers: { command: -2 }
+    visibility: known
+
+  # 【天意护体】关键人物在锚点前不会死。"自刎归天"被二创解读为想提前下线，
+  # 但总被天意拦住：不是无敌，是「死不了，代价照付」。
+  - id: st-tianyi-protection
+    name: 天意护体
+    description: 战至最后一刻，自刎归天？天意不许。你还不能下线。
+    duration: { turns: 3 }
+    stacking: unique
+    combat:
+      damageTaken: -0.5
+    visibility: known
+
+  # 【乌角鲨之威】魔幻化主投放口：把自造词做成真实生物/召唤物。
+  - id: st-wujiaosha-aura
+    name: 乌角鲨之威
+    description: 一头乌角鲨从帐外游了进来。所有人都不觉得这有什么不对——天意已经改写过认知了。
+    duration: { turns: 4 }
+    stacking: refresh
+    simulation:
+      attributeModifiers: { physique: 2 }
+    combat:
+      damageDealt: 0.15
+    visibility: known
+
+  # 【三国 ELO】曹操「胜兵必骄→骄兵必败→败兵必哀→哀兵必胜」无限循环，
+  # 被戏称内置 roguelike 状态轮转。小样只做第一态，后续章节可扩展四态轮转。
+  - id: st-elo-pride
+    name: 三国 ELO · 胜兵必骄
+    description: 胜兵必骄，骄兵必败，败兵必哀，哀兵必胜。你正处在第一格。
+    duration: { turns: 3 }
+    stacking: refresh
+    simulation:
+      attributeModifiers: { command: 2, intellect: -1 }
+    visibility: known

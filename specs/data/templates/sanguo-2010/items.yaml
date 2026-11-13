@@ -1,0 +1,38 @@
+# 三国演义 · 道具 · items.yaml
+# 梗出处逐条标注；考据见 docs/SANGUO_TEMPLATE_BRIEF.md §1。
+items:
+  # 「不可能，绝对不可能！八万个馒头……啃上半个月」——曹操，新三国（刘备夺徐州）。
+  # 陈留大食堂的通用货币：无论军情多急，馒头总能出现。
+  - id: item-mantou
+    type: consumable
+    name: 陈留大食堂 · 馒头
+    description: 不知从哪儿蒸出来的。有人说有八万个，够啃上半个月。
+    stackable: true
+    usableInBattle: true
+    usableOutsideBattle: true
+    use:
+      - { type: adjustResource, resource: hp, value: 20 }
+      - { type: adjustMood, value: 3 }
+
+  # 「恭喜爹可以称帝了！」——孙策对孙坚，新三国第 6 集约 16:15，长乐宫得传国玉玺。
+  # 注意：维基语录误归在孙坚名下，多数来源为孙策。谐音梗「撑地」。
+  - id: item-yuxi
+    type: key
+    name: 传国玉玺
+    description: 一块石头。但孙策当场就认为它足以称帝，袁术不知怎么也知道了。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+
+  # 「一对笑面虎，两头乌角鲨」——公孙瓒，新三国第 11 集，评袁绍袁术。
+  # 「乌角鲨」是编剧自造、现实中不存在；本模板把它做成真实生物，是「魔幻」的主要投放口。
+  - id: item-wujiaosha
+    type: consumable
+    name: 乌角鲨 · 幼体
+    description: 一条活生生的乌角鲨。放出来之后，没人问它从哪儿来。
+    stackable: true
+    usableInBattle: true
+    usableOutsideBattle: true
+    use:
+      - { type: applyStatus, status: st-wujiaosha-aura, stacks: 1 }
+      - { type: log, text: 一头乌角鲨游进了中军帐。所有人都觉得事情本来就是这样。, visibility: public }

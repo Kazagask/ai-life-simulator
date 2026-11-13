@@ -1,0 +1,46 @@
+# 三国演义 · 开局分域 · opening.yaml（协议 V2.1 §16）
+#
+# 只负责把 chapter / anchor1Done / mainline / feastCount 摆到起始位、把玩家关系铺好，
+# 并把「命数转盘」交给 handoff 作为第一个待决事件。
+# 时间锚点由 events.yaml 的 schedule 定义自己负责（建世界时入队），此处 handoff.schedule 为空。
+#
+# 「胜利目标说」（二创）：每个角色有独立胜利目标，达成才能摆脱天意的制裁。
+# 小样里以 objective 留一个接口，隐藏结局「摆脱天意」见 endings.yaml。
+
+- openingId: op-190-chenliu
+  name: 190 · 陈留会盟
+  description: 十八路诸侯讨董，你也在场。转盘会决定你是诸侯、谋士、小兵，还是一头乌角鲨；第八天，天意会把一切拉回主线。
+  entryConditions: []
+  steps:
+    - { id: step-enter-chenliu, kind: required }
+  characterSetup:
+    flags:
+      origin: 未定
+  worldSetup:
+    flags:
+      openingDone: true
+      creationDone: true
+      chapter: 1
+      anchor1Done: false
+      mainline: 讨董
+      feastCount: 0
+  npcSetup:
+    relations:
+      - { npcId: npc-caocao, value: 6, source: 会盟同席 }
+      - { npcId: npc-liubei, value: 5, source: 同席 }
+      - { npcId: npc-gongsun-zan, value: 4, source: 大食堂同桌 }
+      - { npcId: npc-xu-sheng, value: 3, source: 帐外点头之交 }
+    visibility:
+      npc-dong-zhuo: unknown
+      npc-hua-xiong: unknown
+      npc-xing-daorong: unknown
+  eventPools: []
+  objectives:
+    flags:
+      objective: 活到天意收束的那一刻，或者找到摆脱它的办法
+  choices: {}
+  completionConditions:
+    - { flag: openingDone, eq: true }
+  handoff:
+    pendingEvents: [ev-opening-wheel]
+    schedule: []
