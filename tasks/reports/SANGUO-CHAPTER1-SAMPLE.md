@@ -61,6 +61,7 @@
 
 > 全部本地执行。**未跑项显式标注，不写 PASS。**
 > 隔离根位于仓库外 `D:\code\_sanguo_isolated\`（`templates/` + `data/` + 校验脚本），不进 git。
+> §7 追加了**局域网试玩入口**（本机临时服务，仅本地，不碰线上）。
 
 | # | 项目 | 命令 / 方式 | 结果 |
 |---|---|---|---|
@@ -104,3 +105,52 @@
 - **未验证 `priority` 抢占**：锚点用 `schedule` 保证了必然性，未再测试 `priority` 与已入队随机事件的抢占关系。
 - **草案阶段约束**：未建 `specs/iterations/` 四件套（R2.7 仍占位、未正式关闭），未写 ADR，未改契约面，未作任何产品裁决；模板 id / 规模 / 锚点清单仍可改。
 - **未 push、未部署、未下线**：本分支与线上「咒术转盘人生」实例完全隔离，`docs/RECOVERY_MERGE.md §6.3` 红线继续有效。
+
+---
+
+## 7. 局域网试玩（本机临时入口）
+
+> **访问地址**：`http://192.168.101.13:3000/` —— 手机 / 平板与电脑连**同一个 Wi-Fi**即可打开。
+> 2026-11-14 本机 WLAN 的 DHCP 地址是 `192.168.101.13`（网关 `192.168.101.1`），会变；变了用 `ipconfig` 重查。
+> 本轮已启动服务并清空试玩存档（`GET /api/worlds` → `{"worlds":[]}`）。**仅本地服务，不涉及线上实例、不执行任何 deploy / unpublish。**
+
+### 7.1 为什么不用改前端就能进三国模板
+
+- `apps/server/src/index.ts:673-705`：**单端口**同时托管 `apps/web/dist` 与全部 `/api`，且 `app.listen({ port, host: "0.0.0.0" })`；`apps/web/src/api.ts` 的 `BASE = ""`，API 全走相对路径 ⇒ 手机无需跨域、无需另起 vite、无需配代理。
+- `apps/web/src/main.tsx:680 / 707 / 710`：建局写死 `templates[0]`，回退 id 为 `jjk-2006`（§6 已知限制）。**用 `TEMPLATES_DIR` 外挂一个只含 `sanguo-2010` 的隔离根**，让 `templates[0]` 与 `openings` 自然落到三国模板 —— 这是不改 `apps/web` 的绕法，**不是修复了选择器**。
+- ⚠️ 因此**不能用默认根试玩**：默认根两套共存且 `jjk-2006` 排在前面，手机打开会进咒术模板。
+
+### 7.2 启动 / 停止（Git Bash，工作目录为仓库根）
+
+```bash
+# 前置（已完成）：corepack pnpm install --frozen-lockfile
+#                corepack pnpm --filter @life-sim/web build   # dist 已生成，未改前端源码则不必重跑
+rm -rf /d/code/_sanguo_isolated/templates/sanguo-2010
+cp -r specs/data/templates/sanguo-2010 /d/code/_sanguo_isolated/templates/
+PORT=3000 \
+TEMPLATES_DIR='D:/code/_sanguo_isolated/templates' \
+LIFE_SIM_DATA_DIR='D:/code/_sanguo_isolated/data' \
+./apps/server/node_modules/.bin/tsx apps/server/src/index.ts
+```
+
+- 停止：`Ctrl+C`（或结束对应后台任务）。服务只在本机生命周期内有效，电脑休眠 / 会话结束可能中断，重跑上面命令即可。
+- **改了任何 yaml 必须重启**：模板是启动期一次性加载（`templates.ts` 的 registry，无 reload / watch）；改前端源码则还需重新 `build`。
+- 存档写在仓库外 `D:\code\_sanguo_isolated\data\`，不污染项目；本轮 3 个冒烟存档**移到** `data-smoke/` 保留，未删除。
+
+### 7.3 本轮验证（全部走 `192.168.101.13`，非回环）
+
+| 项目 | 结果 |
+|---|---|
+| `GET /`（回环 + 局域网 IP） | **200** `text/html`，957 B |
+| `GET /api/templates` | **200**，只返回 `sanguo-2010` + 开局 `op-190-chenliu` |
+| `GET /assets/index-DLvGHcIx.js` | **200** `text/javascript`，357101 B |
+| `GET /health` | **200** `{"ok":true,"protocol":"v2"}` |
+| 完整交互冒烟（`lan-smoke.mjs`，局域网地址） | **TIANYI SMOKE OK**：建局 → 7 条支线 → 第 8 天天意锚点 → `chapter=2` / 跳到 190年2月10日 → 第 41 天 `ev-ch2-gate` → `endLife` 得「天意如此」，与 §4.1 一致 |
+| 监听 / 防火墙（只读） | 监听 `0.0.0.0:3000`；WLAN `NetworkCategory=Public`；`node.exe` 入站规则 `Allow / Public / TCP Any`，且监听进程路径正是该 `node.exe` ⇒ 入站放行条件满足 |
+| 重启后世界列表 | **200** `{"worlds":[]}`（干净试玩列表） |
+
+**未验证 / 注意**：
+- **未做真机手机浏览器点击验证**（本机无设备）；上面是 HTTP 层与服务状态验证。若手机打不开，先查：路由器 AP / 客户端隔离、电脑防火墙弹窗是否点了「允许」、IP 是否已变、两端是否同一网段。
+- 云端登录 / LLM 叙事未测：登录非建局必需（未登录只提示「可存档到人生档案」）；本模板叙述 `source: template`，不依赖 LLM。
+- 页面里的「咒术」字样只在源码注释与转盘配色说明中（`main.tsx:1108 / 1206`），不是玩家可见文案。
+- 本机是 HTTP 非 HTTPS，部分浏览器对 PWA 安装有限制，但普通网页试玩不受影响。
