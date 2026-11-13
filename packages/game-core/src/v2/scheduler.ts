@@ -125,8 +125,8 @@ export function enqueueScheduled(input: EnqueueScheduledInput): ScheduledEventIn
     status: "waiting",
   };
   state.enqueueSeqCounter = seq + 1;
-  state.scheduledEvents.push(inst);
-  state.scheduledEvents = sortScheduled(state.scheduledEvents);
+  state.delayQueue.push(inst);
+  state.delayQueue = sortScheduled(state.delayQueue);
   return inst;
 }
 
@@ -293,28 +293,37 @@ export function evaluateDue(input: EvaluateDueInput): DueDecision {
   return { kind: "fire" };
 }
 
-export type DrainFireCallback = (instance: ScheduledEventInstance, definition: EventV2) => void;
+/**
+ * 队列扫描结果（ADR-0034 §2 ② / §3）。
+ * `taken` ⇒ 调用方**必须立刻把它写成 `slot`（`from: "queueTake"`）再处理**；
+ * `none` ⇒ 队列里此刻没有可上桌的实例（空、未到期、或条件不满足）。
+ */
+export type QueueScanResult =
+  | { kind: "taken"; instance: ScheduledEventInstance; definition: EventV2 }
+  | { kind: "none" };
 
 /**
- * 出队循环（§3.4）：按排序键序逐个判定 waiting 实例。
- * - start > now ⇒ break（有序队列，后面只会更晚）；
- * - hasEnd && now > end ⇒ expired + missedEvents(reason="window_expired")；
- * - missWhen ⇒ expired + missedEvents(reason="miss_when", label)；
- * - conditions / cooldown ⇒ hold（留队、零错失）；
- * - fire ⇒ status="fired" 后回调触发（recordFire 由回调内的 triggerEventV2 负责，
- *   以便战斗并发冲突时整条跳过、不写任何触发事实）。
+ * **唯一**的队列扫描（ADR-0034 §3，全部按死结论实现）：
  *
- * 断链保护：遍历的是入队时的排序快照，onFire 内新入队的实例**不在本循环递归 drain**，
- * 等下一个安全边界；新到期实例由 turn.ts 的管线末端 / 时间推进点再次 drain。
+ * - 排序键 `start → hasEnd → end → enqueueSeq`（`sortScheduled`，全序、不可能相等）；
+ * - `window.start > now` ⇒ **停**（有序队列，后面只会更晚；R3 时间回拨下须降级为 continue，当前不做，见 ADR §8-⑧）；
+ * - 定义缺失 ⇒ `cancelled`（加载期完整性问题，不算错失）；
+ * - `worldTime > window.end` ⇒ `expired` + 记 `window_expired`，**出队**；
+ * - `missWhen` 命中 ⇒ `expired` + 记 `miss_when`，**出队**；
+ * - 条件不满足 / 冷却未过 ⇒ **留在队列、继续扫下一个**（ADR §3-3：不得丢弃、不得卡队头）；
+ * - 否则 ⇒ 取出：**标 `fired` 并返回**，由调用方写 `slot` 后按状态机处理。
+ *
+ * 求值时点 = **被取出那一刻**（ADR §3-4）；此前的入队门控只消费 once/probability（配置域）。
+ * 调用方须传入**独立派生流**（`seed + 37`）作 `rng`：扫描会每轮重复求值，若条件含 `random`
+ * 不得扰动主轮流（ADR §3-5）。
  */
-export function drainScheduledEvents(
+export function scanDelayQueue(
   state: WorldStateV2,
   lookup: TemplateLookup,
   rng: Rng,
-  onFire: DrainFireCallback,
   calendar?: TimeSpecCalendar,
-): void {
-  const ordered = sortScheduled(state.scheduledEvents);
+): QueueScanResult {
+  const ordered = sortScheduled(state.delayQueue);
   for (const inst of ordered) {
     if (inst.status !== "waiting") continue;
     const now = state.worldTime;
@@ -326,7 +335,6 @@ export function drainScheduledEvents(
       continue;
     }
 
-    // 循环头：窗口结束仍未触发 ⇒ 过期（#36 唯一的因时间出队路径）
     if (inst.hasEnd && inst.window.end !== undefined && now > inst.window.end) {
       inst.status = "expired";
       state.missedEvents.push({
@@ -340,7 +348,7 @@ export function drainScheduledEvents(
     }
 
     const decision = evaluateDue({ instance: inst, state, lookup, rng, calendar });
-    if (decision.kind === "hold") continue;
+    if (decision.kind === "hold") continue; // 留在队列、继续扫下一个（不卡队头）
     if (decision.kind === "drop") {
       inst.status = "expired";
       state.missedEvents.push({
@@ -354,59 +362,13 @@ export function drainScheduledEvents(
       continue;
     }
     inst.status = "fired";
-    onFire(inst, def);
+    return { kind: "taken", instance: inst, definition: def };
   }
+  return { kind: "none" };
 }
 
-// ---------- 链与延时队列对账（§3.8） ----------
-
-export type ChainEvaluation = "active" | "completed" | "stalled";
-
-/**
- * 断链判定：链为 active 的**充分条件之一**是队列里仍有该链的 waiting 实例。
- * 因此延时步骤入队后，即使 stepIndex 尚未推进，链也不会被误判为断裂。
+/*
+ * ADR-0034 §5：`chains[]` / `ChainStateV2` / `evaluateChain` / `alignChainStep` **已删除**。
+ * 「链」现在只是模板图上的 `nextEventId` 边：「下一个是谁」由结算处的占槽判定直接决定
+ * （`slot = successor`），不再有运行时链状态、也不存在 stepIndex 对齐问题。
  */
-export function evaluateChain(
-  state: WorldStateV2,
-  lookup: TemplateLookup,
-  chainId: string,
-): ChainEvaluation {
-  const chain = state.chains.find((c) => c.id === chainId);
-  if (!chain || chain.status === "completed") return "completed";
-  const def = lookup.chain(chainId);
-  if (!def) return "stalled";
-  if (state.scheduledEvents.some((i) => i.chainId === chainId && i.status === "waiting")) return "active";
-  if (state.pendingEvents.some((p) => p.chainId === chainId)) return "active";
-  const step = def.steps[chain.stepIndex];
-  if (!step || !lookup.event(step.eventId)) return "completed";
-  return "active";
-}
-
-/**
- * stepIndex 的**单一推进规则**（M4 双写漂移修复）：
- * - 有 nextEventId（结算 / nextTurn 推进）：按 findIndex 对齐到该步，找不到即完结；
- * - 无 nextEventId（advanceChain 效果）：对齐到下一个 nextTurn 步；没有则**不动**，
- *   绝不盲目 +1，避免「效果推一步 + 结算再推一步」跳步。
- */
-export function alignChainStep(
-  state: WorldStateV2,
-  chainId: string,
-  lookup: TemplateLookup,
-  nextEventId?: string,
-): void {
-  const chain = state.chains.find((c) => c.id === chainId);
-  const def = lookup.chain(chainId);
-  if (!chain || !def || chain.status === "completed") return;
-  if (nextEventId !== undefined) {
-    const idx = def.steps.findIndex((s) => s.eventId === nextEventId);
-    if (idx < 0) {
-      chain.status = "completed";
-      return;
-    }
-    chain.stepIndex = idx;
-    chain.status = "active";
-    return;
-  }
-  const idx = def.steps.findIndex((s, i) => i > chain.stepIndex && s.advanceWhen === "nextTurn");
-  if (idx >= 0) chain.stepIndex = idx;
-}

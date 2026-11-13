@@ -138,19 +138,15 @@ const HistoryEntryV2Schema = z
   })
   .strict();
 
-const ChainStateV2Schema = z
-  .object({
-    id: z.string().min(1),
-    stepIndex: z.number().int(),
-    status: z.enum(["active", "completed"]),
-    startedTurn: z.number().int().nonnegative(),
-  })
-  .strict();
-
-const PendingEventSchema = z
+/**
+ * 呈现槽（ADR-0034 §1）：标量、进存档。`from` 是封闭枚举 —— 新增来源必须改协议。
+ * 刻意**不**在这里存"已呈现过"之类的进度位：呈现是每请求现取的派生行为。
+ */
+const SlotSceneSchema = z
   .object({
     eventId: z.string().min(1),
-    chainId: z.string().min(1).optional(),
+    from: z.enum(["successor", "opening", "death", "hook", "queueTake"]),
+    fromEventId: z.string().min(1).optional(),
   })
   .strict();
 
@@ -240,13 +236,14 @@ export const WorldStateV2Schema = z
     flags: z.record(z.string(), FlagsValueSchema),
     /** 过渡兼容索引：与 lastFiredIndex / eventFires 由 recordFire 一处写入 */
     firedEvents: z.record(z.string(), z.number().int().nonnegative()),
-    scheduledEvents: z.array(ScheduledEventInstanceSchema),
+    /** 唯一队列（ADR-0034 §1）：延时事件队列。改名自 `scheduledEvents`（形状不变）。 */
+    delayQueue: z.array(ScheduledEventInstanceSchema),
     enqueueSeqCounter: z.number().int().nonnegative(),
     missedEvents: z.array(MissedEventRecordSchema),
     eventFires: z.array(EventFireRecordSchema),
     lastFiredIndex: z.record(z.string(), LastFiredIndexEntrySchema),
-    chains: z.array(ChainStateV2Schema),
-    pendingEvents: z.array(PendingEventSchema),
+    /** 呈现槽：`null` = 空槽。写入口只有「队列取出」与「后继占槽」两个（ADR-0034 §4 S4）。 */
+    slot: SlotSceneSchema.nullable(),
     battle: BattleStateSchema.nullable(),
     lastWheel: WheelResultViewSchema.nullable(),
     /**

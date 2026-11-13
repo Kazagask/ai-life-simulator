@@ -12,7 +12,7 @@ import type {
 import { moodBand, maxHp, maxMp } from "./engine.js";
 import { birthTimeFromAge, createTimeAdapter } from "./time.js";
 import type { TemplateLookup } from "./lookup.js";
-import { pendingEventView } from "./turn.js";
+import { slotEventView } from "./turn.js";
 import { controlOf } from "./battle.js";
 import { isKinshipKind, kinshipTerm, projectVisibleRelations } from "./relations.js";
 
@@ -245,14 +245,14 @@ export function projectSnapshotV2(
           }),
         };
       }),
-    pendingEvent: ended ? null : pendingEventView(state, lookup),
+    pendingEvent: ended ? null : slotEventView(state, lookup),
     battle,
     lastWheel: state.lastWheel,
     // D-03：当轮全部转盘结果（旧档无该字段 ⇒ 空数组，前端据此不渲染转盘区）
     lastWheels: state.lastWheels ?? [],
-    activeChains: state.chains
-      .filter((c) => c.status === "active")
-      .map((c) => ({ id: c.id, status: c.status })),
+    // ADR-0034 §5：`chains[]` 已删除 ⇒ `activeChains` 无真源。保留空数组仅为兼容既有消费者，
+    // 提交 2 会连同前端一起移除（此处不臆造"链还在跑"的信息）。
+    activeChains: [],
     availableActions: ended
       ? []
       : (template.actions ?? []).map((a) => ({

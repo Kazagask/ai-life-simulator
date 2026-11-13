@@ -17,7 +17,7 @@ import {
   createRunnerContext,
   createWorldV2,
   handoff,
-  revalidatePendingV2,
+  revalidateSlot,
   runOpening,
   selectOpeningTemplate,
   type OpeningRunnerContext,
@@ -38,12 +38,16 @@ import type { ReadyTemplateEntry, TemplateRegistry } from "./templates.js";
  */
 
 /**
- * R2.5（ADR-0007）：信封 1 → 2。世界状态新增实例层延时队列与事实层记录，
- * 旧档无法机械推导，一律拒载；加载器对 schemaVersion !== 2 记原因跳过。
- * R2.8（ADR-0029 C-1）：**不升 3**，只新增可选 `templateVersion`——升 3 会一次性
- * 拒载现存全部可载档，收益为零。
+ * 信封版本（ADR-0034 §5）：**2 → 3**。
+ *
+ * 3 的破坏面：`pendingEvents` 删除（被标量状态字段 `slot` 取代）、`scheduledEvents`
+ * 改名 `delayQueue`、`chains[]` 删除。三者都无法从 v2 档机械推导（"下一个要处理哪个事件"
+ * 在 v2 里是运行时队列语义、在 v3 里是一条状态事实），因此 **v2 档一律拒载**
+ * （用户 2026-11-13 已明确接受"旧档全部拒载"这个代价）。
+ *
+ * 历史：R2.5 升 1 → 2；R2.8（ADR-0029 C-1）当时刻意不升 3。
  */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 /** 内存保存时间（savedAt），列表接口按其倒序。 */
 const savedAtById = new Map<string, string>();
@@ -320,7 +324,7 @@ export function loadPersistedWorlds(registry: TemplateRegistry): {
  */
 export function hydrate(records: readonly WorldRecord[]): void {
   for (const record of records) {
-    const { dropped } = revalidatePendingV2(record.state, record.entry.lookup);
+    const { dropped } = revalidateSlot(record.state, record.entry.lookup);
     worlds.set(record.state.id, record);
     if (dropped.length > 0) persist(record.state);
   }

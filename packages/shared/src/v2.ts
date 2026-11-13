@@ -193,16 +193,25 @@ export interface BattleState {
   over: BattleOutcome | null;
 }
 
-// ---------- 待决事件 ----------
+// ---------- 呈现槽（ADR-0034 §1） ----------
 
 /**
- * 待玩家决策的即时普通事件（R2.5 起**只**承载槽位呈现队列，不再兼作调度队列）。
- * 延时事件一律进 `scheduledEvents`，到期出队后才可能产生这里的条目。
+ * 呈现槽：**下一次轮次必须立即处理的那一个事件**（ADR-0034 §1/§2）。
+ *
+ * 为什么是状态字段而不是队列：用户口述模型是「同一轮次只能发生、处理、结算**一个**事件」，
+ * 而「下一个要处理哪个事件」本身是**一条事实**，必须进存档（否则刷新即丢）。
+ * 它只存"是谁、从哪来"，**不存进度、不存玩家输入、不存选项**——呈现内容永远从模板现取。
+ *
+ * 写入口**只有两个**（ADR-0034 §4 S4，结构保证）：
+ * 1. 队列取出：`from: "queueTake"`（扫描到期实例后取出即占槽）；
+ * 2. 当前事件结算后的后继：`from: "successor"`（`nextEventId` 且**无时间账**时才占槽）。
+ * 另有两条非后继来源：开局交接（`opening`）与死亡结局事件（`death`）、行动钩子（`hook`）。
  */
-export interface PendingEvent {
+export interface SlotScene {
   eventId: string;
-  /** 归属链（chain 事件） */
-  chainId?: string;
+  from: "successor" | "opening" | "death" | "hook" | "queueTake";
+  /** `from === "successor"` 时记录上一个事件 id（诊断用，不参与判定） */
+  fromEventId?: string;
 }
 
 // ---------- R2.5 事实层 / 派生索引 ----------
@@ -236,14 +245,6 @@ export interface LastFiredIndexEntry {
 }
 
 // ---------- 世界状态 ----------
-
-export interface ChainStateV2 {
-  id: string;
-  /** 当前进行到的步骤下标（-1 表示尚未开始） */
-  stepIndex: number;
-  status: "active" | "completed";
-  startedTurn: number;
-}
 
 /** 历史条目可见性：只有 public 进玩家端；hidden/unknown 一律不进（R-VS-01）。 */
 export type HistoryVisibility = "public" | "hidden" | "unknown";
@@ -299,8 +300,8 @@ export interface WorldStateV2 {
    * R2.6 可统一收敛到 `lastFiredIndex`（含 worldTime）后退役本字段。
    */
   firedEvents: Record<string, number>;
-  /** 实例层：延时队列（有 id / status / 固化窗口，可审计，不复制配置域字段） */
-  scheduledEvents: ScheduledEventInstance[];
+  /** 实例层：**唯一队列**——延时事件队列（有 id / status / 固化窗口，可审计） */
+  delayQueue: ScheduledEventInstance[];
   /** 全局单调入队序号，纯状态递增（不用 Date / 随机） */
   enqueueSeqCounter: number;
   /** 事实层：错失记录（append-only） */
@@ -309,9 +310,11 @@ export interface WorldStateV2 {
   eventFires: EventFireRecord[];
   /** 派生索引：可从 eventFires 重建；冷却读 worldTime */
   lastFiredIndex: Record<string, LastFiredIndexEntry>;
-  chains: ChainStateV2[];
-  /** 待玩家决策的普通事件队列（FIFO，只承载槽位呈现） */
-  pendingEvents: PendingEvent[];
+  /**
+   * 呈现槽（ADR-0034 §1）：`null` = 空槽（可自由行动 / 可扫队列）；非 null = 必须立即处理它。
+   * 这是「一轮只演一个事件」的**结构保证**（标量，构不出"两个事件同时在槽"）。
+   */
+  slot: SlotScene | null;
   /** 进行中的战斗（同一时刻至多一场；over 后保留至下一次轮次推进时清除） */
   battle: BattleState | null;
   /** 最近一次转盘结果（持久化到状态，供刷新后回放） */

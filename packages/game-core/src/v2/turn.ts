@@ -39,15 +39,13 @@ import type { TemplateLookup } from "./lookup.js";
 import { projectSnapshotV2 } from "./projection.js";
 import { playerVisibleHistory, pushHistory } from "./history.js";
 import {
-  alignChainStep,
   checkEventPremise,
-  drainScheduledEvents,
   enqueueCandidate,
   enqueueScheduled,
-  evaluateChain,
   hasFired,
   onCooldown,
   recordFire,
+  scanDelayQueue,
   specToMinutes,
   ZERO_SPEC,
 } from "./scheduler.js";
@@ -59,25 +57,15 @@ import {
   type TerminationSignal,
 } from "./ending.js";
 
-const MAX_TRIGGER_DEPTH = 8;
+/**
+ * 扫描 / 呈现前求值的**独立派生流**盐（ADR-0034 §3-5，沿用 ADR-0024 的 `seed + 37` 先例）。
+ * 队列扫描会每轮对同一实例重复求值；若条件里写了 `random`，用主轮流会变成"每轮多扣一次骰"，
+ * 污染主轮序列。独立盐 ⇒ 确定性不变、扫描成本不记到主轮账上。
+ */
+const SCAN_RNG_SALT = 37;
 
-// ============ 临时实验：槽位守卫 SLOT GUARD（待 QA 验收后定论，可整体回退）============
-// 目的：验证「单轮单槽 / 槽模型」是否可行——运行期 pendingEvents 实际恒 ≤ 1，多 normal 事件被
-// 串行化进槽位，避免多事件积压导致的因果链断裂 / 诈尸（已死角色仍被呈现）。
-// 机制：当 pendingEvents 非空时，新的 normal 事件不再直接入队，而是经 enqueueScheduled 转入
-// 延时队列（delay = SLOT_GUARD_DELAY，默认为 0 分钟 ⇒ 下一个 drain 轮次即回检），等槽位空出后
-// 由 drainScheduledEvents → onFire 再次进入 triggerEventV2 时再真正入 pendingEvents 呈现。
-// 约定：命中守卫的事件在「被转入延时队列」那一刻**不** recordFire（守卫位于 recordFire 之前），
-// 只在它真正进入 pendingEvents 的那一刻记一次 fire——与「立即触发 不入队」口径一致，避免重复记火。
-//
-// 回退方式（整体撤除，不动协议 / yaml / 类型）：
-//   1) 删除本常量；
-//   2) 删除 triggerEventV2 内 recordFire 之前的「临时实验：槽位守卫」拦截块。
-// 即可恢复「多事件可同时入 pendingEvents」的旧行为。SLOT_GUARD_DELAY 取值为 ZERO_SPEC（0 分钟）
-// 时 resolveTimeSpec 不依赖历法，故下方调用可传 calendar: undefined。
-// ⚠ 这是临时防护语法糖，非协议变更；结论待 QA 验收后写入 ADR。
-const SLOT_GUARD_DELAY = ZERO_SPEC;
-// ============ /临时实验：槽位守卫 ============
+/** `nextTurn` 判定链的最大自旋次数（只防实现 bug 变成死循环；正常路径 1–3 圈）。 */
+const MAX_NEXT_TURN_SPINS = 32;
 
 // ---------- 创建世界 ----------
 
@@ -203,13 +191,12 @@ export function createWorldV2(
     flags: {},
     firedEvents: {},
     // R2.5 实例层 / 事实层：全部由 createWorldV2 显式初始化，存档 strict 校验逐字段要求存在。
-    scheduledEvents: [],
+    delayQueue: [],
     enqueueSeqCounter: 0,
     missedEvents: [],
     eventFires: [],
     lastFiredIndex: {},
-    chains: [],
-    pendingEvents: [],
+    slot: null,
     battle: null,
     lastWheel: null,
     // D-03：当轮转盘结果列表（每轮起点清空）；单槽 lastWheel 保留兼容
@@ -251,175 +238,61 @@ function historyId(state: WorldStateV2, base: string): string {
   return `${base}-${state.history.length}`;
 }
 
-// ---------- 事件触发路由 ----------
+// ---------- 呈现槽与事件结算（ADR-0034 §2） ----------
 
 /**
- * 触发路由的累加器（引擎内部类型）。
+ * 一次轮次结算的累加器（引擎内部类型）。
  *
- * **不是**存档 / 投影 / 玩家端 API 的一部分（ADR-0021 决策 1.4）：它只在一次轮次结算内
- * 被 `triggerEventV2` 一族函数填充，随后由 `advanceTurnV2` 等函数裁成 `V2TurnResult`。
- * 导出仅为让测试能直接断言诊断位（见 `skipped`）。
+ * **不是**存档 / 投影 / 玩家端 API 的一部分（ADR-0021 决策 1.4 / ADR-0034 §5）：
+ * 它只在一次轮次内被填充，随后被裁成 `V2TurnResult`。导出仅为让测试断言诊断位。
  */
 export interface TriggerResult {
   triggered: Array<{ id: string; title: string; narrative: string }>;
   wheelResult: WheelResultView | null;
-  /** 效果推进时间 / 新入队 ⇒ 请求在安全边界再 drain 一轮（§3.4.5 断链保护） */
-  drainRequested?: boolean;
-  /**
-   * 本条触发被跳过的原因（ADR-0021 决策 1.4 的可诊断性补偿）。
-   * **非持久化**：不进存档 / 投影 / 玩家端 API，只供测试与本地排障断言
-   * 「这场为什么没打」。当前取值见 `SKIP_ALL_ENEMIES_INACTIVE`。
-   *
-   * ⚠ **局限（已知且接受）**：它是**单槽**而非清单 —— 同一轮内多条触发被跳过时，
-   * 后写的覆盖先写的，只保留最后一个原因。需要完整清单请去读
-   * `state.npcs[].lifecycle`（事实源）或逐场断言，不要把这个字段当诊断流水。
-   */
+  /** 本条触发被跳过的原因（当前唯一取值见 `SKIP_ALL_ENEMIES_INACTIVE`，非持久化） */
   skipped?: string;
   /**
-   * 本轮因**前提失效**被移出待决队列的 eventId（ADR-0024 决策 4 的可诊断性补偿，保序）。
-   *
-   * **非持久化**：不进存档 / 投影 / 玩家端 API，只供测试与本地排障断言
-   * 「这一轮为什么少了一个场景」。与 `skipped` 分开是刻意的：`skipped` 是单槽，
-   * 两者写同一个字段会互相覆盖。
+   * 本轮因**前提失效**被清出槽的事件 id（ADR-0024 决策 4 的可诊断性补偿，非持久化）。
+   * 与 `skipped` 分开是刻意的：`skipped` 是单槽，两者写同一个字段会互相覆盖。
    */
   droppedPending?: string[];
 }
 
-/**
- * combat 事件的全部敌人过滤后为空 ⇒ 整条触发跳过。
- * 取值被测试断言，故收敛为常量，字符串只写这一处。
- */
+/** combat 事件的全部敌人过滤后为空 ⇒ 整条触发跳过（取值被测试断言，只写这一处）。 */
 export const SKIP_ALL_ENEMIES_INACTIVE = "all_enemies_inactive";
 
-/** 效果可在 onFire 内推进时间或再入队；每轮整体结束后才开启下一轮，避免在 drain 循环内递归。 */
-const MAX_DRAIN_PASSES = 8;
-
-/**
- * drain 的唯一接线点：回调内 triggerEventV2 负责 recordFire（战斗并发冲突时整条跳过、不写事实）。
- * 单轮遍历的是排序快照；onFire 中新入队/推进时间的实例由「下一轮 pass」取出，
- * 仍在同一安全边界内完成，不递归、不受插入顺序影响 ⇒ 确定性保持。
- */
-function drainDue(
-  state: WorldStateV2,
-  lookup: TemplateLookup,
-  rng: Rng,
-  result: TriggerResult,
-): void {
-  const calendar = createTimeAdapter(lookup.template);
-  for (let pass = 0; pass < MAX_DRAIN_PASSES; pass++) {
-    result.drainRequested = false;
-    drainScheduledEvents(
-      state,
-      lookup,
-      rng,
-      (inst, def) => {
-        triggerEventV2(state, def, lookup, rng, 0, result, inst.chainId);
-      },
-      calendar,
-    );
-    if (!result.drainRequested) break;
-    // 没有「已到期且仍 waiting」的实例时立即收敛，避免空转（同 seed 行为恒定）。
-    if (!state.scheduledEvents.some((i) => i.status === "waiting" && i.window.start <= state.worldTime)) break;
-  }
-  result.drainRequested = false;
+/** 扫描 / 呈现前求值用的独立派生流（ADR-0034 §3-5）：与主轮 RNG 完全分开。 */
+function scanStream(state: WorldStateV2): Rng {
+  return createRng(deriveTurnSeed(state.seed + SCAN_RNG_SALT, state.turnIndex));
 }
 
 /**
- * 事件源优先级（数值越小越优先）：事件链 > 时间触发 > 行动触发 > 事件池。
- * combat 并发由轮次管线的 resolver 顺序体现（先触发者抢占战斗槽位）；
- * normal 并发由待决队列的排序体现，二者同源，保证玩家先遇到主线/剧情再遇到日常/随机事件。
+ * **呈现前前提复核**（ADR-0034 §3-4：求值固定在真正上桌那一刻）。
+ *
+ * 与 ADR-0024 的 `revalidatePendingV2` 同一口径，只是作用对象从 `pendingEvents` 换成 `slot`：
+ * 前提不成立 ⇒ **静默清槽**（不推 `turnIndex`、不写 history、不记错失、不动 `eventFires`）。
+ * 记错失在这里结构上不可能：`MissedEventRecord` 需要 `instanceId`，而槽里只有 `eventId`。
+ *
+ * RNG 用独立派生流（`scanStream`）：复核会随每次呈现重复求值，不得记账到主轮流。
  */
-const EVENT_SOURCE_PRIORITY: Record<EventV2["trigger"]["source"], number> = {
-  chain: 0,
-  schedule: 1,
-  "action-hook": 2,
-  pool: 3,
-};
-
-/** 归属某条事件链的待决事件一律按「事件链」处理（最高优先级）。 */
-function pendingEventPriority(event: EventV2, chainId?: string): number {
-  return chainId !== undefined ? EVENT_SOURCE_PRIORITY.chain : EVENT_SOURCE_PRIORITY[event.trigger.source];
-}
-
-/**
- * normal 事件入待决队列：高优先级插在低优先级之前，同优先级保持触发先后（稳定 FIFO）。
- * 队列本身有序，故 pendingEventView 取队首、chooseOptionV2 shift 即按优先级呈现，
- * 与 combat 的抢占顺序保持一致；normal 不丢弃，仅决定呈现先后。
- */
-function enqueuePendingEvent(
-  state: WorldStateV2,
-  event: EventV2,
-  lookup: TemplateLookup,
-  chainId?: string,
-): void {
-  const priority = pendingEventPriority(event, chainId);
-  let insertAt = state.pendingEvents.length;
-  for (let i = 0; i < state.pendingEvents.length; i++) {
-    const queued = state.pendingEvents[i];
-    const def = lookup.event(queued.eventId);
-    const queuedPriority = def ? pendingEventPriority(def, queued.chainId) : EVENT_SOURCE_PRIORITY.pool;
-    if (queuedPriority > priority) {
-      insertAt = i;
-      break;
-    }
-  }
-  state.pendingEvents.splice(insertAt, 0, { eventId: event.id, chainId });
-}
-
-/**
- * 待决队列的「呈现前前提复核」（ADR-0024 决策 2.2 / 2.3）。
- *
- * 为什么需要它：`pendingEvents` 只在 **fire 时**过一次 `trigger.conditions`，入队后没有任何人再看；
- * 而排队窗口实测可达 8 轮，其间角色可能死亡、`era` 可能翻页 ⇒ 玩家会看到一张正文点名死者的卡片
- * （QA 实测 11/30 种子）——也就是「诈尸」。
- *
- * 处置 = **静默移出队列**（决策 3）：不推 `turnIndex`、不结算 `timeCost`、不写 `history`、
- * 不记 `missedEvents`、不动 `eventFires`、不退 `once`/冷却。
- * 记错失在这里是**结构上不可能**的：`MissedEventRecord` 要求 `instanceId`，而 `PendingEvent`
- * 只有 `{ eventId, chainId? }`（编造一个就是伪造事实，同 ADR-0021 决策 1.4 的判决）。
- *
- * RNG：复核用**独立派生流** `deriveTurnSeed(seed + 37, turnIndex)`（决策 8）。
- * 盐 `+37` 在既有 `{0, +7, +13, +29}` 之外 ⇒ 不污染主轮 / 选项 / 战斗 / 物品序列；
- * 条件里若写了 `random`，它只消耗这条独立流，同一 `(seed, turnIndex, state)` 恒得同一结果。
- * 故本函数**不接受外部 rng 参数**（ADR 决策 2.2 的签名即为 `(state, lookup)`）——
- * 传进来的 rng 会把复核开销记到调用方的序列账上。
- *
- * 定义缺失的条目**保留**：那是加载期完整性问题（`pendingEventView` 已返回 null），
- * 不属于「前提失效」，复核不越权删除。
- */
-export function revalidatePendingV2(
-  state: WorldStateV2,
-  lookup: TemplateLookup,
-): { dropped: string[] } {
-  if (state.pendingEvents.length === 0) return { dropped: [] };
-  const rng = createRng(deriveTurnSeed(state.seed + 37, state.turnIndex));
-  const ctx: ConditionContext = { state, lookup, rng };
-  const dropped: string[] = [];
-  const kept: typeof state.pendingEvents = [];
-  for (const pending of state.pendingEvents) {
-    const def = lookup.event(pending.eventId);
-    if (!def) {
-      kept.push(pending);
-      continue;
-    }
-    if (checkEventPremise(def, ctx).ok) kept.push(pending);
-    else dropped.push(pending.eventId);
-  }
-  if (dropped.length === 0) return { dropped };
-  state.pendingEvents = kept;
+export function revalidateSlot(state: WorldStateV2, lookup: TemplateLookup): { dropped: string[] } {
+  if (state.slot === null) return { dropped: [] };
+  const def = lookup.event(state.slot.eventId);
+  // 定义缺失：加载期完整性错误 ⇒ 不越权删除语义（与 ADR-0024 一致），但槽不能拿去呈现。
+  if (!def) return { dropped: [] };
+  const ctx: ConditionContext = { state, lookup, rng: scanStream(state) };
+  if (checkEventPremise(def, ctx).ok) return { dropped: [] };
+  const dropped = [def.id];
+  state.slot = null;
   return { dropped };
 }
 
-/** 把本轮丢弃并入诊断位，并把被丢弃的事件从本次 `triggered` 里剔除（ADR-0024 决策 3 附则）。 */
 function recordDroppedPending(result: TriggerResult, dropped: string[]): void {
   if (dropped.length === 0) return;
   result.droppedPending = [...(result.droppedPending ?? []), ...dropped];
-  if (result.triggered.length === 0) return;
-  const gone = new Set(dropped);
-  result.triggered = result.triggered.filter((t) => !gone.has(t.id));
 }
 
-/** 被丢弃的事件里是否有 `command.optionId` 所属的那一个（决定抛哪个错误码，ADR-0024 决策 8）。 */
+/** 被清出槽的事件里是否有 `command.optionId` 所属的那一个（决定抛哪个错误码，ADR-0024 决策 8）。 */
 function droppedEventOwnsOption(dropped: readonly string[], optionId: string, lookup: TemplateLookup): boolean {
   for (const eventId of dropped) {
     const def = lookup.event(eventId);
@@ -429,111 +302,94 @@ function droppedEventOwnsOption(dropped: readonly string[], optionId: string, lo
   return false;
 }
 
-/**
- * 触发单个事件并按 kind 路由：
- * normal → 入待决队列；random → 服务端立即结算转盘；combat → 建战斗会话。
- * nextEventId 串联触发（深度限制防环）。
- *
- * **引擎内部编排函数，不是玩家端 API**：导出只为让测试直接驱动一次触发并断言
- * `TriggerResult`（含非持久化诊断位 `skipped`）。调用方需自备 `result` 累加器；
- * `apps/server` 不应调用它（轮次入口是 `advanceTurnV2` / `chooseOptionV2`）。
- */
-export function triggerEventV2(
-  state: WorldStateV2,
-  event: EventV2,
-  lookup: TemplateLookup,
-  rng: Rng,
-  depth: number,
-  result: TriggerResult,
-  chainId?: string,
-): void {
-  if (depth > MAX_TRIGGER_DEPTH) return;
-  // combat 事件：同一时刻至多一场。已有进行中战斗时整条跳过——不写 firedEvents/triggered/history，
-  // 避免「战斗并未发生，却留下触发提示、历史记录并消耗 once/冷却」的不一致（事件冲突议题见 OPEN_QUESTIONS）。
-  if (event.kind === "combat" && state.battle && !state.battle.over) return;
-  if (event.kind === "combat") {
-    // ADR-0021 决策 1.2：敌人全部「确知非在世」⇒ 战斗不成立，整条跳过。
-    // 位置与上面的并发 skip 同一处（recordFire 之前），口径完全复用：不写
-    // firedEvents/lastFiredIndex/eventFires、不入 pendingEvents、不进 triggered、不写 history、
-    // 不消耗 once/冷却、不推 timeCost、不动链状态。友军滤空不跳过（照常打，只是没有友军）。
-    // 判活是纯读 + 零 RNG，重复调用 resolveCombatRefs 只为保持 createBattle 独立可用。
-    if (resolveCombatRefs(event.settle.combat, state, lookup).enemiesExhausted) {
-      result.skipped = SKIP_ALL_ENEMIES_INACTIVE;
-      return;
-    }
+/** 事件的「后继」是否有时间账：声明了 `delay` / `window.start` ⇒ 入队；否则直接占槽。 */
+function enqueueSuccessor(state: WorldStateV2, lookup: TemplateLookup, nextEventId: string): boolean {
+  const next = lookup.event(nextEventId);
+  if (!next) return false; // 悬空 nextEventId：加载期校验会拦，这里保守当"无后继"
+  const startSpec = next.trigger.window?.start ?? next.trigger.delay;
+  if (startSpec === undefined) return false;
+  enqueueScheduled({
+    state,
+    definitionId: next.id,
+    origin: { kind: "effect", id: next.id },
+    start: startSpec,
+    ...(next.trigger.window?.end !== undefined ? { end: next.trigger.window.end } : {}),
+    calendar: createTimeAdapter(lookup.template),
+  });
+  return true;
+}
+
+/** 结算后的「占槽判定」（ADR-0034 §2 步 4）：**唯一**能写 `slot` 的后继路径。 */
+function applySuccessor(state: WorldStateV2, lookup: TemplateLookup, settledId: string, nextEventId?: string): void {
+  if (nextEventId === undefined) {
+    state.slot = null;
+    return;
   }
-  // ============ 临时实验：槽位守卫（与文件顶部 SLOT_GUARD_DELAY 配套，可整块删除回退）============
-  // 当槽位（pendingEvents）已被占用时，normal 事件不再直接入队，而是转入延时队列（delay=0，
-  // 下一轮 drain 回检），等槽位空出后再经 onFire 回到本函数、此刻才 recordFire + 入 pendingEvents。
-  // 守卫必须位于 recordFire 之前：出队事件会再次进入 triggerEventV2，若放在 recordFire 之后会
-  // 重复 recordFire（once / 冷却 / 事实日志错乱）。命中守卫即 return，跳过本次的 recordFire /
-  // triggered.push / pushHistory。combat / random 走各自分支、不经 pendingEvents，不受本守卫影响。
-  if (event.kind === "normal" && state.pendingEvents.length > 0) {
+  if (enqueueSuccessor(state, lookup, nextEventId)) {
+    state.slot = null; // 有延迟 ⇒ 进队列，不占槽（ADR §10-4）
+    return;
+  }
+  state.slot = { eventId: nextEventId, from: "successor", fromEventId: settledId };
+}
+
+/** 链条起点（`startChain` 效果 / NPC 自主行动）⇒ 只入队，绝不直接写 `slot`（ADR-0034 §4 R3）。 */
+function enqueueChainStarts(
+  state: WorldStateV2,
+  lookup: TemplateLookup,
+  chainIds: string[] | undefined,
+): void {
+  if (!chainIds || chainIds.length === 0) return;
+  for (const chainId of chainIds) {
+    const def = lookup.chain(chainId);
+    if (!def) continue;
     enqueueScheduled({
       state,
-      definitionId: event.id,
-      // EventInstanceOrigin 要求 id（协议 §16，所有 kind 均须带 id）；沿用 pool/schedule-init 约定
-      // 以被延后事件自身 id 标识来源（纯元数据，不参与调度分发）。
-      origin: { kind: "effect", id: event.id },
-      start: SLOT_GUARD_DELAY,
-      ...(chainId !== undefined ? { chainId } : {}),
-      // delay=0 ⇒ resolveTimeSpec 不依赖历法，无需注入 calendar（见顶部常量注释）。
-      calendar: undefined,
+      definitionId: def.startEventId,
+      origin: { kind: "effect", id: chainId },
+      start: ZERO_SPEC,
+      calendar: createTimeAdapter(lookup.template),
     });
-    return;
   }
-  // ============ /临时实验：槽位守卫 ============
+}
 
-  recordFire(state, event.id);
-  result.triggered.push({ id: event.id, title: event.title, narrative: event.narrative });
-  pushHistory(state, lookup.template, {
-    id: historyId(state, `t${state.turnIndex}-e-${event.id}`),
+/**
+ * 结算一个**已在槽中**的事件（ADR-0034 §2 步 3）。
+ *
+ * 顺序固定：应用效果 → `turnIndex += 1` → `recordFire` → 写历史 → 占槽判定。
+ * `turnIndex` 后移到内容落地之后，是 S2「槽内事件未结算前轮次不前进」的落点；
+ * `recordFire` 必须在 `turnIndex += 1` **之后**，否则事实日志会记到上一轮。
+ */
+function settleSlotEvent(input: {
+  state: WorldStateV2;
+  template: WorldTemplateV2;
+  lookup: TemplateLookup;
+  result: TriggerResult;
+  def: EventV2;
+  applyEffects: () => void;
+  choiceText?: string;
+  optionId?: string;
+  nextEventId?: string;
+}): void {
+  const { state, template, lookup, result, def } = input;
+  input.applyEffects();
+  state.turnIndex += 1;
+  recordFire(state, def.id);
+  result.triggered.push({ id: def.id, title: def.title, narrative: def.narrative });
+  pushHistory(state, template, {
+    id: historyId(state, `t${state.turnIndex}-e-${def.id}`),
     type: "event",
-    summary: `${event.title}：${event.narrative}`,
-    // 事件无隐藏语义（OPEN_QUESTIONS #33）：进轮次调度即公开
+    summary: `${def.title}：${def.narrative}`,
     visibility: "public",
   });
-
-  if (event.kind === "normal") {
-    enqueuePendingEvent(state, event, lookup, chainId);
-    return;
-  }
-  if (event.kind === "random") {
-    const wheel = event.settle.random.wheel;
-    const eff = playerEffectiveAttributes(state, lookup);
-    const weights = wheel.segments.map((seg) => {
-      let w = seg.weight;
-      for (const [attr, coef] of Object.entries(seg.weightBy ?? {})) {
-        w += (eff[attr] ?? 0) * coef;
-      }
-      return Math.max(0, w);
+  if (input.choiceText !== undefined) {
+    pushHistory(state, template, {
+      id: historyId(state, `t${state.turnIndex}-c-${def.id}-${input.optionId ?? ""}`),
+      type: "event",
+      summary: `${def.title}：你选择了「${input.choiceText}」`,
+      visibility: "public",
     });
-    const idx = pickIndex(weights, rng);
-    const seg = wheel.segments[idx];
-    result.wheelResult = {
-      eventId: event.id,
-      // D-16：标题随结果持久化 —— 刷新后前端不再依赖本次响应的 triggeredEvents 反查，
-      // 双转盘卡片的标题也不会回落成「随机事件」。
-      title: event.title,
-      label: seg.label,
-      segments: wheel.segments.map((s) => ({ label: s.label, weight: Math.max(0, s.weight) })),
-    };
-    // 单槽保留「最后一个」（既有消费者 + D-09 刷新回放），列表承接「当轮全部」（D-03）：
-    // 同一轮结算两个 kind: random 事件时不再互相覆盖玩家可见的转盘结果。
-    state.lastWheel = result.wheelResult;
-    (state.lastWheels ??= []).push(result.wheelResult);
-    const segCtx: EffectContextV2 = { state, lookup, rng, logs: [] };
-    applyEffectsV2(segCtx, seg.effects);
-    // 效果推进世界时间 / enqueueEvent 入队：只置标记，由 drainDue 在本轮整体结束后
-    // 开新一轮 pass 消费（§3.4.5 断链保护，不在 onFire 内递归 drain）。
-    if (segCtx.timeAdvanced || (segCtx.enqueued?.length ?? 0) > 0) result.drainRequested = true;
-    triggerChainStarts(state, segCtx.startedChains, lookup, rng, result);
-    advanceChainOnSettle(state, event, seg.nextEventId, lookup, rng, depth, result);
-    return;
   }
-  // combat（并发检查已提前到函数入口，此处 battle 必然为空或已结束）
-  state.battle = createBattle(event.id, event.settle.combat, state, lookup);
-  state.battle.log.push(`${event.narrative}`);
+  applySuccessor(state, lookup, def.id, input.nextEventId);
 }
 
 function pickIndex(weights: number[], rng: { (): number }): number {
@@ -548,94 +404,103 @@ function pickIndex(weights: number[], rng: { (): number }): number {
 }
 
 /**
- * 链事件结算后的推进（R-EV-10 / M4）：
- * - stepIndex 一律经 scheduler.alignChainStep 单一规则对齐，杜绝「效果 +1 与结算对齐」双写漂移；
- * - 目标步声明 delay/window 时**不入 pendingEvents**，立即 enqueueScheduled 并保留链 active
- *   （evaluateChain 靠队列 waiting 实例判断链未断），到期 drain 时按 chainId 回归链优先级。
+ * **呈现**槽内的 `random`（转盘）事件：只掷骰、只记录呈现结果，**不结算**。
+ *
+ * 为什么不呈现即结算：ADR-0034 §2 步 2 把「转盘确认」列为**输入**，步 3 才是结算。
+ * 若呈现即结算，一次调用会连续结算「上一事件 + 转盘」两个事件 ⇒ 直接违反 S1（一轮只结算一个）
+ * 与 G1-3（净 `turnIndex` 增量 = 1）。
+ *
+ * 掷骰用**扫描派生流**（`scanStream`）而不是主轮流：呈现可能被重复调用（刷新/重取快照），
+ * 用主轮流会把"看一次"变成"多扣一次骰"。同一 `(seed, turnIndex, state)` 必然得到同一格。
+ * 结果写进 `lastWheel(s)`（本轮呈现记录，本来就是呈现态的载体），确认时按同一 label 找回。
  */
-function advanceChainOnSettle(
+function presentRandomSlot(
   state: WorldStateV2,
-  settled: EventV2 | undefined,
-  nextEventId: string | undefined,
   lookup: TemplateLookup,
-  rng: Rng,
-  depth: number,
   result: TriggerResult,
+  def: EventV2,
 ): void {
-  const chainState = settled
-    ? state.chains.find((c) => {
-        const def = lookup.chain(c.id);
-        return def?.steps.some((s) => s.eventId === settled.id);
-      })
-    : undefined;
-  if (!chainState || !settled) {
-    if (nextEventId) {
-      const next = lookup.event(nextEventId);
-      if (next) triggerEventV2(state, next, lookup, rng, depth + 1, result);
-    }
+  if (def.kind !== "random") return;
+  const existing = (state.lastWheels ?? []).find((w) => w.eventId === def.id);
+  if (existing !== undefined) {
+    result.wheelResult = existing; // 重复呈现：复用已掷出的那一格（幂等）
+    state.lastWheel = existing;
     return;
   }
-  if (!nextEventId) {
-    chainState.status = "completed";
-    return;
-  }
-  const def = lookup.chain(chainState.id);
-  const idx = def?.steps.findIndex((s) => s.eventId === nextEventId) ?? -1;
-  if (idx < 0) {
-    chainState.status = "completed";
-    const next = lookup.event(nextEventId);
-    if (next) triggerEventV2(state, next, lookup, rng, depth + 1, result);
-    return;
-  }
-  alignChainStep(state, chainState.id, lookup, nextEventId);
-  const step = def!.steps[idx];
-  const next = lookup.event(nextEventId);
-  if (!next) {
-    chainState.status = "completed";
-    return;
-  }
-  const delayed = step.delay ?? next.trigger.delay ?? next.trigger.window?.start;
-  if (delayed !== undefined) {
-    enqueueScheduled({
-      state,
-      definitionId: next.id,
-      origin: { kind: "effect", id: chainState.id },
-      chainId: chainState.id,
-      start: delayed,
-      ...(next.trigger.window?.end !== undefined ? { end: next.trigger.window.end } : {}),
-      calendar: createTimeAdapter(lookup.template),
-    });
-    return;
-  }
-  triggerEventV2(state, next, lookup, rng, depth + 1, result, chainState.id);
+  const wheel = def.settle.random.wheel;
+  const eff = playerEffectiveAttributes(state, lookup);
+  const weights = wheel.segments.map((seg) => {
+    let w = seg.weight;
+    for (const [attr, coef] of Object.entries(seg.weightBy ?? {})) w += (eff[attr] ?? 0) * coef;
+    return Math.max(0, w);
+  });
+  const idx = pickIndex(weights, scanStream(state));
+  const seg = wheel.segments[idx];
+  const view: WheelResultView = {
+    eventId: def.id,
+    title: def.title,
+    label: seg.label,
+    segments: wheel.segments.map((s) => ({ label: s.label, weight: Math.max(0, s.weight) })),
+  };
+  result.wheelResult = view;
+  state.lastWheel = view;
+  (state.lastWheels ??= []).push(view);
 }
 
-/** 链注册后，按起点事件 kind 立即路由触发（normal 入队 / random 即时结算 / combat 建战斗）。 */
-function triggerChainStarts(
+/** 槽内 `random` 的**确认结算**（`advanceTurnV2` 在 random 槽上即"转盘确认"输入）。 */
+function settleRandomSlot(
   state: WorldStateV2,
-  startedChains: string[] | undefined,
+  template: WorldTemplateV2,
   lookup: TemplateLookup,
   rng: Rng,
   result: TriggerResult,
+  def: EventV2,
 ): void {
-  if (!startedChains || startedChains.length === 0) return;
-  for (const chainId of startedChains) {
-    const def = lookup.chain(chainId);
-    if (!def) continue;
-    const start = lookup.event(def.startEventId);
-    if (start) triggerEventV2(state, start, lookup, rng, 0, result, chainId);
-  }
+  if (def.kind !== "random") return;
+  const wheel = def.settle.random.wheel;
+  const shown = (state.lastWheels ?? []).find((w) => w.eventId === def.id);
+  // 未确认前一定呈现过（S2：呈现是结算的前置）；兜底按 label 找不到时取首段（不静默吞掉结算）
+  const seg = wheel.segments.find((s) => s.label === shown?.label) ?? wheel.segments[0]!;
+  settleSlotEvent({
+    state,
+    template,
+    lookup,
+    result,
+    def,
+    applyEffects: () => {
+      const segCtx: EffectContextV2 = { state, lookup, rng, logs: [] };
+      applyEffectsV2(segCtx, seg.effects);
+      enqueueChainStarts(state, lookup, segCtx.startedChains);
+    },
+    ...(seg.nextEventId !== undefined ? { nextEventId: seg.nextEventId } : {}),
+  });
 }
 
-// ---------- 事件池结算 ----------
+/** pool 抽取阈值（ADR-0034 §3-6 / §10）：只决定"摇不摇"，不决定"占不占槽"。 */
+function poolDrawConfig(template: WorldTemplateV2): { skipWhenSlotOccupied: boolean; maxQueueLength: number } {
+  const cfg = template.eventFlow?.poolDraw;
+  return {
+    skipWhenSlotOccupied: cfg?.skipWhenSlotOccupied ?? true,
+    maxQueueLength: cfg?.maxQueueLength ?? 3,
+  };
+}
 
 /**
- * pool = 抽取器（R-EV-08/13）：六策略在**候选产生时**决定门控，
- * 通过者只经 enqueueCandidate 进延时队列（delay 缺省 = 相对 0 分钟），不得立即呈现。
- * 门控失败不产生实例、不记错失；probability 逐事件掷骰 + weight 加权抽一的 RNG 次序沿用旧管线。
- * 【同 seed 序列变更】旧实现抽中即 triggerEventV2；本实现抽出后由管线末端 drain 触发。
+ * pool = 抽取器（R-EV-08/13）。**只写 `delayQueue`、没有写 `slot` 的权限**（ADR-0034 §10）：
+ * 与「取队列实例 → 写 slot」是两个不同函数，结构上保证"摇出事件"这个判断不占槽。
+ * 阈值 = `slot !== null`（可按配置关掉）或 `delayQueue.length >= N` ⇒ 本轮不摇。
  */
-function resolvePoolV2(state: WorldStateV2, template: WorldTemplateV2, lookup: TemplateLookup, rng: Rng): void {
+function resolvePoolV2(
+  state: WorldStateV2,
+  template: WorldTemplateV2,
+  lookup: TemplateLookup,
+  rng: Rng,
+): void {
+  const draw = poolDrawConfig(template);
+  if (draw.skipWhenSlotOccupied && state.slot !== null) return;
+  const queued = state.delayQueue.filter((i) => i.status === "waiting").length;
+  if (queued >= draw.maxQueueLength) return;
+
   const ctx: ConditionContext = { state, lookup, rng };
   const calendar = createTimeAdapter(template);
   const pool = template.events
@@ -646,7 +511,6 @@ function resolvePoolV2(state: WorldStateV2, template: WorldTemplateV2, lookup: T
     .filter((e) => checkAllConditions(e.trigger.conditions, ctx))
     .sort((a, b) => (b.trigger.priority ?? 0) - (a.trigger.priority ?? 0));
 
-  // probability 事件：独立掷骰；weight 事件：从同轮合格者中按权重抽一个
   const weighted: EventV2[] = [];
   const enqueue = (event: EventV2): void => {
     enqueueCandidate({
@@ -672,8 +536,8 @@ function resolvePoolV2(state: WorldStateV2, template: WorldTemplateV2, lookup: T
 }
 
 /**
- * action-hook 保留旧名：未声明 window/delay ⇒ 立即触发；声明了 ⇒ 入延时队列。
- * 六策略仍在命中行动时求值（配置域只读），preGated 避免门控重复扣减。
+ * action-hook（行动触发）：声明了 `window` / `delay` ⇒ 入队；否则**写 `hook` 槽**。
+ * 槽已被占（例如同轮第一个钩子已占）⇒ 改造入队，绝不覆盖（`slot` 是标量，覆盖即丢事件）。
  */
 function resolveHooksV2(
   state: WorldStateV2,
@@ -681,7 +545,6 @@ function resolveHooksV2(
   lookup: TemplateLookup,
   rng: Rng,
   actionId: string,
-  result: TriggerResult,
 ): void {
   const ctx: ConditionContext = { state, lookup, rng };
   const calendar = createTimeAdapter(template);
@@ -702,53 +565,118 @@ function resolveHooksV2(
         calendar,
         preGated: true,
       });
+    } else if (state.slot === null) {
+      state.slot = { eventId: event.id, from: "hook" };
     } else {
-      triggerEventV2(state, event, lookup, rng, 0, result);
-    }
-  }
-}
-
-/** Q-R25-06 裁决 A：保留 nextTurn（槽位语义，不是时间量）；延时步一律走队列。 */
-function advanceNextTurnChains(state: WorldStateV2, lookup: TemplateLookup, rng: Rng, result: TriggerResult): void {
-  for (const chainState of state.chains) {
-    if (chainState.status !== "active") continue;
-    const def = lookup.chain(chainState.id);
-    if (!def) continue;
-    // R-EV-10：队列仍有该链 waiting 实例时不得推进 / 断链
-    if (state.scheduledEvents.some((i) => i.chainId === chainState.id && i.status === "waiting")) continue;
-    if (evaluateChain(state, lookup, chainState.id) !== "active") {
-      chainState.status = "completed";
-      continue;
-    }
-    const currentStep = def.steps[chainState.stepIndex];
-    if (!currentStep || currentStep.advanceWhen !== "nextTurn") continue;
-    const nextStep = def.steps[chainState.stepIndex + 1];
-    if (!nextStep) {
-      chainState.status = "completed";
-      continue;
-    }
-    const nextEvent = lookup.event(nextStep.eventId);
-    if (!nextEvent) {
-      chainState.status = "completed";
-      continue;
-    }
-    alignChainStep(state, chainState.id, lookup, nextStep.eventId);
-    if (nextStep.delay !== undefined) {
+      // 槽已被同轮其它钩子占用 ⇒ 入队等下一轮（不覆盖、不丢弃）
       enqueueScheduled({
         state,
-        definitionId: nextEvent.id,
-        origin: { kind: "effect", id: chainState.id },
-        chainId: chainState.id,
-        start: nextStep.delay,
-        calendar: createTimeAdapter(lookup.template),
+        definitionId: event.id,
+        origin: { kind: "effect", id: actionId },
+        start: ZERO_SPEC,
+        calendar,
       });
-      continue;
     }
-    triggerEventV2(state, nextEvent, lookup, rng, 0, result, chainState.id);
   }
 }
 
-// ---------- 轮次推进 ----------
+/**
+ * 结算后的「其他判定」（ADR-0034 §2 步 5，顺序固定：NPC 自主行动 → pool 摇一个）。
+ * `missWhen` 的处置在队列扫描里（`scanDelayQueue`），不在这里。
+ */
+function postSettleJudgements(
+  state: WorldStateV2,
+  template: WorldTemplateV2,
+  lookup: TemplateLookup,
+  rng: Rng,
+): void {
+  const npcResult = runNpcActionsV2(state, lookup, rng);
+  enqueueChainStarts(state, lookup, npcResult.startedChains);
+  resolvePoolV2(state, template, lookup, rng);
+}
+
+/**
+ * **`nextTurn` 判定链**（ADR-0034 §2，全模型唯一的推进入口）。
+ *
+ * ```
+ * 槽有 ⇒ 只处理它；random 呈现即结算；combat 建战斗后等战斗命令；normal 等选择
+ * 槽空 ⇒ 扫队列，取出即写 slot（from: "queueTake"）再处理
+ * 都没有 ⇒ 返回（空槽 = 可自由行动）
+ * ```
+ *
+ * 自旋上限 `MAX_NEXT_TURN_SPINS` 只防实现 bug；正常路径 1–3 圈。
+ */
+function nextTurn(
+  state: WorldStateV2,
+  template: WorldTemplateV2,
+  lookup: TemplateLookup,
+  rng: Rng,
+  result: TriggerResult,
+): void {
+  for (let spin = 0; spin < MAX_NEXT_TURN_SPINS; spin += 1) {
+    if (state.slot !== null) {
+      const def = lookup.event(state.slot.eventId);
+      if (!def) {
+        state.slot = null; // 加载期完整性错误：清槽，不臆造错失
+        continue;
+      }
+      // 呈现前前提复核（§3-4）：失效即静默清槽，然后继续判定（可能还有排队事件）
+      const { dropped } = revalidateSlot(state, lookup);
+      if (dropped.length > 0) {
+        recordDroppedPending(result, dropped);
+        continue;
+      }
+      if (def.kind === "random") {
+        presentRandomSlot(state, lookup, result, def);
+        return; // 停在呈现，等「转盘确认」（ADR-0034 §2 步 2）
+      }
+      if (def.kind === "combat") {
+        if (state.battle === null || state.battle.over) {
+          if (resolveCombatRefs(def.settle.combat, state, lookup).enemiesExhausted) {
+            // ADR-0021 决策 1.2：敌人全部确知非在世 ⇒ 战斗不成立，整条跳过（不记火、不写历史）
+            result.skipped = SKIP_ALL_ENEMIES_INACTIVE;
+            state.slot = null;
+            continue;
+          }
+          state.battle = createBattle(def.id, def.settle.combat, state, lookup);
+          state.battle.log.push(def.narrative);
+        }
+        return; // 战斗命令由 battleActionV2 接
+      }
+      return; // normal：等玩家选择
+    }
+
+    const scanned = scanDelayQueue(state, lookup, scanStream(state), createTimeAdapter(template));
+    if (scanned.kind === "taken") {
+      state.slot = { eventId: scanned.definition.id, from: "queueTake" };
+      continue;
+    }
+    return; // 空槽
+  }
+}
+
+/** 投影 + 评价：评价是唯一事实来源（T4-04），每次投影按当前状态重算。 */
+function projectWithConfig(
+  state: WorldStateV2,
+  template: WorldTemplateV2,
+  lookup: TemplateLookup,
+  pipeline: TurnPipelineConfig | undefined,
+): V2Snapshot {
+  const evaluation = evaluateLifeV2(state, pipeline?.evaluationConfig);
+  return projectSnapshotV2(state, template, lookup, evaluation, pipeline?.endingConfig?.endings);
+}
+
+/** 任何返回给玩家的 `snapshot` 之前复核一次槽前提（ADR-0034 §3-4），保证响应里没有幽灵场景。 */
+function revalidateThenProject(
+  state: WorldStateV2,
+  template: WorldTemplateV2,
+  lookup: TemplateLookup,
+  pipeline: TurnPipelineConfig | undefined,
+  result: TriggerResult,
+): V2Snapshot {
+  recordDroppedPending(result, revalidateSlot(state, lookup).dropped);
+  return projectWithConfig(state, template, lookup, pipeline);
+}
 
 /**
  * 可选管线配置（阶段 4 遗留接线）：不传时行为与接线前逐字段一致——
@@ -819,60 +747,8 @@ function applyDeathRouteInPlace(
   state.eventFires = res.state.eventFires;
   state.missedEvents = res.state.missedEvents;
   state.history = res.state.history;
-  state.pendingEvents = res.state.pendingEvents;
+  state.slot = res.state.slot;
   state.termination = res.state.termination;
-}
-
-/**
- * 共享的「结算后管线」（R-EV-14「事件轮跑完整管线」）：
- * NPC 自主行动 → pool 门控抽取 → drain 延时队列 → 终止/结局边界。
- * advanceTurnV2（自由行动轮）与 chooseOptionV2（事件结算轮）**都走这里**，保证「轮」语义单一。
- * 回复/补正 tick 等模拟域结算只在自由行动轮执行（既有语义，本轮不改）。
- */
-function runTurnTail(
-  state: WorldStateV2,
-  template: WorldTemplateV2,
-  lookup: TemplateLookup,
-  rng: Rng,
-  result: TriggerResult,
-  pipeline: TurnPipelineConfig | undefined,
-  signal: TerminationSignal,
-): void {
-  const npcResult = runNpcActionsV2(state, lookup, rng);
-  if (npcResult.startedChains.length > 0) {
-    triggerChainStarts(state, npcResult.startedChains, lookup, rng, result);
-  }
-  resolvePoolV2(state, template, lookup, rng);
-  // drain 入口 3：pool 的无窗口实例（start = now）、效果 enqueueEvent 的已到期实例在此出队。
-  // 也不会与步骤 3 的 drain 冲突：非 waiting 条目直接跳过。
-  drainDue(state, lookup, rng, result);
-  applyEndingBoundary(state, lookup, rng, pipeline, signal);
-}
-
-/** 投影 + 评价：评价是唯一事实来源（T4-04），每次投影按当前状态重算。 */
-function projectWithConfig(
-  state: WorldStateV2,
-  template: WorldTemplateV2,
-  lookup: TemplateLookup,
-  pipeline: TurnPipelineConfig | undefined,
-): V2Snapshot {
-  const evaluation = evaluateLifeV2(state, pipeline?.evaluationConfig);
-  return projectSnapshotV2(state, template, lookup, evaluation, pipeline?.endingConfig?.endings);
-}
-
-/**
- * ADR-0024 决策 2.3 #4：**唯一的必做项**——任何返回给玩家的 `snapshot` 之前都复核一次，
- * 保证响应里没有幽灵场景。四个轮次入口末尾收敛到这一处，避免四条路径各写一遍而漂移。
- */
-function revalidateThenProject(
-  state: WorldStateV2,
-  template: WorldTemplateV2,
-  lookup: TemplateLookup,
-  pipeline: TurnPipelineConfig | undefined,
-  result: TriggerResult,
-): V2Snapshot {
-  recordDroppedPending(result, revalidatePendingV2(state, lookup).dropped);
-  return projectWithConfig(state, template, lookup, pipeline);
 }
 
 export function advanceTurnV2(
@@ -885,50 +761,66 @@ export function advanceTurnV2(
   pipeline?: TurnPipelineConfig,
 ): V2TurnResult {
   assertActive(state);
-  // ADR-0024 决策 2.3 #1：命令入口先复核待决队列，且**必须在槽位守卫之前**——
-  // 否则一个前提已死的队首会继续把玩家挡在自由行动之外（决策 2.5 的硬死锁）。
-  const droppedAtEntry = revalidatePendingV2(state, lookup).dropped;
-  // #34 槽位守卫（收窄语义）：待决事件占住本轮槽位时拒绝提交新的自由行动；
-  // 事件结算本身已在 chooseOptionV2 / battleActionV2 里推进过 turnIndex，不再拦「结算」。
-  if (state.pendingEvents.length > 0) throw new Error("pending_event_required");
-  if (state.battle && !state.battle.over) throw new Error("battle_in_progress");
-  // 清理上一场已结束的战斗（结果已回写）
+  // 槽被占 ⇒ 必须先处理槽内事件（ADR-0034 §5：`pending_event_required` 语义重述，不新增错误码）。
+  // 例外：槽内是 `random` ⇒ 本次调用即**「转盘确认」**（ADR-0034 §2 步 2 明确把"转盘确认"列为输入，
+  // 而服务端没有也不该新增专用路由）。此时不消耗行动、不推时间，只把已呈现的那一格结算掉。
+  const confirmingWheel =
+    state.slot !== null && lookup.event(state.slot.eventId)?.kind === "random";
+  if (state.slot !== null && !confirmingWheel) throw new Error("pending_event_required");
+  if (state.battle !== null && !state.battle.over) throw new Error("battle_in_progress");
+  // 清理上一场已结束的战斗（战斗是槽的内部过程，会话不该跨轮残留）
   state.battle = null;
-  // 「当轮」语义（D-03）：转盘结果列表在**轮次起点**清空，只保留本轮触发的转盘。
-  // 放在全部守卫之后，被拒的指令不会清掉上一轮的可见结果。
+  // 本轮呈现集在**轮次起点**清空（D-03）：被拒的指令不会清掉上一轮的可见结果
   state.lastWheels = [];
 
-  // 未注入 ctx 时沿用原有按轮派生 seed（行为逐字段不变）；
-  // 注入时用 RunnerContext 的确定性 rng，供同 seed 全链路回放复用。
   const rng = ctx?.rng ?? createRng(deriveTurnSeed(state.seed, state.turnIndex + 1));
   const adapter = createTimeAdapter(template);
   const action = lookup.action(command.action.type);
   const lifeStage = adapter.resolveLifeStage(state.player.age);
 
-  // 绝对推进目标（剧情节点）优先于相对步长：直接推进到目标时间，不倒退
+  // ---- 0. 转盘确认：槽内是 random ⇒ 结算它，然后照常走"其他判定 → nextTurn" ----
+  if (confirmingWheel) {
+    const wheelEvent = lookup.event(state.slot!.eventId)!;
+    const wheelResult: TriggerResult = { triggered: [], wheelResult: null };
+    settleRandomSlot(state, template, lookup, rng, wheelResult, wheelEvent);
+    postSettleJudgements(state, template, lookup, rng);
+    nextTurn(state, template, lookup, rng, wheelResult);
+    applyEndingBoundary(state, lookup, rng, pipeline, {
+      atBoundary: true,
+      boundary: "afterEventSettle",
+    });
+    const wheelSnapshot = revalidateThenProject(state, template, lookup, pipeline, wheelResult);
+    return {
+      state,
+      snapshot: wheelSnapshot,
+      elapsed: { value: 0, unit: "minute" },
+      triggeredEvents: wheelResult.triggered,
+      wheelResult: wheelResult.wheelResult,
+      playerVisibleHistory: [],
+    };
+  }
+
+  // ---- 1. 时间账（自由行动的时间在行动本身，不在轮次） ----
   let elapsed: TimeAmount;
   if (action?.advanceTo) {
     const delta = Math.max(0, amountToMinutes(action.advanceTo) - state.worldTime);
-    state.turnIndex += 1;
     state.worldTime += delta;
     elapsed = minutesToAmount(delta);
   } else {
     elapsed = adapter.resolveStep(lifeStage, action?.duration);
-    state.turnIndex += 1;
     state.worldTime += amountToMinutes(elapsed);
   }
-  // ADR-0010：系统轮次计数不再写进 flags（≡ turnIndex），模板条件改用 time DSL。
+  state.player.age = state.playerAgeAtStart + adapter.elapsedYears(state.worldTime);
 
-  // 入口复核已丢弃的条目并入本轮诊断位（ADR-0024 决策 4：非持久化）
-  const result: TriggerResult = {
-    triggered: [],
-    wheelResult: null,
-    ...(droppedAtEntry.length > 0 ? { droppedPending: [...droppedAtEntry] } : {}),
-  };
+  const result: TriggerResult = { triggered: [], wheelResult: null };
 
-  // 1. 玩家行动效果（改变状态；startChain / advanceTo 等副作用标记由路由层按优先级消费）
+  // ---- 2. 行动效果（`startChain` 只入队，绝不直接占槽） ----
   const actionCtx: EffectContextV2 = { state, lookup, rng, logs: [] };
   applyEffectsV2(actionCtx, action?.effects);
+  enqueueChainStarts(state, lookup, actionCtx.startedChains);
+
+  // ---- 3. 结算：轮次推进在内容落地之后（ADR-0034 §2 步 3 / §4 S2） ----
+  state.turnIndex += 1;
   pushHistory(state, template, {
     id: `t${state.turnIndex}-p`,
     type: "player_action",
@@ -936,36 +828,27 @@ export function advanceTurnV2(
     visibility: "public",
   });
 
-  // 2. 事件链（chain）——最高优先级，先抢占战斗槽位，保证主线不被随机遭遇挤掉
-  triggerChainStarts(state, actionCtx.startedChains, lookup, rng, result);
-  advanceNextTurnChains(state, lookup, rng, result);
+  // ---- 4. 占槽判定：行动钩子可产生 `hook` 槽（唯一能写 slot 的自由行动路径） ----
+  resolveHooksV2(state, template, lookup, rng, command.action.type);
 
-  // 3. 延时队列 drain（入口 1）——次高；位置不变，保持「链 > 时间触发」优先级。
-  //    行动效果的 advanceTo/advanceBy 已在步骤 1 推进 worldTime，此处统一出队，
-  //    不再全模板扫描 resolveScheduleV2（T1-04）。
-  drainDue(state, lookup, rng, result);
-
-  // 4. 行动触发（action-hook）——再次
-  resolveHooksV2(state, template, lookup, rng, command.action.type, result);
-
-  // 5. 回复（行动附加回复 + 每轮自然回复）
+  // ---- 5. 模拟域结算（只在自由行动轮执行） ----
   const bonus = template.regen.actions?.[command.action.type];
   const hpRegen = template.regen.perTurn.hp + (bonus?.hp ?? 0);
   const mpRegen = template.regen.perTurn.mp + (bonus?.mp ?? 0);
   state.player.hp = Math.min(maxHp(state.player, template), state.player.hp + hpRegen);
   state.player.mp = Math.min(maxMp(state.player, template), state.player.mp + mpRegen);
-
-  // 6. 心情/补正模拟域结算
   tickSimulationStatuses(state, lookup, command.action.type === "rest");
   state.player.mood = Math.max(template.mood.min, Math.min(template.mood.max, state.player.mood));
 
-  // 7. 年龄推进（由时间适配器按历法计算经过年数）
-  state.player.age = state.playerAgeAtStart + adapter.elapsedYears(state.worldTime);
+  // ---- 6. 其他判定：NPC 自主行动 → pool（pool 只入队；槽已被占时天然跳过） ----
+  postSettleJudgements(state, template, lookup, rng);
 
-  // 8–10. 共享结算后管线（NPC 行动 → pool 门控入队 → drain → 终止边界）。
-  //       advanceTurnV2 与 chooseOptionV2 走同一函数，保证「轮」语义单一（R-EV-14）。
+  // ---- 7. nextTurn：槽有则呈现、槽空则扫队列 ----
+  nextTurn(state, template, lookup, rng, result);
+
+  // ---- 8. 终止边界 ----
   const requested = command.endLife === true;
-  runTurnTail(state, template, lookup, rng, result, pipeline, {
+  applyEndingBoundary(state, lookup, rng, pipeline, {
     atBoundary: true,
     boundary: requested ? "playerRequested" : "afterTimeAdvance",
     playerRequested: requested,
@@ -1018,17 +901,16 @@ export function chooseOptionV2(
   pipeline?: TurnPipelineConfig,
 ): V2TurnResult {
   assertActive(state);
-  // ADR-0024 决策 2.3 #2（权威门）：即便状态被外部改坏 / 旧档残留，
-  // 也绝不允许结算一个前提已假的事件。
-  const droppedAtEntry = revalidatePendingV2(state, lookup).dropped;
+  // ADR-0024 决策 2.3 #2（权威门）：即便状态被外部改坏 / 旧档残留，也绝不允许结算前提已假的事件。
+  const droppedAtEntry = revalidateSlot(state, lookup).dropped;
   if (droppedEventOwnsOption(droppedAtEntry, command.optionId, lookup)) {
-    // 决策 8：与 option_not_available 分开 —— 客户端据此提示「状态过期，请重取快照」。
+    // 决策 8：与 option_not_available 分开 —— 客户端据此提示「状态已过期，请重取快照」。
     throw new Error("event_premise_invalidated");
   }
-  if (state.battle && !state.battle.over) throw new Error("battle_in_progress");
-  const pending = state.pendingEvents[0];
-  if (!pending) throw new Error("no_pending_event");
-  const event = lookup.event(pending.eventId);
+  if (state.battle !== null && !state.battle.over) throw new Error("battle_in_progress");
+  const scene = state.slot;
+  if (scene === null) throw new Error("no_pending_event");
+  const event = lookup.event(scene.eventId);
   if (!event || event.kind !== "normal") throw new Error("event_not_normal");
 
   const rng = createRng(deriveTurnSeed(state.seed + 7, state.turnIndex));
@@ -1038,56 +920,57 @@ export function chooseOptionV2(
   );
   if (!option) throw new Error("option_not_available");
 
-  // 「当轮」语义（D-03）：事件结算轮起点清空转盘列表（守卫全部通过后才清）
+  // 「本轮呈现集」在轮次起点清空（D-03）：守卫全部通过后才清
   state.lastWheels = [];
-  state.pendingEvents.shift();
 
-  // ---- #34 结算轮：事件结算推进 turnIndex（占槽），并按事件级 timeCost 推进世界时间 ----
-  // 触发事实已在 triggerEventV2 内经 recordFire 三处索引一次写齐；结算不是「再次触发」，
-  // 故此处不再散写 firedEvents / 追加 eventFires（避免重复事实）。
-  // R2.6（ADR-0013）：timeCost 换算经历法适配器（字符串字面量 / year-month 量）。
+  // 事件级时间账（`timeCost`，缺省 0）：结算轮可以推进 turnIndex 而世界时间不动
   const settleAdapter = createTimeAdapter(template);
   const costMinutes = event.trigger.timeCost === undefined ? 0 : specToMinutes(event.trigger.timeCost, settleAdapter);
-  state.turnIndex += 1;
-  state.worldTime += costMinutes;
-  const elapsed: TimeAmount = minutesToAmount(costMinutes);
   if (costMinutes > 0) {
+    state.worldTime += costMinutes;
     state.player.age = state.playerAgeAtStart + settleAdapter.elapsedYears(state.worldTime);
   }
 
-  pushHistory(state, template, {
-    id: historyId(state, `t${state.turnIndex}-c-${event.id}-${option.id}`),
-    type: "event",
-    summary: `${event.title}：你选择了「${option.text}」`,
-    visibility: "public",
-  });
-
-  // 入口复核已丢弃的条目并入本轮诊断位（ADR-0024 决策 4：非持久化）
   const result: TriggerResult = {
     triggered: [],
     wheelResult: null,
     ...(droppedAtEntry.length > 0 ? { droppedPending: [...droppedAtEntry] } : {}),
   };
-  const optionCtx: EffectContextV2 = { state, lookup, rng, logs: [] };
-  applyEffectsV2(optionCtx, option.effects);
-  // drain 入口 2/3：效果推进世界时间或 enqueueEvent 入队（相对 0 分钟即已到期）。
-  if (optionCtx.timeAdvanced || (optionCtx.enqueued?.length ?? 0) > 0) {
-    drainDue(state, lookup, rng, result);
-  }
-  triggerChainStarts(state, optionCtx.startedChains, lookup, rng, result);
-  advanceChainOnSettle(state, event, option.nextEventId, lookup, rng, 0, result);
 
-  // 事件轮跑完整管线（NPC 行动 / pool 门控 / drain / 终止边界），世界不因事件暂停。
-  runTurnTail(state, template, lookup, rng, result, pipeline, {
-    atBoundary: true,
-    boundary: "afterEventSettle",
+  settleSlotEvent({
+    state,
+    template,
+    lookup,
+    result,
+    def: event,
+    applyEffects: () => {
+      const optionCtx: EffectContextV2 = { state, lookup, rng, logs: [] };
+      applyEffectsV2(optionCtx, option.effects);
+      // B-36 接线：选项结算的 `log` 旁白此前被收集后丢弃（29 处模板文本从未展示给玩家）。
+      // 与 `useItemV2` 同口径：拼进本次结算的历史摘要。
+      if (optionCtx.logs !== undefined && optionCtx.logs.length > 0) {
+        pushHistory(state, template, {
+          id: historyId(state, `t${state.turnIndex}-l-${event.id}`),
+          type: "event",
+          summary: optionCtx.logs.join("；"),
+          visibility: "public",
+        });
+      }
+      enqueueChainStarts(state, lookup, optionCtx.startedChains);
+    },
+    choiceText: option.text,
+    optionId: option.id,
+    ...(option.nextEventId !== undefined ? { nextEventId: option.nextEventId } : {}),
   });
+
+  postSettleJudgements(state, template, lookup, rng);
+  nextTurn(state, template, lookup, rng, result);
 
   const snapshot = revalidateThenProject(state, template, lookup, pipeline, result);
   return {
     state,
     snapshot,
-    elapsed,
+    elapsed: minutesToAmount(costMinutes),
     triggeredEvents: result.triggered,
     wheelResult: result.wheelResult,
     playerVisibleHistory: [],
@@ -1096,6 +979,10 @@ export function chooseOptionV2(
 
 // ---------- 战斗行动 ----------
 
+/**
+ * 战斗命令（ADR-0034 §8-⑦）：**整场战斗是 `slot` 的内部过程，不额外推进轮次**。
+ * 战斗结束即该事件"结算完成"，此后才做占槽判定与其他判定。
+ */
 export function battleActionV2(
   state: WorldStateV2,
   command: BattleCommand,
@@ -1104,55 +991,52 @@ export function battleActionV2(
   pipeline?: TurnPipelineConfig,
 ): V2TurnResult {
   assertActive(state);
-  // ADR-0024 决策 2.3 #3：战斗命令也能在两轮之间改状态，入口同样要复核。
-  const droppedAtEntry = revalidatePendingV2(state, lookup).dropped;
+  const droppedAtEntry = revalidateSlot(state, lookup).dropped;
   const battle = state.battle;
   if (!battle || battle.over) throw new Error("battle_not_active");
   const rng = createRng(deriveTurnSeed(state.seed + 13, state.turnIndex * 100 + battle.round));
 
   performBattleAction(state, command, lookup, rng);
 
-  // 入口复核已丢弃的条目并入本轮诊断位（ADR-0024 决策 4：非持久化）
   const result: TriggerResult = {
     triggered: [],
     wheelResult: null,
     ...(droppedAtEntry.length > 0 ? { droppedPending: [...droppedAtEntry] } : {}),
   };
+
   if (battle.over) {
-    // #34：战斗结束算一次结算轮（战果占槽），推进 turnIndex；战斗回合内不推进（ADR-0001）。
-    // 战果本身即本轮槽位内容，不再额外跑 NPC/pool 尾管线，避免把新事件塞进同一个槽位。
-    state.turnIndex += 1;
-    // 「当轮」语义（D-03）：结算轮起点清空转盘列表（战斗回合内不动，避免白丢本轮结果）
-    state.lastWheels = [];
-    // 结算战斗结果效果 → 后续事件
     const event = lookup.event(battle.eventId);
     const outcome = battle.over;
     const outcomeLabel = outcome === "victory" ? "胜利" : outcome === "defeat" ? "败北" : "撤离";
+    state.lastWheels = [];
     if (event && event.kind === "combat") {
       const settle = event.settle.combat;
       const outcomeDef =
         outcome === "victory" ? settle.onVictory : outcome === "defeat" ? settle.onDefeat : settle.onFlee;
       // 先回写战斗镜像（补正转换/资源），再结算结果效果，避免镜像覆写结果补正
       finishBattle(state, lookup);
-      const outcomeCtx: EffectContextV2 = { state, lookup, rng, logs: [] };
-      applyEffectsV2(outcomeCtx, outcomeDef?.effects);
-      // drain 入口 2：战斗结果效果推进时间 / enqueueEvent 入队后统一出队。
-      if (outcomeCtx.timeAdvanced || (outcomeCtx.enqueued?.length ?? 0) > 0) {
-        drainDue(state, lookup, rng, result);
-      }
-      triggerChainStarts(state, outcomeCtx.startedChains, lookup, rng, result);
-      // 战斗结束立即清除会话：结果已回写并记入 history，前端据此回到常规行动界面，
-      // 避免残留的 over 会话与待决事件并存时「离开战场」被 pending_event_required 卡死。
+      // 战斗结束立即清会话：它是槽的内部过程，清得比任何触发都早 ⇒ 不会误伤后继 combat 事件
       state.battle = null;
-      if (outcomeDef?.nextEventId) {
-        const next = lookup.event(outcomeDef.nextEventId);
-        if (next) triggerEventV2(state, next, lookup, rng, 0, result);
-      }
+      settleSlotEvent({
+        state,
+        template,
+        lookup,
+        result,
+        def: event,
+        applyEffects: () => {
+          const outcomeCtx: EffectContextV2 = { state, lookup, rng, logs: [] };
+          applyEffectsV2(outcomeCtx, outcomeDef?.effects);
+          enqueueChainStarts(state, lookup, outcomeCtx.startedChains);
+        },
+        ...(outcomeDef?.nextEventId !== undefined ? { nextEventId: outcomeDef.nextEventId } : {}),
+      });
     } else {
+      // 定义缺失兜底：战斗会话照样结束，槽清空并推进一轮（否则玩家永久卡在战斗门禁上）
       finishBattle(state, lookup);
       state.battle = null;
+      state.slot = null;
+      state.turnIndex += 1;
     }
-    advanceChainOnSettle(state, event, undefined, lookup, rng, 0, result);
     // 战斗结果作为可展示事件返回，前端在结果区呈现胜负
     result.triggered.push({
       id: `battle-${battle.eventId}`,
@@ -1164,6 +1048,9 @@ export function battleActionV2(
             ? "你身负重伤，勉强脱离了危险。"
             : "你趁隙脱离了战斗。",
     });
+
+    postSettleJudgements(state, template, lookup, rng);
+    nextTurn(state, template, lookup, rng, result);
 
     // 战败边界：先走死亡路径（具体），再走终止条件（一般）。
     // 判死只看 battleDefeat 信号，不读取 HP 数值（R-EN-07 / P9）。
@@ -1196,34 +1083,26 @@ export function useItemV2(
   pipeline?: TurnPipelineConfig,
 ): V2TurnResult {
   assertActive(state);
-  // ADR-0024 决策 2.3 #3：用物品是**轮外操作**（没有 pending_event_required 守卫），
-  // 是最容易在「呈现之后、结算之前」改变世界状态的入口，复核必须在最前面。
-  const droppedAtEntry = revalidatePendingV2(state, lookup).dropped;
-  if (state.battle && !state.battle.over) throw new Error("battle_in_progress");
+  // ADR-0034 §5：用物品**不受槽占用限制**（用户原话「不占槽、独立于轮次结算」）。
+  // 战斗进行中仍然拒绝：物品的 `usableOutsideBattle` 语义没有变。
+  if (state.battle !== null && !state.battle.over) throw new Error("battle_in_progress");
   const item = lookup.item(command.itemId);
   if (!item) throw new Error("item_not_found");
   if (!item.usableOutsideBattle) throw new Error("item_not_usable");
   if ((state.player.inventory[item.id] ?? 0) <= 0) throw new Error("item_not_owned");
 
   const rng = createRng(deriveTurnSeed(state.seed + 29, state.turnIndex));
-  // 用物品是**轮外操作**（不推进 turnIndex、不占槽位），故不清空 lastWheels：
+  // 用物品是**轮外操作**（不推进 turnIndex、不占槽），故不清空 lastWheels：
   // 它属于「本轮已发生的转盘」，本轮尚未结束（D-03「当轮」语义）。
   state.player.inventory[item.id] -= 1;
   if (state.player.inventory[item.id] <= 0) delete state.player.inventory[item.id];
   const logs: string[] = [];
-  // 入口复核已丢弃的条目并入本轮诊断位（ADR-0024 决策 4：非持久化）
-  const result: TriggerResult = {
-    triggered: [],
-    wheelResult: null,
-    ...(droppedAtEntry.length > 0 ? { droppedPending: [...droppedAtEntry] } : {}),
-  };
+  const result: TriggerResult = { triggered: [], wheelResult: null };
   const itemCtx: EffectContextV2 = { state, lookup, rng, logs };
   applyEffectsV2(itemCtx, item.use);
-  // #34：用物品是轮外操作，不推进 turnIndex；但时间推进 / enqueueEvent 仍需在安全边界 drain。
-  if (itemCtx.timeAdvanced || (itemCtx.enqueued?.length ?? 0) > 0) {
-    drainDue(state, lookup, rng, result);
-  }
-  triggerChainStarts(state, itemCtx.startedChains, lookup, rng, result);
+  // ADR-0034 §2 R1：轮外入口**不跑 nextTurn**（不扫队列、不呈现新事件）。
+  // `enqueueEvent` 产生的实例留在 `delayQueue`，等下一次「推进轮次的入口」才可能被取出。
+  enqueueChainStarts(state, lookup, itemCtx.startedChains);
   pushHistory(state, template, {
     id: `t${state.turnIndex}-i-${item.id}`,
     type: "player_action",
@@ -1248,19 +1127,19 @@ export function useItemV2(
   };
 }
 
-// ---------- 待决事件视图（选项按 visibleWhen 过滤） ----------
+// ---------- 呈现槽视图（选项按 visibleWhen 过滤） ----------
 
-export function pendingEventView(state: WorldStateV2, lookup: TemplateLookup): PendingEventView | null {
-  const pending = state.pendingEvents[0];
-  if (!pending) return null;
-  const event = lookup.event(pending.eventId);
+/**
+ * 槽内事件的呈现视图（ADR-0034 §2 步 1）：**效果未应用、`turnIndex` 不变**。
+ * 只有 `normal` 有选项面；`combat` / `random` 走各自视图（战斗面板 / 转盘），此处返回 null。
+ */
+export function slotEventView(state: WorldStateV2, lookup: TemplateLookup): PendingEventView | null {
+  const scene = state.slot;
+  if (scene === null) return null;
+  const event = lookup.event(scene.eventId);
   if (!event || event.kind !== "normal") return null;
-  // ADR-0024 决策 2.3 #6（只读防御）：队首前提已假 ⇒ 不呈现。
-  // 正常流程在进入投影前就已被 revalidatePendingV2 排空，这里只兜「状态被外部改坏」。
-  // **绝不跳读**（决策 2.4）：呈现集合必须恒等于 `pendingEvents[0]`，否则玩家点的是 A 的选项、
-  // 引擎在找 B 的选项 ⇒ 必然 option_not_available。失效队首只有「排空」与「呈现 null」两条出路。
-  // 用独立盐 +37 求值，避免与下面 visibleWhen 的 +7 流互相污染。
-  const premiseRng = createRng(deriveTurnSeed(state.seed + 37, state.turnIndex));
+  // ADR-0024 决策 2.3 #6（只读防御）：队首前提已假 ⇒ 不呈现（正常流程已在呈现前复核过）。
+  const premiseRng = scanStream(state);
   if (!checkEventPremise(event, { state, lookup, rng: premiseRng }).ok) return null;
   const rng = createRng(deriveTurnSeed(state.seed + 7, state.turnIndex));
   const ctx: ConditionContext = { state, lookup, rng };
@@ -1274,4 +1153,5 @@ export function pendingEventView(state: WorldStateV2, lookup: TemplateLookup): P
   };
 }
 
-export { maxHp, maxMp, playerEffectiveAttributes, checkCondition };
+/** 兼容旧名（提交 2 会把投影字段改名为 `slotEvent`）。 */
+export const pendingEventView = slotEventView;

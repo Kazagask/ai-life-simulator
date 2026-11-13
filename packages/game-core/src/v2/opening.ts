@@ -1,5 +1,4 @@
 import type {
-  ChainStateV2,
   EventInstance,
   OpeningEventPool,
   OpeningPoolEvent,
@@ -236,19 +235,19 @@ export function handoff(state: WorldStateV2, run: OpeningRun, lookup?: TemplateL
   }
   const next = structuredClone(state);
 
-  // 1) 未完成即时事件 → 现有 pendingEvents；带 chainId 者接入现有 chains。
-  for (const p of run.pendingEvents) {
-    next.pendingEvents.push(
-      p.chainId ? { eventId: p.eventId, chainId: p.chainId } : { eventId: p.eventId },
-    );
-    if (p.chainId && !next.chains.some((c) => c.id === p.chainId)) {
-      const chainState: ChainStateV2 = {
-        id: p.chainId,
-        stepIndex: 0,
-        status: "active",
-        startedTurn: next.turnIndex,
-      };
-      next.chains.push(chainState);
+  // 1) 未完成即时事件 → 呈现槽（ADR-0034 §1）：**第一条**占槽（`from: "opening"`），
+  //    其余按顺序入队（`delay 0`），由 `nextTurn` 的扫描逐个取出——这样「一开局就有 2 条卡」
+  //    的形状根本构不出来（ADR-0034 §4 S1）。带 chainId 的条目不再建链状态（chains 已删除）。
+  for (const [i, p] of run.pendingEvents.entries()) {
+    if (i === 0) {
+      next.slot = { eventId: p.eventId, from: "opening" };
+    } else {
+      enqueueScheduled({
+        state: next,
+        definitionId: p.eventId,
+        origin: { kind: "opening", id: run.openingId },
+        start: { value: 0, unit: "minute" },
+      });
     }
   }
 
@@ -259,7 +258,7 @@ export function handoff(state: WorldStateV2, run: OpeningRun, lookup?: TemplateL
   //    opening 条目上的 conditions 属配置域声明，旧实现也从未消费（M3「写而不读」），
   //    且实例不得复制配置字段（R-EV-15）——出队终判读事件定义现值，此处不复制。
   for (const s of run.scheduledEvents) {
-    for (const existing of next.scheduledEvents) {
+    for (const existing of next.delayQueue) {
       if (existing.status === "waiting" && existing.definitionId === s.eventId) {
         existing.status = "cancelled";
       }

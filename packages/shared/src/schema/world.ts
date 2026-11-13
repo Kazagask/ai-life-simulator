@@ -227,6 +227,26 @@ export const WorldTemplateV2Schema = z
     npcActions: z.array(NpcActionSchema).optional(),
     /** NPC 刷新规则（ADR-0022；世界创建时实例化为 SpawnRuleInstance，由 spawnNpc 效果触发） */
     npcSpawnRules: z.array(NpcSpawnRuleSchema).optional(),
+    /**
+     * 事件流阈值（ADR-0034 §3-6 / §8-⑨）：控制主循环 pool 抽取的触发条件。
+     * 全部**可选 + 默认值** ⇒ 既有模板零改动即可跑（默认 `skipWhenSlotOccupied: true`、
+     * `maxQueueLength: 3`）。语义：`slot !== null || delayQueue.length >= maxQueueLength` ⇒ 本轮不摇。
+     *
+     * 注意（ADR-0034 §10）：这里限制的是**「摇出事件这个判断」**，不是"pool 血统的事件链不占槽"——
+     * 被摇出的事件进队列后与普通事件完全等价，它自己的 `nextEventId` 后继照常可以占槽。
+     */
+    eventFlow: z
+      .object({
+        poolDraw: z
+          .object({
+            skipWhenSlotOccupied: z.boolean().default(true),
+            maxQueueLength: z.number().int().nonnegative().default(3),
+          })
+          .strict()
+          .default({ skipWhenSlotOccupied: true, maxQueueLength: 3 }),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .superRefine((w, ctx) => {

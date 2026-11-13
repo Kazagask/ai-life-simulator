@@ -8,7 +8,6 @@ import type {
   V2Player,
   WorldStateV2,
   WorldTemplateV2,
-  ChainStateV2,
 } from "@life-sim/shared";
 import { createRng, pickWeighted, type Rng } from "../rng.js";
 import { amountToMinutes, birthTimeFromAge, createTimeAdapter } from "./time.js";
@@ -16,7 +15,7 @@ import { evaluateDynamicModifier, type ModifierConditionGate } from "./equipment
 import type { TemplateLookup } from "./lookup.js";
 // 调度器与效果执行器互为依赖（scheduler 读 checkAllConditions、engine 写入队），
 // 但双方只在函数体内互相调用、无顶层求值，ESM 函数声明提升可保证初始化期安全。
-import { alignChainStep, enqueueCandidate } from "./scheduler.js";
+import { enqueueCandidate, hasFired } from "./scheduler.js";
 import { PLAYER_ID } from "@life-sim/shared";
 import { addEdge, freezeOnDeath } from "./relations.js";
 
@@ -541,9 +540,8 @@ export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefin
         break;
       }
       case "advanceChain":
-        // R-EV-10 / M4：收口到 scheduler.alignChainStep 单一推进规则，杜绝盲目 +1
-        // 与「结算时按 nextEventId 对齐」双写造成的 stepIndex 漂移。
-        alignChainStep(state, effect.chainId, lookup);
+        // ADR-0034 §5：链状态与 `alignChainStep` 已删除 ⇒ 本效果降级为 no-op。
+        // 「下一步是谁」现在只由结算处的 `nextEventId` 占槽判定决定，没有可"推进"的游标。
         break;
       case "enqueueEvent": {
         // R-EV-08：延时入队的唯一声明式通道。门控（once/probability）在候选产生时求值，
@@ -565,11 +563,11 @@ export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefin
         (ctx.enqueued ??= []).push(effect.eventId);
         break;
       }
-      case "cancelChain": {
-        const chainState = state.chains.find((c) => c.id === effect.chainId);
-        if (chainState) chainState.status = "completed";
+      case "cancelChain":
+        // ADR-0034 §5：`chains[]` 运行时状态已删除，"取消链"不再有落点。
+        // 保留该效果类型（协议面不动）但降级为 no-op：模板若需要"停止后续"，
+        // 应改用 `nextEventId` 不指、或条件/`missWhen` 表达。
         break;
-      }
       case "log":
         if (effect.visibility === "public") ctx.logs?.push(effect.text);
         break;
@@ -578,21 +576,18 @@ export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefin
 }
 
 /**
- * 注册事件链为 active。不在此处触发起点事件——起点事件由路由层（turn.ts 的
- * triggerChainStarts）按 kind 路由：normal 入待决队列、random 即时结算、combat 建战斗。
- * 这样能避免把非 normal 起点事件塞进 pendingEvents 导致「pendingEventView 返回 null 卡死」。
+ * 链起点（ADR-0034 §5）：`chains[]` 运行时状态已删除，本函数只做**收集**——
+ * 把 chainId 交给路由层（`turn.ts` 的 `enqueueChainStarts`），由它把 `startEventId`
+ * 以 `delay 0` 入队。**不直接写 `slot`**（ADR-0034 §4 R3：链起点不是"直接占槽"的入口）。
+ *
+ * 幂等：同一条链已经跑过（起点事件已触发）或已在队列/槽里 ⇒ 不再重复收集。
  */
 function startChain(state: WorldStateV2, chainId: string, lookup: TemplateLookup): boolean {
-  if (state.chains.some((c) => c.id === chainId)) return false;
   const def = lookup.chain(chainId);
   if (!def) return false;
-  const chainState: ChainStateV2 = {
-    id: chainId,
-    stepIndex: 0,
-    status: "active",
-    startedTurn: state.turnIndex,
-  };
-  state.chains.push(chainState);
+  if (hasFired(state, def.startEventId)) return false;
+  if (state.slot?.eventId === def.startEventId) return false;
+  if (state.delayQueue.some((i) => i.definitionId === def.startEventId && i.status === "waiting")) return false;
   return true;
 }
 

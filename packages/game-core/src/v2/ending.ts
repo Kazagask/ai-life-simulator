@@ -375,8 +375,9 @@ export function applyDeathRoute(
       visibility: "public",
     };
     next.history.push(deathEntry);
-    // 复用既有待决队列 / 事件链结算路径，不新增事件来源枚举
-    next.pendingEvents.push({ eventId: id });
+    // ADR-0034 §1：死亡结局事件直接占槽（`from: "death"`）——它是"下一次轮次必须处理的那一个"。
+    // 不新增事件来源枚举，复用既有槽语义。
+    next.slot = { eventId: id, from: "death" };
   }
   const ending = resolveEnding(next, templates, ctx, options);
   if (deathEntry) {
