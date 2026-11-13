@@ -2,7 +2,14 @@ import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { CloudSession } from "@tencent-ai/workbuddy-cloud-sdk";
 import "./style.css";
-import { api, mergeEventFlavors, resolveEventNarrative } from "./api";
+import {
+  api,
+  clearLlmSession,
+  getLlmSession,
+  mergeEventFlavors,
+  resolveEventNarrative,
+  submitLlmCredentials,
+} from "./api";
 import type {
   BattleCommand,
   EndingView,
@@ -114,7 +121,7 @@ function itemGlyph(type: InventoryView["type"]): string {
 
 // ---------- 组件 ----------
 
-type Tab = "life" | "people" | "personal" | "world" | "log" | "records";
+type Tab = "life" | "personal" | "world" | "log" | "records";
 
 interface LastResult {
   /** 该响应对应的轮次：用于判断「这批结果是刚结算的」还是「从存档恢复的」（D-09） */
@@ -567,7 +574,6 @@ function App() {
             onDismissWheel={() => setDismissedWheelSig(wheelSig)}
           />
         )}
-        {tab === "people" && <PeopleTab snapshot={snapshot} />}
         {tab === "personal" && (
           <PersonalTab snapshot={snapshot} busy={busy} summarySource={summarySource} onUseItem={useItem} onEquip={equip} onUnequip={unequip} />
         )}
@@ -580,7 +586,6 @@ function App() {
         {(
           [
             ["life", "人生", "◈"],
-            ["people", "人物", "☺"],
             ["personal", "个人", "▣"],
             ["world", "世界", "◍"],
             ["log", "记录", "≡"],
@@ -679,6 +684,15 @@ function SetupScreen({
   const [authError, setAuthError] = useState<string | null>(null);
   const openings = templates[0]?.openings ?? [];
 
+  // R2.8 / FE-01：登录页「自定义 LLM 凭证」可折叠配置。仅持有不透明 sessionId，不存 key 字面量。
+  const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [hasSession, setHasSession] = useState(getLlmSession() !== null);
+
   const login = async () => {
     setAuthBusy(true);
     setAuthError(null);
@@ -718,6 +732,44 @@ function SetupScreen({
     } finally {
       setBusy(false);
     }
+  };
+
+  // R2.8 / FE-01：把 key 发给服务端内存持有，仅拿回不透明 sessionId（已含在 submitLlmCredentials 内）。
+  const saveLlm = async () => {
+    if (!apiKey.trim() || !model.trim()) return;
+    setSaveBusy(true);
+    setSaveError(null);
+    try {
+      await submitLlmCredentials({
+        apiKey: apiKey.trim(),
+        model: model.trim(),
+        baseUrl: baseUrl.trim() === "" ? undefined : baseUrl.trim(),
+      });
+      // 成功后清空输入框：key 不再留在 DOM / 内存里，仅由服务端持有 + 本地不透明 id 标记。
+      setApiKey("");
+      setModel("");
+      setBaseUrl("");
+      setSaved(true);
+      setHasSession(true);
+    } catch (e) {
+      setSaved(false);
+      setSaveError(
+        e instanceof Error && e.message ? e.message : "凭证无效，请检查 apiKey / model / baseUrl",
+      );
+    } finally {
+      setSaveBusy(false);
+    }
+  };
+
+  // 仅清除本地不透明 id；服务端内存凭证由超时 / 重启自然清退。
+  const clearLlm = () => {
+    clearLlmSession();
+    setHasSession(false);
+    setSaved(false);
+    setSaveError(null);
+    setApiKey("");
+    setModel("");
+    setBaseUrl("");
   };
 
   return (
@@ -775,6 +827,60 @@ function SetupScreen({
           {busy ? "正在构建世界…" : "进入这个世界"}
         </button>
       </section>
+
+      <details className="card llm-config">
+        <summary>自定义 LLM（可选，风险自担）</summary>
+        <p className="muted">
+          填入你自己的 API Key，本会话的叙事将走你提供的模型。凭证仅发送至服务端内存持有，不写入代码或日志；
+          本地只保存一个不透明的会话 id，风险自担。
+        </p>
+        <label>
+          <span>API Key</span>
+          <input
+            type="password"
+            value={apiKey}
+            autoComplete="off"
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="sk-…"
+          />
+        </label>
+        <label>
+          <span>模型</span>
+          <input
+            value={model}
+            autoComplete="off"
+            onChange={(e) => setModel(e.target.value)}
+            placeholder="例如：deepseek-chat"
+          />
+        </label>
+        <label>
+          <span>Base URL（可选）</span>
+          <input
+            value={baseUrl}
+            autoComplete="off"
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="https://api.deepseek.com（留空走 OpenAI 默认端点）"
+          />
+        </label>
+        {saveError && <p className="error-text">{saveError}</p>}
+        {saved && (
+          <p className="muted llm-saved">已配置：本会话将使用你提供的 LLM key（已本地保存，风险自担）</p>
+        )}
+        <div className="row llm-actions">
+          <button
+            className="primary llm-save"
+            disabled={!apiKey.trim() || !model.trim() || saveBusy}
+            onClick={saveLlm}
+          >
+            {saveBusy ? "保存中…" : "保存"}
+          </button>
+          {hasSession && (
+            <button className="ghost" onClick={clearLlm}>
+              清除
+            </button>
+          )}
+        </div>
+      </details>
     </main>
   );
 }
@@ -2455,50 +2561,75 @@ function NpcCard({
   );
 }
 
-function PeopleTab({ snapshot }: { snapshot: V2Snapshot }) {
-  // 关系边只给 id，这里建一次 id→名 的索引，避免每行重复查找。
-  const names = Object.fromEntries(snapshot.npcs.map((n) => [n.id, n.name]));
-  return (
-    <div className="stack">
-      {snapshot.npcs.length === 0 && <p className="muted">这个世界还没有出现在你身边的人。</p>}
-      {snapshot.npcs.map((npc) => (
-        <NpcCard
-          key={npc.id}
-          npc={npc}
-          names={names}
-          attrLabels={snapshot.labels.attributes}
-        />
-      ))}
-    </div>
-  );
-}
+// ---------- 世界 Tab（R2.8 / FE-02：NPC 记录收敛进「世界」视图，分子页签展开） ----------
 
-// ---------- 世界 Tab ----------
+type WorldSubTab = "overview" | "npc";
+
+const WORLD_SUBTABS: Array<{ key: WorldSubTab; label: string }> = [
+  { key: "overview", label: "概览" },
+  { key: "npc", label: "人物/NPC" },
+];
 
 function WorldTab({ snapshot }: { snapshot: V2Snapshot }) {
+  const [sub, setSub] = useState<WorldSubTab>("overview");
+  // 关系边只给 id，这里建一次 id→名 的索引，避免每行重复查找（沿用原 PeopleTab 逻辑）。
+  const names = Object.fromEntries(snapshot.npcs.map((n) => [n.id, n.name]));
+
   return (
     <div className="stack">
-      <section className="card">
-        <h2>{snapshot.worldName}</h2>
-        <p className="muted">
-          纪元 {snapshot.startYear} · 平行世界模拟。你的每个选择都在改写这条时间线。
-        </p>
-        <div className="row">
-          <span className="chip">命运偏离度：{snapshot.evaluation.canonDeviation}</span>
-          <span className="chip">进行中事件链：{snapshot.activeChains.length}</span>
-        </div>
-      </section>
+      <div className="subtabbar" role="tablist" aria-label="世界子页签">
+        {WORLD_SUBTABS.map((entry) => (
+          <button
+            key={entry.key}
+            role="tab"
+            aria-selected={sub === entry.key}
+            className={`subtab ${sub === entry.key ? "active" : ""}`}
+            onClick={() => setSub(entry.key)}
+          >
+            {entry.label}
+          </button>
+        ))}
+      </div>
 
-      {snapshot.activeChains.length > 0 && (
-        <section className="card">
-          <h3>正在发生的事件链</h3>
-          {snapshot.activeChains.map((chain) => (
-            <div key={chain.id} className="event-card">
-              <strong>{chain.id}</strong>
-              <p className="muted">状态：{chain.status} · 后续将自动演化</p>
+      {sub === "overview" && (
+        <>
+          <section className="card">
+            <h2>{snapshot.worldName}</h2>
+            <p className="muted">
+              纪元 {snapshot.startYear} · 平行世界模拟。你的每个选择都在改写这条时间线。
+            </p>
+            <div className="row">
+              <span className="chip">命运偏离度：{snapshot.evaluation.canonDeviation}</span>
+              <span className="chip">进行中事件链：{snapshot.activeChains.length}</span>
             </div>
+          </section>
+
+          {snapshot.activeChains.length > 0 && (
+            <section className="card">
+              <h3>正在发生的事件链</h3>
+              {snapshot.activeChains.map((chain) => (
+                <div key={chain.id} className="event-card">
+                  <strong>{chain.id}</strong>
+                  <p className="muted">状态：{chain.status} · 后续将自动演化</p>
+                </div>
+              ))}
+            </section>
+          )}
+        </>
+      )}
+
+      {sub === "npc" && (
+        <>
+          {snapshot.npcs.length === 0 && <p className="muted">这个世界还没有出现在你身边的人。</p>}
+          {snapshot.npcs.map((npc) => (
+            <NpcCard
+              key={npc.id}
+              npc={npc}
+              names={names}
+              attrLabels={snapshot.labels.attributes}
+            />
           ))}
-        </section>
+        </>
       )}
     </div>
   );

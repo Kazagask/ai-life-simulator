@@ -1211,6 +1211,49 @@ button {
   font-weight: 600;
 }
 
+/* R2.8 / FE-01：登录页「自定义 LLM 凭证」可折叠配置，复用 .card 外观 */
+details.llm-config {
+  display: block;
+}
+
+details.llm-config > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+details.llm-config > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.llm-config > summary::before {
+  content: "▸";
+  color: var(--muted);
+  font-size: 12px;
+  transition: transform 0.15s ease;
+}
+
+details.llm-config[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+details.llm-config .llm-actions {
+  margin-top: 4px;
+  align-items: stretch;
+}
+
+details.llm-config .llm-save {
+  flex: 1;
+}
+
+details.llm-config .llm-saved {
+  color: var(--accent-2);
+}
+
 .meta-row {
   display: flex;
   flex-wrap: wrap;

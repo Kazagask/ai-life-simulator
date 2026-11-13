@@ -19,12 +19,63 @@ export type NarrativeSource = "template" | "llm" | "fallback";
  */
 export type EventFlavorMap = Record<string, string>;
 
+// R2.8 · R-LLM-07：用户在登录页配置的自定义 LLM 凭证，服务端内存持有后返回不透明 sessionId。
+// 前端持有该 id 并在后续请求带上 `x-life-sim-llm-session` 头；按默认「允许浏览器记住」，
+// 存 localStorage（仅不透明 id，不含 key 字面量，风险用户自担）。
+const LLM_SESSION_KEY = "life-sim-llm-session";
+
+let llmSessionId: string | null = null;
+try {
+  llmSessionId = localStorage.getItem(LLM_SESSION_KEY);
+} catch {
+  /* localStorage 不可用时降级为内存态 */
+}
+
+export function getLlmSession(): string | null {
+  return llmSessionId;
+}
+
+export function setLlmSession(id: string | null): void {
+  llmSessionId = id;
+  try {
+    if (id === null) localStorage.removeItem(LLM_SESSION_KEY);
+    else localStorage.setItem(LLM_SESSION_KEY, id);
+  } catch {
+    /* 忽略持久化失败 */
+  }
+}
+
+/** 清除本地 LLM 会话（不透明 id；服务端内存凭证由超时/重启自然清退）。 */
+export function clearLlmSession(): void {
+  setLlmSession(null);
+}
+
+export interface LlmCredentialInput {
+  apiKey: string;
+  model: string;
+  baseUrl?: string;
+}
+
+/** 提交自定义 LLM 凭证，拿到不透明 sessionId 并本地留存。失败向上抛（由调用方提示）。 */
+export async function submitLlmCredentials(input: LlmCredentialInput): Promise<string> {
+  const res = await request<{ sessionId: string }>("/api/llm-credentials", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  setLlmSession(res.sessionId);
+  return res.sessionId;
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  // 只有带 body 时才声明 Content-Type：空 body + application/json 会被 Fastify 判为 400
-  const headers = init?.body !== undefined ? { "Content-Type": "application/json" } : undefined;
+  // 合并请求头：带 body 时声明 JSON；若已建立 LLM 会话，附带 session 头（不透明 id，不含 key）。
+  const headers: Record<string, string> = {};
+  if (init?.body !== undefined) headers["Content-Type"] = "application/json";
+  if (llmSessionId !== null) headers["x-life-sim-llm-session"] = llmSessionId;
   const res = await fetch(`${BASE}${url}`, {
     ...init,
-    ...(headers ? { headers } : {}),
+    ...(Object.keys(headers).length > 0
+      ? { headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) } }
+      : {}),
   });
   if (!res.ok) {
     let detail = `${res.status}`;
