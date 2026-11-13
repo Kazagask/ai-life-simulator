@@ -430,6 +430,43 @@ describe("R-TG-01 AC② / R-TG-14：两级列表、startVersion 语义、opening
       rmSync(fixture.root, { recursive: true, force: true });
     }
   });
+
+  it("P2 复验：`1.0.0`/`2`/`10` 三版本的排序 = 补 0 全序，且 `/api/templates` 与 400 的 `versions[]` 两处一致", async () => {
+    // 旧实现（`index.ts:361-364` 字符串序）给出的是 ["1.0.0","10","2"]：`"10" < "2"` 按字典序，
+    // 而 A-3 要求补 0 后全序（`2` < `10`）。修复后两处都必须走 `compareVersions`。
+    const fixture = makeFixture();
+    for (const version of ["2", "10"]) {
+      cpSync(fixture.versionDir, path.join(fixture.templatesDir, "jjk-2006", version), { recursive: true });
+    }
+
+    const server = await startServer(fixture);
+    try {
+      const list = await httpCall(server.base, "GET", "/api/templates");
+      expect(list.status).toBe(200);
+      const jjk = (
+        list.json as {
+          templates: Array<{ id: string; startVersion?: string; versions: Array<{ version: string }> }>;
+        }
+      ).templates.find((t) => t.id === "jjk-2006")!;
+      const listOrder = jjk.versions.map((v) => v.version);
+      expect(listOrder).toEqual(["1.0.0", "2", "10"]);
+      // startVersion 取补 0 后最高可载版本 ⇒ 10（不是字符串最大 / 也不是 versions[0]）
+      expect(jjk.startVersion).toBe("10");
+
+      const missing = await httpCall(server.base, "POST", "/api/worlds", {
+        templateId: "jjk-2006",
+        playerName: "排序复验",
+      });
+      expect(missing.status).toBe(400);
+      const apiOrder = (missing.json as { versions: string[] }).versions;
+      expect(apiOrder).toEqual(["1.0.0", "2", "10"]);
+      // 两处必须同一套排序，不允许各说各话
+      expect(apiOrder).toEqual(listOrder);
+    } finally {
+      await server.stop();
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("R-TG-10 AC①/③：存在但不可载的世界 ⇒ 列表可见 + 409 + 可删除", () => {
@@ -521,10 +558,9 @@ describe("R-TG-04：启动期 fail-fast（进程退出码只能靠子进程验�
     rmSync(fixture.root, { recursive: true, force: true });
   });
 
-  it("空版本目录 + 非法版本名目录：服务仍能启动（空目录 warn 忽略；非法名 warn 忽略＝现状，见报告 P1）", async () => {
+  it("空版本目录（`1.1.0/` 内零 yaml）⇒ 服务照常启动 + 日志 template_version_empty（B-4 #3）", async () => {
     const fixture = makeFixture();
     mkdirSync(path.join(fixture.templatesDir, "jjk-2006", "1.1.0"), { recursive: true }); // 空版本目录
-    cpSync(fixture.versionDir, path.join(fixture.templatesDir, "jjk-2006", "v2"), { recursive: true }); // 非法版本名
 
     const server = await startServer(fixture);
     try {
@@ -532,15 +568,44 @@ describe("R-TG-04：启动期 fail-fast（进程退出码只能靠子进程验�
       expect(list.status).toBe(200);
       const templates = (list.json as { templates: Array<{ id: string; versions: Array<{ version: string }> }> })
         .templates;
-      // 空目录与非法名目录都不算版本；1.0.0 仍在
+      // 空目录不算版本；1.0.0 仍在（「mkdir 了还没 cp 完」不得触发 fail-fast）
       expect(templates.map((t) => t.id)).toEqual(["jjk-2006"]);
       expect(templates[0]!.versions.map((v) => v.version)).toEqual(["1.0.0"]);
-      const log = server.output();
-      expect(log).toContain("template_version_empty");
-      expect(log).toContain("template_version_dir_ignored");
+      expect(server.output()).toContain("template_version_empty");
     } finally {
       await server.stop();
       rmSync(fixture.root, { recursive: true, force: true });
     }
+  }, 60000);
+
+  it("非法版本名目录（`v2/` 内 11 个合法 yaml）⇒ 进程非 0 退出 + 错误含 template_version_dir_invalid 与目录名", async () => {
+    // R-TG-04 六形态之一 / R-TG-01 AC③ / design B-4 #1：启动期必须拒绝启动。
+    // 必须是**子进程退出码**断言——启动期 throw 让进程退出，进程内断言 throw 验不到「服务不得带着它起来」。
+    const fixture = makeFixture();
+    cpSync(fixture.versionDir, path.join(fixture.templatesDir, "jjk-2006", "v2"), { recursive: true });
+
+    const { code, output } = await runServerToExit(fixture);
+    expect(code).not.toBe(0);
+    expect(output).toContain("template_version_dir_invalid");
+    expect(output).toContain(`"v2"`);
+    // 可诊断四件：<id>、目录名、期望正则、完整路径
+    expect(output).toContain("jjk-2006");
+    expect(output).toContain("^\\d+(\\.\\d+){0,2}$");
+    expect(output).toContain(path.join(fixture.templatesDir, "jjk-2006", "v2"));
+    rmSync(fixture.root, { recursive: true, force: true });
+  }, 60000);
+
+  it("边界现状：**空的**非法名目录（`beta/`）同样拒绝启动（当前实现从严格；如需放宽须先改需求）", async () => {
+    // 与上一条的区别只在「目录里有没有 yaml」：B-4 #3 的空目录豁免只适用于**名字合法**的版本目录
+    // （`1.1.0/`）。名字都不合法的目录连「版本目录」都不是，因此不走豁免。
+    // 这里把它钉成可执行事实：若将来产品决定「空的非法名目录也忽略」，本用例会红，逼一次显式决策。
+    const fixture = makeFixture();
+    mkdirSync(path.join(fixture.templatesDir, "jjk-2006", "beta"), { recursive: true });
+
+    const { code, output } = await runServerToExit(fixture);
+    expect(code).not.toBe(0);
+    expect(output).toContain("template_version_dir_invalid");
+    expect(output).toContain(`"beta"`);
+    rmSync(fixture.root, { recursive: true, force: true });
   }, 60000);
 });
