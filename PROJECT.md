@@ -87,7 +87,8 @@
 ## 7. 目录约定
 
 - `specs/` — 规格与设计；`tasks/` — 实施计划与报告；`docs/` — 产品、架构、ADR、待决问题。
-- `.workbuddy/` — WorkBuddy 协作元文件（项目记忆 + 项目技能），**不参与构建**，不属于产品架构。
+- `.workbuddy/` — WorkBuddy 协作元文件（工程清单 + 项目技能 + 专家包 `experts/`），**不参与构建**，不属于产品架构；
+  `memory/` 为本机私有记忆，已被 gitignore，其可引用口径见 `docs/PROJECT_MEMORY.md`。
 - 新增一轮迭代时，在 `specs/iterations/<YYYY-MM-DD>-<短标签>/` 下沿用 `README → requirements → design → tasks` 四件套，
   编号不重排，延期需求保留编号与原文。
 
@@ -111,3 +112,17 @@
 🔴 **验证诚实口径**：R2.7 上轮只做冒烟；本轮 Phase 4 全量回归因验收进程异常退出**未出结论**，
 `tasks/reports/R27-FULL-REGRESSION.md` 不存在。`docs/CLOUD_DEV.md §3` 逐层标注了已验证 / 未出结论，
 云端第一次开发的首要动作是把 `pnpm test`、6 种子 `playthrough.test.ts`、shared 全量与 UI e2e 跑完并留证据。
+
+## 9. 开发流程平移入库（2026-11-13 新增）
+
+用户指令「把本地开发流程平移过来」。仓库此前已与 GitHub 远端同步（`28cce18`），本轮补的是**流程资产**，非产品代码：
+
+| 事项 | 落地 | 性质 |
+|---|---|---|
+| 命令门禁自动化 | `.github/workflows/ci.yml`：push / PR 到 `main` 跑 L0 typecheck → L1 shared → L2 game-core → L2b playthrough（串行）→ L4 web build → L5 可移植冒烟 | 工程基建，不改运行时技术栈 / 契约面，故未立 ADR |
+| 项目记忆入库 | `docs/PROJECT_MEMORY.md`（由本机 `.workbuddy/memory/` 提炼；该目录仍 gitignore，属本机私有） | 文档 |
+| 专家团入库 | `.workbuddy/experts/life-sim-dev-team/`（与 `~/.workbuddy/plugins/...` 逐字节一致）+ `README.md` 安装说明 | 协作资产，不参与构建 |
+
+本地实测（Windows / Node 22.22.2 / pnpm 9.15.0）：typecheck 0 错、shared **67 例**、game-core **478 例 / 33 文件**、
+6 种子 × 2 开局 playthrough 全绿、web build 通过、L5 `SMOKE OK`（6 PASS + 1 SKIP）。
+⚠️ GitHub runner 上的首次真实运行尚未发生：Linux 下无 Windows 路径 / 换行差异，但**未实测前不得写成已验证**。

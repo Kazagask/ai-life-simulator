@@ -41,6 +41,10 @@ pnpm test
 pnpm build
 ```
 
+同一组命令已固化为 GitHub Actions 门禁：push / PR 到 `main` 时自动跑
+typecheck → shared test → game-core test → playthrough（串行）→ web build → 可移植冒烟，
+见 `.github/workflows/ci.yml`。CI 红即视为门禁未过。
+
 ## 作为 WorkBuddy 云端工程
 
 本目录已按 WorkBuddy 工程整理，可在云端环境独立 `install → build → start → test`：
@@ -48,6 +52,8 @@ pnpm build
 - 工程身份、边界、命令基线、环境变量、本机绑定：`.workbuddy/ENGINEERING.md`
 - 云端开发测试完整手册（含验收分层与已知坑）：`docs/CLOUD_DEV.md`
 - 可移植冒烟（零外部依赖，环境变量化）：`node apps/server/smoke/cloud.smoke.mjs`
+- 跨会话事实与已裁决决定：`docs/PROJECT_MEMORY.md`
+- 协作流程（专家团 / 迭代技能）：`.workbuddy/experts/README.md`、`.workbuddy/skills/`
 
 代码经 GitHub 远程仓库 `git@github.com:Kazagask/ai-life-simulator.git` 同步，
 云端 `git clone https://github.com/Kazagask/ai-life-simulator.git` 即可开始；
@@ -74,6 +80,7 @@ pnpm start          # 启动服务（默认 0.0.0.0:3000，同时托管 web 构�
 4. `specs/core/CORE_ENGINE.md`：核心模拟引擎规格。
 5. `specs/core/JJK_DEMO.md`：Demo 世界模板规格。
 6. `tasks/AGENT_TRIAL.md`：给 WorkBuddy / CodeBuddy 的同题测试任务。
+7. `docs/PROJECT_MEMORY.md`：项目记忆快照——跨会话事实、已裁决决定、已知坑（先看这份省时间）。
 
 ## 当前阶段目标
 

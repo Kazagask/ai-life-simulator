@@ -1,0 +1,114 @@
+{
+  "name": "life-sim-dev-team",
+  "version": "1.0.0",
+  "description": "A multi-role Spec Coding delivery team for the AI Life Simulator repository, covering requirements, architecture, simulation core, frontend and QA acceptance.",
+  "author": {
+    "name": "kazag",
+    "email": "kazag@example.com"
+  },
+  "agents": [
+    "./agents/life-sim-dev-team-lead.md",
+    "./agents/life-sim-requirements.md",
+    "./agents/life-sim-architect.md",
+    "./agents/life-sim-core-engineer.md",
+    "./agents/life-sim-frontend.md",
+    "./agents/life-sim-qa.md"
+  ],
+  "skills": ["./skills/lifesim-spec-coding"],
+
+  "expertType": "team",
+  "agentName": "life-sim-dev-team-lead",
+  "teamInfo": {
+    "leadAgent": "life-sim-dev-team-lead",
+    "memberAgents": [
+      "life-sim-requirements",
+      "life-sim-architect",
+      "life-sim-core-engineer",
+      "life-sim-frontend",
+      "life-sim-qa"
+    ]
+  },
+
+  "displayName": {
+    "en": "AI Life Simulator Dev Team",
+    "zh": "人生模拟器研发团"
+  },
+  "profession": {
+    "en": "AI Life Simulator Dev Team",
+    "zh": "人生模拟器研发团"
+  },
+  "displayDescription": {
+    "en": "Runs Spec Coding iterations for the AI Life Simulator, with a lead coordinating requirements, architecture, simulation core, frontend and QA before any code change.",
+    "zh": "按规格设计任务实施四段式推进人生模拟器迭代，团长统筹需求、架构、内核、前端与测试，先审查对齐再改码。"
+  },
+  "avatar": "avatars/team.png",
+  "categoryId": "02-Engineering",
+  "defaultInitPrompt": {
+    "zh": "按 R2 迭代包推进阶段 0 差距复核，输出 45 条 ACTIVE 需求的五态标注报告，不改实现代码。",
+    "en": "Review the R2 gap analysis: classify all 45 ACTIVE requirements into five states without changing implementation code."
+  },
+  "plugin": "life-sim-dev-team",
+  "tags": [
+    { "en": "Spec Coding", "zh": "规格驱动迭代" },
+    { "en": "Simulation Core", "zh": "确定性内核" },
+    { "en": "Delivery Management", "zh": "研发交付管理" }
+  ],
+  "quickPrompts": [
+    {
+      "zh": "按 R2 迭代包推进阶段 0 差距复核，输出 45 条 ACTIVE 需求的五态标注报告，不改实现代码。",
+      "en": "Review the R2 gap analysis: classify all 45 ACTIVE requirements into five states without changing implementation code."
+    },
+    {
+      "zh": "为下一轮迭代起草 requirements、design、tasks 四件套，保留 DEFERRED 需求编号与原文。",
+      "en": "Draft the next iteration package of requirements, design and tasks while preserving DEFERRED item IDs and original text."
+    },
+    {
+      "zh": "实施 tasks.md 里指定的一个任务，按完成定义自验，并用 AGENTS.md 第 4 节格式汇报。",
+      "en": "Implement one specified task from tasks.md, self-verify against its definition of done, and report in the AGENTS.md section 4 format."
+    }
+  ],
+  "members": [
+    {
+      "id": "life-sim-dev-team-lead",
+      "displayName": { "en": "Cheng", "zh": "程有章" },
+      "profession": { "en": "Iteration Delivery Director", "zh": "迭代交付总监" },
+      "avatar": "avatars/life-sim-dev-team-lead.png",
+      "role": "lead"
+    },
+    {
+      "id": "life-sim-requirements",
+      "displayName": { "en": "Xu", "zh": "许清源" },
+      "profession": { "en": "Requirements & Game Design Analyst", "zh": "需求策划师" },
+      "avatar": "avatars/life-sim-requirements.png",
+      "role": "member"
+    },
+    {
+      "id": "life-sim-architect",
+      "displayName": { "en": "Gao", "zh": "高见远" },
+      "profession": { "en": "System Architect", "zh": "系统架构师" },
+      "avatar": "avatars/life-sim-architect.png",
+      "role": "member"
+    },
+    {
+      "id": "life-sim-core-engineer",
+      "displayName": { "en": "Kou", "zh": "寇定一" },
+      "profession": { "en": "Simulation Core & Backend Engineer", "zh": "内核与服务端工程师" },
+      "avatar": "avatars/life-sim-core-engineer.png",
+      "role": "member"
+    },
+    {
+      "id": "life-sim-frontend",
+      "displayName": { "en": "Ye", "zh": "叶顺屏" },
+      "profession": { "en": "Frontend & Interaction Engineer", "zh": "前端与交互工程师" },
+      "avatar": "avatars/life-sim-frontend.png",
+      "role": "member"
+    },
+    {
+      "id": "life-sim-qa",
+      "displayName": { "en": "Yan", "zh": "严过关" },
+      "profession": { "en": "QA & Acceptance Engineer", "zh": "测试验收工程师" },
+      "avatar": "avatars/life-sim-qa.png",
+      "role": "member"
+    }
+  ]
+}

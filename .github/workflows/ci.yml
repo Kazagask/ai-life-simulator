@@ -1,0 +1,90 @@
+name: CI
+
+# 门禁目标：把 AGENTS.md §0.3 / §4 与 docs/CLOUD_DEV.md §3 的本地命令，
+# 原样变成 GitHub 上必过的检查项。命令与本地一致，不另发明一套。
+#
+#   L0  pnpm typecheck                                   类型 0 错
+#   L1  pnpm --filter @life-sim/shared test               schema / opening 解析
+#   L2  pnpm test                                         game-core 全量
+#   L2b playthrough（--no-file-parallelism）              6 种子 × 2 开局自动通关
+#   L4  pnpm --filter @life-sim/web build                前端构建
+#   L5  apps/server/smoke/cloud.smoke.mjs                可移植冒烟（新建世界，零 LLM）
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CI: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 版本与 package.json 的 packageManager（pnpm@9.15.0）保持一致
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: L0 typecheck
+        run: pnpm typecheck
+
+      - name: L1 shared schema
+        run: pnpm --filter @life-sim/shared test
+
+      - name: L2 game-core
+        run: pnpm test
+
+      # 最容易暴雷的一关，串行跑，单独给一条状态
+      - name: L2b playthrough regression
+        run: pnpm --filter @life-sim/game-core exec vitest run --no-file-parallelism src/v2/playthrough.test.ts
+
+      - name: L4 web build
+        run: pnpm --filter @life-sim/web build
+
+      # 加载期 fail-fast + API 契约 + dist 可服务性，一次跑完
+      - name: L5 portable smoke
+        run: |
+          set -euo pipefail
+          export PORT=3000
+          export LIFE_SIM_DATA_DIR="${RUNNER_TEMP}/worlds"
+          mkdir -p "${LIFE_SIM_DATA_DIR}"
+          pnpm --filter @life-sim/server start > "${RUNNER_TEMP}/server.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "${SERVER_PID}" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 60); do
+            if curl -sf "http://127.0.0.1:3000/health" > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -sf "http://127.0.0.1:3000/health" > /dev/null
+          node apps/server/smoke/cloud.smoke.mjs
+
+      - name: Server log
+        if: failure()
+        run: cat "${RUNNER_TEMP}/server.log" 2>/dev/null || echo "(no server log)"

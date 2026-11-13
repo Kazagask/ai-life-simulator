@@ -80,11 +80,17 @@ node apps/server/smoke/cloud.smoke.mjs       # 可移植冒烟，见 docs/CLOUD_
 - ADR-0027 的「免前置 ADR + 事后补记」是 **2026-11-13 一次性裁决，不延续到后续任何任务**。
 - 待决项登记在 `docs/OPEN_QUESTIONS.md`（当前 **#49** 未决：登录用户 → 服务端免密钥 LLM 的真实注入链路）；不得自行伪造共识。
 - 小问题 / 优化点记 `docs/BACKLOG.md`，不要新建 spec 文件追踪。
+- **CI = 本地命令的镜像**：`.github/workflows/ci.yml` 在 push / PR 到 `main` 时跑
+  `pnpm typecheck` → `shared test` → `pnpm test` → playthrough（串行）→ `web build` → 可移植冒烟，
+  命令与 §3 完全一致。CI 红即视为门禁未过，不接受「本地过了」放行。
 
 ## 7. 相关文件
 
 | 文件 | 作用 |
 |---|---|
+| `docs/PROJECT_MEMORY.md` | 项目记忆快照（跨会话事实、已裁决决定、已知坑），由 `.workbuddy/memory` 提炼入库 |
+| `.workbuddy/experts/README.md` | 「人生模拟器研发团」专家包入库说明与换机安装步骤 |
+| `.github/workflows/ci.yml` | GitHub Actions 门禁（L0–L5 与本地命令一致） |
 | `docs/CLOUD_DEV.md` | 云端开发测试 runbook（环境、命令、验收分层、已知坑） |
 | `tasks/CLOUD_TASKS.md` | 云端任务清单（YAML 机器可读 + Markdown 表格），供内置任务管理系统导入 |
 | `AGENTS.md` | 工程规范与硬约束（任何任务先读） |

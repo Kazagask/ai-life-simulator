@@ -82,9 +82,12 @@ export CHROME_PATH=/usr/bin/chromium                   # 仅 UI e2e 需要
 | L4 前端构建 | `pnpm --filter @life-sim/web build` | 通过 | ✅ 已验证（2026-11-13） |
 | L5 可移植冒烟 | `node apps/server/smoke/cloud.smoke.mjs` | 全 PASS | 🆕 本轮新增，待云端复跑 |
 | L6 竖屏 UI e2e | `data/_aishot/*.mjs` | 见 §6 限制 | ⚠️ 本机历史脚本，云端需先参数化 |
+| CI | push / PR 到 `main` | `.github/workflows/ci.yml` 自动跑 L0 → L1 → L2 → L2b → L4 → L5 | 🆕 2026-11-13 接入，本地逐步复现通过；GitHub runner 首跑待观察 |
 
-🔴 **诚实声明**：R2.7 按当时用户裁决只做冒烟级验证；本轮 Phase 4 全量回归因验收进程异常退出**未出结论**，`tasks/reports/R27-FULL-REGRESSION.md` 不存在。
-**不得把 L1 / L2 / L2b / L6 写成已验证。** 云端第一次开发的首要动作就是把这几层跑完并留下证据。
+🔴 **诚实声明（2026-11-13 更新）**：R2.7 当时按用户裁决只做冒烟级验证，Phase 4 全量回归因验收进程异常退出**未出结论**，
+`tasks/reports/R27-FULL-REGRESSION.md` 仍然不存在（历史缺口，不补造）。
+**但 L1 / L2 / L2b 已于 2026-11-13 本地补跑通过**（shared 67 例、game-core 478 例 / 33 文件、6 种子 × 2 开局 playthrough 全绿），
+并已固化为 CI 门禁；**L6 竖屏 UI e2e 仍只有本机脚本，任何环境都不得写成已验证。**
 
 ## 4. 可移植冒烟脚本
 
