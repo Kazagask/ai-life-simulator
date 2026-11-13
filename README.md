@@ -41,6 +41,19 @@ pnpm test
 pnpm build
 ```
 
+## 作为 WorkBuddy 云端工程
+
+本目录已按 WorkBuddy 工程整理，可在云端环境独立 `install → build → start → test`：
+
+- 工程身份、边界、命令基线、环境变量、本机绑定：`.workbuddy/ENGINEERING.md`
+- 云端开发测试完整手册（含验收分层与已知坑）：`docs/CLOUD_DEV.md`
+- 可移植冒烟（零外部依赖，环境变量化）：`node apps/server/smoke/cloud.smoke.mjs`
+
+代码经 GitHub 远程仓库 `git@github.com:Kazagask/ai-life-simulator.git` 同步，
+云端 `git clone https://github.com/Kazagask/ai-life-simulator.git` 即可开始；
+`apps/web/dist` 由 `pnpm build` 生成，未构建时 `/` 返回 503 `web_dist_missing`。
+默认无 `LIFE_SIM_LLM_*` 环境变量 ⇒ Mock 零回归、不调用任何 LLM。
+
 ## 手机试玩测试包
 
 P0 Demo 已实现"创建世界 → 推进轮次 → NPC 自主行动 → 事件池/事件链 → 信息可见性 → 人生评价"闭环。

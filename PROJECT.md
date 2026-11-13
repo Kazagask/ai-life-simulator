@@ -90,3 +90,24 @@
 - `.workbuddy/` — WorkBuddy 协作元文件（项目记忆 + 项目技能），**不参与构建**，不属于产品架构。
 - 新增一轮迭代时，在 `specs/iterations/<YYYY-MM-DD>-<短标签>/` 下沿用 `README → requirements → design → tasks` 四件套，
   编号不重排，延期需求保留编号与原文。
+
+## 8. 云端工程入口（2026-11-13 新增）
+
+用户裁决「创建成 WorkBuddy 的工程，之后会在云端跑开发测试」。本轮只补**工程元信息与可移植脚手架**，
+**未改任何产品实现代码、未出测试结论、未改目录结构**（新增文件都落在既有目录内）。
+
+| 文件 | 作用 |
+|---|---|
+| `.workbuddy/ENGINEERING.md` | **工程清单**（自定义元信息，非 WorkBuddy 产品配置格式）：工程身份、边界、命令基线、环境变量、本机绑定、门禁 |
+| `docs/CLOUD_DEV.md` | **云端开发测试 runbook**：前置条件、起步、环境变量、验收分层、已知坑、与线上发布的关系 |
+| `apps/server/smoke/cloud.smoke.mjs` | **可移植冒烟**：零外部依赖、环境变量化、每次新建世界；`LIFE_SIM_BASE_URL` / `CHROME_PATH` / `RUN_UI` |
+| `tasks/CLOUD_TASKS.md` | **云端任务清单**（YAML 机器可读 + Markdown 表格），供 WorkBuddy 云端项目内置任务管理系统导入 |
+
+工程现状要点：用户 2026-11-13 已建 **GitHub 远程仓库** `git@github.com:Kazagask/ai-life-simulator.git`
+与 **WorkBuddy 云端项目** `p_b65216f5322d464eb95088a64eaf38fa`，代码经仓库同步、不再依赖本机磁盘；
+已绑定云端应用「咒术转盘人生」`wbapp_6BjykHXBJu8kLx2VWyxeie`（云服务 ACTIVE）并已发布分享链接；
+11 个历史 e2e 脚本硬编码本机 Chrome 与 `127.0.0.1:3000`，云端不要直接跑。
+
+🔴 **验证诚实口径**：R2.7 上轮只做冒烟；本轮 Phase 4 全量回归因验收进程异常退出**未出结论**，
+`tasks/reports/R27-FULL-REGRESSION.md` 不存在。`docs/CLOUD_DEV.md §3` 逐层标注了已验证 / 未出结论，
+云端第一次开发的首要动作是把 `pnpm test`、6 种子 `playthrough.test.ts`、shared 全量与 UI e2e 跑完并留证据。
