@@ -124,7 +124,7 @@ node apps/server/smoke/cloud.smoke.mjs             # 需先起 server
 
 1. `grep` 旧机 `docs/DECISIONS.md` 的最大 ADR 编号；查 `pendingEvents` 是否仍被当作权威队列。
 2. 找确认 API / 结算时序代码；比对 `specs/data/templates/**/*.yaml` 的指纹是否变化。
-3. `git reflog`、`git fsck --unreachable`、编辑器本地历史（VS Code / JetBrains Local History）。
+3. `git reflog`、`git fsck --unreachable`、编辑器本地历史（VS Code / JetBrains Local History），以及 **WorkBuddy 本机编辑前备份**：`~/.workbuddy/file-history/<会话id>/`、`~/.workbuddy/workspace/sessions/<会话id>/modify_backup/`。文件被覆盖也可能留着旧版本，优先于重建。
 4. 对照第 2 步快照逐目录比对文件数与内容。
 5. 真丢了就**从快照恢复**，不要试图从远端 clone 重建 —— 远端没有那些版本。
 

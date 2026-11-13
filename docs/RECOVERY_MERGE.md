@@ -58,7 +58,7 @@
 1. **崩溃机原工作目录 / 拆下的磁盘**：查 `git status`、`git stash list`、`git reflog`、未跟踪文件；重点找 `.workbuddy/memory/`（gitignore 的本机私有迭代日志）、`data/worlds/` 存档、旧 working tree 里的 `docs/DECISIONS.md` 与 `specs/iterations/` 新目录。
 2. **WorkBuddy 云端项目** `p_b65216f5322d464eb95088a64eaf38fa`：沙箱工作区 / 内置任务记录 / 会话产物（`PROJECT.md §8` 记载主理人无法直接访问内部，需导出或授权）。
 3. **GitHub 侧**：本轮 `ls-remote` 只有 `main`、无 tag；再查 fork、PR、Actions artifacts、其他账号下的仓库副本。
-4. **编辑器本地历史**（VS Code / JetBrains Local History）、云盘版本历史、系统还原点、回收站。
+4. **编辑器本地历史**（VS Code / JetBrains Local History）、**WorkBuddy 本机文件历史** `~/.workbuddy/file-history/<会话id>/` 与 `~/.workbuddy/workspace/sessions/<会话id>/modify_backup/`（编辑前备份，即使文件被覆盖也可能留着旧版本）、云盘版本历史、系统还原点、回收站。
 5. 全部找不到 ⇒ 走 §3.4「按概要重建」，把口述**当需求，不当代码**。
 
 ### 3.2 比对（先看，别覆盖）
@@ -169,7 +169,9 @@ CI（`.github/workflows/ci.yml`）L0 → L1 → L2 → L2b → L4 → L5 全绿�
 - 对外**确实是打好的包**（只有 dist、无源码、无 sourcemap）；但发布机制本身上传的是**源码压缩包**（排除 `node_modules` / `.git` / build output）在沙箱内安装启动 ⇒ 沙箱内部**应当有源码**，只是当前工具集**没有读取 / 下载沙箱源码的接口**（已发布应用只能查看 / 发布 / 下线 / 删除），云存储 / 数据库 / 资料库也都没有源码包。结论是「**有源码但取不到**」，不是「确认没有」。
 - 🔴 **红线：找回前禁止对「咒术转盘人生」执行任何重新发布 / 部署**（`workbuddy_sites_deploy` 是覆盖式更新，会用当前 R2.7 代码替换沙箱里的源码包，可能永久抹掉缺失版本），也禁止 `unpublish`。
 - 证据留存：`D:\code\_recovery_evidence\`（仓库外）保存 `index-FTlUlvkM.js` + `index-B3ryDvHb.css` 与 sha256，供日后比对；**不提交进仓库**。
-- 待办：请主理人在 WorkBuddy 客户端「设置 → 数据管理 → 已发布应用」查看该应用是否有沙箱文件 / 源码包导出入口；旧机磁盘仍是首选找回源。
+- **入口更正（2026-11-14 00:3x）**：中文界面路径为「**头像 → 设置 → 数据与安全 → 数据管理 → 应用**」（顶部工具栏「**帮助 → 设置**」是登录前后通用入口；设置是**独立窗口**，左侧导航分「设置 / 功能 / 数据与安全」三组）。更快的路径是打开该应用的任务，在**右侧预览区工具栏点「分享」**；应用标题旁的「**云服务**」标签管理数据 / 文件 / 用户。上文的「已发布应用」是工具描述里的英文措辞（Published Apps），中文界面并无这个菜单名；设置里的「应用管理」是另一项（已连接的第三方应用授权），别点错。依据：官方文档《系统设置》《数据管理》《网站应用开发与发布》。
+- **能力更正（重要）**：查完三份官方文档与本机发布技能 `SKILL.md` 后确认，该页面**只能查看应用与发布链接、管理云服务与发布状态、返回对应任务、下线、删除**；技能文档原文 "Settings - Data Management - Published Apps can only view, publish, unpublish and delete apps"。**没有「下载源码包 / 导出沙箱文件」功能**；「数据管理」页的「下载」只针对「我分享的文件」这类任务产物，不是源码。⇒ 上一版「去看有没有导出入口」的待办作废，别再为此白找。
+- **本机残留排查（只读，未动任何文件）**：`~/.workbuddy/workspace/sessions/` 与 `file-history/` 只有 5 个会话目录，其中 3 个属于崩溃后新建；另两个（11-13 21:25 / 23:17，工作目录 `C:\Users\Hakusin\WorkBuddy`）对 `ai-life-simulator` / `ADR-0028` / `ADR-0032` / `pendingEvents` 全部 **0 命中**。云端 `conversation_search`（11-07~11-14）同样 **0 结果**。⇒ **这台机器上没有崩溃前的开发会话记录**；旧机磁盘 + 旧机的 `~/.workbuddy/file-history/`、`modify_backup/` 才是首选找回源。
 
 ### 6.4 「只把模板目录搬到线上沙箱」可行性勘查（2026-11-14 00:0x）
 
