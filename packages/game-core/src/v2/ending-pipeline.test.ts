@@ -493,14 +493,14 @@ describe("结局投影与归档", () => {
     expect(ending?.evidenceIds).toEqual([]);
   });
 
-  it("终止后 slotEvent 投影为 null（不让已结束的世界继续弹事件）", () => {
+  it("终止后 slotEvent / pendingEvent 投影为 null（不让已结束的世界继续弹事件）", () => {
     const template = makeTemplate();
     const cfg = endingConfig();
     const state = makeActive(template);
     state.slot = { eventId: "ev-not-exists", from: "queueTake" };
     const snapshot = projectSnapshotV2(state, template, createLookup(template), null, cfg.endings);
     expect(snapshot.slotEvent).toBeNull();
-    // @deprecated 过渡字段恒 null（ADR-0034 §5 收口）：前端只读 slotEvent
+    // `pendingEvent` 是**兼容包装**（= slotEvent 的 normal 子集），字段与语义均保留到前端切换后
     expect(snapshot.pendingEvent).toBeNull();
     expect(snapshot.status).toBe("running"); // 未终止时仍按 running 投影
     state.termination = { reason: "r", worldTime: 0, turnIndex: 0, source: "condition", endingId: "end-long" };

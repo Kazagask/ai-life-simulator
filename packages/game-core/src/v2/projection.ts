@@ -12,7 +12,7 @@ import type {
 import { moodBand, maxHp, maxMp } from "./engine.js";
 import { birthTimeFromAge, createTimeAdapter } from "./time.js";
 import type { TemplateLookup } from "./lookup.js";
-import { slotEventView } from "./turn.js";
+import { pendingEventView, slotEventView } from "./turn.js";
 import { controlOf } from "./battle.js";
 import { isKinshipKind, kinshipTerm, projectVisibleRelations } from "./relations.js";
 
@@ -248,14 +248,16 @@ export function projectSnapshotV2(
     // ADR-0034 §5：投影只给"当前在演什么"（`slotEvent`），不投影队列内容与长度。
     slotEvent: ended ? null : slotEventView(state, lookup),
     /**
-     * @deprecated 恒 `null`（ADR-0034 §5 收口）。
+     * @deprecated **兼容包装**（= `slotEvent` 的 normal 子集）。切到 `slotEvent` 后与字段一起删除。
      *
-     * 字段**保留但不再写入**：`slotEvent` 是唯一真源，若这里再写一份 normal 子集，
-     * 就会出现「同一场景两个字段、两种 kind 语义」的双源，前端任何一处读旧字段都会
-     * 在 random/combat 槽上拿到 `null` 从而误判为「可自由行动」。
-     * 字段本身等前端切换完成后与 `PendingEventView` 一起删除（不在本轮范围）。
+     * 2026-11-13 裁定：**保持写入**，不得改成恒 `null`。事实依据：`apps/web/src/main.tsx`
+     * 仍在 5 处读它（`533` 交互判定 / `1313` 呈现位 / `1321` 候选过滤 / `1418` 空态 /
+     * `1876` EventPanel 正文），且**完全没有引用 `slotEvent`**；改成恒 null 会让类型检查照绿
+     * 但运行期直接坏（`1876` 拿到 null 抛错、`1313` 永远判 action ⇒ 事件卡不再上屏）。
+     * ⇒ 删除顺序固定为「前端先切 `slotEvent` 并删这 5 处引用 → 再删本字段」，
+     *   任何中间提交都不允许出现「web 读 null」。
      */
-    pendingEvent: null,
+    pendingEvent: ended ? null : pendingEventView(state, lookup),
     battle,
     lastWheel: state.lastWheel,
     // D-03：当轮全部转盘结果（旧档无该字段 ⇒ 空数组，前端据此不渲染转盘区）

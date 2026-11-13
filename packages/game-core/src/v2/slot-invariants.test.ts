@@ -5,6 +5,7 @@ import {
   type WorldTemplateV2,
 } from "@life-sim/shared";
 import { createLookup, type TemplateLookup } from "./lookup.js";
+import { deriveTurnSeed } from "../rng.js";
 import { enqueueScheduled, scanDelayQueue } from "./scheduler.js";
 import { advanceTurnV2, battleActionV2, chooseOptionV2, slotEventView, useItemV2 } from "./turn.js";
 import { createActiveWorldV2 } from "./test-utils.js";
@@ -550,5 +551,79 @@ describe("G2-3 补充 · 未来实例不挡路 + 计数是纯读/确定性", () 
       return JSON.stringify({ ...state, id: "same" });
     };
     expect(run("w-det-a")).toBe(run("w-det-b"));
+  });
+});
+
+// ---------- G2-3 补充（二）：计数流的相关性断言（§3-5 RNG 纪律）----------
+
+describe("G2-3 补充 · 计数用「一条流顺序消费」，不是每实例一条流", () => {
+  /**
+   * **为什么必须测**：若计数循环里给每个实例各建一条派生流，两条含 `random` 条件的实例会
+   * 拿到**同一个骰值**（相关性）——而"同 seed 两次跑结果一致"照样绿，这是最难查的形态。
+   *
+   * **怎么测（不写死骰值、不依赖 turnIndex 猜测）**：用二分法**实测**每个消费者的有效骰值。
+   * 构造 `leading` 条 `{ random: 1 }`（恒成立、但每条消耗 1 个骰值）+ 1 条被探的 `{ random: t }`，
+   * 并令 `maxQueueLength = leading + 1`。于是：
+   *   count = leading + (die < t)，池**摇** ⟺ count < leading+1 ⟺ `die >= t`。
+   * ⇒ 对 t 二分 16 次即可测出该消费者看到的骰值（精度 1/65536）。
+   * 再比较"第 1 个消费者"与"第 2 个消费者"的骰值：**一条流顺序消费 ⇒ 两者必然不同**；
+   * 每实例一条流 ⇒ 两者相同（都是流首骰）。
+   */
+  const DIE_EPS = 0.01;
+
+  function measureDie(leading: number, seed: number, worldId: string): number {
+    const run = (t: number): boolean => {
+      const lead = (id: string) => ({
+        id,
+        title: `骰值消耗 ${id}`,
+        narrative: "恒成立的 random 条件，只为消耗一个骰值。",
+        trigger: { source: "chain" as const, conditions: [{ random: 1 }] },
+        kind: "normal" as const,
+        settle: { normal: { options: [{ id: "opt-ok", text: "继续" }] } },
+      });
+      const probed = {
+        id: "ev-probe-die",
+        title: "被探的骰值",
+        narrative: "条件是 rng() < t。",
+        trigger: { source: "chain" as const, conditions: [{ random: t }] },
+        kind: "normal" as const,
+        settle: { normal: { options: [{ id: "opt-ok", text: "继续" }] } },
+      };
+      const leads = Array.from({ length: leading }, (_, k) => lead(`ev-lead-${k}`));
+      const tpl = template([...leads, probed, EV.gate]);
+      // 阈值 = leading + 1：让"被探的那条是否可上桌"直接决定池摇不摇
+      tpl.eventFlow = {
+        poolDraw: { skipWhenSlotOccupied: true, maxQueueLength: leading + 1 },
+      } as typeof tpl.eventFlow;
+      const lookup = createLookup(tpl);
+      const state = createActiveWorldV2({ templateId: "t-slot", playerName: "测试者", seed }, tpl, worldId);
+      for (const l of leads) enqueueDue(state, l.id);
+      enqueueDue(state, "ev-probe-die");
+      advanceTurnV2(state, REST, tpl, lookup);
+      return state.delayQueue.some((i) => i.definitionId === "ev-gate");
+    };
+
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 16; i += 1) {
+      const t = (lo + hi) / 2;
+      if (run(t)) lo = t; // 摇 ⇒ die >= t
+      else hi = t; // 不摇 ⇒ die < t
+    }
+    return lo;
+  }
+
+  it("第 2 个消费者拿到的骰值与第 1 个不同（一条流顺序消费 ⇒ 不同；每实例一条流 ⇒ 相同）", () => {
+    const SEED = 1;
+    const first = measureDie(0, SEED, "w-die-first");
+    const second = measureDie(1, SEED, "w-die-second");
+
+    // 前提：两个骰值都落在合法区间（测法有效）
+    expect(first).toBeGreaterThanOrEqual(0);
+    expect(first).toBeLessThan(1);
+    expect(second).toBeGreaterThanOrEqual(0);
+    expect(second).toBeLessThan(1);
+    // 判别位：同一个流里第 1、第 2 个骰值必须不同；若"每实例一条流"，两者都会是流首骰 ⇒ 本断言必红
+    expect(Math.abs(second - first)).toBeGreaterThan(DIE_EPS);
   });
 });

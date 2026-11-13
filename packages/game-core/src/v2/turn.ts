@@ -47,6 +47,7 @@ import {
   onCooldown,
   recordFire,
   scanDelayQueue,
+  sortScheduled,
   specToMinutes,
   ZERO_SPEC,
 } from "./scheduler.js";
@@ -533,22 +534,27 @@ function poolDrawConfig(template: WorldTemplateV2): { skipWhenSlotOccupied: bool
  * 1. `window.start <= worldTime`（**未到期的不计** —— 它还没到上场时间，不该挡今天的抽取）；
  * 2. `checkEventPremise(def, ctx).ok`（`missWhen` / `conditions` 不成立的不计）。
  * 另加两条不计入：定义缺失（清理归加载期完整性校验）、已过期（`worldTime > window.end`，
- * 扫描会把它摘掉并记 `window_expired`）。**冷却中的实例仍计入**：冷却会自然解除，属"活内容"。
+ * 扫描会把它摘掉并记 `window_expired`）。**冷却中的实例仍计入**：冷却会自然解除，属"活内容"
+ * ——注意这与 `evaluateDue` 的 `hold` 口径**故意不同**（出队终判连冷却一起 hold，计数不 hold）。
  *
- * 求值用**独立派生流**（`scanStream`，`seed + 37`）：条件里若含 `random`，每轮对每个 `waiting`
- * 求值一次（用量与队列长度线性），绝不可用主轮 `ctx.rng`（§3-5）。纯读：只计数，不改 `status`、
- * 不写 `missedEvents`、不推 `turnIndex`、不动 `slot`。
+ * RNG 纪律（§3-5 / 主理人硬要求，**改错会以最难查的方式出错**）：
+ * - 一轮计数只创建**一条**派生流（`scanStream`，`seed + 37`），沿遍历顺序**同一个 `rng`**
+ *   顺序传给每次 `checkEventPremise`。**绝不可**每个实例各建一条 —— 那会让两个含 `random`
+ *   条件的实例拿到同一个骰值（相关性 bug），而且"同 seed 两次跑一致"还能照绿。
+ * - 遍历顺序固定为 `sortScheduled` 的全序（`start → hasEnd → end → enqueueSeq`），
+ *   与 `scanDelayQueue` 同一条顺序 ⇒ 骰值消费顺序只由世界状态决定，不随数组顺序漂移。
+ * 纯读：只计数，不改 `status`、不写 `missedEvents`、不推 `turnIndex`、不动 `slot`。
  */
 function countPresentableQueue(state: WorldStateV2, lookup: TemplateLookup): number {
-  const rng = scanStream(state);
+  const rng = scanStream(state); // 一轮一条流
   let presentable = 0;
-  for (const inst of state.delayQueue) {
+  for (const inst of sortScheduled(state.delayQueue)) {
     if (inst.status !== "waiting") continue;
     if (inst.window.start > state.worldTime) continue; // 未来实例不挡路
     const def = lookup.event(inst.definitionId);
     if (!def) continue;
     if (inst.hasEnd && inst.window.end !== undefined && state.worldTime > inst.window.end) continue;
-    if (!checkEventPremise(def, { state, lookup, rng }).ok) continue;
+    if (!checkEventPremise(def, { state, lookup, rng }).ok) continue; // 同一个 rng，顺序消费
     presentable += 1;
   }
   return presentable;
