@@ -577,8 +577,3 @@ export function loadTemplates(logger: TemplateScanLogger): TemplateRegistry {
   if (readyCount === 0) throw new Error(`no_templates_found_in: ${dir}`);
   return createRegistry(dir, result);
 }
-
-/** 扫描根目录（供日志 / 诊断；与 `TEMPLATES_DIR` 同一解析口径）。 */
-export function templatesRoot(): string {
-  return templatesDir();
-}
