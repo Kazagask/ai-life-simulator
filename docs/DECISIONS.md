@@ -2123,6 +2123,8 @@ RNG ⇒ 「逐字节等价重构」立刻不成立（RNG 流被多扣一次，�
 
 > **〔术语与槽定义被 ADR-0032 收窄，2026-11-13〕** 本 ADR 的「槽 = `pendingEvents ≤ 1`」这一**等式作废**：`pendingEvents` 的语义收窄为「`event` 占用者的载体」（ADR-0032 术语 T2），**呈现槽**是跨层概念 `PresentationSlot`（T1，四类占用者 `wheel/battle/event/action`，定义在前端 `apps/web/src/main.tsx:203-204`/`:1299-1315`，引擎侧目前无对应物）。本 ADR 的守卫作为**运行期约定**（ADR-0032 §3 R1）保留其事实地位，但**不得再被称为「槽模型」**；其可被旁路破的事实（`opening.ts:241`、`ending.ts:379`）已在 ADR-0032 §3 R1 登记。
 
+> **〔守卫条件被 ADR-0033 替换，2026-11-13〕** 本 ADR 决策 2 的守卫条件 `event.kind === "normal" && state.pendingEvents.length > 0` **被替换为** `event.kind === "normal" && occupantOf(state) !== "action"`（ADR-0033 决策 3；`occupantOf` 见同 ADR 决策 1）。**决策 2 的其余部分（命中动作 = `enqueueScheduled(ZERO_SPEC)` 后 return、位于 `recordFire` 之前、不记火不写历史）全部保留不变**，决策 5 的「可整块删除回退」性质也保留（回退即恢复旧条件）。本 ADR 的量化基线与「normal 串行化」成果仍有效。
+
 ## ADR-0027 AI 叙事层接入：LLM Provider 抽象 + 服务端编排 + 确定性边界
 
 > **本条覆盖**：将 2026-11-13 与用户讨论确定的「AI 叙事层（LLM 接入）」落地为正式决策——`LLMProvider` 统一接口（Mock / WorkBuddy 云服务 SDK / OpenAI 兼容）、服务端凭证路由、确定性边界、strict Zod + 证据白名单回退、事件 flavor 异步生成。属于 **T-2 协议/契约变更**（动 server/engine 编排契约 + shared schema 新增），须先写 ADR（AGENTS §0.3）。
@@ -3050,3 +3052,166 @@ export interface PendingWheelView {
 - **不动代码**、不动 `specs/**`、不改任何 ADR 正文（只 append-only 回指）。
 - **不裁定 P1–P3 的最终效力**：三条默认采用，用户可否决；否决后只改 §4，不影响 §1–§3。
 - **不给 Q1–Q5 的答案**：那是重设计阶段的事，且必须逐条走 ADR。
+
+> **〔Q1/Q3/Q5 已由 ADR-0033 裁定，2026-11-13〕** 本 ADR §5 的五个待解问题进度：**Q1（呈现槽形态）+ Q3（伪链判据）→ ADR-0033 决策 1–3**（结论：`occupantOf` 一等**判据**但不持久化；伪链不升格、不动模板，靠「同栈续步优先 + 非占用者不得入槽」保证连续性，即 Q3-A）；**Q5（九类路径归类）→ ADR-0033 决策 6–7**（九行表 + 新不变量候选「产生新呈现物的代码只允许在推进轮次的入口里运行」）；**Q4 → 维持本 ADR 的「不拆」并加约束**（ADR-0033「明确不做」第 1 条）。**Q2 只做了一半**：ADR-0033 不拆 `scheduledEvents`，把「被退回的暂存」独立容器留作批次 4。§4 的 P1 已由 ADR-0033 决策 5 落地（P1-A）；**P2（主线暂歇可见标记）与 P3（未确认呈现物）尚未落地**，P3 属批次 3（待立 ADR-0034）。
+
+## ADR-0033 呈现槽单一判据 + 续步优先 + 待决期写入门禁（批次 1+2）
+
+> **本条覆盖**：按 ADR-0032 的口径落地**批次 1（槽的单一判据）+ 批次 2（续步优先 + P1 门禁 + `useItemV2` 去队列副作用）**。它是 ADR-0032 §5 Q1/Q3/Q5 的**实施裁定**，不含批次 3（未确认呈现物 / 转盘点击才落账，另立 ADR-0034）。
+> **本条零存档代价**：`WorldStateV2` **零字段改动**、`schemaVersion` **不动**、旧档全部照常载入；只新增一个**派生投影字段**与若干**调用次序/门禁**调整。
+
+- **状态**：**已接受（2026-11-13；Q3-A 与 P1-A 待用户最终确认，用户可否决）**。
+- **起草人**：系统架构师（高见远）。依据：ADR-0032 概念模型 + 本轮三方梳理 + 评审稿（`Q1–Q5 设计评审稿`）。
+- **关联**：ADR-0032（口径来源，**本条是它的实施**）、ADR-0026（单槽守卫，**其守卫条件被本条替换**）、ADR-0030/0031（已被打回，其分层不复活）、ADR-0024（前提复核，未触及）、ADR-0017 决策 4（`lastWheels`，未触及）、BACKLOG B-27（combat 反向对称洞，本条不做）。
+- **Q3-A（用户可否决）**：伪链**不升格为真链、不加血缘字段、不动模板**（理由：升格需改 `chains:` ⇒ 语义指纹变化 ⇒ 现有存档全部拒载，本周已因指纹变化丢过两次档；且选项级 `nextEventId` 装不进线性 `ChainStep[]`）。
+- **P1-A（用户可否决）**：待决/战斗/未确认期间**连用物品、换装备都禁，只放行纯读**（理由：玩家看到的与引擎记账的必须永远一致）。
+
+### 现状核实（以代码为准）
+
+| 事项 | 事实 | 证据 |
+|---|---|---|
+| 槽的判定只在前端 | 四类占用者 + 优先级 `wheel > battle > event > action` | `apps/web/src/main.tsx:203-204`、`:1299-1315` |
+| 引擎只有 1/4 | 守卫只判 `kind === "normal" && pendingEvents.length > 0` | `turn.ts:471` |
+| 战斗期间可吸纳 normal | 战斗互斥只挡 combat（`:453`），尾管线照常 pool+drain | `advanceTurnV2` `:940-972`（`:946` drain、`:968` tail） |
+| 续步被 drain 抢先 | 三处结算路径 `drainDue` 均在续步链接之前 | `chooseOptionV2:1075` vs `:1078`；`battleActionV2:1141` vs `:1148`；`useItemV2:1224` vs `:1226` |
+| 轮外入口能产生呈现物 | `useItemV2` 里有 `drainDue` + `triggerChainStarts` | `:1224`、`:1226` |
+| 换装备无任何门禁 | `equipV2`/`unequipV2` 只 `assertActive` | `equipment-turn.ts:45-78`、`:80-105` |
+
+### 决策 1：`occupantOf` —— 呈现槽的**唯一**判据
+
+1. **签名与纯函数性**（严格按此实现，不得加参数）：
+
+```ts
+// packages/shared/src/slot.ts（新文件），由 packages/shared/src/index.ts 再导出
+export type SlotOccupant = "wheel" | "battle" | "event" | "action";
+export function occupantOf(state: WorldStateV2): SlotOccupant;
+```
+
+2. **判定次序**（固定，不得重排；全部为纯读，**零副作用、零 RNG、不读 `Date`**）：
+
+| 序 | 条件 | 结果 |
+|---|---|---|
+| 1 | `(state.lastWheels ?? []).length > 0` | `"wheel"` |
+| 2 | `state.battle !== null && !state.battle.over` | `"battle"` |
+| 3 | `state.pendingEvents.length > 0` | `"event"` |
+| 4 | 其余 | `"action"` |
+
+3. **放置与唯一性**：`packages/shared/src/slot.ts`，理由——它是引擎与前端**共用**的判定，放 `game-core` 会让前端重复实现（正是本次事故根因），放 `v2.ts`（671 行、以类型为主）会让它不易被找到。**硬约束：全仓只允许这一份实现**；`apps/web` 不得再写优先级判断，`game-core` 不得写第二份。`SlotOccupant` 类型即 `shared` 的既有同名类型（`main.tsx:203-204` 迁出入口），前端改为 `import type { SlotOccupant }`。
+4. **旧档兼容**：`lastWheels` 是可选字段 ⇒ 用 `?? []`（同类先例 `lastFiredIndex` / `spawnRules`）。
+
+### 决策 2：投影字段 `V2Snapshot.occupant`
+
+1. **形态**：`V2Snapshot.occupant: SlotOccupant`（**必填**，每次投影由 `occupantOf(state)` 现算，**不缓存**）。
+2. **不进存档、不升 `schemaVersion`**：`V2Snapshot` 是**派生量**（服务端每请求重算，`worldStore` 只存 `WorldStateV2`）⇒ 存档结构零变化。
+3. **三件必须同批**（缺一即复刻事故根因）：① `shared` 落 `occupantOf` + 类型；② 投影写入 `occupant`（`projection.ts`）；③ **前端删除 `main.tsx:1299-1315` 的本地优先级实现，改读 `snapshot.occupant`**。前端不得保留任何 `wheelItems.length > 0 ? ... : battle ? ...` 形式的回退分支（`prefers-reduced-motion`/空态判断可留，占用者判定不可留）。
+
+### 决策 3：准入改造 —— 只改 `normal` 一处
+
+1. **`triggerEventV2` 顶部**：条件从 `event.kind === "normal" && state.pendingEvents.length > 0` 改为 **`event.kind === "normal" && occupantOf(state) !== "action"`**（`turn.ts:471`）。命中动作不变（`enqueueScheduled(ZERO_SPEC)` + `return`，仍在 `recordFire` 之前）。
+2. **直接效果**：战斗期间不再吸纳 normal（`L2` 语义由同一条判据自然得到，**不需要**新增 battle 特判）；转盘发生于本轮时（`lastWheels` 非空）normal 也被延后到下一轮 ⇒ 「一轮只演一件事」。
+3. **`random` 与 `combat` 本轮走不走同一判据 —— 结论：都不走**（依 ADR-0032 §3 R2：二者结算后本就不入 `pendingEvents`）：
+   - `combat` 保持 `turn.ts:453` 的「同一时刻至多一场」互斥，**不加** occupant 准入。理由：「战斗被 `pendingEvents` 挡」是**反向对称洞**（BACKLOG B-27），无观察事例，且会动既有战斗用例 ⇒ 另案。
+   - `random` 保持现状（触发即结算、不入 `pendingEvents`），**不加** occupant 准入。理由：一旦被挡就需要「未确认呈现物」这个概念 ⇒ 那是批次 3（ADR-0034）。
+4. 因此本条**不改变** `random` 与 `combat` 的任何准入行为；唯一变化的输入面是「normal 事件在什么条件下可入槽」。
+
+### 决策 4：续步优先（F2 顺序规则）——只调次序，不动队列语义
+
+**硬约束**：只调整下列三处的**调用次序**；**不得**修改 `drainDue` / `drainScheduledEvents` / `sortScheduled` 的内部语义（那是 ADR-0011/0026 的既有结论）。
+
+| 入口 | 改前次序 | 改后次序 |
+|---|---|---|
+| `chooseOptionV2`（`:1073-1080`） | `applyEffectsV2` → **(条件)** `drainDue` → `triggerChainStarts` → `advanceChainOnSettle(nextEventId)` | `applyEffectsV2` → `triggerChainStarts` → `advanceChainOnSettle(nextEventId)` → **(条件)** `drainDue` |
+| `battleActionV2`（`:1139-1155`） | `finishBattle` → `applyEffectsV2(outcome)` → **(条件)** `drainDue` → `triggerChainStarts` → `state.battle = null` → `nextEventId` 触发 | `finishBattle` → `applyEffectsV2(outcome)` → `triggerChainStarts` → `state.battle = null` → `nextEventId` 触发 → **(条件)** `drainDue` |
+| `useItemV2`（`:1222-1226`） | `applyEffectsV2` → **(条件)** `drainDue` → `triggerChainStarts` | `applyEffectsV2` → `triggerChainStarts` → **删除 `drainDue`**（见决策 6） |
+
+**两条不得违反的约束**：
+- `battleActionV2` 中 `state.battle = null` **必须仍先于 `nextEventId` 触发**（否则 `next` 若是 combat 事件会被 `:453` 跳过）；同时也**必须**先于 `drainDue`（否则 drain 出来的 combat 也会被跳过）——后者是本条顺带修掉的实质缺陷。
+- `drainDue` 的触发条件（`timeAdvanced || enqueued?.length > 0`）**原样保留**，只是位置后移。
+
+### 决策 5：P1 门禁 —— 三个轮外写入口复用同一判据
+
+1. **门禁函数**（新增 `packages/game-core/src/v2/slot-gate.ts`，避免 `turn.ts` ↔ `equipment-turn.ts` 循环依赖）：
+
+```ts
+export function assertSlotFree(state: WorldStateV2): void  // 占位时按 occupant 抛既有码
+```
+2. **判据复用**：`occupantOf(state) === "action"` 才放行；否则按 occupant 抛**既有**错误码，不新增语义重复码：
+
+| occupant | 抛出 | HTTP（服务端映射） |
+|---|---|---|
+| `event` | `pending_event_required`（既有） | 409 |
+| `battle` | `battle_in_progress`（既有） | 409 |
+| `wheel` | 本条内**不可达**（无未确认转盘概念）；批次 3 落地时由 ADR-0034 定义 `pending_wheel_required` | — |
+| `action` | 不抛 | — |
+
+   ⇒ **服务端零改动**：两个码都已在 `apps/server/src/index.ts:744-752` 的 `interactionErrors` 集合里（409）。
+3. **接入点**：`useItemV2`（`:1191`，替换现有 `battle_in_progress` 单判为 `assertSlotFree`）、`equipV2`（`equipment-turn.ts:45`，`assertActive` 之后）、`unequipV2`（`:71`，同）。
+4. **不挡**：`settle`-类呈现物确认入口（批次 3）、`archive`（终局 + P3 逃生口）、**所有 `GET`**（快照 `/ 历史 / 列表 / records`）。
+5. **与既有裁定的关系**：「用物品不消耗回合」（ADR-0011 决策 5 / OQ-#34）**不变**——`useItemV2` 仍不推进 `turnIndex`、不清 `lastWheels`；本条只是**在未确认期间禁用它**。口径：*不消耗回合 ≠ 可以改因果*。
+
+### 决策 6：删除 `useItemV2` 内的 `drainDue` + 保留 `triggerChainStarts`
+
+1. 删除 `turn.ts:1223-1225` 的 `if (itemCtx.timeAdvanced || enqueued) drainDue(...)`。
+2. `triggerChainStarts`（`:1226`）**保留**但在新次序下位于效果之后（见决策 4 表）。
+3. **语义理由**：`useItemV2` 是唯一「不推进轮次却能产生新呈现物」的活路径（见决策 7 表第 4 行）。删掉 drain 后，物品效果 `enqueueEvent` 产生的事件**滞留到下一次 drain**（下一轮入口）⇒ 「用物品不消耗回合」的语义更纯：物品只改数值，不推进世界演出。
+4. **可观测行为变化**（必须写进交付说明）：凡「物品效果带 `enqueueEvent` / `advanceTo`」的用例，事件出现时机会晚一轮。现有模板需在实施时核对 `items.yaml` 是否有此类物品；若有，其测试期望需相应更新。
+
+### 决策 7：Q5 九行归类表（口径，原样保留）
+
+| # | 路径 | 归类 | 判据与理由 |
+|---|---|---|---|
+| 1 | 各入口内 `drainDue`（`:946/1075/1141/1224/848`） | **归入轮次** | 最主要的新呈现物来源；只允许出现在「推进轮次」的三个入口里（`useItemV2` 的已按决策 6 删除） |
+| 2 | `triggerChainStarts`（`:940/1077/1143/1226/843`） | **归入轮次** | 起点事件是呈现物 |
+| 3 | `runTurnTail` 的 NPC 自主行动（`:841`） | **归入轮次** | 写关系/状态且能 `startedChains`；只随 `advanceTurnV2`/`chooseOptionV2` 尾管线跑 |
+| 4 | `useItemV2` 内的 `drainDue` + `triggerChainStarts`（`:1224/1226`） | **禁**（drain 已删；chainStarts 保留但后移） | 唯一「不推进轮次却能产生新呈现物」的活路径 |
+| 5 | `equipV2` / `unequipV2`（`equipment-turn.ts:45/71`） | **留在轮次外** | 纯背包/属性移动，不碰两个队列 |
+| 6 | `revalidatePendingV2` 的丢弃（`:409`） | **留在轮次外** | 防御性清理；可诊断事实仍只有非持久化 `droppedPending`（持久化另案，BACKLOG B-14） |
+| 7 | `applyEndingBoundary`（`:850`） | **留在轮次外** | 终止判定，随 tail 内联，无独立入口 |
+| 8 | `archive` | **留在轮次外** | 终局置位；P3 逃生口 |
+| 9 | 待决期间的一切改状态输入（P1-A） | **禁** | 与上述 8 条正交的「状态维度」：未确认期间整体禁止 |
+
+**新不变量候选（可断言）**：**「产生新呈现物的代码只允许在推进轮次的入口里运行」**。
+断言方式（优先行为断言，`drainDue` 未导出、不必 spy）：构造「使用后 `enqueueEvent` 的物品」→ 调 `useItemV2` → 断言被入队的事件实例 `status === "waiting"` 且 `pendingEvents` 未变；再调 `advanceTurnV2` → 断言该事件此时才 `fired`。
+
+### 必跑测试清单与预期漂移
+
+| 测试 | 预期影响 |
+|---|---|
+| `packages/game-core/src/v2.test.ts`（单槽 ≤1 / 串行化回放，`:725-800`） | 守卫条件改为 `occupantOf` 后，**被挡的面变大**（战斗期间、转盘轮也会挡）；串行化用例的期望可能需按新条件重算 |
+| `packages/game-core/src/v2/r25-acceptance.test.ts`（T1-07 结算占槽，`:71+`） | 不应变；若战斗结算序调整导致断言次序变化，按新序修正 |
+| `packages/game-core/src/v2/scheduler.test.ts`（队列长度，`:308-433`） | 不应变（未动队列语义） |
+| `packages/game-core/src/v2/playthrough.test.ts`（6 种子 × 2 开局） | **F2 改次序会动 RNG 消耗顺序** ⇒ 逐事件时序与个别种子 `day` 会变（预期非回归）；**必须仍绿**：章节 ≥8、`chapterFires` 无重复、五维区间不变 |
+| `packages/game-core/src/v2/combat-refs.test.ts`（`:227-228` `pendingEvents === []`） | 战斗期间行为变化（normal 不再入槽）可能影响该断言的前置构造 |
+| `packages/game-core/src/v2/equipment*.test.ts` / `time.test.ts` | 新增门禁后，凡在「有待决事件/战斗」状态下调 `equip/unequip/useItem` 的用例会开始抛 409 ⇒ 需在该类用例前置清空占位 |
+| `apps/web` | **必须删除本地优先级实现**（决策 2.3）；否则 `occupant` 双真相 |
+| 存档/投影往返（`persistence.test.ts`） | 不应变（`State` 零字段改动；`occupant` 是投影派生量） |
+
+### 明确不做
+
+- **不重构 `turnIndex`**（ADR-0032 Q4 裁定「不拆」）：保持四个自增点，且**不再给它加新用途**。
+- **不升格伪链**（Q3-A）：不改 `chains:` 段、不加血缘字段、**不动任何模板**（指纹与旧档零影响）。
+- **不拆 `scheduledEvents` 的其余三类语义**（Q2 只拆「被退回的暂存」，留批次 4）。
+- **不动 `pendingEvents` 的两条旁路写入**（`opening.ts:241`、`ending.ts:379`，BACKLOG B-33 另案）。
+- **不给 `combat` / `random` 加准入**（决策 3.3，分别对应 BACKLOG B-27 与批次 3）。
+- **不做批次 3**（未确认呈现物 / 转盘点击才落账）——另立 ADR-0034，且必须在 `occupantOf` 落地后。
+- **不动 `specs/**`**、不动模板。
+
+### 实施顺序（本 ADR 内部）
+
+1. `shared/slot.ts` 的 `occupantOf` + `SlotOccupant` 导出（**先立判据**）。
+2. 投影 `V2Snapshot.occupant` + 前端改读 `snapshot.occupant` 并删本地判据（**与第 1 步同批**）。
+3. `triggerEventV2` 的 normal 准入换判据（**与第 1 步同批**）。
+4. F2 三处次序调整 + `slot-gate.ts` + 三处门禁接入 + 删 `useItemV2` 的 drain（**与第 1 步同批**，否则出现「门禁放宽而准入没跟上」的中间态）。
+5. 跑必跑清单 → 重录 `playthrough` 基线（只允许逐事件时序细节变化）。
+
+**一句话界定本条**：把「谁在演这一格」从**前端 5 行**变成**引擎与前端共用的一份纯函数判据**，并让「同一叙事序列的下一环」在**同一次结算调用栈内**先于「恰好到期的延时事件」——**零存档代价、不动模板、不复活已被打回的分层**。
+
+### 补充（2026-11-13 落档后核查）：P1-A 与 ADR-0024 决策 2.3 #3 的交界
+
+落档后核对既有测试时发现一处必须写清的交互，**不改变本 ADR 的任何决策**，但改变实施者的测试清单：
+
+1. **ADR-0024 决策 2.3 #3 把 `useItemV2` 定义为「最容易在呈现之后、结算之前改变世界状态的入口」**，并据此在它入口处先跑 `revalidatePendingV2`；`pending-premise.test.ts:180`、`:190` 两条契约用例正是**用 `useItemV2` 来排空一个前提已失效的队首**。**P1-A 之后这两条路径不可达**（待决期间 `useItemV2` 直接 409）⇒ 这两条用例必须改写成用 `advanceTurnV2` 排空。
+2. **不会产生硬死锁**（这是 ADR-0024 决策 2.5 的原始担忧）：`advanceTurnV2` 的 `revalidatePendingV2` **排在 `pending_event_required` 门禁之前**（`turn.ts:884-887`）⇒ 即使队首前提已失效且玩家不能用药，玩家仍可提交自由行动，入口会先丢弃失效队首再判门禁。**P1 只收走了「用物品」这条旁路，没有收走唯一的排空通道。**
+3. **ADR-0024 的机制不回退**：`checkEventPremise` / `revalidatePendingV2` / `event_premise_invalidated` / `droppedPending` 全部保留（其触发面从「五个入口」收窄为「四个推进轮次的入口 + 提交自由行动时的入口复核」），仍属纵深防御。
+4. **受影响的测试补进必跑清单**：`packages/game-core/src/v2/pending-premise.test.ts`（上述两条，必改）、`packages/game-core/src/v2/ending-v2.test.ts`（含 `useItemV2` 调用，需核对是否在待决/战斗状态下调用）。
+5. **`items.yaml` 已核对（零暴露）**：`jjk-2006/1.0.0/items.yaml` 共 11 件物品，`use` 效果全部是 `adjustResource` / `cureStatus` / `adjustMood` 之类**纯数值效果**，**零处 `enqueueEvent` / `advanceTo` / `advanceBy`** ⇒ 决策 6 删除 `useItemV2` 内 `drainDue` 造成的「事件晚一轮」在**当前模板下无可观测影响**；该决策是为**未来模板**立规矩。
