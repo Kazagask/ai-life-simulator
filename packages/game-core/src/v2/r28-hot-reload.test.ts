@@ -142,7 +142,7 @@ function entryNow(): ReadyTemplateEntry {
 function resolvePending(state: WorldStateV2, entry: ReadyTemplateEntry): WorldStateV2 {
   let current = state;
   for (let guard = 0; guard < 30; guard += 1) {
-    const pending = current.pendingEvents[0];
+    const pending = current.slot;
     if (!pending) return current;
     const event = entry.lookup.event(pending.eventId);
     if (!event || event.kind !== "normal") return current; // 战斗等不在本文件范围

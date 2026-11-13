@@ -70,10 +70,16 @@ function play(seed: number, openingIdx: number) {
       }
       continue;
     }
-    const pend = state.pendingEvents[0];
+    const pend = state.slot;
     if (pend) {
       const ev = lookup.event(pend.eventId);
-      if (!ev || ev.kind !== "normal") throw new Error(`stuck: ${pend.eventId}`);
+      if (!ev) throw new Error(`stuck: ${pend.eventId}`);
+      if (ev.kind === "random") {
+        // ADR-0034 §8-⑩：random 槽的「确认」= 调 /turns（不消耗行动、只结算那一格）
+        advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup, undefined, pipeline);
+        continue;
+      }
+      if (ev.kind !== "normal") throw new Error(`stuck: ${pend.eventId}`);
       const ctx = { state, lookup, rng: () => 0.5 };
       const opts = ev.settle.normal.options.filter((o) => checkAllConditions(o.visibleWhen, ctx));
       // 有「牵起她的手」这类剧情选项时偏向选择（覆盖 secret 线），否则按 seed 轮换
