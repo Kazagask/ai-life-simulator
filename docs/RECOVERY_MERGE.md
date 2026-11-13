@@ -194,3 +194,4 @@ CI（`.github/workflows/ci.yml`）L0 → L1 → L2 → L2b → L4 → L5 全绿�
 - 交付形态：一个目录 + 一个 `git format-patch` / zip，按 `RECOVERY_OLD_MACHINE.md §5` 搬运，符合「只搬模板、别动别的」的诉求。
 
 ⚠️ **对模板写法的实质影响**：线上 `/api/templates` 已是**版本化 + 资产指纹**结构（§6.2），旧机的模板注册 / 校验机制很可能已不同于本地 R2.7 ⇒ 新模板的文件集与 `meta` 结构**必须等找回旧机源码后确认**，不能照本地 8 文件朴素结构想当然。
+- 本地已按 R2.7 结构做出**讨董一章小样** `specs/data/templates/sanguo-2010/`（纯 T-1 yaml，见 `tasks/reports/SANGUO-CHAPTER1-SAMPLE.md`），定位是**可运行的形态验证**，不是最终形态；旧机找回后仍须按上句复核。该目录独立、不动 `jjk-2006` 指纹，未碰线上。

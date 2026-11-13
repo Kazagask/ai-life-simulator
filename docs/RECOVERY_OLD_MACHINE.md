@@ -100,7 +100,7 @@ git am --3way D:/_recovery_patches/*.patch    # 或逐个 git cherry-pick <sha>
 - **旧机契约面为权威**：schema / effect / 投影 / 存档 / 槽模型 / `pendingEvents` 一律以旧机为准；新副本后来写的实现要**适配**旧契约，不许反向回滚旧机。
 - **文档类冲突**（`PROJECT.md`、`docs/PROJECT_MEMORY.md`、`tasks/CLOUD_TASKS.md`、`docs/BACKLOG.md`、`specs/iterations/README.md`）：两边事实合并 —— 保留旧机的迭代状态行，再补新副本的核查结论；不要把旧机状态改成「只到 R2.7」。
 - **ADR 编号**：`0028..0032` 已被旧机占用；新副本若也写了新 ADR，由旧机侧重编号，不得重号 / 跳号 / 悬空引用。
-- **yaml 模板**：以旧机为准；若新提交确实改过 yaml，必须重新计算模板指纹，并在交付说明声明「旧存档全部拒载」（ADR-0007 既定策略）。
+- **yaml 模板**：以旧机为准；若新提交确实改过 yaml，必须重新计算模板指纹，并在交付说明声明「旧存档全部拒载」（ADR-0007 既定策略）。**新分支新增的 `specs/data/templates/sanguo-2010/` 是独立新目录**（三国梗模板讨董一章小样，见 `tasks/reports/SANGUO-CHAPTER1-SAMPLE.md`）：可整目录叠加，不动 `jjk-2006` 指纹；但线上 `/api/templates` 已是版本化结构（`RECOVERY_MERGE.md §6.2`），旧机模板注册机制可能已变 ⇒ **放入前先核对文件集与 `meta`，别直接当最终形态**。
 - **拿不准就停**：写进 `docs/OPEN_QUESTIONS.md` 或 `docs/BACKLOG.md`，不自行拍板、不伪造共识（`AGENTS.md §0.1 / §0.2`）。
 - **门禁**：契约面变更须 ADR + G1/G2；`ADR-0027` 的「免前置 ADR + 事后补记」是一次性裁决，**不延续**。
 

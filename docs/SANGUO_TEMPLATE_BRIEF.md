@@ -1,7 +1,7 @@
 # 三国演义（新三国梗）世界模板 · 考据与构想草案
 
-> **状态**：草案 / 考据阶段。分支 `feat/sanguo-meme-template`，基点 `6a04f2a`（含三份恢复文档）。
-> **本轮未改任何 `*.yaml`、源码或 Spec，未新建迭代四件套，未写 ADR，未作任何产品裁决。**
+> **状态**：考据 + **讨董一章小样已落地**（路线 A / T-1 纯 yaml）。分支 `feat/sanguo-meme-template`，基点 `6a04f2a`（含三份恢复文档）。
+> **落地记录见 `tasks/reports/SANGUO-CHAPTER1-SAMPLE.md`**：只新增独立模板目录 `specs/data/templates/sanguo-2010/`（8 个 yaml / 1019 行）；未改任何既有模板、源码、schema、Spec、ADR，未建迭代四件套，未作产品裁决，未碰线上。
 > 用户口述需求（2026-11-14）：新世界模板「三国演义」，以**新三国梗**为主（"包括但不限于"下列六条），掺入**三国杀技能与台词**；**不严肃、要魔幻**；剧情再离谱都能回到主线——因为「**天意**」发力了。
 > 本文分三类内容，请勿混用：**① 已考据**（联网多源核对，附出处）、**② 已核验的工程事实**（以代码为准）、**③ 构想/待确认**（未实现、未裁决）。
 
@@ -143,9 +143,14 @@
 
 ⚠️ 线上 `GET /api/templates` 已返回**版本化结构**（`startVersion` / `versions[]` / `assetCount` / `assetFingerprint` / `loadable`），本地 R2.7 只返回扁平五字段 ⇒ 旧机的模板注册与校验机制很可能已变。**新模板的文件集与 `meta` 结构须以旧机源码为准**；上表「8 主文件 + 3 可选」的结论只适用于本地 R2.7，找回后必须复核。
 
+**小样已按本节形态落地并通过验证**，详见 `tasks/reports/SANGUO-CHAPTER1-SAMPLE.md`（隔离根 `LOAD OK`、两套共存、typecheck / shared 67 / game-core 478 / web build、HTTP 冒烟含天意锚点、旧机放置步骤）。
+
 ---
 
 ## 6. 待确认（未写入 `docs/OPEN_QUESTIONS.md`，等用户拍板）〔③〕
+
+> **小样阶段已按下列默认实施（正式立项前仍可改）**：① 模板 id `sanguo-2010`、规模＝讨董一章小样；② 走**路线 A**（纯 T-1 yaml，前端不改）；③ 不建迭代四件套，只写 `docs/` + `tasks/reports/`；④ 天意做到「`schedule` 锚点收束 + `tianyi` 侵蚀度 + status 补正」层，**未做即时打断、未改内核**；⑧ 采用「自包含目录 + `TEMPLATES_DIR` 外挂验证 + patch 交旧机」，线上生效延后。
+> 关键工程修正：草案 §4.2 原设想用 chain 事件做锚点，落地改为 **`source: schedule` + `window.start`**（建世界时一次性入队，到点必然触发），见报告 §2.1。
 
 1. **模板 id / 名称 / 规模**：`sanguo-2010`？`sanguo-meme`？先做 1 章小样还是整条主线？
 2. **走 A / B / C 哪条路线**（前端选择器是否本轮就要、是否允许动 `apps/web`）。
