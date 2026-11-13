@@ -212,8 +212,12 @@ function keyOf(ref: TemplateRef): string {
   return `${ref.id}@${ref.version}`;
 }
 
-/** 补 0 后全序比较（A-3）：`2` < `2.0.1` < `1.2.3` 这类「段数不同」也能排序。 */
-function compareVersions(a: string, b: string): number {
+/**
+ * 补 0 后全序比较（A-3）：`2` < `2.0.1` < `1.2.3` 这类「段数不同」也能排序。
+ * **版本排序的唯一实现点**：注册表内部与 API 响应（多版本 400 的 `versions[]`）都复用它，
+ * 不许再出现第二套字符串序。
+ */
+export function compareVersions(a: string, b: string): number {
   const pa = a.split(".").map((s) => Number.parseInt(s, 10));
   const pb = b.split(".").map((s) => Number.parseInt(s, 10));
   for (let i = 0; i < 3; i += 1) {
@@ -491,10 +495,12 @@ interface ScanResult {
 /**
  * 全量扫描注册表。
  *
- * `failFast: true`（启动期）—— 任一「含 ≥1 白名单 yaml 但加载失败」的版本 ⇒ 抛错，
- * 进程退出；空的版本目录只 warn（B-4 第 3 条）。
- * `failFast: false`（运行期热加载，T-TG-11 复用）—— 该版本标 `invalid` + reason，
- * 不影响其他版本、不退出进程（I-3）。
+ * `failFast: true`（启动期 fail-fast，R-TG-04 的**六种**失败形态）：任一
+ * 「含 ≥1 白名单 yaml 但加载失败」的版本、**`<id>/` 下出现不匹配 `^\d+(\.\d+){0,2}$` 的目录名**
+ * （A-3 / B-4 #1）、或零模板 ⇒ 抛错，进程退出；**空的版本目录只 warn**（B-4 #3：
+ * 那是 `mkdir` 还没 `cp` 完，与「版本号写错」的意图不同，不得混为一谈）。
+ * `failFast: false`（运行期热加载，T-TG-11 复用）—— 该版本标 `invalid` + reason（或保留旧
+ * Entry），非法版本名只 warn 一次 + 忽略，不影响其他版本、不退出进程（I-3）。
  */
 function scanAll(dir: string, logger: TemplateScanLogger, failFast: boolean): ScanResult {
   const entries = new Map<string, TemplateEntry>();
@@ -522,8 +528,16 @@ function scanAll(dir: string, logger: TemplateScanLogger, failFast: boolean): Sc
       }
       const version = versionEntry.name;
       if (!VERSION_PATTERN.test(version)) {
-        // A-3：版本号格式由目录名承载；不匹配的目录不是模板版本。启动期不因此 fail-fast，
-        // 因为「目录不是版本」与「版本内容坏了」是两件事（B-4）。
+        // A-3 / B-4 #1：版本号格式由目录名承载。启动期遇到这种目录**必须拒绝启动**——
+        // 它和「空版本目录」是两种意图：空目录是 mkdir 了还没 cp（B-4 #3，warn 跳过），
+        // 而「11 个合法 yaml 装在 v2/ 里」是明确想做模板、只是版本号写错；
+        // 静默跳过会让运维对着「我放了模板但列表里没有」查半天。
+        if (failFast) {
+          throw new Error(
+            `template_version_dir_invalid: <id>=${id} 下存在目录 "${version}"，` +
+              `但版本目录名必须是 ^\\d+(\\.\\d+){0,2}$（例如 1.0.0、2、1.2.3）；路径：${path.join(idDir, version)}`,
+          );
+        }
         logger.warn(
           { templateId: id, dir: version },
           "template_version_dir_ignored: 版本目录名不匹配 ^\\d+(\\.\\d+){0,2}$",
@@ -574,6 +588,8 @@ function createRegistry(dir: string, result: ScanResult, logger: TemplateScanLog
   const mtimeByKey = new Map(result.mtimes);
   const counters = { statCount: 0, rescanCount: 0 };
   let rootMissingLogged = false;
+  /** 运行期非法版本目录名的「只警告一次」去重（`id/目录名`）。 */
+  const warnedVersionDirs = new Set<string>();
 
   /** 纯读（不刷新）：`listTemplates` 内部用，避免一次调用多次 ensureFresh。 */
   const entriesOf = (id: string): TemplateEntry[] =>
@@ -662,7 +678,18 @@ function createRegistry(dir: string, result: ScanResult, logger: TemplateScanLog
       for (const versionEntry of readdirSync(path.join(dir, id), { withFileTypes: true })) {
         if (!versionEntry.isDirectory()) continue;
         const version = versionEntry.name;
-        if (!VERSION_PATTERN.test(version)) continue;
+        if (!VERSION_PATTERN.test(version)) {
+          // 运行期只 warn + 忽略（I-3）：不能因为有人刚 mkdir 了个 v2/ 的手滑就把服务打挂。
+          // 每个 (id, 目录名) 只警告一次，避免按请求频率灌日志；启动期这种目录会直接 throw。
+          if (!warnedVersionDirs.has(`${id}/${version}`)) {
+            warnedVersionDirs.add(`${id}/${version}`);
+            logger.warn(
+              { templateId: id, dir: version },
+              "template_version_dir_ignored: 版本目录名不匹配 ^\\d+(\\.\\d+){0,2}$（运行期忽略，不阻断服务）",
+            );
+          }
+          continue;
+        }
         const key = keyOf({ id, version });
         seenKeys.add(key);
         const versionDir = path.join(dir, id, version);

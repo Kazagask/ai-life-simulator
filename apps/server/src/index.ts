@@ -28,7 +28,7 @@ import {
 } from "@life-sim/game-core";
 import { BattleCommandSchema, EndingNarrativeOutputSchema, EvaluationSummaryOutputSchema } from "@life-sim/shared";
 import type { EndingConfig, EndingRecord, V2Snapshot, WorldStateV2 } from "@life-sim/shared";
-import { loadTemplates, type ReadyTemplateEntry } from "./templates.js";
+import { compareVersions, loadTemplates, type ReadyTemplateEntry } from "./templates.js";
 import { dataDir, hydrate, loadPersistedWorlds, worldStore } from "./store.js";
 import { createLLMProvider, readLLMConfig, resolveProviderForRequest, type LLMProvider } from "./llm/provider.js";
 import { userCredentials } from "./llm/userCredentials.js";
@@ -361,7 +361,9 @@ app.post("/api/worlds", async (request, reply) => {
   const ready = registry
     .versionsOf(templateId)
     .filter((candidate): candidate is ReadyTemplateEntry => candidate.status === "ready")
-    .sort((a, b) => (a.ref.version < b.ref.version ? -1 : 1));
+    // 复用注册表同一套「补 0 后全序」（A-3）：`2` 必须排在 `10` 之前，
+    // 不许在这里另写一套字符串序（两套排序并存早晚变成两套真相）。
+    .sort((a, b) => compareVersions(a.ref.version, b.ref.version));
   let entry: ReadyTemplateEntry;
   if (templateVersion !== undefined) {
     const found = registry.get({ id: templateId, version: templateVersion });
