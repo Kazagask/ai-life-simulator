@@ -57,6 +57,7 @@
 | `git push --force`，或在旧机上直接 `git pull` 快进到 `main` | 旧提交被冲掉 / 工作树被覆盖 |
 | 为「让新代码能编译」把旧机的 `packages/shared/src/schema/**`、投影契约、`specs/data/templates/**` 换回 R2.7 版本 | 等于主动撤销那两个大版本 |
 | 拿「仓库里查不到 ADR-0028..0032」当作旧代码不存在 / 可以丢弃的依据 | 事实是没推送，不是没做 |
+| 对线上「咒术转盘人生」执行重新发布 / `workbuddy_sites_deploy` / 下线 | 发布是**覆盖式更新**，会把发布沙箱里可能存着的缺失版本源码包换成当前 R2.7 代码，可能永久抹掉那两个大版本（详见 `RECOVERY_MERGE.md §6`） |
 
 ## 4. 必须守住的那几次迭代（逐条点名）
 
@@ -130,7 +131,7 @@ node apps/server/smoke/cloud.smoke.mjs             # 需先起 server
 
 > 这是 `ai-life-simulator` 项目。本机（旧机）在电脑崩溃前完成了约两个大版本，ADR 编号推进到 ~0032，内容包括：ADR-0026 彻底落地槽模型并让 `pendingEvents` 退役、转盘后端结果需前端确认才生效、LLM 与前端若干逻辑修复，以及「前端不填密钥 / 不接 LLM」因架构限制被否决。这些成果**没有推送到 GitHub**，远端 `main` 只到 `8e4b4f7`（R2.7 / ADR-0027）。
 > 另一台机器的新分支 `recovery/merge-2026-11-13` 之后会继续写实现代码，需要合并到本机。请先读 `docs/RECOVERY_OLD_MACHINE.md`（本守则）与 `docs/RECOVERY_MERGE.md`。
-> 硬性要求：① 先把整个工作目录（含 `.git/`、`.workbuddy/`、`data/`、未跟踪文件）做仓库外快照；② 禁止 `reset --hard` / `checkout -- .` / `clean -fd` / 整目录覆盖 / 重新 clone / force push；③ 只能把新分支提交以 `format-patch` + `git am --3way` 或 `cherry-pick` 逐个叠上来；④ 冲突时以本机的契约面（schema / 投影 / 存档 / 槽模型 / yaml）为权威，新实现去适配，不许反向回滚；⑤ 每应用一个提交跑 `RECOVERY_OLD_MACHINE.md §5.4` 的验证集；⑥ 不确定的产品规则写 `docs/OPEN_QUESTIONS.md`，不得伪造共识或把未跑项写成 PASS。
+> 硬性要求：① 先把整个工作目录（含 `.git/`、`.workbuddy/`、`data/`、未跟踪文件）做仓库外快照；② 禁止 `reset --hard` / `checkout -- .` / `clean -fd` / 整目录覆盖 / 重新 clone / force push；③ 只能把新分支提交以 `format-patch` + `git am --3way` 或 `cherry-pick` 逐个叠上来；④ 冲突时以本机的契约面（schema / 投影 / 存档 / 槽模型 / yaml）为权威，新实现去适配，不许反向回滚；⑤ 每应用一个提交跑 `RECOVERY_OLD_MACHINE.md §5.4` 的验证集；⑥ 不确定的产品规则写 `docs/OPEN_QUESTIONS.md`，不得伪造共识或把未跑项写成 PASS；⑦ 找回前**禁止对线上「咒术转盘人生」重新发布或下线**，发布是覆盖式更新，会把发布沙箱里可能存着的缺失版本源码包换成当前 R2.7 代码。
 
 ## 8. 让这份文档到达旧机
 

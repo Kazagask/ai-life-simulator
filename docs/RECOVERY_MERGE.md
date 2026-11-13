@@ -136,3 +136,32 @@ CI（`.github/workflows/ci.yml`）L0 → L1 → L2 → L2b → L4 → L5 全绿�
 - 新增：`docs/RECOVERY_MERGE.md`（本文件）
 - 索引：`docs/PROJECT_MEMORY.md §3` 末追加一行指针
 - 未改：任何 `packages/**`、`apps/**`、`specs/**` 源码或 yaml ⇒ **模板指纹不变、旧存档不受影响、无玩法结构变更**
+
+## 6. 云服务部署实例勘查（2026-11-13 23:5x）
+
+线上应用「咒术转盘人生」`wbapp_6BjykHXBJu8kLx2VWyxeie`，分享链接 `https://cursed-wheel-life.app.workbuddy.host/?sharecode=AWEIS4D6KT`，**实例仍在运行**。
+
+### 6.1 已核实事实
+
+- 网关强制 `?sharecode=AWEIS4D6KT`，不带一律 403「链接不完整」。带码后 `GET /health` → 200 `{"ok":true,"service":"life-sim-server","protocol":"v2"}`；`GET /api/templates` → 200（`jjk-2006` v1.0.0、2 个开局、`assetCount:0`）。
+- `/AGENTS.md`、`/docs/DECISIONS.md`、`/package.json`、`/apps/server/src/index.ts` 全部回落 SPA 首页 HTML ⇒ **对外只暴露 `apps/web/dist`**。
+- 首页资源 `assets/index-FTlUlvkM.js`（369,634 B，sha256 `0b62289fb32192490e737d67b97af64abcaf68525a501b465a7f72fd9cf50fe2`）与 `assets/index-B3ryDvHb.css`（24,737 B，sha256 `3dc1bdb04da0bb4f432b8727acf19808950f827eca2cf7f0a31a0530e26e4624`）。本地 R2.7 全量回归构建为 `index-DLvGHcIx.js`（357.10 kB）⇒ **不是同一份构建**。
+- **无 sourcemap**：bundle 内无 `sourceMappingURL`，`assets/index-FTlUlvkM.js.map` 返回 SPA HTML ⇒ 无法还原 TS 源码。
+- 云存储：`users` 空、`shared/_application` 空；云数据库仅 `life_records` 表（RLS on）；资料库检索仅 `workbuddy_library` 可用，只命中历史审查报告（`battle-engine-audit.html`、`R2-GAP-ANALYSIS.md`），**无源码包**（ima / tencent_docs / tencent_drive / tencent_meeting 均 `exchange_failed`，检索范围不完整）。
+- `workbuddy_cloud_service inspect`：本会话无应用（新 clone 缺 `.workbuddy/applications.yaml`，该文件被 gitignore）。
+
+### 6.2 构建产物里的「缺失版本」证据
+
+- **新增 `POST /api/llm-credentials`**：bundle 内 `qt("/api/llm-credentials",{method:"POST",...})`，返回 `sessionId` 存 `localStorage`；本地 `apps/web/src` 与 `apps/server/src` **零命中**。`GET` 该路径返回 404 `not_found`（仅注册 POST）。
+- **新增 UI「自定义 LLM（可选，风险自担）」**：文案「填入你自己的 API Key，本会话的叙事将走你提供的模型。凭证仅发送至服务端内存持有，不写入代码或日志；本地只保存一个不透明的会话 id，风险自担。」本地前端零命中。
+  ⇒ 疑似对应口述第 1 项「因架构限制否决免密钥方案」之后的折中落地形态，**属推断，未经裁决文书核验**。
+- R2.7 特征仍在：`eventFlavors` / `narrativeSource` / `summarySource`、WorkBuddy 登录回调 `handleWorkBuddyCallback`。
+- **不构成证据的项**：线上 bundle `pendingEvents` 零命中，但本地前端本来也不引用该字段（0 命中），**不能**据此判定 `pendingEvents` 已退役。
+- **未找到直接证据的项**：口述第 3 项「转盘结果前端确认才生效」在前端 bundle 里没有新增端点（API 路径清单与本地一致），`确认` 命中来自 `window.confirm("删除这一局？")`。可能是同一 `POST /turns` 内的语义变化，须旧机源码确认。
+
+### 6.3 结论与红线
+
+- 对外**确实是打好的包**（只有 dist、无源码、无 sourcemap）；但发布机制本身上传的是**源码压缩包**（排除 `node_modules` / `.git` / build output）在沙箱内安装启动 ⇒ 沙箱内部**应当有源码**，只是当前工具集**没有读取 / 下载沙箱源码的接口**（已发布应用只能查看 / 发布 / 下线 / 删除），云存储 / 数据库 / 资料库也都没有源码包。结论是「**有源码但取不到**」，不是「确认没有」。
+- 🔴 **红线：找回前禁止对「咒术转盘人生」执行任何重新发布 / 部署**（`workbuddy_sites_deploy` 是覆盖式更新，会用当前 R2.7 代码替换沙箱里的源码包，可能永久抹掉缺失版本），也禁止 `unpublish`。
+- 证据留存：`D:\code\_recovery_evidence\`（仓库外）保存 `index-FTlUlvkM.js` + `index-B3ryDvHb.css` 与 sha256，供日后比对；**不提交进仓库**。
+- 待办：请主理人在 WorkBuddy 客户端「设置 → 数据管理 → 已发布应用」查看该应用是否有沙箱文件 / 源码包导出入口；旧机磁盘仍是首选找回源。
