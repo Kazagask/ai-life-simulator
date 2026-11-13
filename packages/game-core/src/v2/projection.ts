@@ -12,7 +12,7 @@ import type {
 import { moodBand, maxHp, maxMp } from "./engine.js";
 import { birthTimeFromAge, createTimeAdapter } from "./time.js";
 import type { TemplateLookup } from "./lookup.js";
-import { pendingEventView, slotEventView } from "./turn.js";
+import { slotEventView } from "./turn.js";
 import { controlOf } from "./battle.js";
 import { isKinshipKind, kinshipTerm, projectVisibleRelations } from "./relations.js";
 
@@ -247,8 +247,15 @@ export function projectSnapshotV2(
       }),
     // ADR-0034 §5：投影只给"当前在演什么"（`slotEvent`），不投影队列内容与长度。
     slotEvent: ended ? null : slotEventView(state, lookup),
-    // @deprecated 旧前端过渡（= slotEvent 的 normal 子集）：前端切换后删除。
-    pendingEvent: ended ? null : pendingEventView(state, lookup),
+    /**
+     * @deprecated 恒 `null`（ADR-0034 §5 收口）。
+     *
+     * 字段**保留但不再写入**：`slotEvent` 是唯一真源，若这里再写一份 normal 子集，
+     * 就会出现「同一场景两个字段、两种 kind 语义」的双源，前端任何一处读旧字段都会
+     * 在 random/combat 槽上拿到 `null` 从而误判为「可自由行动」。
+     * 字段本身等前端切换完成后与 `PendingEventView` 一起删除（不在本轮范围）。
+     */
+    pendingEvent: null,
     battle,
     lastWheel: state.lastWheel,
     // D-03：当轮全部转盘结果（旧档无该字段 ⇒ 空数组，前端据此不渲染转盘区）
