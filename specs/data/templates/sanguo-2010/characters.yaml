@@ -223,6 +223,25 @@ characters:
       traits: [absurd]
     relationship: 0
 
+  # ── 战争沙盘 · 主将对垒用敌人 ──
+  # 注意：华雄本人已是 npc-hua-xiong（在人物面板里），不能再造一个「华雄」当敌人，
+  # 否则玩家=华雄相关剧情会出现分身。这里让**旗号**上阵：出来的不是那个人，
+  # 是那面旗和旗后面的人 —— 两军都不追究，正是本模板要的魔幻感。
+  - id: enemy-xiliang-commander
+    isEnemy: true
+    visibility: public
+    identity: { name: 西凉前军主将, age: 34, gender: male, description: 旗上写着「华雄」，本人却还在中军帐里。出来应战的是这面旗和旗后面的人，谁也不打算把这件事说破。 }
+    mood: { value: 70 }
+    attributes: { command: 7, intellect: 4, physique: 9, luck: 5, reputation: 6, tianyi: 5 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 只报旗号，不报姓名。
+      knownGoals: [阵前对垒]
+    private:
+      goals: [duel]
+      traits: [flag-bearer]
+    relationship: 0
+
 # ══════════════ 玩家初始模板 ══════════════
 # 出身/性别/台词技能全部由命数转盘决定，这里只给「一个刚到陈留的人」应有的东西。
 playerTemplate:

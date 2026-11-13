@@ -26,7 +26,16 @@ meta:
 
 time:
   defaultStep: { value: 1, unit: day }
-  calendar: { preset: gregorian }
+  # 【年号】引擎 R2.6（ADR-0002 / ADR-0013）已把历法显示收敛到 CalendarConfig，
+  # `era` 就是年号：createTimeAdapter().format() 输出「初平 1年…」，eraYearBase 按
+  # epochStartMinute 折算纪元年（可为负 = 纪元早于世界起点）。这里 0 ⇒ 世界起点
+  # （公元 190 年）即初平元年，正合汉献帝改元。gregorian / custom 都支持 era。
+  # ⚠ 单个 era 是**全局静态正朔**：不能按阵营/地区切换显示。events.yaml 用 warRegion
+  # flag 把「各营私改年号」做成叙事层博弈；显示层多套年号属 T-2，见
+  # docs/SANGUO_TEMPLATE_BRIEF.md §9（需 ADR，本轮未做）。
+  calendar:
+    preset: gregorian
+    era: { name: 初平, epochStartMinute: 0 }
   lifeStageSteps:
     childhood: { value: 1, unit: day }
     youth: { value: 1, unit: day }
@@ -82,6 +91,16 @@ regen:
 
 # 玩家行动。池事件负责「随便浪」，行动负责稳定收益；
 # 天意是 schedule 事件，与玩家点不点行动无关 —— 到点必然发力。
+#
+# 【战争沙盘 · 条件行动的纯 yaml 形态】action 本身**没有 conditions 字段**（schema 里
+# 只有 id/label/description/duration/advanceTo/effects），投影层 availableActions 恒定下发。
+# 因此「按 flag 把行动切换成战争行动」不是换按钮，而是：
+#   ① events.yaml 每个 onActionId 配一条 action-hook，conditions: warActive eq true；
+#   ② 战争期点同一行动 → 稳定收益照给，额外弹出一道「博弈」事件；
+#   ③ 博弈选项用 visibleWhen 按 warPhase 分流，叫阵选项 nextEventId 到主将对垒；
+#   ④ 收兵时 clearFlag warActive ⇒ hook 条件不再成立，行动自动回到纯日常。
+# 要让**按钮标签/可见性**本身随 flag 变，需给 action 加 visibleWhen 并改 projection
+# ⇒ T-2 契约面，按 AGENTS.md §0.3 必须先 ADR，本轮不动。
 actions:
   - id: drill
     label: 点兵

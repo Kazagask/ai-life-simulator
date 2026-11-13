@@ -904,3 +904,259 @@ events:
               - { type: setFlag, id: mainline, value: 徐州 }
               - { type: adjustAttribute, attribute: tianyi, value: 1 }
               - { type: log, text: 天意已经在前面等你了。后续章节在此接续。, visibility: public }
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # 战争沙盘 · 副本（第 42 天起；与第一章主线正交）
+  #
+  # 闭环：剧情开启（schedule + setFlag warActive）→ 自由行动被 action-hook 接管，
+  #   每次点击额外弹出一道「博弈」（选项用 visibleWhen 按 warPhase 分流）
+  #   → 叫阵 → 主将对垒（kind: combat）→ 胜/败/撤统一接 ev-war-close
+  #   → clearFlag warActive ⇒ hook 条件不再成立，行动自动恢复日常。
+  #
+  # 主线零改动：第 8 天 ev-tianyi-anchor-1、第 41 天 ev-ch2-gate 原样保留；
+  #   副本不写 chapter、不 advanceTo、不改结局判据，是一段可进可出的支线。
+  # 约束核对：① 每个 onActionId 恰好一条「立即」hook（world.yaml 单槽唯一，R2.5/#35）；
+  #   ② 缺失 flag 的条件一律 false（engine.ts checkCondition）⇒ 收兵 clearFlag 后
+  #   hook 必然静默，不需要额外开关；③ 战斗事件 source: chain，由叫阵选项的
+  #   nextEventId 直接 triggerEventV2 建场（turn.ts advanceChainOnSettle）。
+  #
+  # 【不同地区不同年号】显示层只有 world.yaml 的全局正朔「初平」（T-1 纯 yaml）。
+  # 各营私改年号用 warRegion flag 做成叙事层博弈：袁术营「仲家」、江东「初平」、
+  # 有人写「天意元年」；收兵时天意把三份战报抄回同一行。显示层按阵营切换年号
+  # 属 T-2（schema + CalendarAdapter 契约面，需 ADR），见 SANGUO_TEMPLATE_BRIEF.md §9。
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - id: ev-war-outbreak
+    title: 虎牢关 · 檄文到
+    narrative: 第四十二天。檄文送到帐前，墨还没干。十八路诸侯各自把年号写在自己的账册上：袁术营里已经改称仲家，江东仍记作初平，有人干脆写了「天意元年」。天意的簿子只有一行——初平元年，讨董。从这一刻起，你点的每一次行动都会变成一道军令。
+    trigger:
+      source: schedule
+      window: { start: { value: 42, unit: day } }
+      once: true
+      priority: 90
+      conditions:
+        - { flag: chapter, eq: 2 }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-war-accept
+            text: 接战
+            effects:
+              - { type: setFlag, id: warActive, value: true }
+              - { type: setFlag, id: warPhase, value: 1 }
+              - { type: setFlag, id: warEdge, value: 0 }
+              - { type: setFlag, id: warRegion, value: 初平 }
+              - { type: log, text: 军令已下：点兵是布阵，问策是离间，开席是粮道，歇息是移营。天意照常记账。, visibility: public }
+          - id: opt-war-meal
+            text: 先问一句吃什么
+            effects:
+              - { type: setFlag, id: warActive, value: true }
+              - { type: setFlag, id: warPhase, value: 1 }
+              - { type: setFlag, id: warEdge, value: 0 }
+              - { type: setFlag, id: warRegion, value: 仲家 }
+              - { type: adjustMood, value: 3 }
+              - { type: log, text: 没人回答，但队伍已经列好了。袁术营的账册上，今天记作仲家元年。, visibility: public }
+
+  # ── 博弈 1：点兵 → 阵列。战势加成直接带进对垒（统御 / 名册）。 ──
+  - id: ev-war-drill
+    title: 阵列 · 三份名册
+    narrative: 你把点兵册摊开，发现每一页的兵数都不一样。旗牌官捧着笔等，说今天这一版由你写。远处那面写着「华雄」的旗已经立起来了，风把它吹得有点歪。
+    trigger:
+      source: action-hook
+      onActionId: drill
+      conditions:
+        - { flag: warActive, eq: true }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-war-split
+            text: 把兵分成三份，各写各的
+            visibleWhen:
+              - { flag: warPhase, eq: 1 }
+            effects:
+              - { type: adjustFlag, id: warEdge, value: 2 }
+              - { type: adjustAttribute, attribute: command, value: 1 }
+              - { type: setFlag, id: warPhase, value: 2 }
+              - { type: log, text: 三份名册互不相认，可战场上它们同时到了。旗牌官没问为什么。, visibility: public }
+          - id: opt-war-challenge-drill
+            text: 叫阵：请主将出来说话
+            visibleWhen:
+              - { flag: warPhase, eq: 2 }
+            effects:
+              - { type: log, text: 你往前走了十步。那面旗后面的人也往前走了十步。, visibility: public }
+            nextEventId: ev-war-duel
+          - id: opt-war-drill-note
+            text: 在册角记一笔年号
+            effects:
+              - { type: setFlag, id: warRegion, value: 仲家 }
+              - { type: log, text: 你写「仲家元年」，旗牌官写「初平元年」，谁也没改谁的。天意的簿子不收这两页。, visibility: hidden }
+
+  # ── 博弈 2：问策 → 离间。 ──
+  - id: ev-war-counsel
+    title: 离间 · 三封没署名的信
+    narrative: 谋士把三封信摊在案上，说每封都能让对面少一个人。他没说是谁写的，也没说为什么三封的年份各不相同。帐外有人报：对面主将已经出营了。
+    trigger:
+      source: action-hook
+      onActionId: consult
+      conditions:
+        - { flag: warActive, eq: true }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-war-send-all
+            text: 三封一起送过去
+            visibleWhen:
+              - { flag: warPhase, eq: 1 }
+            effects:
+              - { type: adjustFlag, id: warEdge, value: 2 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: setFlag, id: warPhase, value: 2 }
+              - { type: log, text: 对面读信的时候，把三个年号都认了下来。军心先乱了一步。, visibility: public }
+          - id: opt-war-challenge-counsel
+            text: 只留一封，请主将亲自来取
+            visibleWhen:
+              - { flag: warPhase, eq: 2 }
+            effects:
+              - { type: log, text: 他真的来了。信上写的是哪一年，你们都没提。, visibility: public }
+            nextEventId: ev-war-duel
+          - id: opt-war-counsel-note
+            text: 先问现在是哪一年
+            effects:
+              - { type: setFlag, id: warRegion, value: 天意元年 }
+              - { type: log, text: 谋士报了三个年号，帐里三个人各自点头。你没再问下去。, visibility: hidden }
+
+  # ── 博弈 3：开席 → 粮道。 ──
+  - id: ev-war-feast
+    title: 粮道 · 多出来的那口锅
+    narrative: 大食堂照常开。灶上比昨天多了一口锅，没人说得清多出来的粮从哪来，也没人问——这地方向来如此。伙头问今天按哪本账记。
+    trigger:
+      source: action-hook
+      onActionId: feast
+      conditions:
+        - { flag: warActive, eq: true }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-war-send-grain
+            text: 把多出来的粮送到前军
+            visibleWhen:
+              - { flag: warPhase, eq: 1 }
+            effects:
+              - { type: adjustFlag, id: warEdge, value: 2 }
+              - { type: adjustResource, resource: hp, value: 8 }
+              - { type: setFlag, id: warPhase, value: 2 }
+              - { type: log, text: 粮到前军的时候，队伍已经排好了。吃饱的人不追问年份。, visibility: public }
+          - id: opt-war-challenge-feast
+            text: 请对面主将过来一起吃
+            visibleWhen:
+              - { flag: warPhase, eq: 2 }
+            effects:
+              - { type: log, text: 他坐下，把旗靠在帐柱上。吃到一半，两人同时站起来往外走。, visibility: public }
+            nextEventId: ev-war-duel
+          - id: opt-war-feast-note
+            text: 照旧问一句吃什么
+            effects:
+              - { type: adjustMood, value: 2 }
+              - { type: log, text: 「吃什么！」帐里有人应了一声，然后所有人都点头。天意没有解释。, visibility: public }
+
+  # ── 博弈 4：歇息 → 移营。 ──
+  - id: ev-war-rest
+    title: 移营 · 三通更鼓
+    narrative: 你合上眼，帐外的更鼓敲了三次，每次都报不同的年份。醒来时营盘已经往前挪了十里，鞋底沾着不属于这里的土。斥候说，对面也往前挪了十里。
+    trigger:
+      source: action-hook
+      onActionId: rest
+      conditions:
+        - { flag: warActive, eq: true }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-war-night-move
+            text: 趁夜再移十里
+            visibleWhen:
+              - { flag: warPhase, eq: 1 }
+            effects:
+              - { type: adjustFlag, id: warEdge, value: 2 }
+              - { type: adjustResource, resource: mp, value: 6 }
+              - { type: setFlag, id: warPhase, value: 2 }
+              - { type: log, text: 天亮时两军之间只剩一片谁也没扫过的空地。更鼓还在报着第三个年份。, visibility: public }
+          - id: opt-war-challenge-rest
+            text: 睡前留一句话给对面主将
+            visibleWhen:
+              - { flag: warPhase, eq: 2 }
+            effects:
+              - { type: log, text: 话传到对面时变成了另一句，但意思没变：明天阵前见。, visibility: public }
+            nextEventId: ev-war-duel
+          - id: opt-war-rest-note
+            text: 把年号簿压在枕下
+            effects:
+              - { type: log, text: 你枕着三本互不承认的账册睡了一夜，醒来只记得初平元年。, visibility: hidden }
+
+  # ── 主将对垒（战斗副本的核心） ──
+  # 敌人是「旗号」而非华雄本人（避免与 npc-hua-xiong 分身），见 characters.yaml。
+  # 胜/败/撤统一接 ev-war-close：天意不区分这三者，战报都抄回主线。
+  - id: ev-war-duel
+    title: 阵前 · 主将对垒
+    narrative: 旗上写着「华雄」，可华雄本人还在中军帐里。出来的是这面旗和旗后面的人——两军都不打算追究。你们隔着一片谁也没扫过的空地站定，两边的账册上，年份整整差了三年。
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-xiliang-commander, levelScale: 0.85 }
+        canFlee: true
+        fleeCheck: { preset: opposed, attacker: command, defender: command, baseChance: 0.5 }
+        onVictory:
+          effects:
+            - { type: adjustFlag, id: warEdge, value: 3 }
+            - { type: adjustAttribute, attribute: reputation, value: 2 }
+            - { type: log, text: 旗倒了。没有人去核实倒下的是谁，战报上写的是「主将退」。, visibility: public }
+          nextEventId: ev-war-close
+        onDefeat:
+          effects:
+            - { type: adjustMood, value: -5 }
+            - { type: log, text: 你退了回来。对面也没追——他好像也在等谁把战报写好。, visibility: public }
+          nextEventId: ev-war-close
+        onFlee:
+          effects:
+            - { type: log, text: 你转身回营，更鼓替你把这一年报完了。, visibility: public }
+          nextEventId: ev-war-close
+
+  # ── 收兵 · 恢复日常 ──
+  # clearFlag 后 action-hook 的 conditions 必然为 false（缺失 flag ⇒ false），
+  # 因此「战争行动」自动失效，点兵/开席/问策/歇息回到 world.yaml 里的原义。
+  - id: ev-war-close
+    title: 天意 · 战报归正
+    narrative: 仗打完了，或者没打完——天意不区分这两件事。三份战报摆在一起，年号各不相同，最后都被抄成同一行：初平元年，讨董。各营私改的年份没人再提，你也想不起来自己写过哪一本。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-war-return-strong
+            text: 战报写得漂亮，收兵
+            visibleWhen:
+              - { flag: warEdge, gte: 4 }
+            effects:
+              - { type: clearFlag, id: warActive }
+              - { type: clearFlag, id: warPhase }
+              - { type: clearFlag, id: warEdge }
+              - { type: clearFlag, id: warRegion }
+              - { type: adjustAttribute, attribute: tianyi, value: 1 }
+              - { type: log, text: 天意发力了：战势记在功簿上，年号统一抄回初平。点兵还是点兵，开席还是开席。, visibility: public }
+          - id: opt-war-return
+            text: 照实收兵，回营
+            effects:
+              - { type: clearFlag, id: warActive }
+              - { type: clearFlag, id: warPhase }
+              - { type: clearFlag, id: warEdge }
+              - { type: clearFlag, id: warRegion }
+              - { type: adjustAttribute, attribute: tianyi, value: 1 }
+              - { type: log, text: 天意发力了：三本账册合成一行，日常行动恢复。你记得打过一仗，只是记不清是哪一年。, visibility: public }
