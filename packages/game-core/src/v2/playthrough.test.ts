@@ -157,6 +157,15 @@ describe("咒术转盘 · 整局回归（固定种子的自动通关）", () => 
       const dup = Object.entries(r.chapterFires).filter(([, n]) => n > 1);
       expect(dup, `seed ${r.seed} 章节事件重复触发：${JSON.stringify(dup)}（全量 ${JSON.stringify(r.chapterFires)}）`).toEqual([]);
       expect(r.chapterFires["ev-ch1-gate"], `seed ${r.seed} 第一章未触发`).toBe(1);
+      /**
+       * ADR-0034 §7 **G2-3**（池停摆的回归锁）：四个池源章节门必须**各恰好触发一次**。
+       * 理由：`ev-ch4/5/6/7-gate` 全是 `source: pool` + `priority: 100` + `once`，一旦队列被
+       * 永久 hold 的实例顶满、池停止抽取（§13.5 记录的缺陷），它们就**一个都不会出现**；
+       * 而"章节 ≥8"可能被别的路径（别的 setFlag chapter）骗过去，故必须按 id 逐门断言。
+       */
+      for (const gateId of ["ev-ch4-gate", "ev-ch5-gate", "ev-ch6-gate", "ev-ch7-gate"]) {
+        expect(r.chapterFires[gateId], `seed ${r.seed} 章节门未触发：${gateId}`).toBe(1);
+      }
     }
     // 终局内容可达：至少一个种子活到涩谷并走完学年
     expect(rows.some((r) => r.keys.includes("shibuyaSurvived") || r.keys.includes("storyDone"))).toBe(true);

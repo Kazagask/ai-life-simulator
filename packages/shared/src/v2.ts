@@ -202,10 +202,17 @@ export interface BattleState {
  * 而「下一个要处理哪个事件」本身是**一条事实**，必须进存档（否则刷新即丢）。
  * 它只存"是谁、从哪来"，**不存进度、不存玩家输入、不存选项**——呈现内容永远从模板现取。
  *
- * 写入口**只有两个**（ADR-0034 §4 S4，结构保证）：
+ * 写入口 = **5 个具名来源**（ADR-0034 §4 S4）：
  * 1. 队列取出：`from: "queueTake"`（扫描到期实例后取出即占槽）；
- * 2. 当前事件结算后的后继：`from: "successor"`（`nextEventId` 且**无时间账**时才占槽）。
- * 另有两条非后继来源：开局交接（`opening`）与死亡结局事件（`death`）、行动钩子（`hook`）。
+ * 2. 当前事件结算后的后继：`from: "successor"`（`nextEventId` 且**无时间账**时才占槽）；
+ * 3. 开局交接：`from: "opening"`（`handoff.pendingEvents` 的第一条占槽，其余入队）；
+ * 4. 行动钩子：`from: "hook"`（`action-hook` 命中后直接写槽，早于队列扫描）；
+ * 5. 死亡结局事件：`from: "death"`（终止路径写入的收束事件）。
+ * 另有 1 处**死亡路径的克隆回写**（`turn.ts` 的 `state.slot = res.state.slot`：判定与写回不在同一对象上，
+ * 属"同一来源的二次落地"，不计为第 6 个来源）。
+ *
+ * ⚠ 这是**白名单纪律，不是类型层保证**：TS 拦不住直接给 `state.slot` 赋非 null 值。
+ * 加固方向见 ADR-0034 §12-1（收敛到单一入口 `assignSlot()` + 「写点枚举」静态测试）。
  */
 export interface SlotScene {
   eventId: string;

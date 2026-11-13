@@ -284,7 +284,7 @@ describe("G1-2 · 战斗期间任何 normal 事件不得进入槽（结构保证
 // ---------- G1-3 ----------
 
 describe("G1-3 · 任何入口返回后净 turnIndex 增量 ∈ {0, 1}（结构保证 S2）", () => {
-  it("自由行动 / 结算 / 战斗回合 / 战斗结算 / 转盘确认 / 轮外物品 / 被拒调用 全部落在 {0,1} 且没有 2", () => {
+  it("自由行动 / 结算 / 战斗回合 / 战斗结算 / 轮外物品 / 被拒调用 全部落在 {0,1} 且没有 2（转盘确认入口见 slot-wheel-confirm.test.ts）", () => {
     const { state, template: tpl, lookup } = world([EV.combat, EV.a, EV.b], "w-g13");
     const deltas: Array<{ entry: string; delta: number }> = [];
     const record = (entry: string, fn: () => void): void => {
