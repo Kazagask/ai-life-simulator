@@ -302,7 +302,7 @@ describe("TriggerResult.skipped 诊断位（ADR-0021 决策 1.4 · QA D-1 收口
 });
 
 // ---------- 真实模板回归：jjk-2006 的 12 场战斗都引用无实例的 enemy-* ----------
-const jjkDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../specs/data/templates/jjk-2006");
+const jjkDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../specs/data/templates/jjk-2006/1.0.0");
 
 function loadJjkTemplate(): WorldTemplateV2 {
   const merged: Record<string, unknown> = {};

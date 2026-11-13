@@ -277,7 +277,7 @@ describe("cause 只是字符串（引擎不得对 reasonCode 分支）", () => {
 
 // ---------- 模板级断言：jjk-2006 真的接上了这两个机制 ----------
 
-const jjkDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../specs/data/templates/jjk-2006");
+const jjkDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../specs/data/templates/jjk-2006/1.0.0");
 
 function loadJjkTemplate(): WorldTemplateV2 {
   const merged: Record<string, unknown> = {};

@@ -17,7 +17,7 @@ import { advanceTurnV2, battleActionV2, chooseOptionV2, createWorldV2, type Turn
 import { checkAllConditions, maxHp } from "./engine.js";
 import { evaluateLifeV2 } from "./life-evaluation.js";
 
-const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../specs/data/templates/jjk-2006");
+const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../specs/data/templates/jjk-2006/1.0.0");
 
 function load(): WorldTemplateV2 {
   const merged: Record<string, unknown> = {};

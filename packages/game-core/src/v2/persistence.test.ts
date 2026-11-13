@@ -6,6 +6,7 @@ import { WorldStateV2Schema, type WorldStateV2, type WorldTemplateV2 } from "@li
 import { advanceTurnV2 } from "./turn.js";
 import { createLookup } from "./lookup.js";
 import { loadPersistedWorlds, worldStore, dataDir } from "../../../../apps/server/src/store.js";
+import type { ReadyTemplateEntry, TemplateRegistry } from "../../../../apps/server/src/templates.js";
 import { projectSnapshotV2 } from "./projection.js";
 
 /**
@@ -36,6 +37,41 @@ function makeTemplate(): WorldTemplateV2 {
   } as unknown as WorldTemplateV2;
 }
 
+/**
+ * R2.8（ADR-0029 / R-TG-08）：store 建局需要注册表 Entry（模板引用是存档事实），
+ * `loadPersistedWorlds` 需要注册表（先定版本、再比指纹）。本文件不读磁盘模板，
+ * 用内存模板 + 固定夹具指纹造 Entry，并据此拼一个内存注册表。
+ */
+const ENTRY_FINGERPRINT = "sha256:fp-t";
+
+function entryOf(template: WorldTemplateV2 = makeTemplate()): ReadyTemplateEntry {
+  return {
+    ref: { id: template.meta.id, version: "1.0.0" },
+    status: "ready",
+    template,
+    lookup: createLookup(template),
+    openings: [],
+    pipeline: {},
+    semanticFingerprint: ENTRY_FINGERPRINT,
+    assetFingerprint: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    assetCount: 0,
+    mtime: 0,
+  };
+}
+
+function registryOf(entries: readonly ReadyTemplateEntry[]): TemplateRegistry {
+  const byKey = new Map(entries.map((entry) => [`${entry.ref.id}@${entry.ref.version}`, entry]));
+  return {
+    dir: "<memory>",
+    idExists: (id) => entries.some((entry) => entry.ref.id === id),
+    versionDirExists: (id, version) => byKey.has(`${id}@${version}`),
+    get: (ref) => byKey.get(`${ref.id}@${ref.version}`),
+    resolve: (ref) => byKey.get(`${ref.id}@${ref.version}`),
+    versionsOf: (id) => entries.filter((entry) => entry.ref.id === id),
+    listTemplates: () => [],
+  };
+}
+
 let dataRoot: string;
 
 beforeEach(() => {
@@ -50,7 +86,7 @@ afterEach(() => {
 
 function makeRealWorld(turns = 3): WorldStateV2 {
   const template = makeTemplate();
-  const state = worldStore.create({ templateId: "t", playerName: "存档者", seed: 42 }, template);
+  const state = worldStore.create({ templateId: "t", playerName: "存档者", seed: 42 }, entryOf(template));
   const lookup = createLookup(template);
   for (let i = 0; i < turns; i++) {
     const res = advanceTurnV2(state, { action: { type: "free", description: `行动 ${i}` } }, template, lookup);
@@ -99,10 +135,6 @@ describe("写入与信封（R-PS-01/03）", () => {
 });
 
 describe("加载校验（R-PS-02/05）", () => {
-  function fingerprints(): Map<string, string> {
-    return new Map([["t", "sha256:fp-t"]]);
-  }
-
   it("真实快照通过 WorldStateV2Schema（双向类型断言在编译期守漂移）", () => {
     const state = makeRealWorld();
     expect(WorldStateV2Schema.safeParse(state).success).toBe(true);
@@ -179,21 +211,17 @@ describe("加载校验（R-PS-02/05）", () => {
       "utf-8",
     );
 
-    const loaded = loadPersistedWorlds(new Map([["t", "sha256:fp-t"]])).loaded.find((w) => w.id === state.id);
+    const loaded = loadPersistedWorlds(registryOf([entryOf()])).loaded.find((r) => r.state.id === state.id);
     expect(loaded).toBeDefined();
     // 内存里的旧档确实没有该键（不是被 schema 补成 []）
-    expect(loaded!.lastWheels).toBeUndefined();
+    expect(loaded!.state.lastWheels).toBeUndefined();
     // 但投影侧恒为数组：前端只判一套（不用区分 undefined / []）
-    expect(projectSnapshotV2(loaded!, template, lookup).lastWheels).toEqual([]);
+    expect(projectSnapshotV2(loaded!.state, template, lookup).lastWheels).toEqual([]);
   });
 
   it("合法档加载回内存逐字段相等；坏类档逐个跳过且不阻断（R-PS-05 三类）", () => {
     const state = makeRealWorld();
-    // 合法档
-    const good = loadPersistedWorlds(fingerprints());
-    // 注意：指纹用 fp-t，而 persist 时 getTemplateFingerprint("t") 未加载模板 → sha256:unknown，
-    // 因此这里按"指纹一致"路径测合法档需同指纹。构造手工信封绕开：
-    void good;
+    const registry = registryOf([entryOf()]);
     const envelope = readEnvelope(state.id) as { state: WorldStateV2; savedAt: string; templateId: string; templateFingerprint: string };
     const dir = dataDir();
     // 三类坏档
@@ -213,20 +241,25 @@ describe("加载校验（R-PS-02/05）", () => {
       JSON.stringify({ ...envelope, templateFingerprint: "sha256:fp-t", state: { ...envelope.state, id: "w-bad-state", turnIndex: -1 } }),
       "utf-8",
     );
-    // 合法档（指纹与 fingerprints() 一致）
+    // 合法档（指纹与夹具 Entry 的 semanticFingerprint 一致）
     writeFileSync(
       path.join(dir, `${state.id}.json`),
       JSON.stringify({ ...envelope, templateFingerprint: "sha256:fp-t" }),
       "utf-8",
     );
-    const result = loadPersistedWorlds(fingerprints());
-    expect(result.errors.map((e) => e.reason)).toEqual(
-      expect.arrayContaining(["json_parse_failed", "schema_version_mismatch: 99", "template_fingerprint_mismatch"]),
+    const result = loadPersistedWorlds(registry);
+    // R2.8 / C-4：原因码改用封闭枚举（json_parse_failed → envelope_json_invalid 等）
+    expect(result.unloadable.map((e) => e.reason)).toEqual(
+      expect.arrayContaining([
+        "envelope_json_invalid",
+        "envelope_schema_version_unsupported",
+        "template_content_drift",
+      ]),
     );
-    expect(result.errors.some((e) => e.reason.startsWith("state_schema_invalid"))).toBe(true);
-    const loaded = result.loaded.find((w) => w.id === state.id);
+    expect(result.unloadable.some((e) => e.reason === "world_state_invalid")).toBe(true);
+    const loaded = result.loaded.find((r) => r.state.id === state.id);
     expect(loaded).toBeDefined();
-    expect(loaded).toEqual(envelope.state);
+    expect(loaded!.state).toEqual(envelope.state);
   });
 });
 
@@ -295,9 +328,13 @@ describe("往返一致性（R-PS-07）", () => {
       JSON.stringify({ ...envelope, schemaVersion: 1, state: { ...(envelope.state as object), id: "w-old-v1" } }),
       "utf-8",
     );
-    const result = loadPersistedWorlds(new Map([["t", "sha256:stale"]]));
-    expect(result.errors.some((e) => e.reason === "schema_version_mismatch: 1")).toBe(true);
-    expect(result.loaded.some((w) => w.id === "w-old-v1")).toBe(false);
+    const result = loadPersistedWorlds(registryOf([entryOf()]));
+    expect(
+      result.unloadable.some(
+        (e) => e.reason === "envelope_schema_version_unsupported" && e.detail.includes("schemaVersion=1"),
+      ),
+    ).toBe(true);
+    expect(result.loaded.some((r) => r.state.id === "w-old-v1")).toBe(false);
   });
 
   it("R2.5：worldTime 非整数 / MissReason 越界 / hasEnd 与 window.end 不一致均被拒", () => {

@@ -24,7 +24,7 @@ import {
 
 const jjkDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../../../../specs/data/templates/jjk-2006",
+  "../../../../specs/data/templates/jjk-2006/1.0.0",
 );
 
 function loadJjkTemplate(): WorldTemplateV2 {

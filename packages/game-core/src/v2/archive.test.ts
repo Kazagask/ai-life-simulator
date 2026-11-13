@@ -17,6 +17,7 @@ import { markTerminated } from "./ending.js";
 import { evaluateLifeV2 } from "./life-evaluation.js";
 import { assembleArchive, assertWritable, markArchived } from "./archive.js";
 import { worldStore } from "../../../../apps/server/src/store.js";
+import type { ReadyTemplateEntry } from "../../../../apps/server/src/templates.js";
 
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -48,6 +49,25 @@ function makeTemplate(): WorldTemplateV2 {
     items: [],
     statuses: [],
     events: [],
+  };
+}
+
+/**
+ * R2.8（ADR-0029）：store 建局需要注册表 Entry（模板引用是存档事实，见 R-TG-08）。
+ * 本文件不读磁盘模板，用内存模板造一条 ready Entry；语义指纹取固定夹具值。
+ */
+function entryOf(template: WorldTemplateV2): ReadyTemplateEntry {
+  return {
+    ref: { id: template.meta.id, version: "1.0.0" },
+    status: "ready",
+    template,
+    lookup: createLookup(template),
+    openings: [],
+    pipeline: {},
+    semanticFingerprint: "sha256:fixture-entry",
+    assetFingerprint: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    assetCount: 0,
+    mtime: 0,
   };
 }
 
@@ -134,7 +154,7 @@ describe("T4-06 · assembleArchive 五类数据齐全并置 archived=true", () =
 describe("统一门禁 · worldStore.save 对已归档世界拒绝写入", () => {
   it("未归档世界 save 正常；已归档（store 内或传入状态）一律拒绝", () => {
     const template = makeTemplate();
-    const world = worldStore.create({ templateId: "t", playerName: "测试者", seed: 1 }, template);
+    const world = worldStore.create({ templateId: "t", playerName: "测试者", seed: 1 }, entryOf(template));
     expect(world.archived).toBe(false);
     expect(() => worldStore.save(world)).not.toThrow();
 

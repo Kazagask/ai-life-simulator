@@ -13,6 +13,7 @@ import { markArchived } from "./archive.js";
 import { EndingGuardError } from "./ending.js";
 import { advanceTurnV2, battleActionV2, type TurnPipelineConfig } from "./turn.js";
 import { worldStore } from "../../../../apps/server/src/store.js";
+import type { ReadyTemplateEntry } from "../../../../apps/server/src/templates.js";
 
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -174,6 +175,25 @@ function deathConfig(): EndingConfig {
     ],
     fallback: "end-fallback",
   });
+}
+
+/**
+ * R2.8（ADR-0029）：store 建局需要注册表 Entry（模板引用是存档事实，见 R-TG-08）。
+ * 本文件不读磁盘模板，用内存模板造一条 ready Entry；语义指纹取固定夹具值。
+ */
+function entryOf(template: WorldTemplateV2): ReadyTemplateEntry {
+  return {
+    ref: { id: template.meta.id, version: "1.0.0" },
+    status: "ready",
+    template,
+    lookup: createLookup(template),
+    openings: [],
+    pipeline: {},
+    semanticFingerprint: "sha256:fixture-entry",
+    assetFingerprint: "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    assetCount: 0,
+    mtime: 0,
+  };
 }
 
 function makeActive(template: WorldTemplateV2 = makeTemplate(), seed = 1): WorldStateV2 {
@@ -502,19 +522,26 @@ describe("结局投影与归档", () => {
 describe("worldStore 封存入口（#30）", () => {
   it("未终止世界拒绝封存", () => {
     const template = makeTemplate();
-    const state = makeActive(template, 11);
+    // R2.8：save/seal 需要该世界已持有模板 ref 记录（R-TG-08 AC③），故先经 store 建局。
+    const state = worldStore.create(
+      { templateId: "t", playerName: "测试者", seed: 11 },
+      entryOf(template),
+    );
     worldStore.save(state);
     expect(() => worldStore.seal(state)).toThrow(/archive_requires_termination/);
   });
 
   it("已终止世界可封存；封存后 save() 拒写（只读）", () => {
     const template = makeTemplate();
-    const state = makeActive(template, 12);
+    const state = worldStore.create(
+      { templateId: "t", playerName: "测试者", seed: 12 },
+      entryOf(template),
+    );
     state.termination = { reason: "r", worldTime: 0, turnIndex: 0, source: "condition", endingId: "end-long" };
     worldStore.save(state);
     const sealed = worldStore.seal(state);
     expect(sealed.archived).toBe(true);
-    expect(worldStore.get(state.id)?.archived).toBe(true);
+    expect(worldStore.get(state.id)?.state.archived).toBe(true);
     expect(() => worldStore.save(sealed)).toThrow(/ARCHIVED/);
     // 幂等：再次封存不抛错
     expect(worldStore.seal(sealed).archived).toBe(true);

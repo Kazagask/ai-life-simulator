@@ -9,7 +9,7 @@ import { createLookup } from "./lookup.js";
 import { createActiveWorldV2, makeTestTemplate } from "./test-utils.js";
 
 /** 真实模板夹具（jjk-2006 六文件合并）；与 v2.test.ts 同一加载口径。 */
-const jjkDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../specs/data/templates/jjk-2006");
+const jjkDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../specs/data/templates/jjk-2006/1.0.0");
 
 function loadJjkTemplate(): WorldTemplateV2 {
   const merged: Record<string, unknown> = {};

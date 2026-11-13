@@ -13,7 +13,7 @@ import { EndingConfigSchema, OpeningTemplateSchema, WorldTemplateV2Schema, type 
 
 const TEMPLATE_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  "../../../specs/data/templates/jjk-2006",
+  "../../../specs/data/templates/jjk-2006/1.0.0",
 );
 
 const readYaml = (file: string): Record<string, unknown> =>

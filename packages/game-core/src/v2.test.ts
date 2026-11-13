@@ -20,7 +20,7 @@ import {
 
 // ---------- JJk 模板经 Schema 校验可加载 ----------
 
-const jjkDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../specs/data/templates/jjk-2006");
+const jjkDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../specs/data/templates/jjk-2006/1.0.0");
 
 function loadJjkTemplate(): WorldTemplateV2 {
   const merged: Record<string, unknown> = {};

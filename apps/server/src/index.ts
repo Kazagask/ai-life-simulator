@@ -11,7 +11,6 @@ import {
   buildEvaluationSummaryRequest,
   chooseOptionV2,
   createDefaultEndingConfig,
-  createLookup,
   createRunnerContext,
   createTimeAdapter,
   equipErrorCodeOf,
@@ -28,8 +27,8 @@ import {
   type TurnPipelineConfig,
 } from "@life-sim/game-core";
 import { BattleCommandSchema, EndingNarrativeOutputSchema, EvaluationSummaryOutputSchema } from "@life-sim/shared";
-import type { EndingConfig, EndingRecord, V2Snapshot, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
-import { getEndingConfig, getEvaluationConfig, getOpeningTemplates, getTemplateFingerprint, loadTemplates } from "./templates.js";
+import type { EndingConfig, EndingRecord, V2Snapshot, WorldStateV2 } from "@life-sim/shared";
+import { loadTemplates, type ReadyTemplateEntry } from "./templates.js";
 import { dataDir, hydrate, loadPersistedWorlds, worldStore } from "./store.js";
 import { createLLMProvider, readLLMConfig, resolveProviderForRequest, type LLMProvider } from "./llm/provider.js";
 import { userCredentials } from "./llm/userCredentials.js";
@@ -73,10 +72,10 @@ app.addContentTypeParser("*", { parseAs: "string" }, (_request, body, done) => {
   done(null, text);
 });
 
-// ---------- 模板注册（启动期加载 YAML，校验失败拒绝启动） ----------
+// ---------- 模板注册（R2.8 / ADR-0029：`<id>/<version>/` 两级，启动期 fail-fast） ----------
 
-const templates = loadTemplates();
-const lookups = new Map([...templates.entries()].map(([id, t]) => [id, createLookup(t)]));
+const registry = loadTemplates(app.log);
+app.log.info({ templatesDir: registry.dir }, "templates_loaded");
 
 // ---------- R2.7 · LLM Provider（启动期只读 env，加载期不得报错） ----------
 
@@ -107,44 +106,41 @@ app.addHook("preHandler", (request, _reply, done) => {
   done();
 });
 
-// ---------- 存档加载（R-PS-05 / ADR-0007）：四道校验关，坏档 error 跳过不阻断 ----------
+// ---------- 存档加载（R-PS-05 / ADR-0029 C-2/C-3/C-4）：先定版本、再比指纹，坏档可见可删 ----------
 
-const persisted = loadPersistedWorlds(
-  new Map([...templates.entries()].map(([id, t]) => [id, getTemplateFingerprint(t.meta.id) ?? "sha256:unknown"])),
+const persisted = loadPersistedWorlds(registry);
+hydrate(persisted.loaded);
+if (persisted.unloadable.length > 0) {
+  for (const e of persisted.unloadable) {
+    app.log.error(
+      { dataDir: dataDir(), file: e.file, reason: e.reason, detail: e.detail },
+      "world_unloadable",
+    );
+  }
+}
+app.log.info(
+  { dataDir: dataDir(), loaded: persisted.loaded.length, unloadable: persisted.unloadable.length },
+  "worlds_loaded",
 );
-hydrate(persisted.loaded, (templateId) => lookups.get(templateId));
-if (persisted.errors.length > 0) {
-  for (const e of persisted.errors) app.log.error({ dataDir: dataDir(), file: e.file, reason: e.reason }, "save_skipped");
-}
-app.log.info({ dataDir: dataDir(), loaded: persisted.loaded.length, skipped: persisted.errors.length }, "worlds_loaded");
-
-/** 模板的可选分域配置（endings.yaml / evaluation.yaml）；缺失时用引擎默认配置。 */
-function pipelineOf(templateId: string): TurnPipelineConfig {
-  return {
-    endingConfig: getEndingConfig(templateId),
-    evaluationConfig: getEvaluationConfig(templateId),
-  };
-}
 
 /** 投影 + 评价：评价始终来自唯一事实来源（T4-04），结局按模板集决胜结果投影。 */
-function projectWorld(world: WorldStateV2, template: WorldTemplateV2, lookup: ReturnType<typeof createLookup>) {
-  const cfg = pipelineOf(template.meta.id);
+function projectWorld(world: WorldStateV2, entry: ReadyTemplateEntry) {
   return projectSnapshotV2(
     world,
-    template,
-    lookup,
-    evaluateLifeV2(world, cfg.evaluationConfig),
-    cfg.endingConfig?.endings,
+    entry.template,
+    entry.lookup,
+    evaluateLifeV2(world, entry.evaluationConfig),
+    entry.endingConfig?.endings,
   );
 }
 
-function getWorld(id: string) {
-  const world = worldStore.get(id);
-  if (!world) return null;
-  const template = templates.get(world.templateId);
-  const lookup = lookups.get(world.templateId);
-  if (!template || !lookup) return null;
-  return { world, template, lookup };
+/**
+ * 世界 + 其**内存模板快照**（I-2）：模板对象与 lookup 来自建局/载入时固化的 Entry，
+ * 不再按 `templateId` 反查全局注册表——热加载替换 Entry 不会改变在跑世界。
+ */
+function getWorld(id: string): { world: WorldStateV2; entry: ReadyTemplateEntry } | null {
+  const record = worldStore.get(id);
+  return record ? { world: record.state, entry: record.entry } : null;
 }
 
 // ---------- R2.7 · 叙事编排（结局 / 总结 / 事件 flavor 的服务端接入） ----------
@@ -172,7 +168,7 @@ interface EndingResolution {
 /** 结局决胜的单一构造点：与终止时刻、归档时刻同输入 ⇒ 同结果（确定性）。 */
 function resolveEndingBase(
   world: WorldStateV2,
-  lookup: ReturnType<typeof createLookup>,
+  lookup: ReadyTemplateEntry["lookup"],
   cfg: TurnPipelineConfig,
 ): EndingResolution {
   const endingConfig = cfg.endingConfig ?? createDefaultEndingConfig();
@@ -201,16 +197,15 @@ function isMaskedEnding(resolution: EndingResolution): boolean {
 /**
  * 结局叙事 outcome：未终止世界 / 隐藏结局快速短路为 template（零 LLM 调用）；
  * 其余走 `generateNarrative`（mock 亦短路为 template）。
+ * 管线配置取该世界的内存快照 `entry.pipeline`（不查全局表）。
  */
 async function endingOutcomeFor(
   world: WorldStateV2,
-  template: WorldTemplateV2,
-  lookup: ReturnType<typeof createLookup>,
-  cfg: TurnPipelineConfig = pipelineOf(template.meta.id),
+  entry: ReadyTemplateEntry,
   provider: LLMProvider = llmProvider,
 ): Promise<NarrativeOutcome> {
   if (world.termination === null) return TEMPLATE_OUTCOME;
-  const resolution = resolveEndingBase(world, lookup, cfg);
+  const resolution = resolveEndingBase(world, entry.lookup, entry.pipeline);
   if (isMaskedEnding(resolution)) return TEMPLATE_OUTCOME;
   const outcome = await generateNarrative(
     buildEndingNarrativeRequest({
@@ -232,8 +227,7 @@ async function endingOutcomeFor(
 async function decorateSnapshot(
   snapshot: V2Snapshot,
   world: WorldStateV2,
-  template: WorldTemplateV2,
-  lookup: ReturnType<typeof createLookup>,
+  entry: ReadyTemplateEntry,
   provider: LLMProvider = llmProvider,
 ): Promise<V2Snapshot> {
   const ending = snapshot.ending;
@@ -241,7 +235,7 @@ async function decorateSnapshot(
   const key = `${world.id}:${snapshot.turnIndex}`;
   let outcome = endingOutcomeCache.get(key);
   if (outcome === undefined) {
-    outcome = await endingOutcomeFor(world, template, lookup, pipelineOf(template.meta.id), provider);
+    outcome = await endingOutcomeFor(world, entry, provider);
     endingOutcomeCache.set(key, outcome);
   }
   return decorateEndingView(snapshot, outcome);
@@ -291,6 +285,8 @@ function responseEventFlavors(
 
 const createWorldSchema = z.object({
   templateId: z.string().min(1),
+  /** R2.8 / R-TG-01：版本目录名；该 id 只有一个可载版本时可省略（隐式取它）。 */
+  templateVersion: z.string().min(1).max(40).optional(),
   playerName: z.string().min(1).max(20),
   seed: z.number().int().optional(),
   /** R-OP-01：可选，按 openingId 选择开局；省略则用默认/首个开局。 */
@@ -342,52 +338,88 @@ app.post("/api/llm-credentials", async (request, reply) => {
   }
 });
 
-app.get("/api/templates", async () => ({
-  templates: [...templates.values()].map((t) => ({
-    id: t.meta.id,
-    name: t.meta.name,
-    description: t.meta.description,
-    startYear: t.meta.startYear,
-    openings: getOpeningTemplates(t.meta.id).map((o) => ({
-      id: o.openingId,
-      name: o.name,
-      description: o.description,
-    })),
-  })),
-}));
+/**
+ * 模板列表（R-TG-01 AC② / R-TG-14）：**两级结构**（先选模板、再选版本）。
+ * 只读、无写入端点（R-TG-17）；不含 hidden / NPC 私有数据。
+ */
+app.get("/api/templates", async () => ({ templates: registry.listTemplates() }));
 
 app.post("/api/worlds", async (request, reply) => {
   const parsed = createWorldSchema.safeParse(request.body);
   if (!parsed.success) {
     return reply.code(400).send({ error: "invalid_body", detail: parsed.error.flatten() });
   }
-  const template = templates.get(parsed.data.templateId);
-  if (!template) {
-    return reply.code(404).send({ error: "template_not_found", templateId: parsed.data.templateId });
+  const { templateId, templateVersion } = parsed.data;
+  if (!registry.idExists(templateId)) {
+    return reply.code(404).send({ error: "template_not_found", templateId });
   }
-  if (
-    parsed.data.openingId !== undefined &&
-    !getOpeningTemplates(template.meta.id).some((o) => o.openingId === parsed.data.openingId)
-  ) {
-    return reply.code(404).send({ error: "opening_not_found", openingId: parsed.data.openingId });
+  // R-TG-01 / A-5：单版本 ⇒ 隐式取它；多版本缺版本号 ⇒ 400（**不得**默认取最高版，
+  // 否则等于替玩家猜「哪条人生线」）。版本不存在 ⇒ 404；版本存在但载不动 ⇒ 409。
+  const ready = registry
+    .versionsOf(templateId)
+    .filter((candidate): candidate is ReadyTemplateEntry => candidate.status === "ready")
+    .sort((a, b) => (a.ref.version < b.ref.version ? -1 : 1));
+  let entry: ReadyTemplateEntry;
+  if (templateVersion !== undefined) {
+    const found = registry.get({ id: templateId, version: templateVersion });
+    if (!found) {
+      return reply.code(404).send({ error: "template_version_missing", templateId, templateVersion });
+    }
+    if (found.status !== "ready") {
+      return reply
+        .code(409)
+        .send({ error: "template_invalid", templateId, templateVersion, reason: found.reason });
+    }
+    entry = found;
+  } else if (ready.length === 0) {
+    return reply
+      .code(404)
+      .send({ error: "template_not_found", templateId, detail: "该模板下没有可载入的版本" });
+  } else if (ready.length > 1) {
+    return reply.code(400).send({
+      error: "template_version_required",
+      templateId,
+      versions: ready.map((candidate) => candidate.ref.version),
+    });
+  } else {
+    entry = ready[0]!;
   }
-  const world = worldStore.create(parsed.data, template);
-  const lookup = lookups.get(template.meta.id)!;
-  const snapshot = await decorateSnapshot(projectWorld(world, template, lookup), world, template, lookup, request.llmProvider);
+  if (parsed.data.openingId !== undefined) {
+    const allowed = entry.openings.map((o) => o.openingId);
+    if (!allowed.includes(parsed.data.openingId)) {
+      return reply
+        .code(404)
+        .send({ error: "opening_not_found", openingId: parsed.data.openingId, allowed });
+    }
+  }
+  const world = worldStore.create(parsed.data, entry);
+  const snapshot = await decorateSnapshot(projectWorld(world, entry), world, entry, request.llmProvider);
   return reply.code(201).send({ worldId: world.id, snapshot });
 });
 
 app.get("/api/worlds/:id", async (request, reply) => {
   const { id } = request.params as { id: string };
   const found = getWorld(id);
-  if (!found) return reply.code(404).send({ error: "world_not_found" });
+  if (!found) {
+    // R-TG-10 / C-5：存在但不可载 ⇒ 409 + 封闭 reason（**不得** 404、**不得**静默消失）
+    const unloadable = worldStore.unloadable(id);
+    if (unloadable) {
+      return reply.code(409).send({
+        error: "world_unloadable",
+        reason: unloadable.reason,
+        detail: unloadable.detail,
+        templateId: unloadable.templateId,
+        templateVersion: unloadable.templateVersion,
+      });
+    }
+    return reply.code(404).send({ error: "world_not_found" });
+  }
   return {
     worldId: found.world.id,
     snapshot: await decorateSnapshot(
-      projectWorld(found.world, found.template, found.lookup),
+      projectWorld(found.world, found.entry),
       found.world,
-      found.template,
-      found.lookup,
+      found.entry,
       request.llmProvider,
     ),
     // 可选新增字段：非权威缓存里的事件 flavor（缺省 {}）；缺省完全等同原行为
@@ -407,11 +439,11 @@ app.post("/api/worlds/:id/turns", async (request, reply) => {
   }
 
   try {
-    const res = advanceTurnV2(found.world, parsed.data, found.template, found.lookup, undefined, pipelineOf(found.template.meta.id));
+    const res = advanceTurnV2(found.world, parsed.data, found.entry.template, found.entry.lookup, undefined, found.entry.pipeline);
     worldStore.save(res.state);
     // fire-and-forget：绝不 await LLM、不阻塞回合结算（R-LLM-05）
     scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup, request.llmProvider);
+    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, request.llmProvider);
     return {
       worldId: found.world.id,
       turnIndex: res.snapshot.turnIndex,
@@ -437,10 +469,10 @@ app.post("/api/worlds/:id/events/choose", async (request, reply) => {
   }
 
   try {
-    const res = chooseOptionV2(found.world, parsed.data, found.template, found.lookup, pipelineOf(found.template.meta.id));
+    const res = chooseOptionV2(found.world, parsed.data, found.entry.template, found.entry.lookup, found.entry.pipeline);
     worldStore.save(res.state);
     scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup, request.llmProvider);
+    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, request.llmProvider);
     return {
       worldId: found.world.id,
       snapshot,
@@ -464,10 +496,10 @@ app.post("/api/worlds/:id/battle", async (request, reply) => {
   }
 
   try {
-    const res = battleActionV2(found.world, parsed.data, found.template, found.lookup, pipelineOf(found.template.meta.id));
+    const res = battleActionV2(found.world, parsed.data, found.entry.template, found.entry.lookup, found.entry.pipeline);
     worldStore.save(res.state);
     scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup, request.llmProvider);
+    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, request.llmProvider);
     return {
       worldId: found.world.id,
       snapshot,
@@ -491,10 +523,10 @@ app.post("/api/worlds/:id/items/use", async (request, reply) => {
   }
 
   try {
-    const res = useItemV2(found.world, parsed.data, found.template, found.lookup, pipelineOf(found.template.meta.id));
+    const res = useItemV2(found.world, parsed.data, found.entry.template, found.entry.lookup, found.entry.pipeline);
     worldStore.save(res.state);
     scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup, request.llmProvider);
+    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, request.llmProvider);
     return {
       worldId: found.world.id,
       snapshot,
@@ -532,9 +564,9 @@ app.post("/api/worlds/:id/equipment/equip", async (request, reply) => {
   }
 
   try {
-    const res = equipV2(found.world, parsed.data, found.template, found.lookup);
+    const res = equipV2(found.world, parsed.data, found.entry.template, found.entry.lookup);
     worldStore.save(res.state);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup, request.llmProvider);
+    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, request.llmProvider);
     return { worldId: found.world.id, snapshot };
   } catch (error) {
     return handleEquipError(request, reply, error);
@@ -552,9 +584,9 @@ app.post("/api/worlds/:id/equipment/unequip", async (request, reply) => {
   }
 
   try {
-    const res = unequipV2(found.world, parsed.data, found.template, found.lookup);
+    const res = unequipV2(found.world, parsed.data, found.entry.template, found.entry.lookup);
     worldStore.save(res.state);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup, request.llmProvider);
+    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, request.llmProvider);
     return { worldId: found.world.id, snapshot };
   } catch (error) {
     return handleEquipError(request, reply, error);
@@ -562,52 +594,62 @@ app.post("/api/worlds/:id/equipment/unequip", async (request, reply) => {
 });
 
 /**
- * 世界列表（R-PS-04 / design §3.5）：按 savedAt 倒序；空目录返回空数组不报 404。
- * status 由 archived / termination 推导；endingTitle 取结局模板的公开标题。
+ * 世界列表（R-PS-04 / R-TG-10 C-5 / design §3.5）：按 savedAt 倒序；空目录返回空数组。
+ * 每行带 `loadable: boolean` + `reason?`——「存在但不可载」的档**必须可见**（修 E-03），
+ * 否则玩家 localStorage 留着 worldId、点开才发现打不开。status 由 archived / termination 推导。
  */
 app.get("/api/worlds", async () => {
-  const worlds = worldStore
-    .all()
-    .map((w) => {
-      const template = templates.get(w.templateId);
-      const lookup = lookups.get(w.templateId);
-      const cfg = pipelineOf(w.templateId);
-      const status: "running" | "terminated" | "archived" =
-        w.archived === true ? "archived" : w.termination !== null ? "terminated" : "running";
-      // endingTitle：已终止时按结局模板决胜（同输入 ⇒ 同结果）；隐藏结局显示掩码标题
-      let endingTitle: string | undefined;
-      if (w.termination !== null && lookup) {
-        const cfgEnding = cfg.endingConfig ?? createDefaultEndingConfig();
-        const ctx = { state: w, lookup, rng: createRunnerContext(w.seed).rng };
-        const ending = resolveEnding(
-          w,
-          cfgEnding.endings,
-          ctx,
-          cfgEnding.fallback !== undefined ? { fallbackId: cfgEnding.fallback } : {},
-        );
-        const tpl = cfgEnding.endings.find((e) => e.endingId === ending.endingId);
-        endingTitle = tpl?.narrativeConfig.masked
-          ? (tpl.narrativeConfig.masked.title ?? "未公开的结局")
-          : (tpl?.narrativeConfig.title ?? tpl?.name);
-      }
-      return {
-        id: w.id,
-        templateId: w.templateId,
-        templateName: template?.meta.name ?? w.templateId,
-        playerName: w.player.name,
-        turnIndex: w.turnIndex,
-        worldTime: w.worldTime,
-        formattedTime: template && lookup ? createTimeAdapter(template).format(w.worldTime) : String(w.worldTime),
-        status,
-        endingTitle,
-        savedAt: worldStore.savedAt(w.id) ?? "",
-      };
-    })
-    .sort((a, b) => (a.savedAt < b.savedAt ? 1 : a.savedAt > b.savedAt ? -1 : 0));
+  const loadableRows = worldStore.all().map(({ state: w, entry }) => {
+    const status: "running" | "terminated" | "archived" =
+      w.archived === true ? "archived" : w.termination !== null ? "terminated" : "running";
+    // endingTitle：已终止时按结局模板决胜（同输入 ⇒ 同结果）；隐藏结局显示掩码标题
+    let endingTitle: string | undefined;
+    if (w.termination !== null) {
+      const cfgEnding = entry.endingConfig ?? createDefaultEndingConfig();
+      const ctx = { state: w, lookup: entry.lookup, rng: createRunnerContext(w.seed).rng };
+      const ending = resolveEnding(
+        w,
+        cfgEnding.endings,
+        ctx,
+        cfgEnding.fallback !== undefined ? { fallbackId: cfgEnding.fallback } : {},
+      );
+      const tpl = cfgEnding.endings.find((e) => e.endingId === ending.endingId);
+      endingTitle = tpl?.narrativeConfig.masked
+        ? (tpl.narrativeConfig.masked.title ?? "未公开的结局")
+        : (tpl?.narrativeConfig.title ?? tpl?.name);
+    }
+    return {
+      id: w.id,
+      templateId: entry.ref.id,
+      templateVersion: entry.ref.version,
+      templateName: entry.template.meta.name,
+      playerName: w.player.name,
+      turnIndex: w.turnIndex,
+      worldTime: w.worldTime,
+      formattedTime: createTimeAdapter(entry.template).format(w.worldTime),
+      status,
+      endingTitle,
+      loadable: true,
+      savedAt: worldStore.savedAt(w.id) ?? "",
+    };
+  });
+  // 不可载档：只下发诊断所需字段（封闭 reason + 具体对象），不含 state 片段。
+  const unloadableRows = worldStore.unloadableAll().map((u) => ({
+    id: u.id,
+    templateId: u.templateId,
+    templateVersion: u.templateVersion,
+    loadable: false,
+    reason: u.reason,
+    detail: u.detail,
+    savedAt: u.savedAt ?? "",
+  }));
+  const worlds = [...loadableRows, ...unloadableRows].sort((a, b) =>
+    a.savedAt < b.savedAt ? 1 : a.savedAt > b.savedAt ? -1 : 0,
+  );
   return { worlds };
 });
 
-/** 删除世界（R-PS-04）：删文件 + 删内存条目；删除确认由前端负责。 */
+/** 删除世界（R-PS-04）：删文件 + 删内存条目；删除确认由前端负责。不可载的档同样可删（R-TG-10 AC①）。 */
 app.delete("/api/worlds/:id", async (request, reply) => {
   const { id } = request.params as { id: string };
   try {
@@ -620,10 +662,10 @@ app.delete("/api/worlds/:id", async (request, reply) => {
 
 app.get("/api/worlds/:id/history", async (request, reply) => {
   const { id } = request.params as { id: string };
-  const world = worldStore.get(id);
-  if (!world) return reply.code(404).send({ error: "world_not_found" });
+  const record = worldStore.get(id);
+  if (!record) return reply.code(404).send({ error: "world_not_found" });
   // 玩家端出口只下发 public 条目（R-VS-02 / 协议 §21.1）
-  return { history: playerVisibleEntries(world.history) };
+  return { history: playerVisibleEntries(record.state.history) };
 });
 
 /**
@@ -638,9 +680,9 @@ app.post("/api/worlds/:id/archive", async (request, reply) => {
   if (found.world.termination === null) {
     return reply.code(409).send({ error: "not_terminated", hint: "世界尚未终止，无法归档" });
   }
-  const cfg = pipelineOf(found.template.meta.id);
+  const cfg = found.entry.pipeline;
   // 归档时的结局记录：按终局状态重新决胜（与终止时刻同输入 ⇒ 同结果，确定性）
-  const resolution = resolveEndingBase(found.world, found.lookup, cfg);
+  const resolution = resolveEndingBase(found.world, found.entry.lookup, cfg);
   // 🔴 隐藏结局红线（裁决 6）：masked 结局一律不注入 LLM adapter、不装饰，保留模板掩码文案
   const masked = isMaskedEnding(resolution);
   const evaluation = evaluateLifeV2(found.world, cfg.evaluationConfig);
@@ -664,7 +706,7 @@ app.post("/api/worlds/:id/archive", async (request, reply) => {
   // `snapshot.ending.narrativeSource`（主理人裁决 3：玩家可见准绳）。
   const endingOutcome = masked
     ? TEMPLATE_OUTCOME
-    : await endingOutcomeFor(found.world, found.template, found.lookup, cfg, request.llmProvider);
+    : await endingOutcomeFor(found.world, found.entry, request.llmProvider);
   const endingAdapter = masked ? undefined : adapterFromOutcome(endingOutcome);
   const ending = resolveEnding(
     found.world,
@@ -677,8 +719,8 @@ app.post("/api/worlds/:id/archive", async (request, reply) => {
   );
   const archived = assembleArchive(
     found.world,
-    found.template,
-    found.lookup,
+    found.entry.template,
+    found.entry.lookup,
     ending,
     finalEvaluation,
     resolution.endingConfig.endings,
