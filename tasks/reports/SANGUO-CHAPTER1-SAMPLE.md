@@ -5,24 +5,25 @@
 > 玩法结构变更：新增独立世界模板（新 id / 新开局 / 事件 / 技能 / 道具 / 补正 / 结局），不改既有引擎行为。
 > 存档代价：`jjk-2006` 目录零改动、指纹按目录独立 ⇒ **旧存档不受影响**；但 `sanguo-2010` 目录内任一 yaml 变化会让**本模板**旧档全部拒载（§4 已实证）。
 > **2026-11-14 第二轮（§8）**：补上剧本层 —— 7 种身份（含刘备 / 曹操 / 袁绍三条真实人物线）、13 个剧情事件、3 个身份结局，以及用 `npcSpawnRules` 实现的「摇到真人就不刷分身」。主线锚点原样未动。yaml 由 1019 行增至 1604 行，指纹 `e38990a4…` → `d5429b49…` ⇒ **本模板第二轮前的旧存档全部拒载**（`jjk-2006` 旧档仍不受影响）。
+> **2026-11-14 第三轮（§9）**：战争沙盘副本（剧情开启 flag → 条件行动博弈 → 主将对垒 → 收兵恢复）+ 年号 `初平`。yaml 增至 1898 行 / 32 事件 / 15 角色，指纹 `d5429b49…` → `34f08bca…` ⇒ **本模板第三轮前的旧存档全部拒载**。`era` 是引擎 R2.6 既有能力，本轮只用 T-1 yaml 接上；显示层「不同地区不同年号」属 T-2（需 ADR），**本轮未做、未裁决**。
 
 ---
 
 ## 1. 交付内容
 
-| 文件 | 行数（第二轮后） | 内容 |
+| 文件 | 行数（第三轮后） | 内容 |
 |---|---|---|
-| `world.yaml` | 125 | meta / 历法 / 性别枚举（含「乌角鲨」）/ 心情 / 状态栏 / 6 维属性（含 `tianyi`）/ 资源 / 4 个玩家行动 / **3 条 `npcSpawnRules`（防分身）** |
-| `characters.yaml` | 236 | 13 个 NPC + 1 个敌人 + `playerTemplate`；曹操、刘备、孙坚、孙策、公孙瓒、二袁、吕伯奢、荀彧、徐盛、邢道荣、华雄、董卓、乌角鲨 |
+| `world.yaml` | 144 | meta / **年号 `era: 初平`（gregorian）** / 性别枚举（含「乌角鲨」）/ 心情 / 状态栏 / 6 维属性（含 `tianyi`）/ 资源 / 4 个玩家行动 + 副本条件行动说明 / **3 条 `npcSpawnRules`（防分身）** |
+| `characters.yaml` | 255 | 13 个 NPC + **2 个敌人**（乌角鲨 / 西凉前军主将）+ `playerTemplate`；曹操、刘备、孙坚、孙策、公孙瓒、二袁、吕伯奢、荀彧、徐盛、邢道荣、华雄、董卓 |
 | `skills.yaml` | 96 | 7 个技能：基础攻击 + 破军（大宝）/ 伏骑（麹义）/ 虚猲（邢道荣）/ 引兵（祖茂）/ 铁骑（界马超）/ 立牧（刘焉） |
 | `items.yaml` | 38 | 陈留大食堂馒头、传国玉玺、乌角鲨幼体 |
 | `statuses.yaml` | 60 | 天意侵蚀·精神错乱、集体失焦、天意护体、乌角鲨之威、三国 ELO·胜兵必骄 |
-| `events.yaml` | 906 | **25 事件**：开局转盘 + 7 格命数转盘 + 4 条虚构身份开场 + 3×3 条人物线 + 讨董大会 + 7 条支线池 + 天意锚点 + 第二章落点 |
+| `events.yaml` | 1162 | **32 事件**：开局转盘 + 7 格命数转盘 + 4 条虚构身份开场 + 3×3 条人物线 + 讨董大会 + 7 条支线池 + 天意锚点 + 第二章落点 + **7 个战争沙盘事件** |
 | `opening.yaml` | 49 | 1 个开局 `op-190-chenliu` |
 | `endings.yaml` | 94 | 2 个终止条件 + **5 个结局**（通用 / 刘备 / 曹操 / 袁绍 / 隐藏） |
-| **合计** | **1604** | 8 个 yaml（第一轮 1019 行，第二轮 +585 行） |
+| **合计** | **1898** | 8 个 yaml（第一轮 1019 → 第二轮 1604 → 第三轮 1898） |
 
-**省略的可选分域**：`equipment.yaml` / `combat-ai.yaml` / `evaluation.yaml`。加载器按文件存在性合并（`templates.ts:25-34, 50-68`），缺文件不报错，已实测通过。小样不需要装备与战斗 AI（池事件无 combat）。
+**省略的可选分域**：`equipment.yaml` / `combat-ai.yaml` / `evaluation.yaml`。加载器按文件存在性合并（`templates.ts:25-34, 50-68`），缺文件不报错，已实测通过。第三轮新增了 `kind: combat` 事件，但**未配 `combat-ai.yaml`**：未映射的敌人走既有简单权重路径，实测可正常打完（§9.3）；装备分域同样不需要。
 
 ## 2. 机制实现：天意怎么把剧情拉回主线
 
@@ -119,6 +120,7 @@
 > 2026-11-14 本机 WLAN 的 DHCP 地址是 `192.168.101.13`（网关 `192.168.101.1`），会变；变了用 `ipconfig` 重查。
 > 本轮已启动服务并清空试玩存档（`GET /api/worlds` → `{"worlds":[]}`）。**仅本地服务，不涉及线上实例、不执行任何 deploy / unpublish。**
 > **第二轮更新**：剧本层 yaml 变更后服务已重启，加载的是 7 格转盘 + 三条人物线的新版本。试玩目录里留着一局第一轮建的存档（`e78a6fae…`，指纹 `e38990a4…`），与新指纹 `d5429b49…` 不符 ⇒ 按 ADR-0007 策略启动期 `skipped` 拒载，界面列表会变空。**这是既定的存档代价，不是故障**：该文件原样保留、未移动未删除，并已只读复制到 `D:\code\_sanguo_isolated\data-smoke\` 备份；想继续玩新剧本请新建一局。
+> **第三轮更新**：战争沙盘 + 年号 yaml 变更后服务再次重启，当前加载的是 `34f08bca…` 版本（时间显示「初平 1年…」，第 42 天进战争沙盘）。启动命令与端口不变；第三轮前建的试玩局同样按新指纹拒载，新建一局即可。验证用的是**另一个独立服务**（3917 / `data-war`），不污染试玩列表。
 
 ### 7.1 为什么不用改前端就能进三国模板
 
@@ -215,4 +217,61 @@ LIFE_SIM_DATA_DIR='D:/code/_sanguo_isolated/data' \
 - **玩法结构变更**：仅新增/改写 `sanguo-2010` 目录内的 5 个 yaml（world / characters / opening / events / endings），新增 13 个剧情事件、3 条 spawn 规则、3 个身份结局；**引擎、契约面、前端、`jjk-2006` 全部零改动**。
 - **存档代价**：`sanguo-2010` 指纹 `e38990a4…` → `d5429b49…` ⇒ **本模板第二轮前的旧存档全部拒载**（§4 已实证同一机制）；`jjk-2006` 旧档不受影响。
 - **限制**：玩家显示名不会变成历史人物（§6）；三条人物线仍只覆盖第一章；隐藏结局数值门槛仍偏高。
+- 未 push、未部署、未下线；`docs/RECOVERY_MERGE.md §6.3` 红线继续有效。
+
+---
+
+## 9. 第三轮 · 战争沙盘副本与年号（2026-11-14）
+
+用户两问：① 现有机制能否做「副本」（剧情开启世界 flag + 条件行动 + 战斗 + 剧情结束），做一场**战争沙盘**：开打后战斗是主将对垒、自由行动按条件切成战争行动、事件就是博弈、结束恢复日常；② 时间能否用年号（引擎本就按此设计），顺手做年号适配器，三国可做不同地区不同年号。
+
+### 9.1 能力核验：能做，但「条件行动」要换个形态
+
+| 用户要件 | 引擎现状 | 本轮做法（T-1 纯 yaml） |
+|---|---|---|
+| 剧情开启（世界 flag） | `setFlag` + `source: schedule`，建世界时按 `window.start` 一次性入队 | `ev-war-outbreak`：第 42 天 / `chapter=2` / `once` / `priority 90`，写入 `warActive / warPhase / warEdge / warRegion` |
+| **条件行动** | ⚠️ `actions` schema **没有 conditions**，`projection.ts:256` 的 `availableActions` 恒定全量下发 ⇒ **按钮 label / 可见性无法随 flag 变** | 每个 `onActionId` 配一条 `action-hook`（`conditions: warActive eq true`），战争期点同一行动**额外弹出博弈事件**；选项用 `visibleWhen` 按 `warPhase` 分流。按钮本身仍是「点兵/开席/问策/歇息」 |
+| 战斗（主将对垒） | `kind: combat` + `enemies` / `onVictory|onDefeat|onFlee.nextEventId` | `ev-war-duel`，敌人 `enemy-xiliang-commander`（旗号，不是再造一个华雄） |
+| 事件就是博弈 | `normal` + `visibleWhen` + `adjustFlag warEdge` + 属性/资源加成 | 4 条博弈：阵列 / 离间 / 粮道 / 移营，布阵期给统御·智略·HP·MP 并推到接战期，接战期「叫阵」开战 |
+| 结束恢复日常 | `clearFlag` ⇒ 条件失效 | `ev-war-close` 清 4 个 flag；`engine.ts:209` 缺失 flag 条件恒 false ⇒ hook 自动静默 |
+
+约束已核对：同一 `onActionId` 至多一条「立即」hook（`world.ts:427`），本轮每个行动恰好一条；`turn.ts:576` 非链事件 `nextEventId` 直接 `triggerEventV2`，所以叫阵选项能直接建战斗会话。
+
+### 9.2 实测闭环（seed 42，`smoke-war.mjs`）
+
+```
+初平 1年2月11日  ev-ch2-gate（第 41 天，主线原样）
+初平 1年2月12日  ev-war-outbreak → opt-war-accept（warActive=true / warPhase=1）
+初平 1年2月13日  turn consult → ev-war-counsel（博弈）→ opt-war-send-all（warPhase=2）
+初平 1年2月14日  turn rest    → ev-war-rest（博弈）→ opt-war-challenge-rest（叫阵）
+                  ev-war-duel：15 个战斗回合（sk-basic-strike）→ onVictory
+                  ev-war-close → opt-war-return（clearFlag ×4，天意把三份战报抄回初平）
+初平 1年2月15/16/17 日  turn rest ×3 → hooks = 0（日常行动已恢复）
+```
+
+主线锚点（第 8 天 `ev-tianyi-anchor-1`、第 41 天 `ev-ch2-gate`）一字未改；副本不写 `chapter`、不 `advanceTo`、不改结局判据。
+
+### 9.3 验证结果
+
+| 项目 | 结果 |
+|---|---|
+| 隔离根 `TEMPLATES_DIR` 加载 | **PASS** `LOAD OK`，1 套 / **32 事件 / 15 角色 / 7 技能 / 5 结局**，指纹 `sha256:34f08bca…` |
+| 默认根两套共存 | **PASS**，`jjk-2006` 目录零改动、指纹仍 `sha256:d8d81863…` |
+| typecheck / shared / game-core / web build | **PASS** / 67/67 / 478/478（含 6 种子整局回归）/ `index-DLvGHcIx.js` 357.10 kB 与 R27 一致 |
+| `smoke-war.mjs`（整局闭环） | **PASS**：年号显示「初平 1年1月1日」、开战、博弈、对垒 15 回合、收兵、收兵后 3 次行动零 hook、`chapter=2` |
+| `smoke-war-matrix.mjs`（5 例） | **5/5 OK**：`drill/consult/feast/rest` 四条 hook 各命中一次（seed 11–14，14 回合结束），seed 15 走 `flee` 撤离（1 次命令）→ `onFlee` → 收兵；每例收兵后 2 次行动零 hook |
+| 云冒烟 / CI / 真机点屏 / UI 模板选择器 | **未跑**，不写 PASS |
+
+### 9.4 年号：引擎 R2.6 已有，本轮只接配置
+
+- `CalendarConfigSchema.era` + `time.ts` 的 `createTimeAdapter` / `eraYearBase` / `format` **早已实现**（ADR-0002 / ADR-0013）：`gregorian` 与 `custom` 都支持 `era: { name, epochStartMinute }`，输出「`${name} ${eraYear}年…`」，负起点表示纪元早于世界起点。`approx` 走独立分支不支持。
+- 三国模板原本 `calendar: { preset: gregorian }`，本轮加 `era: { name: 初平, epochStartMinute: 0 }`（公元 190 = 初平元年）⇒ 建局显示「**初平 1年1月1日 00:00**」，冒烟实证。**零源码改动，T-1**。
+- 「不同地区不同年号」本轮做在**叙事层**：`warRegion` flag + 事件文案（袁术营「仲家」、江东「初平」、有人写「天意元年」），收兵时天意统一抄回正朔。显示层按阵营切换年号需要给 `CalendarConfigSchema` 加 `eras[]` / `eraRegionFlag`、给 `CalendarAdapter` 加接收 state 的格式化入口并改约 10 处调用点 ⇒ **T-2 契约面，按 `AGENTS.md §0.3` 必须先 ADR**；旧机两个大版本源码未找回、线上 `/api/templates` 已证实版本化契约，此刻改契约面风险过高。完整提案见 `docs/SANGUO_TEMPLATE_BRIEF.md §9.4`。**本轮未写 ADR、未动契约面、未作裁决。**
+- 已知显示细节：引擎输出「初平 **1**年」而非「初平**元**年」，改 `format` 同样属 T-2。
+
+### 9.5 变更代价与边界
+
+- **玩法结构变更**：只改 `sanguo-2010` 目录内 3 个 yaml（`world` 加 era + 注释、`characters` 加 1 个主将敌人、`events` 加 7 个副本事件）。新增一段**第 42 天起可进可出的战争副本**，主线触发拓扑、结局判据、引擎、契约面、前端、`jjk-2006` 全部零改动。
+- **存档代价**：本模板指纹 `d5429b49…` → `34f08bca…` ⇒ **第三轮前的本模板旧存档全部拒载**（ADR-0007 既定策略，§4/§7 已实证）；`jjk-2006` 旧档不受影响。
+- **限制**：按钮文案不会随战争状态变（条件行动是 hook + `visibleWhen` 的等价形态，非真·按钮切换）；敌人未配 `combat-ai.yaml`，走既有简单权重路径（实测可打完）；战争副本只覆盖第 42 天之后一段，仍是一章内的支线；前端 `templates[0]` 写死、界面仍不可选模板。
 - 未 push、未部署、未下线；`docs/RECOVERY_MERGE.md §6.3` 红线继续有效。

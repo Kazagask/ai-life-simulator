@@ -1,7 +1,7 @@
 # 三国演义（新三国梗）世界模板 · 考据与构想草案
 
-> **状态**：考据 + **讨董一章小样 + 剧本层已落地**（路线 A / T-1 纯 yaml）。分支 `feat/sanguo-meme-template`，基点 `6a04f2a`（含三份恢复文档）。
-> **落地记录见 `tasks/reports/SANGUO-CHAPTER1-SAMPLE.md`**：只新增独立模板目录 `specs/data/templates/sanguo-2010/`（第二轮后 8 个 yaml / 1604 行 / 25 事件 / 5 结局）；未改任何既有模板、源码、schema、Spec、ADR，未建迭代四件套，未作产品裁决，未碰线上。**第二轮剧本层见本文 §8**。
+> **状态**：考据 + **讨董一章小样 + 剧本层 + 战争沙盘副本已落地**（路线 A / T-1 纯 yaml）。分支 `feat/sanguo-meme-template`，基点 `6a04f2a`（含三份恢复文档）。
+> **落地记录见 `tasks/reports/SANGUO-CHAPTER1-SAMPLE.md`**：只改独立模板目录 `specs/data/templates/sanguo-2010/`（第三轮后 8 个 yaml / 1898 行 / 32 事件 / 15 角色 / 5 结局）；未改任何既有模板、源码、schema、Spec、ADR，未建迭代四件套，未作产品裁决，未碰线上。**第二轮剧本层见 §8，第三轮副本与年号见 §9**。
 > 用户口述需求（2026-11-14）：新世界模板「三国演义」，以**新三国梗**为主（"包括但不限于"下列六条），掺入**三国杀技能与台词**；**不严肃、要魔幻**；剧情再离谱都能回到主线——因为「**天意**」发力了。
 > 本文分三类内容，请勿混用：**① 已考据**（联网多源核对，附出处）、**② 已核验的工程事实**（以代码为准）、**③ 构想/待确认**（未实现、未裁决）。
 
@@ -189,3 +189,60 @@
 - **验证**：隔离根 `LOAD OK`（25 事件 / 5 结局）；默认根两套共存、`jjk-2006` 指纹未变；typecheck / shared 67 / game-core 478 / web build 全绿；**7 种身份整局冒烟 7/7 OK**（专属链走完、锚点必触发、`chapter=2`、结局按身份分化）；防分身明细确认玩家是刘备时 `npc-liubei=ABSENT` 其余两人 alive，曹操 / 袁绍同理，虚构身份三人全 alive。详见 `tasks/reports/SANGUO-CHAPTER1-SAMPLE.md §8.3`。
 - **两条边界**：① `setIdentity` 只支持 `gender` / `age`，**玩家 UI 显示名不会变成历史人物**（身份靠 flag + 第二人称叙事 + log 表达）；② yaml 变更后本模板指纹 `e38990a4…` → `d5429b49…` ⇒ **本模板第二轮前的旧存档全部拒载**，`jjk-2006` 旧档不受影响。
 - §6 待确认项里，第 1 条的「规模」由本轮扩展为「讨董一章 + 三条人物线」但**仍只是一章**；第 2 条仍按路线 A（前端未改，`templates[0]` 写死，界面仍不可选）；其余待确认项未变，未替用户裁决。
+
+---
+
+## 9. 第三轮 · 战争沙盘副本与年号（2026-11-14）〔② 已核验 / ③ 待裁决〕
+
+用户两问：①「现在机制能不能做副本：剧情开启（世界 flag）+ 条件行动 + 战斗 + 剧情结束」——做一场**战争沙盘**，开打后战斗是主将对垒、自由行动按条件切成战争行动、事件就是博弈、结束恢复日常；②「时间能用年号吗，引擎之前按这样设计的，顺手把年号适配器做上，三国正好能做出不同地区不同年号」。
+
+### 9.1 副本逐项能力核验（以代码为准，非推测）
+
+| 要件 | 现有机制 | 结论 |
+|---|---|---|
+| 剧情开启（世界 flag） | `setFlag` + `source: schedule` / `window.start`（建世界时一次性入队，到点必触发） | ✅ 纯 yaml |
+| **条件行动** | `WorldTemplateV2Schema.actions` 只有 `id/label/description/duration/advanceTo/effects`，**没有 conditions**；`projection.ts:256-263` 的 `availableActions` 恒定全量下发 | ⚠️ **按钮层不能按 flag 切换**。等价做法：`action-hook` 事件带 `conditions`，`EventOptionSchema.visibleWhen` 按 `warPhase` 过滤选项 ⇒ 同一次点击在战争期弹出「博弈」、日常期静默。按钮标签本身要变 ⇒ T-2 |
+| 战斗（主将对垒） | `kind: combat` + `enemies/allies`（引用 `characters` 里 `isEnemy`）+ `canFlee/fleeCheck` + `onVictory/onDefeat/onFlee` 的 `effects` 与 `nextEventId` | ✅ 纯 yaml |
+| 事件即博弈 | `normal` 事件 + `visibleWhen` 选项 + `adjustFlag warEdge`（战势）+ 属性/资源加成带进战斗 | ✅ 纯 yaml |
+| 结束恢复日常 | `clearFlag warActive` ⇒ hook 条件不再成立 | ✅ 纯 yaml。关键：`engine.ts:209` **缺失 flag 的条件一律 false**，所以清 flag 就是天然开关，不需要额外状态 |
+| 硬约束 | `world.ts:427-445`：同一 `onActionId` 至多一条「立即」hook（延时 hook 豁免）；`turn.ts:576` 非链事件的 `nextEventId` 直接 `triggerEventV2` ⇒ 叫阵选项能直接开战斗 | 本轮每个行动恰好一条 hook，合规 |
+
+### 9.2 落地的副本闭环（第 42 天起，与第一章主线正交）
+
+`ev-war-outbreak`（schedule 42 天 / `chapter=2`）→ `setFlag warActive/warPhase/warEdge/warRegion` ⇒ **点任意行动**触发对应 `ev-war-{drill,counsel,feast,rest}` 博弈（布阵期选项推 `warPhase=2` 并给统御/智略/HP/MP 加成，接战期「叫阵」选项 `nextEventId: ev-war-duel`）⇒ `ev-war-duel`（主将对垒，敌人是 `enemy-xiliang-commander`）⇒ 胜/败/撤统一 `nextEventId: ev-war-close` ⇒ `clearFlag` 四个战争 flag + 天意把三份战报抄回同一行 ⇒ 行动自动恢复日常。
+
+- **主线零改动**：第 8 天 `ev-tianyi-anchor-1`、第 41 天 `ev-ch2-gate` 原样保留；副本不写 `chapter`、不 `advanceTo`、不改结局判据。
+- **敌人防分身**：华雄本人已是 `npc-hua-xiong`，所以上阵的是「写着华雄的旗」和旗后面的人（`enemy-xiliang-commander`），不是再造一个华雄 —— 与 §8 的防分身纪律一致，也顺便投了魔幻感。
+- **不同地区的年号（叙事层）**：袁术营「仲家」、江东「初平」、有人写「天意元年」，用 `warRegion` flag + 事件 `log` 表达；收兵时天意统一抄回正朔。
+
+### 9.3 年号：引擎早就做完了，本轮只是把它接上
+
+- `packages/shared/src/schema/world.ts:98-120` 的 `CalendarConfigSchema.era` + `packages/game-core/src/v2/time.ts`（`createTimeAdapter` / `eraYearBase` / `format`）**R2.6 就已实现**（ADR-0002 / ADR-0013）：`format` 输出 `${era.name} ${eraYear}年${monthLabel}日`，`epochStartMinute` 可为负（纪元早于世界起点）；`gregorian` 与 `custom` 都支持，`approx` 走另一分支不支持。
+- 所以「把年号适配器做上」**不需要写适配器**：三国模板原本是 `calendar: { preset: gregorian }`，本轮改成 `era: { name: 初平, epochStartMinute: 0 }`（公元 190 年 = 汉献帝初平元年）⇒ 建局即显示「**初平 1年1月1日 00:00**」，冒烟实证。这是 T-1 纯 yaml，零源码改动。
+- 已知显示细节：引擎输出「初平 **1**年」而非史书习惯的「初平**元**年」；要改得动 `time.ts` 的 `format` ⇒ 同属 T-2。
+
+### 9.4 「不同地区不同年号」的显示层 = T-2，本轮未做（待用户拍板）
+
+`era` 是**单个静态全局字符串**，`CalendarAdapter.format(minutes)` 是纯函数、拿不到 `state.flags` ⇒ 无法按阵营/地区切换显示。最小扩展草案（供裁决，未实现）：
+
+```yaml
+calendar:
+  preset: gregorian
+  era: { name: 初平, epochStartMinute: 0 }   # 保留兼容
+  eras:                                      # 新增：按地区选年号
+    - { id: court,   name: 初平, epochStartMinute: 0 }
+    - { id: yuanshu, name: 仲家, epochStartMinute: 0 }
+    - { id: tianyi,  name: 天意, epochStartMinute: 0 }
+  eraRegionFlag: warRegion                    # 读 state.flags[warRegion] 选 era
+```
+
+改动面：`CalendarConfigSchema`（加 `eras[]` / `eraRegionFlag`）、`CalendarAdapter` 增 `formatAt(minutes, flags)` 并保持 `format` 兼容、约 10 处 `format(state.worldTime)` 调用点（projection / history / battle / ending / npc / opening / engine / server）统一传 flags、补改元基准与地区切换测试。前端零改动（只读 `formattedTime`），存档结构不变。
+
+**为什么停在这里**：按 `AGENTS.md §0.3`，动 `packages/shared/src/schema/**` / `packages/game-core` 契约面 = **T-2，必须先写 ADR（G2 生效）**；而旧机两个大版本的源码尚未找回、线上 `/api/templates` 已证实是**版本化契约**（`RECOVERY_MERGE.md §6.2`），此刻改契约面会与找回后的旧实现正面冲突。本轮因此只做 T-1 能做的部分（正朔年号 + 叙事层多地区年号），**未写 ADR、未动契约面、未作裁决**。要推进请明确授权「走 T-2 + 补 ADR」，并最好在旧机源码找回之后。
+
+### 9.5 验证与代价
+
+- 隔离根 / 默认根加载 **PASS**（32 事件、15 角色、5 结局），`jjk-2006` 目录零改动、指纹 `d8d81863…` 未变；typecheck / shared 67 / game-core 478 / web build `index-DLvGHcIx.js` 全绿。
+- 副本整局冒烟 **PASS**：年号显示、第 42 天开战、博弈分流、主将对垒 15 回合、收兵、收兵后 3 次行动零 hook；矩阵 **5/5 OK**（4 条 hook 全覆盖 + `flee` 撤离路径）。详见 `tasks/reports/SANGUO-CHAPTER1-SAMPLE.md §9`。
+- **存档代价**：本模板指纹 `d5429b49…` → `34f08bca…` ⇒ 第三轮前的本模板旧存档全部拒载（ADR-0007 既定策略）；`jjk-2006` 旧档不受影响。
+- 未跑：云冒烟（判据针对 jjk）、CI、真机点屏、UI 模板选择器。
