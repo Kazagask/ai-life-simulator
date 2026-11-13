@@ -2348,3 +2348,83 @@ RNG ⇒ 「逐字节等价重构」立刻不成立（RNG 流被多扣一次，�
 | 免流程与事后补记 | 🔴 **仅适用本次任务，不延续** | 见本 ADR 状态行「流程例外声明」：后续任务一律恢复 `AGENTS.md §0.3` 的 **G1 / G2 正常门禁**，动契约面（T-2）必须先写 ADR 并经评审通过后再实施。 |
 
 > **本补记的边界声明**：只修改 `docs/DECISIONS.md` 的 ADR-0027 一节（状态行改写 + 「不变量检查表」新增 1 行 + 「明确不做」表新增 1 行 + 4 个新增小节）；ADR-0001..0026 历史正文**一字未动**；不涉及「对 ADR-0011 决策 5 与 ADR-0024 的修订回指」（该 append-only 注记属 ADR-0026，见本文件 `:2108-2114`）。未改代码、未改 spec、未改 `PROJECT.md`、未改 `OPEN_QUESTIONS.md`（#49 已由实施工程师登记）。
+
+---
+
+### ADR-0028：放开用户自带 LLM Key + 平台免密 LLM 路由 + 前端收敛
+
+- **状态**：**草案（G2 门禁产物，待评审）**。用户于 R2.7 收口后给出三条一次性裁决（推翻 §5 客户端直连禁令 / 平台免密也做 / 前端收敛）作为决策方向；按 `AGENTS.md §0.3` 本 ADR 须经 G2 评审通过后再实施（不沿用 R2.7 的免前置 ADR 例外）。
+- **关联**：ADR-0025（服务端零凭据 / 前端 cloud SDK 单例）、ADR-0027（LLMProvider 三层 / 凭证路由 / 缓存键 / 事后补记）、OPEN_QUESTIONS #49（登录用户 → 服务端免密钥 LLM 真实链路）、AGENTS §5（禁止事项）。
+
+#### 背景
+
+R2.7 已实现 `LLMProvider` 三层路由（mock / workbuddy-cloud / openai-compatible），但仅冒烟级验证，且平台侧「登录用户 → 服务端免密钥 LLM」链路（OPEN_QUESTIONS #49）始终未证实，落地为 env 注入 session 的降级形态。用户本轮裁决：
+
+1. **推翻 `AGENTS.md §5`「不允许客户端直连 LLM」这条硬约束** —— 允许在登录页配置自定义 `apiKey` + `model`（可选 `baseUrl`）；服务端内存记录、绝不落盘；风险用户自担。本质是「客户端把 key 交给服务端、服务端代调 LLM」，服务端仍是 LLM 调用方（不鼓励浏览器直连外部 LLM），只是放开「允许使用用户自带 key」。
+2. **平台免密 LLM 也做** —— 服务端 LLM 路由优先级：`用户配置的 key（OpenAI 兼容）＞ 平台免密 LLM（cloud-service 的 cloud.llm）＞ mock`；两路都保留。
+3. **前端收敛** —— 按钮收拢；NPC 记录归并到「世界」视图，用分 tab / 可展开方式呈现。
+
+#### 现状核实（以代码为准）
+
+- `AGENTS.md §5` 禁止事项实为第 102 行「不得在未获授权时加入付费服务、外部账号依赖或云端模型强绑定」；R2.7 README 据此转述为「严禁（外部账号依赖 / key 暴露）」。第 101 行「不得把隐藏信息返回给玩家端 API」**保留**。
+- `apps/server/src` **无任何 login / session / auth 中间件**（grep 仅命中 LLM 的 `cloudSession` env 变量与注释）；登录是纯前端 cloud SDK 行为（`apps/web/src/cloud.ts` + `main.tsx` 的 `login`）。服务端当前无「会话」概念。
+- 现有 LLM 路由（`apps/server/src/llm/provider.ts:47` `readLLMConfig` / `:67` `createLLMProvider`）：env 三层 `cloudSession+cloudUrl ⇒ workbuddy-cloud` ＞ `LIFE_SIM_LLM_*` 齐备 ⇒ `openai-compatible` ＞ `mock`。平台侧走 `WorkBuddyCloudProvider`（`workbuddyCloud.ts`）：env 注入 `LIFE_SIM_WORKBUDDY_SESSION` + `LIFE_SIM_WORKBUDDY_CLOUD_URL` → `fetch ${cloudUrl}/.cloud/llm/chat/completions`（SSE 聚合），降级形态，OPEN_QUESTIONS #49 未决。
+- 前端 `cloud.llm` 是**客户端**能力：`createWorkBuddyCloud({ endpoint, oauthRelayBaseUrl, publishableKey }).cloud.llm`（`apps/web/src/cloud.ts`）；`publishableKey` 是「半公开」、仅标识应用、不带权限的客户端凭证，可打进前端产物但不得打进日志。服务端无 `@tencent-ai/workbuddy-cloud-sdk` 依赖（ADR-0025 服务端零凭据）。
+
+#### 决策 1：放开用户自带 key（限定 §5 第 102 行适用边界，非彻底删除）
+
+- 服务端**仍代调 LLM**，不鼓励浏览器直连外部 LLM；放开的是「允许使用用户自带 key」——用户在登录页填 `apiKey` + `model`（可选 `baseUrl`），客户端把 key 交给服务端、服务端代调。
+- 服务端**内存记录、绝不落盘**；按会话索引、登出 / 重启即清；风险由用户自担（填错 key / 泄露由用户负责）。
+- **不改动**：`packages/game-core` 仍零 LLM SDK / 网络；`hidden` 不进玩家端投影（§5 第 101 行保留）。
+
+#### 决策 2：路由优先级 user-key ＞ platform-keyless ＞ mock
+
+- 每个 LLM 触发请求按序选择：① 该请求会话携带的**用户 key**（OpenAI 兼容：`apiKey`+`model`+`baseUrl?`）＞ ② **平台免密**（WorkBuddyCloudProvider：env 注入或云端沙箱注入的 session，命中 `/.cloud/llm/chat/completions`）＞ ③ `mock`。
+- **⚠️ 卡点（需平台侧确认）**：cloud-service 的免密钥 LLM（`cloud.llm`）按当前技能 / SDK 仅以**前端 / 客户端**形态提供（`publishableKey` 是客户端凭证），**没有服务端 SDK / 服务端密钥**。服务端当前唯一可用的「平台侧」LLM 通道是 `WorkBuddyCloudProvider` 的 env 注入 session 降级形态；是否由**云端发布沙箱自动为服务端注入 server identity / session** 以启用该 endpoint，现有技能 / 文档**未证实**。
+  - 若云端沙箱 / 运维为服务端注入有效 session（env）→ 平台免密在 server 侧可用，路由 ② 生效。
+  - 若未注入 → 平台免密在 server 侧不可用，路由 ② 退化为 `mock`（用户无 key 时），与 OPEN_QUESTIONS #49 候选 C 一致；此时「平台免密」仅在**前端** `cloud.llm` 可用（前端能力不变）。
+- **降级设计**：云端环境若无法服务端免密，则云端只走 user-key 或 mock，平台免密仅前端可用；**不把前端 `publishableKey` 当作服务端凭证使用**。
+
+#### 决策 3：前端结构（世界中心 + tab / 展开）
+
+- **登录页**：`apiKey` / `model` 输入框**可折叠、可选**；提交后与服务器建 LLM 会话（取回 `sessionId`）。
+- **世界视图**：NPC 记录归并到「世界」视图，用**分 tab / 可展开**方式呈现；散落的按钮收拢。
+
+#### 数据模型 / 文件计划 / 接口形状（实施计划，非本次落地）
+
+- **登录载荷新字段**（新服务端 API，非 `packages/shared` schema）：`{ apiKey: string; model: string; baseUrl?: string }`，由新端点 `POST /api/llm-credentials` 接收；服务端校验后 mint 不透明 `sessionId` 返回，后续请求携带（header 或世界操作入参）。落点：`apps/server/src/index.ts`（新增路由）。
+- **内存凭证结构**（纯服务端，不进 schema、不持久化）：`apps/server/src/llm/userCredentials.ts`（新）— `Map<sessionId, { apiKey; model; baseUrl? }>` + `mintCredentials()` / `lookupCredentials(id)` / `clearCredentials(id)`；登出 / 进程退出即清。
+- **`readLLMConfig` / `createLLMProvider` 扩展**：`readLLMConfig(env, userCreds?)` 增加 userCreds 入参，返回合并 `LLMConfig`（增 `userKey?`）；`createLLMProvider` 或新增 `resolveProviderForRequest(userCreds, platformConfig)` 实现「user-key ＞ platform-keyless ＞ mock」三级；落点：`apps/server/src/llm/provider.ts`。
+- **前端登录页 / 世界视图**：`apps/web/src/main.tsx`（登录页可折叠 key/model 输入）、`apps/web/src/**`（世界视图 tab / 展开）、`apps/web/src/api.ts`（携带 `sessionId`）。
+
+#### 备选方案与代价
+
+- **A（服务端长期凭据 = OpenAI 兼容 env）**：已被 user-key 路径实质覆盖（用户自带 key 即运行时版 A）；运维也可继续用 `LIFE_SIM_LLM_*`。
+- **B（平台可校验短期会话令牌下发）**：依赖平台为服务端提供 token 形态 / 下发通道 / 过期撤销——当前未证实（卡点）。
+- **C（保持现状，登录用户只走 Mock / OpenAI 兼容，云端免密生产不可用）**：OPEN_QUESTIONS #49 原默认；本轮 user-key 已绕开它，平台免密在 server 侧仍可能落 C。
+- **客户端直连外部 LLM（浏览器 fetch OpenAI）**：**否决**——违反 §5「外部账号依赖 / key 暴露」本质，且不可诊断、不可回退模板；本 ADR 仍要求服务端代调。
+
+#### 契约影响判定（T-2）
+
+- 新 `/api/llm-credentials` 请求 / 响应：新增服务端 API 契约，但**不修改** `packages/shared` 的 `WorldStateV2` / `V2Snapshot` / archive / event schema ⇒ **非 shared-T-2**；由本 ADR（G2 产物）覆盖为新增运营接口。若未来要把 llm 配置**持久化**或**进投影** ⇒ 另立 T-2 + ADR。
+- 内存凭证结构：纯服务端 `Map`，不进 schema、不落盘 ⇒ 非 T-2。
+- 投影：`hidden` / `key` / `token` / `session` **不得**进玩家端投影（§5 第 101 行保留）= 约束，非变更。
+- `readLLMConfig` / `createLLMProvider` 扩展：服务端内部逻辑 ⇒ 非 T-2。
+- **结论**：本轮无需动 `packages/shared` / `WorldStateV2` / 投影契约；ADR-0028 即 G2 产物覆盖新增运营接口，不触发额外 T-2 门禁（除非后续决定持久化 / 投影）。
+
+#### 迁移成本 / 未采纳理由 / 待平台确认
+
+- 迁移成本：低（新增 1 端点 + 1 内存模块 + provider 优先级分支 + 前端两处 UI）；无 schema 迁移、无存档变更、旧档可直载。
+- 待平台确认（卡点）：云端发布沙箱是否 / 如何为 `apps/server` 注入 server 侧 `cloud.llm` 身份（`LIFE_SIM_WORKBUDDY_SESSION` / `LIFE_SIM_WORKBUDDY_CLOUD_URL` 或新机制）。未确认前，平台免密在 server 侧按降级（→ mock）处理，不阻塞 user-key 路径。
+- OPEN_QUESTIONS #49 处理：user-key 路径已定（新增），「平台 server-side 免密」仍留卡点待平台确认；#49 由「待决」改为「部分落地 + 平台卡点保留」。
+
+#### 待同步更新文件
+
+| 文件 | 改动 | 备注 |
+|---|---|---|
+| `docs/DECISIONS.md` | 新增 ADR-0028（本 ADR，G2 产物） | 本次写入 |
+| `AGENTS.md §5` | 第 102 行修订：放开「用户自带 key（服务端代调、内存、不落盘）」例外；第 101 行保留 | 推翻禁令的适用边界 |
+| `specs/iterations/2026-11-13-ai-narrative/README.md` | 状态 / 设计对齐：§5 禁令已推翻、路由优先级变更、平台免密卡点 | 新任务明确列入 |
+| `specs/iterations/2026-11-13-ai-narrative/design.md` | 同步：凭证路由章节对齐决策 1/2 | 同上 |
+| `docs/OPEN_QUESTIONS.md #49` | 由「待决」改「部分落地 + 平台卡点保留」 | 落地 user-key，平台链路待确认 |
+| `tasks/CLOUD_TASKS.md` | 如涉及（新端点 / 前端收敛任务登记） | 待需求策划师同步 |
