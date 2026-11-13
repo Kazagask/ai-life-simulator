@@ -73,3 +73,15 @@ provider / 部署决策（用户拍板，已记入 `.workbuddy/memory/2026-11-13
 - 本迭代四件套随 GitHub 仓库 `git@github.com:Kazagask/ai-life-simulator.git` 同步至 WorkBuddy 云端项目，clone 后即可被 Agent 直接消费。
 - 云端开发 / 测试入口：`docs/CLOUD_DEV.md`（runbook）与 `apps/server/smoke/cloud.smoke.mjs`（可移植冒烟，输出 `SMOKE OK`）。
 - 全量回归（`pnpm test` / 6 种子 playthrough / UI e2e / 全流程 / 真实外部 LLM 联网）本轮**未执行**，仍待在云端跑完并单独出结论；不得据本迭代包写成已验证。
+
+## 7. R2.8 衔接（ADR-0028，2026-11-13 收口）
+
+> R2.8 是 R2.7「AI 叙事层」同一产品面（LLM / 叙事 / 前端收敛）上的后续小轮，由用户三条一次性裁决驱动（推翻 §5 客户端直连禁令 / 平台免密也做 / 前端收敛）。ADR-0028（`docs/DECISIONS.md`）已落盘并经 G2 评审。
+
+- **§5 禁令边界推翻（ADR-0028 决策 1）**：放开「允许使用用户自带 key」——登录页填 `apiKey`+`model`（可选 `baseUrl`），客户端把 key 交给服务端、服务端代调 LLM（服务端仍是调用方，不鼓励浏览器直连外部 LLM）；服务端**内存记录、绝不落盘**，风险用户自担。`AGENTS.md §5` 第 102 行已加注例外，第 101 行（hidden 不进玩家端投影）保留。
+- **路由优先级（ADR-0028 决策 2）**：每次 LLM 触发按序 `user-key（OpenAI 兼容）＞ platform-keyless（WorkBuddyCloudProvider env 降级形态）＞ mock`；user-key 配置但本次调用失败 ⇒ 仅本次回退模板（`R-LLM-04`），**不自动降级到 platform-keyless**（避免凭证错误静默穿透）。
+- **⚠️ 平台链路卡点（#49）**：cloud-service 免密钥 LLM（`cloud.llm`）当前仅前端 / 客户端形态提供，服务端无 SDK / 密钥；服务端唯一可用「平台侧」通道是 `WorkBuddyCloudProvider` 的 env 注入 session 降级形态，云端沙箱是否自动为服务端注入 server identity 未证实 ⇒ `R-LLM-09` 已降 `DEFERRED`（卡点 #49 / ADR-0028 决策 2 ⚠️）。`user-key` 路径已绕开该卡点。
+- **落地（commits）**：`f107ceb`（server：R-LLM-07/08 + `POST /api/llm-credentials` + `userCredentials.ts` + `resolveProviderForRequest` + Fastify preHandler 注入 `request.llmProvider`）、`5bbbcb3`（web：FE-01 登录页可折叠 key 配置 + FE-02 NPC 记录归并「世界」视图分 tab）、`38b6ee8`（docs 同步 §5/#49/PROJECT）、`8698a74`（ADR-0028 + R28 需求草案）。
+- **验证口径（冒烟级）**：`pnpm typecheck` 0 错；服务端 8 项路由单元核对 + curl 冒烟（合法→201、缺/空 apiKey→400、非法 baseUrl→400、header 透传→200）；`apps/web` build 通过。全量回归 / UI e2e / 真实外部 LLM 联网**未跑**（与 R2.7 同口径，待 CT-01 等补齐）。
+- **非 T-2**：未改 `packages/shared` / `WorldStateV2` / 投影契约 / `schemaVersion`；旧档可直载。
+- 需求明细见 `tasks/R28-REQUIREMENTS.md`（5 条：R-LLM-07/08 + FE-01/02 ACTIVE，R-LLM-09 DEFERRED）。

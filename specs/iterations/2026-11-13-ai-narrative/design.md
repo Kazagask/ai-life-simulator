@@ -88,3 +88,27 @@ export const EventFlavorOutputSchema = z
 - WorkBuddy 云服务 SDK 免密钥 LLM 的真实接入方式（凭 ADR-0025 登录令牌调平台端点）在 T-P2 实施时确认；纯本地 dev 不可达属预期，回退 Mock/OpenAI 兼容。
 - 事件 flavor 缓存键的回放语义：缓存是非权威展示数据，明确不进 replay 契约（已在 R-LLM-03 / R-NAR-03 裁定）。
 - 自由文本行动（#26）、多 Agent 运行时（#3）、流式输出：本轮 DEFERRED，不实现、不测试、不派任务。
+
+## 8. R2.8 凭证路由落地（ADR-0028，2026-11-13）
+
+> 与 ADR-0028 决策 1/2 对齐；纯服务端新增，不进 `packages/shared` 契约、不持久化、不改 `WorldStateV2`（非 T-2，见 ADR-0028 契约影响判定）。
+
+### 8.1 新增服务端 API（运营接口，非 shared schema）
+- `POST /api/llm-credentials`：接收 `{ apiKey: string; model: string; baseUrl?: string }`；Zod 基础校验（非空、URL 合法、字段齐全）；通过则 mint 不透明 `sessionId`（randomUUID）写入内存并 `201 { sessionId }`；失败 `400 { error:"invalid_credentials" }`。
+
+### 8.2 内存凭证（`apps/server/src/llm/userCredentials.ts`，新）
+- `Map<sessionId, { apiKey; model; baseUrl? }>`；`mint(input)` / `lookup(id)` / `clear(id)` / `clearAll()`。
+- Zod 校验 `~.trim().min(1)`（防纯空白通过 `min(1)`）；`baseUrl` 可选、须合法 URL；`DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"`。
+- **不落盘、不进日志、不进玩家端投影、不写仓库**（沿用 §5 底线 + `boundary.test.ts` 类密钥扫描护栏）。
+
+### 8.3 请求级 provider 优先级（`apps/server/src/llm/provider.ts`）
+- `resolveProviderForRequest(userCreds, fallback: LLMProvider): LLMProvider`：有 userCreds ⇒ `new OpenAICompatibleProvider({ baseUrl: (userCreds.baseUrl?.trim() || DEFAULT_OPENAI_BASE_URL).replace(/\/+$/,""), model: userCreds.model.trim(), apiKey: userCreds.apiKey.trim() })`；否则 ⇒ `fallback`（platform-keyless 或 mock）。
+- Fastify `preHandler` 钩子读取 `x-life-sim-llm-session` header ⇒ `userCredentials.lookup(sid)` ⇒ 注入 `request.llmProvider`（模块增强 `FastifyRequest.llmProvider` 非空，钩子恒设）。
+- 所有叙事调用点（create/get world、6 处 turn/result 路由、scheduleFlavors、archive 路由）传递 `request.llmProvider` ⇒ 实现 `user-key ＞ platform-keyless ＞ mock` 确定性优先级。
+
+### 8.4 前端（FE-01 / FE-02，`apps/web`）
+- FE-01：登录页 `<details className="card llm-config">` 可折叠 `apiKey`(password) / `model` / `baseUrl` 输入 + 保存/清除；`api.ts` 中央 `request()` 自动附 `x-life-sim-llm-session` header；凭证存内存、默认不持久化 localStorage（风险自担提示）。
+- FE-02：移除 `people` tab 与 `PeopleTab`，NPC 记录归并「世界」视图 `WorldTab` 分 tab（`overview` / `npc`，复用 `NpcCard`）；纯前端布局重组，不新增投影字段（免 ADR、非 T-2）。
+
+### 8.5 待平台确认（卡点）
+- 服务端 platform-keyless 真实免密钥链路（cloud.llm server identity 注入）未证实 ⇒ `R-LLM-09` DEFERRED（#49 / ADR-0028 决策 2 ⚠️）；当前 server 侧 platform-keyless 仍是 env 注入 session 降级形态，未注入即 `LLMUnavailableError` ⇒ 回退 mock，绝不假装成功。

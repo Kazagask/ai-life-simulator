@@ -9,6 +9,12 @@
 > - **流程**：ADR-0027 为**事后补记**（`0f42bd0`）；G1 前置门禁本次免除、未走正式评审，故**未宣告按标准流程关闭**；该「免前置 ADR + 事后补记」仅适用本次任务、不延续，后续恢复 `AGENTS.md §0.3` 的 G1 / G2 正常门禁。
 > - **追溯**：`tasks/reports/R27-COMPLETION.md`、`docs/DECISIONS.md` ADR-0027〔事后补记〕。
 
+> **〔R2.8 衔接状态，2026-11-13〕**（ADR-0028 收口，独立于 R2.7 九条）
+> - **新增 5 条需求**：`R-LLM-07`（登录页用户自带 key，内存、不落盘，ACTIVE）、`R-LLM-08`（路由优先级 user-key＞platform-keyless＞mock，ACTIVE）、`FE-01`（登录页 key 配置收敛，ACTIVE）、`FE-02`（NPC 记录归并世界视图分 tab，ACTIVE、免 ADR 非 T-2）、`R-LLM-09`（服务端平台免密真实链路，DEFERRED，卡点 #49 / ADR-0028 决策 2 ⚠️）。
+> - **落地**：server `f107ceb` / web `5bbbcb3` / docs 同步 `38b6ee8` / ADR+需求 `8698a74`；未改 `packages/shared` / `WorldStateV2` / `schemaVersion`，旧档可直载。
+> - **验证口径（冒烟级，与 R2.7 同）**：`pnpm typecheck` 0 错；服务端 8 项路由单元核对 + curl 冒烟；`apps/web` build 通过；全量回归 / UI e2e / 真实外部 LLM 联网未跑。
+> - **追溯**：`tasks/R28-REQUIREMENTS.md`、`docs/DECISIONS.md` ADR-0028。
+
 ## WS-P LLM Provider 接入
 
 ### R-LLM-01 LLMProvider 统一接口
@@ -66,3 +72,39 @@
 | R-NAR-01..03 | ADR-0027 | #26（自由文本行动，DEFERRED） | WS-S |
 
 > 注：#26 自由文本行动、#3 多 Agent 为明确 DEFERRED，仅登记不实现。
+
+---
+
+## R2.8 需求（ADR-0028，2026-11-13 收口）· 详见 `tasks/R28-REQUIREMENTS.md`
+
+> EARS 摘要；编号与状态以 `tasks/R28-REQUIREMENTS.md` 为准，本段为规格侧留痕。
+
+### R-LLM-07 登录页可配置自定义 `apiKey` + `model`（可选 `baseUrl`）
+- **The system shall** 允许用户在登录页配置自定义 LLM 凭证；服务端在**进程内存**持有，仅用于当前会话 / 进程生命周期，**不写入磁盘、不落持久化、不进日志、不进玩家端 API 投影、不提交仓库**。
+- **When** 用户提交，**The system shall** 基础校验后载入内存 provider；校验失败 / 无凭证回退 platform-keyless 或 mock，不崩溃。
+- **状态**：`ACTIVE`（落点 `f107ceb`）。追溯：ADR-0028 决策 1、AGENTS §5（第 102 行例外）、OPEN_QUESTIONS #49（自担风险）。
+
+### R-LLM-08 LLM 路由优先级 `user-key ＞ platform-keyless ＞ mock`
+- **The system shall** 每次叙事生成按确定性优先级选 provider：① 服务端内存用户 key（OpenAI 兼容）＞ ② platform-keyless（WorkBuddyCloudProvider env 降级形态）＞ ③ mock。
+- **When** 用户未配置，**The system shall** 回退 ②；② 不可用回退 ③；user-key 配置但本次调用失败 ⇒ 仅本次回退模板（R-LLM-04），不自动降级 ②。
+- **状态**：`ACTIVE`（落点 `f107ceb`，`resolveProviderForRequest`）。追溯：ADR-0028 决策 2、ADR-0027 决策 2。
+
+### R-LLM-09 服务端接入平台免密 LLM（platform-keyless 一路）— **DEFERRED**
+- **状态**：`DEFERRED`（卡点 = 服务端真实免密钥链路待平台确认 = #49 / ADR-0028 决策 2 ⚠️）。`R2.7` `workbuddyCloud` 是需运维 session 的降级形态、不属「免密」；卡点解除前不派实现、不计入 DoD。
+
+### FE-01 前端按钮收敛（登录页 key 配置入口）
+- **The system shall** 将散落 AI / LLM 前端入口收拢到登录页可折叠 `apiKey`+`model`(+`baseUrl`) 配置区块；前端**零凭证硬编码**。
+- **状态**：`ACTIVE`（落点 `5bbbcb3`）。追溯：ADR-0028 决策 3、AGENTS §5。
+
+### FE-02 NPC 记录归并「世界」视图（分 tab / 可展开）
+- **The system shall** 将 NPC 面板 / 关系 / 生命周期归并「世界」视图分 tab（overview / npc）呈现；**纯前端布局重组，不向 `V2Snapshot` / `WorldStateV2` / archive 新增任何投影字段**（免 ADR、非 T-2）。
+- **状态**：`ACTIVE`（落点 `5bbbcb3`）。追溯：ADR-0028 决策 3、ADR-0019、ADR-0022、OPEN_QUESTIONS #33。
+
+### R2.8 追溯矩阵
+| 需求 | ADR | OPEN_QUESTIONS | 状态 |
+|---|---|---|---|
+| R-LLM-07 | ADR-0028（决策 1） | #49（自担风险） | ACTIVE |
+| R-LLM-08 | ADR-0028（决策 2） | — | ACTIVE |
+| R-LLM-09 | ADR-0028（决策 2 ⚠️） | #49（真实链路待平台确认） | DEFERRED |
+| FE-01 | ADR-0028（决策 3） | — | ACTIVE |
+| FE-02 | ADR-0028（决策 3） | #33 | ACTIVE（免 ADR / 非 T-2） |
