@@ -10,7 +10,8 @@
 - `specs/archive/**` 是历史过程，**不构成现行约束**；与代码冲突时以**代码**为准，不得据此改代码，也不得回改历史文档。
 - 小问题、优化点、已裁决不修、证据缺口一律记 `docs/BACKLOG.md`；产品规则待决记 `docs/OPEN_QUESTIONS.md`；不要新建 spec 文件来追踪它们。
 - 新迭代建在 `specs/iterations/<YYYY-MM-DD>-<短标签>/`；收尾整包移入 `specs/archive/iterations/`。详见 `specs/README.md`。
-- `specs/data/` 是**运行时资产**（服务端按此路径加载模板），不是文档，禁止移动或改名。
+- `specs/data/` 是**运行时资产**（服务端按此路径加载模板），不是文档。模板自 ADR-0029 起按 **`<id>/<version>/`** 布局：新增/替换版本目录属正常运维动作，**不得整体改名或迁移出 `specs/data/`**（会同时改部署路径与运维口径）。
+- 模板的增删改**只走文件系统**：没有导入/上传端点，`mkdir` = 加版本、改文件 = 热加载生效、`rm -rf` = 删除。运行时丢模板导致的报错是已接受代价（ADR-0029 决策 16）。
 
 ### 0.2 通用
 
@@ -31,6 +32,8 @@
 | **T-2 协议** | `packages/shared/src/schema/**` 的字段/枚举/类型、effect 类型、`source`/`kind` 语义、触发策略语义、投影契约、存档结构 | **必须 ADR（G2 生效）** | ADR → schema → 模板 → 测试 → QA |
 
 **判据（一句话）**：`git status` 里只有 `specs/data/templates/` ⇒ 免 ADR；一旦动了 `packages/shared` / `packages/game-core` / `apps/**` 的契约面 ⇒ 走 ADR。
+
+**边界（ADR-0029）**：判据**不因非 yaml 文件加分支**——新增 `<id>/<version>/` 目录、新增 `assets/**` 资源、或放进被忽略的 `.js`/散落 `.md`，都不进加载、不进语义指纹、不进下发，仍在本条免 ADR 范围内；**只有白名单 11 个 `*.yaml` 的内容变更**才走上面的 T-1 流程（加载期校验 + 读模板的测试 + 一条冒烟）。
 
 **T-1 仍必须做到的四件事**（免 ADR 不等于免责任）：
 

@@ -2428,3 +2428,92 @@ R2.7 已实现 `LLMProvider` 三层路由（mock / workbuddy-cloud / openai-comp
 | `specs/iterations/2026-11-13-ai-narrative/design.md` | 同步：凭证路由章节对齐决策 1/2 | 同上 |
 | `docs/OPEN_QUESTIONS.md #49` | 由「待决」改「部分落地 + 平台卡点保留」 | 落地 user-key，平台链路待确认 |
 | `tasks/CLOUD_TASKS.md` | 如涉及（新端点 / 前端收敛任务登记） | 待需求策划师同步 |
+
+---
+
+## ADR-0029 轻量模板治理：目录即元数据 + 只读列表 + 运行时热加载
+
+- **状态**：**已通过（2026-11-13，G1/G2 前置评审产物）**
+- **覆盖**：模板身份（目录名 + 版本目录名）、存储布局（`<id>/<version>/`）、加载与热加载、存档引用（只记引用、不存字节）、分层指纹与文件角色、可诊断拒载、旧档去向。
+- **不覆盖**：导入/上传端点（用户裁决砍掉）、删除与引用守卫、模板市场、owner/审核、字节快照、资源下发、自定义函数执行。
+- **关联**：修订 **ADR-0007** 决策 3/4/5；**ADR-0010** 决策 4 不冲突；**ADR-0025** 决策 3 与 `BACKLOG B-24` 不解除；ADR-0026 正交。`OPEN_QUESTIONS #6 / #15` 以本 ADR 关闭。
+- **迭代包**：`specs/iterations/2026-11-13-template-governance/`（`requirements.md` 8 ACTIVE / `design.md` 本 ADR 全文 / `tasks.md`）。
+
+### 背景
+
+`OPEN_QUESTIONS #6 / #15` 长期未关；前端已有「多模板」接口形态，后端却把身份硬编码为「目录名 = `meta.id` = 唯一模板」，加第二个模板只能往 `specs/data/templates/` 塞 git 目录。三条已验证证据：① 六个模块级 Map 全按 `meta.id` 索引（`apps/server/src/templates.ts:37-42,121-133`），两目录同 id 会静默互相覆盖；② `persist()` 每轮现查 `getTemplateFingerprint(templateId) ?? "sha256:unknown"`（`apps/server/src/store.ts:66`），运行期换模板会**静默改写旧档指纹**且不可诊断；③ 不可载的档只进启动日志、`GET /api/worlds` 只列内存世界（`apps/server/src/index.ts:566-606`）⇒ 前端 localStorage 留着 `worldId`、点开 404（BACKLOG E-03）。
+
+用户裁决（2026-11-13）依次为：轻量、不做市场；服务端生成 id + 显式版本 + 先选模板再选版本；快照只记引用（「可复现只在模板还在的时候有价值」）；模板包需能装资源、未来可开自定义函数口子但本次只保留扩展性；最后**砍板**——只做读、砍掉前端导入、直接改服务端文件、运行时可热加载、丢模板报错可容忍。
+
+### 决策
+
+**A. 身份与版本**
+1. **模板身份 = `(<id> 目录名, <version> 版本子目录名)`**，二者组合唯一。id 不由服务端生成、不从 yaml 读；`version` 不写进 yaml（`meta` 为 `.strict()`，加字段即 shared T-2），由目录名承载。
+2. **版本号格式 `^\d+(\.\d+){0,2}$`**（用户裁决 B）；`2` 与 `2.0.0` 是**不同**版本，不做等价归一。
+3. **`meta.id` 必须等于 `<id>` 目录名**：启动期不等 ⇒ `throw`；运行期不等 ⇒ 跳过该目录 + `warn`。理由：`createWorldV2` 直接写 `templateId: template.meta.id`（`packages/game-core/src/v2/turn.ts:142`），身份一致只能靠这一条断言强制。
+4. 新版本 = `mkdir <version>/`；服务端**零写入端点**，故无导入幂等/冲突判定。
+
+**B. 存储与加载**
+5. 布局 `specs/data/templates/<id>/<version>/`；内置 `jjk-2006` 迁入 `1.0.0/`。语义指纹只拼 **文件名 + `"\0"` + 内容**、**不含路径** ⇒ 迁移不改指纹。
+6. 注册表 `Map<id@version, Entry>`，`Entry = { ref, status: "ready" | "invalid", template, lookup, semanticFingerprint, assetFingerprint, assetCount, openings, endingConfig, evaluationConfig, pipeline, mtime }`；六个旧 Map 收敛为一条。
+7. 不设任何清单文件（`_meta.json` 取消）——**目录结构即元数据**，指纹实时计算。
+8. **空版本目录**（无任何 `*.yaml`）忽略 + `warn`，**两个时机都不 fail-fast**；只有「含 ≥1 yaml 但校验失败」才算坏模板（启动期 `throw` / 运行期 `invalid`）。整个模板目录零模板 ⇒ 启动 `throw`。
+
+**C. 存档与拒载**
+9. 信封新增 `templateVersion?: string`，**`schemaVersion` 保持 2**（升 3 会一次性拒载现存全部可载档）。
+10. 缺 `templateVersion` 的档按「该 id 下唯一版本 + 指纹相等」推断并**启动期回填**；≥2 版本 ⇒ `template_version_ambiguous`（用户裁决 A：**报错要求手工补填**，不得默认取最高版）。
+11. **判定顺序写死：先定版本、再比指纹。**
+12. **`persist()` 必须读世界自身固化的 ref**（`refs` 与世界内存快照合并为一条 record），**禁止**现查全局指纹表、禁止 `"sha256:unknown"` 占位；缺 ref ⇒ `template_ref_missing`（500）。这是本 ADR 唯一触碰确定性相关代码之处。
+13. 载入基准 = 该版本目录**实时重算的 `semanticFingerprint`** vs 信封 `templateFingerprint`，不等 ⇒ `template_content_drift`；`assetFingerprint` 与资源存在性**不参与拒载**。
+14. 封闭拒载枚举 **8 个、一个都不能合并**：`envelope_json_invalid` / `envelope_schema_version_unsupported` / `template_missing` / `template_version_missing` / `template_version_ambiguous` / `template_invalid` / `template_content_drift` / `world_state_invalid`。世界列表区分「可载 / 存在但不可载」，`GET /api/worlds/:id` 返回 409 而非 404（修 E-03）。
+
+**D/E. 导入管线与删除守卫：整章撤回**
+15. 用户裁决砍掉导入：无 `POST /api/templates/imports`、无六层校验、无上传体积/编码/鉴权、无前端上传控件。随之失效 14 个 `import_*` 错误码。
+16. 删除/下架/引用守卫全部不做：**「运行时丢模板导致报错可容忍」是用户明确接受的代价**。下架 = 挪走目录，删除 = `rm -rf`，覆盖 = 直接改文件。
+
+**F. 与既有决策的关系**
+17. ADR-0007 决策 3（信封结构）/4（指纹拒载）/5（四道关）**修订**；决策 4 的原意（防的是「行为漂移」而非「必须拒载」）被继承。
+18. ADR-0010 决策 4「运行时不生成配置层定义」**不冲突**：手工放模板是「外部给定 + 加载期校验」，注册后对象不可变。
+19. `AGENTS §0.3` 判据**不因资源/非 yaml 文件加分支**（用户裁决 A 关闭）；只补一句「新增 `<id>/<version>/` 目录 ≠ 改 yaml」。`AGENTS §0.1` 第 13 行「`specs/data` 禁止移动改名」按新布局修订一句。
+20. **导入模板原文不得上云**（ADR-0025 决策 3 红线延伸）；`BACKLOG B-24` 不解除。
+
+**G. 旧档**
+21. 现存 `data/worlds`（实测 65 份：`schemaVersion` 1×8 / 2×57，12 个指纹，8 份匹配当前语义指纹）中，可载档**数量不减少**；其余从「启动日志一行」变为「列表可见 + 封闭 reason + 可删」。
+22. **计数纪律**：验收判据一律写「迁移前后可载档数量不减少」，**不得写死份数**（冒烟每次建局 +1）；取证必须用**固化夹具存档**，不得依赖 `data/worlds` 实时内容。
+23. 不抢救历史档：仅恢复 yaml 也无法复原当时语义（同期改过 ADR-0004/0017/0020/0021/0026）；用户已裁不要求可复现。
+
+**H. 可扩展模板包**
+24. 文件**角色**四分类（取代文件名白名单）：`declarative`（白名单 11 个 yaml，进校验与语义指纹）/ `asset`（`assets/**`，进资产指纹，**引擎不消费、前端不下发**）/ `meta`（已删除，若出现按 `code` 处理）/ `code`（其余一切，**加载期 warn + 忽略**）。没有第 5 类。
+25. **指纹分层**：`semanticFingerprint` **只 hash 白名单 11 个 yaml**（口径与旧实现同值；**游离 yaml 不参与**——「被忽略的东西不该有让存档失效的权力」）；`assetFingerprint` 算 `assets/**`，空集取 `sha256:e3b0c442…b855`；**载入只读 semantic**。资源缺失或变化 ⇒ 只降级展示。**模拟可载性与展示完整性解耦。**
+26. **`computeFingerprint` 必须改实现**（`filter(f => f.endsWith(".yaml"))` → 按白名单名过滤）。对当前模板字节结果相同，但代码要动。
+27. **自定义函数 seam = 禁止 + 四条前置**：服务端沙箱（独立进程/worker，`node:vm` **不是**安全边界）/ 不得进 `packages/game-core` / 必须进 `semanticFingerprint` / 独立 ADR + G2。本轮唯一动作是 `files[].role` 枚举位，代码路径上 `eval`/`new Function`/`vm` 零命中。
+28. **资源下发 DEFERRED**：本轮无 schema 引用字段、无下发端点，`assets/` **存得进、用不上**，唯一可观测效果是 `assetCount`。
+
+**I. 运行时热加载**
+29. **请求驱动**：`resolve` / `listTemplates` 前 `ensureFresh()`，比对**版本目录内所有文件的 mtime 最大值**（顶层 yaml + `assets/**` 递归），**不得用目录 mtime**（就地编辑不改父目录 mtime）。成本 ≤ 43 次 `stat`/请求。**不用定时器、不用 `fs.watch`**（Windows / 容器挂载丢事件）。已知局限：最多晚一次请求看到变更。
+30. **内存快照隔离**：已载入世界持有自身 `{state, template, lookup, entry}`，热加载替换注册表 Entry **不改变**它；只影响新建世界与后续载入。理由：否则运行中改 yaml 会让玩家这局中途换语义，污染阶段序列与评价证据。
+31. **运行期单目录隔离失败**，绝不 fail-fast；同 `(id,version)` 内容被改 ⇒ 新 Entry 顶替，旧世界靠快照，重启后因指纹不符 ⇒ `template_content_drift`；目录被删 ⇒ 移除 Entry、已载入世界继续跑，重启后 `template_missing`。
+
+### 被否决的备选
+
+| 备选 | 否决理由 |
+|---|---|
+| 内容寻址快照库 / 存档内嵌模板字节 | 用户裁决「引用即可」；存档中位 36 KB vs 模板 yaml 257 KB ⇒ 按 65 份估算约 9 倍放大；且引擎仍在改（ADR-0020/0021/0026），字节一样也复现不出当时语义 |
+| 服务端生成 `tpl-` id + 导入管线 | 无导入后「防作者自报撞车」的威胁模型消失；生成 id 还需持久化映射，重启即变 |
+| 指纹改成「目录全量 hash」 | 实测 yaml-only 与全量两个 hash 不等 ⇒ 会一次性打死现存可载档。正确解法是分层，不是扩大覆盖面 |
+| 导入后需重启 / 保留 `fs.watch` 热加载 | 前者中断在跑世界；后者在 Windows/容器挂载上丢事件是常态 |
+| 覆盖同 `(id,version)` 内容并提示「N 局将不可载」 | 覆盖不可撤销；提示只是把不可逆包装成「已知悉」。要改内容就发新版本 |
+| 升 `schemaVersion` 到 3 | 一次性拒载现存可载档，收益为零 |
+| 多版本歧义时默认取最高版 | 静默选错，可能把玩家另一条人生线当成这条打开（用户裁决 A 否决） |
+
+### 后果
+
+- **影响面**：`apps/server/src/templates.ts`（重写 ≈156→300 行）、`apps/server/src/store.ts`（信封 + refs/record 合并 + 拒载枚举）、`apps/server/src/index.ts`（18 处调用点 + 两级列表 + 建局版本校验）、`apps/web/src/main.tsx` + `api.ts`（两级选择 + `openings` 归属修正）。**`packages/shared` 与 `packages/game-core` 零改动**（`StoreEnvelope` 是服务端私有 interface）。
+- **存档代价**：可载档数量不减少；新增 `templateVersion` 字段；不升 `schemaVersion`。
+- **确定性**：引擎零改动 ⇒ 同 seed 同输入同结果不变；承诺边界收紧为「同一 `(id, version, semanticFingerprint)` 内成立」，存档不再承诺终身可载。
+- **验证要求**（旧档迁移）：① 迁移**前**一次性留档（几份可载 / 各自 reason），**不入 CI**；② CI 永久跑**四格夹具矩阵**——正 1（有版本号）/ 正 2（无版本号，验回填且只锁 `state` + `templateId`/`templateFingerprint`）/ 负 1（指纹不符 ⇒ `template_content_drift`）/ 负 2（版本目录缺失 ⇒ `template_version_missing`，**其基线列 = N/A**，旧 loader 不读 `templateVersion`）；③ 回归判据**四类**：原本被拒载现在被接受 / 正样本载不进来 / 任一格相对自身基线的差异无法归入「新增拒绝」或「原因细分」/ 无基线格的绝对期望未满足。**「新增拒绝」与「原因细分」不算回归**（fail-closed）。
+- **判据纪律**：验收判据须满足三条——**会红**（说得出什么情况下失败）、**能长期重复**、**红了能指认是哪一层**。
+
+### 明确不做
+
+模板市场 / 搜索 / 评分 / 导出；任何导入端点与导入 UI；删除 / 下架 / 引用守卫；模板副本 GC；zip；`fs.watch` / 定时器式热加载；资源下发（schema 引用字段 + 端点 + 消毒）；自定义函数执行；模板字节快照；存档上云 / 跨设备续玩；`schemaVersion` 升 3；抗 YAML 别名炸弹防护（未实测，不得写进验收）。

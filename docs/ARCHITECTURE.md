@@ -81,3 +81,15 @@ P0 可先用内存仓储跑通测试和 Demo；接入 PostgreSQL 时通过 Repos
 - `GET /api/templates`：列出世界模板
 
 API 返回玩家可见视图，不得返回 NPC hidden secrets。
+
+## 8. 运行时目录与模板布局（ADR-0029，2026-11-13）
+
+| 路径 | 性质 | 说明 |
+|---|---|---|
+| `specs/data/templates/<id>/<version>/` | **模板（随发布走）** | 白名单 11 个 `*.yaml` + 可选 `assets/**`；`<id>` 与 `<version>` 即身份，`version` 须匹配 `^\d+(\.\d+){0,2}$` |
+| `data/worlds/<worldId>.json` | **存档（运行期数据）** | 信封 `{ schemaVersion, savedAt, templateId, templateVersion?, templateFingerprint, state }`；`LIFE_SIM_DATA_DIR` 可挂载 |
+| `data/` 整体 | 已被 `.gitignore` 忽略 | 换机/换容器会丢失，不放模板 |
+
+- 模板**没有**清单文件：目录结构即元数据，指纹实时计算（语义指纹只算白名单 yaml，资源指纹只做诊断）。
+- 模板**没有**写入端点：增删改一律走文件系统，服务端请求驱动热加载。
+- 存档只记**引用**（id + version + 语义指纹），不存模板字节；模板或版本不在即不可载，但必须给出封闭原因码且世界列表可见（修 E-03）。
