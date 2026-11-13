@@ -27,8 +27,8 @@ import {
  *
  * | 格 | 夹具 | 迁移前（旧 loader，一次性留档） | 迁移后（CI 断言） |
  * |---|---|---|---|
- * | 正 1 | `schemaVersion=2` + `templateVersion="1.0.0"` | 载入成功 | 载入成功；`state` 深比较相等；信封**逐字节不变**（无回填） |
- * | 正 2 | `schemaVersion=2` + **无** `templateVersion` | 载入成功（旧 loader 不读该字段） | 载入成功；信封**新增** `templateVersion`；`state` 深比较不变；`archived` 不变 |
+ * | 正 1 | `schemaVersion=3` + `templateVersion="1.0.0"` | 载入成功 | 载入成功；`state` 深比较相等；信封**逐字节不变**（无回填） |
+ * | 正 2 | `schemaVersion=3` + **无** `templateVersion` | 载入成功（旧 loader 不读该字段） | 载入成功；信封**新增** `templateVersion`；`state` 深比较不变；`archived` 不变 |
  * | 负 1 | 信封指纹 ≠ 当前语义指纹 | 拒载（`template_content_drift`） | 拒载，`reason = template_content_drift`，`detail` 含 `(id,version)` |
  * | 负 2 | `templateVersion="9.9.9"`（无该版本目录） | **N/A**——旧 loader 不读 `templateVersion`，会载入成功 | 拒载，`reason = template_version_missing`（**基线 = N/A**，不得写成前后一致） |
  *
@@ -197,7 +197,11 @@ interface FixtureOptions {
  */
 function writeFixture(worldId: string, options: FixtureOptions = {}): string {
   const envelope: Record<string, unknown> = {
-    schemaVersion: 2,
+    // ADR-0034 §5：state 层 `pendingEvents` 删除、`scheduledEvents` 改名 `delayQueue`、
+    // `chains[]` 删除 ⇒ schemaVersion 2 → 3，**v2 档一律拒载**（用户 2026-11-13 已接受）。
+    // 本文件的四格矩阵验的是「迁移/回填/指纹」这套**与 schemaVersion 无关**的机制，
+    // 故夹具跟随当前版本号；旧版本拒载由 bad-version.json（schemaVersion: 1）另行钉住。
+    schemaVersion: 3,
     savedAt: baseEnvelope.savedAt,
     templateId: TEMPLATE_ID,
     templateFingerprint: options.templateFingerprint ?? currentFingerprint,

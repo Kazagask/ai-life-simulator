@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { OpeningTemplate, WorldTemplateV2 } from "@life-sim/shared";
 import { createLookup } from "./lookup.js";
-import { advanceTurnV2, createWorldV2, pendingEventView } from "./turn.js";
+import { advanceTurnV2, chooseOptionV2, createWorldV2, pendingEventView } from "./turn.js";
 import { createActiveWorldV2 } from "./test-utils.js";
 import { EndingGuardError, markTerminated } from "./ending.js";
 import { createDefaultOpeningTemplate } from "./opening.js";
@@ -123,7 +123,24 @@ describe("T2-02 · 门禁：openingCompleted=true 首轮推进", () => {
     ).toBe(true);
     const res = advanceTurnV2(state, REST, template, lookup);
     expect(res.state.turnIndex).toBe(1);
-    expect(res.triggeredEvents.some((e) => e.id === "ev-handoff-sched")).toBe(true);
+    /**
+     * ADR-0034 §2 步 1 vs 步 3：首轮只**呈现**（取出占槽、等玩家选择），
+     * 「消费」这件事的可观察形式因此分成两步 —— 旧断言「首轮即进 triggeredEvents」
+     * 属于 `pendingEvents` 时代「一轮 drain 多条并立刻结算」的语义，已被 S1 收敛。
+     */
+    expect(res.state.slot).toMatchObject({ eventId: "ev-handoff-sched", from: "queueTake" });
+    expect(res.snapshot.slotEvent).toMatchObject({ eventId: "ev-handoff-sched", kind: "normal" });
+    expect(res.triggeredEvents.some((e) => e.id === "ev-handoff-sched")).toBe(false);
+    // 取出即摘除（status=fired），不会下一轮重复上桌。
+    // 注意同一 definitionId 有两条实例：建世界期的 `schedule-init` 被 handoff 标 cancelled
+    //（避免同一事件触发两次），opening 那条才是被取出的（ADR-0034 §3 取出即 fired）。
+    expect(
+      res.state.delayQueue.filter((i) => i.definitionId === "ev-handoff-sched").map((i) => i.status),
+    ).toEqual(["cancelled", "fired"]);
+    // 选择之后才是结算 ⇒ 此时才进 triggeredEvents
+    const settled = chooseOptionV2(state, { optionId: "opt-ok" }, template, lookup);
+    expect(settled.triggeredEvents.some((e) => e.id === "ev-handoff-sched")).toBe(true);
+    expect(state.slot).toBeNull();
   });
 
   it("handoff 交接的即时事件进入 pendingEvents，可被 pendingEventView 消费", () => {

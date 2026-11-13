@@ -8,7 +8,7 @@ import {
   chooseOptionV2,
   useItemV2,
 } from "./turn.js";
-import { alignChainStep, enqueueScheduled, recordFire } from "./scheduler.js";
+import { enqueueScheduled, recordFire } from "./scheduler.js";
 import { applyEffectsV2, type EffectContextV2 } from "./engine.js";
 
 /**
@@ -228,7 +228,16 @@ describe("T1-04/06 · 效果 DSL 接线与链步单一推进规则", () => {
     expect(state.delayQueue).toHaveLength(0);
   });
 
-  it("advanceChain 效果收口到 alignChainStep：无 nextTurn 步时不盲目 +1", () => {
+  it("advanceChain 效果已降级为 no-op（链状态与游标已删，ADR-0034 §5）", () => {
+    /**
+     * **失效原因**：`state.chains[]` / `ChainStateV2` 删除，`alignChainStep` 随之删除；
+     * `advanceChain` 效果保留类型但**降级为 no-op**（`engine.ts` 明示，删枚举会让旧模板加载即失败）。
+     * 原用例断言的「不盲目 +1 / 游标幂等对齐」在新模型里**没有对象**：不存在 stepIndex。
+     *
+     * **等价替代断言**：该效果对状态**零写入**（原始状态逐字段不变），
+     * 「链往前走」在新模型里只由 `nextEventId` 边在结算处表达（见 scheduler.test.ts
+     * 「无时间账的后继 ⇒ slot.from === "successor"」），两条合起来钉住原来的语义边界。
+     */
     const template = makeTemplate([
       normal("ev-a", { source: "chain" }),
       normal("ev-b", { source: "chain" }),
@@ -245,15 +254,14 @@ describe("T1-04/06 · 效果 DSL 接线与链步单一推进规则", () => {
     ] as unknown as WorldTemplateV2["chains"];
     const lookup = createLookup(template);
     const state = world(template);
-    state.chains.push({ id: "chain-a", stepIndex: 0, status: "active", startedTurn: 0 });
+    const before = structuredClone(state);
 
-    applyEffectsV2({ state, lookup, rng: () => 0.5, logs: [] }, [{ type: "advanceChain", chainId: "chain-a" }]);
-    expect(state.chains[0].stepIndex).toBe(0); // 旧实现会盲目 +1 ⇒ 1
-    // 结算对齐与效果是同一条规则，重复对齐幂等
-    alignChainStep(state, "chain-a", lookup, "ev-b");
-    alignChainStep(state, "chain-a", lookup, "ev-b");
-    expect(state.chains[0].stepIndex).toBe(1);
-    expect(state.chains[0].status).toBe("active");
+    const ctx: EffectContextV2 = { state, lookup, rng: () => 0.5, logs: [] };
+    applyEffectsV2(ctx, [{ type: "advanceChain", chainId: "chain-a" }]);
+
+    expect(state).toEqual(before); // 零写入：不推轮次、不入队、不动槽、不写历史
+    expect(ctx.startedChains).toBeUndefined();
+    expect(ctx.enqueued).toBeUndefined();
   });
 });
 

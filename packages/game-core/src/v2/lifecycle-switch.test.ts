@@ -9,7 +9,7 @@ import { createLookup, type TemplateLookup } from "./lookup.js";
 import { runNpcActionsV2 } from "./npc.js";
 import { projectSnapshotV2 } from "./projection.js";
 import { createBattle, resolveCombatRefs } from "./battle.js";
-import { chooseOptionV2, triggerEventV2, type TriggerResult } from "./turn.js";
+import { chooseOptionV2 } from "./turn.js";
 import { createRng } from "../rng.js";
 import { createActiveWorldV2, makeTestTemplate } from "./test-utils.js";
 
@@ -422,7 +422,14 @@ describe("模板级断言（jjk-2006）· 刷新规则与身体争夺接线", ()
 describe("模板级断言（jjk-2006）· 涩谷身体争夺的玩家选择判定", () => {
   const template = loadJjkTemplate();
 
-  /** 直接把 ev-sh-03b 送进待决队列（链事件由 nextEventId 串起来，此处只验结算语义）。 */
+  /**
+   * 直接把 ev-sh-03b 放进**呈现槽**。
+   *
+   * **失效原因**：旧夹具用 `triggerEventV2` 把事件塞进 `pendingEvents`（并顺手 `recordFire`）。
+   * ADR-0034 §1 删除 `pendingEvents`、`triggerEventV2` 随之删除 ⇒ 唯一入口是写 `slot`。
+   * 这里用 `from: "queueTake"`（队列取出是唯一"外部事件上桌"的来源），语义与旧夹具等价：
+   * 事件已在槽里等待玩家输入，尚未结算、尚未 `recordFire`。
+   */
   function atBodyContest(worldId: string) {
     const state = createActiveWorldV2(
       { templateId: "jjk-2006", playerName: "测试者", seed: 7 },
@@ -432,9 +439,8 @@ describe("模板级断言（jjk-2006）· 涩谷身体争夺的玩家选择判�
     const lookup = createLookup(template);
     const event = template.events.find((e) => e.id === "ev-sh-03b");
     if (event?.kind !== "normal") throw new Error("fixture: ev-sh-03b 不存在或不再是 normal");
-    const result: TriggerResult = { triggered: [], wheelResult: null };
-    triggerEventV2(state, event, lookup, createRng(5), 0, result);
-    expect(state.pendingEvents.map((p) => p.eventId)).toContain("ev-sh-03b");
+    state.slot = { eventId: "ev-sh-03b", from: "queueTake" };
+    expect(state.slot?.eventId).toBe("ev-sh-03b");
     return { state, lookup };
   }
 
@@ -477,23 +483,19 @@ describe("模板级断言（jjk-2006）· 涩谷身体争夺的玩家选择判�
   it("ev-sh-05 是「宿傩归还身体」的唯一入口：被占据后在此回到 alive，reasonCode 清掉", () => {
     const { state, lookup } = atBodyContest("w-jjk-sh-restore");
     setLifecycle(state, lookup, "npc-yuji", { state: "inactive", reasonCode: "宿傩受肉" });
-    // 放任路线打完那场战斗后进入 ev-sh-05；这里直接触发 ev-sh-05 验结算语义。
-    // 槽位防护：fixture 预置的 ev-sh-03b 占用槽位，ev-sh-05 被守卫转入延时队列
-    //（origin.kind==='effect'、status==='waiting'），不报错、不丢失。
-    const event = template.events.find((e) => e.id === "ev-sh-05");
-    if (event?.kind !== "normal") throw new Error("fixture: ev-sh-05 不存在或不再是 normal");
-    triggerEventV2(state, event, lookup, createRng(5), 0, { triggered: [], wheelResult: null });
-    expect(
-      state.delayQueue.some(
-        (i) => i.definitionId === "ev-sh-05" && i.origin.kind === "effect" && i.status === "waiting",
-      ),
-    ).toBe(true);
-
-    // 沿既有链结算（ev-sh-03b → ev-sh-04n → ev-sh-05）释放槽位；被守卫延后的 ev-sh-05 在槽位空出后
-    // 经 scheduledEvents 回检回到 pendingEvents（此处由链上自然到达的那条进入），随后正常结算。
+    /**
+     * **失效原因**：旧用例断言「`triggerEventV2` 在槽被占时把 ev-sh-05 转入延时队列（槽位守卫）」。
+     * ADR-0034 §5 删除 `pendingEvents` 与槽位守卫（`triggerEventV2` 一并删除）：槽是标量，
+     * 「第二条事件挤进槽」的形状不存在，取而代之的是**后继直接占槽**（S4 的 `successor` 来源）。
+     * 因此这里改为钉住新语义：沿 `nextEventId` 边走 ev-sh-03b → ev-sh-04n → ev-sh-05，
+     * 每一步都断言「后继真的占上了槽」——这正是旧守卫想保证的「不丢、不覆盖」。
+     */
     chooseOptionV2(state, { optionId: "opt-sh3b-hold" }, template, lookup); // ev-sh-03b → ev-sh-04n
+    expect(state.slot).toEqual({ eventId: "ev-sh-04n", from: "successor", fromEventId: "ev-sh-03b" });
+
     chooseOptionV2(state, { optionId: "opt-sh4n-line" }, template, lookup); // ev-sh-04n → ev-sh-05
-    expect(state.pendingEvents.some((p) => p.eventId === "ev-sh-05")).toBe(true);
+    expect(state.slot).toEqual({ eventId: "ev-sh-05", from: "successor", fromEventId: "ev-sh-04n" });
+
     chooseOptionV2(state, { optionId: "opt-sh5-go" }, template, lookup);
     expect(lifeOf(state, "npc-yuji")).toMatchObject({ state: "alive" });
     expect("reasonCode" in lifeOf(state, "npc-yuji")).toBe(false);

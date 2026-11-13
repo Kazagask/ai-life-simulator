@@ -9,26 +9,27 @@ import {
 } from "@life-sim/shared";
 import { createRng } from "../rng.js";
 import { createLookup } from "./lookup.js";
-import { createWorldV2 } from "./turn.js";
+import { chooseOptionV2, createWorldV2 } from "./turn.js";
 import { createTimeAdapter } from "./time.js";
 import {
-  alignChainStep,
-  drainScheduledEvents,
   enqueueCandidate,
   enqueueScheduled,
-  evaluateChain,
   evaluateDue,
   hasFired,
   onCooldown,
   recordFire,
   resolveTimeSpec,
+  scanDelayQueue,
   sortScheduled,
   specToMinutes,
 } from "./scheduler.js";
 
 /**
  * R2.5 / T1-03 调度器单测：排序三键、出队终判、确定性、错失、#36 hold、
- * 入队门控、pool+combat、事实只追加、链与队列对账。
+ * 入队门控、pool+combat、事实只追加、链退化为 nextEventId 边。
+ *
+ * ADR-0034 §3 破坏面：`drainScheduledEvents` 删除，唯一扫描入口改为 `scanDelayQueue`
+ * （一次只取一个：槽是标量），故本文件的 `drain()` 夹具改为「循环扫描直到 none」。
  */
 
 function normal(id: string, trigger: EventV2["trigger"]): EventV2 {
@@ -77,7 +78,15 @@ const origin: EventInstanceOrigin = { kind: "effect", id: "test" };
 
 function drain(state: WorldStateV2, template: WorldTemplateV2, ids: string[] = []): string[] {
   const fired = [...ids];
-  drainScheduledEvents(state, createLookup(template), createRng(7), (inst) => fired.push(inst.definitionId));
+  const lookup = createLookup(template);
+  // ADR-0034 §3：唯一扫描入口一次只取一个（取到即占槽），故夹具循环到 none 为止。
+  // rng 在整轮内共用一条派生流，与旧 drainScheduledEvents 的消耗顺序一致。
+  const rng = createRng(7);
+  for (let guard = 0; guard < 32; guard += 1) {
+    const scanned = scanDelayQueue(state, lookup, rng);
+    if (scanned.kind === "none") break;
+    fired.push(scanned.instance.definitionId);
+  }
   return fired;
 }
 
@@ -372,50 +381,90 @@ describe("T1-03 · 确定性、门控与事实层（R-EV-05/07/15、R-LM-03）",
   });
 });
 
-describe("T1-03 · 链与延时队列对账（R-EV-10）", () => {
-  const chainDef = {
-    id: "chain-delay-test",
-    startEventId: "ev-step-0",
-    steps: [
-      { eventId: "ev-step-0", advanceWhen: "onSettle" },
-      { eventId: "ev-step-1", advanceWhen: "onSettle", delay: { value: 3, unit: "day" } },
-    ],
-  } as const;
+describe("T1-03 · 「链」退化为图上的 nextEventId 边（ADR-0034 §5 重写）", () => {
+  /**
+   * **失效原因**：`state.chains[]` / `ChainStateV2` / `evaluateChain` / `alignChainStep`
+   * 全部删除（ADR-0034 §5：`advanceWhen: nextTurn` 实测 0 使用、`stepIndex` 无消费者）。
+   * 「链走到第几步」不再有运行时状态 ⇒ **游标对齐问题本身不存在**，无法断言 stepIndex。
+   *
+   * **等价替代断言**（占槽判定的唯一判据是「后继有无时间账」）：
+   * - 无 delay/window.start 的后继 ⇒ `slot = { from: "successor", fromEventId: 上一事件 }`；
+   * - 有 delay 的后继 ⇒ 进 `delayQueue`、`slot === null`（等它到期才上桌）。
+   * 同时钉住「队列实例在 start > now 时不被取出」（旧 `advanceNextTurnChains` 的 break 语义）。
+   */
+  function stepTemplate(): WorldTemplateV2 {
+    return makeTemplate([
+      {
+        id: "ev-step-0",
+        title: "第一步",
+        narrative: "链的第一步。",
+        trigger: { source: "chain" },
+        kind: "normal",
+        settle: {
+          normal: {
+            options: [
+              { id: "opt-next-now", text: "立刻接上", nextEventId: "ev-step-now" },
+              { id: "opt-next-later", text: "三天后再说", nextEventId: "ev-step-later" },
+            ],
+          },
+        },
+      } as EventV2,
+      normal("ev-step-now", { source: "chain" }),
+      normal("ev-step-later", { source: "chain", delay: { value: 3, unit: "day" } }),
+    ]);
+  }
 
-  it("队列仍有该链 waiting 实例时不得判断链；实例终局且无后续步才 completed", () => {
-    const template = makeTemplate(
-      [normal("ev-step-0", { source: "chain" }), normal("ev-step-1", { source: "chain" })],
-      [chainDef] as unknown as WorldTemplateV2["chains"],
-    );
+  function activeState(template: WorldTemplateV2): WorldStateV2 {
     const state = makeState(template);
-    state.chains.push({ id: "chain-delay-test", stepIndex: 0, status: "active", startedTurn: 0 });
-    const inst = enqueueScheduled({
-      state, definitionId: "ev-step-1", origin, chainId: "chain-delay-test", start: { value: 3, unit: "day" },
-    });
-    expect(evaluateChain(state, createLookup(template), "chain-delay-test")).toBe("active");
-    inst.status = "fired";
-    state.chains[0].stepIndex = 2; // 越界且无队列条目
-    expect(evaluateChain(state, createLookup(template), "chain-delay-test")).toBe("completed");
+    state.openingCompleted = true;
+    state.slot = { eventId: "ev-step-0", from: "queueTake" };
+    return state;
+  }
+
+  it("无时间账的后继 ⇒ 结算后 slot.from === \"successor\" 且 fromEventId 指回上一事件", () => {
+    const template = stepTemplate();
+    const lookup = createLookup(template);
+    const state = activeState(template);
+
+    chooseOptionV2(state, { optionId: "opt-next-now" }, template, lookup);
+
+    // 旧 alignChainStep 的「游标对齐」在新模型里的全部含义就是这一条赋值
+    expect(state.slot).toEqual({ eventId: "ev-step-now", from: "successor", fromEventId: "ev-step-0" });
+    // 后继直接占槽 ⇒ 不进队列（同一事件不可能既在槽又在队列）
+    expect(state.delayQueue.some((i) => i.definitionId === "ev-step-now")).toBe(false);
   });
 
-  it("alignChainStep 单一规则：advanceChain 与 settle 同时发生不产生 stepIndex 漂移", () => {
-    const template = makeTemplate(
-      [normal("ev-step-0", { source: "chain" }), normal("ev-step-1", { source: "chain" })],
-      [chainDef] as unknown as WorldTemplateV2["chains"],
-    );
+  it("有 delay 的后继 ⇒ 进 delayQueue、slot === null（有时间账不占槽）", () => {
+    const template = stepTemplate();
+    const lookup = createLookup(template);
+    const state = activeState(template);
+    const before = state.worldTime;
+
+    chooseOptionV2(state, { optionId: "opt-next-later" }, template, lookup);
+
+    expect(state.slot).toBeNull();
+    const queued = state.delayQueue.filter((i) => i.definitionId === "ev-step-later");
+    expect(queued).toHaveLength(1);
+    expect(queued[0].status).toBe("waiting");
+    expect(queued[0].window.start).toBe(before + 3 * 1440);
+  });
+
+  it("队列实例在 start > now 时不被取出（扫描 break 语义，替代 advanceNextTurnChains）", () => {
+    const template = makeTemplate([normal("ev-future", { source: "schedule" })]);
     const state = makeState(template);
     const lookup = createLookup(template);
-    state.chains.push({ id: "chain-delay-test", stepIndex: 0, status: "active", startedTurn: 0 });
-    // 效果 advanceChain 无 nextEventId：链内无 nextTurn 步 ⇒ 不动（不盲目 +1）
-    alignChainStep(state, "chain-delay-test", lookup);
-    expect(state.chains[0].stepIndex).toBe(0);
-    // 结算按 nextEventId 对齐，重复调用幂等
-    alignChainStep(state, "chain-delay-test", lookup, "ev-step-1");
-    alignChainStep(state, "chain-delay-test", lookup, "ev-step-1");
-    expect(state.chains[0].stepIndex).toBe(1);
-    expect(state.chains[0].status).toBe("active");
-    alignChainStep(state, "chain-delay-test", lookup, "ev-unknown");
-    expect(state.chains[0].status).toBe("completed");
+    enqueueScheduled({ state, definitionId: "ev-future", origin, start: { value: 1, unit: "day" } });
+
+    // 未到期：扫不到，且实例原样留在队列（不丢弃、不改状态）
+    expect(scanDelayQueue(state, lookup, createRng(7))).toEqual({ kind: "none" });
+    expect(state.delayQueue[0].status).toBe("waiting");
+
+    // 到期后同一个实例被取出（取出即由调用方写槽）
+    state.worldTime = 1440;
+    const taken = scanDelayQueue(state, lookup, createRng(7));
+    expect(taken.kind).toBe("taken");
+    if (taken.kind === "taken") expect(taken.definition.id).toBe("ev-future");
+    expect(state.delayQueue[0].status).toBe("fired");
   });
 });
 

@@ -7,8 +7,7 @@ import { WorldTemplateV2Schema, type WorldTemplateV2 } from "@life-sim/shared";
 import { createLookup } from "./lookup.js";
 import { createActiveWorldV2 } from "./test-utils.js";
 import { createBattle, resolveCombatRefs } from "./battle.js";
-import { advanceTurnV2, SKIP_ALL_ENEMIES_INACTIVE, triggerEventV2, type TriggerResult } from "./turn.js";
-import { createRng } from "../rng.js";
+import { advanceTurnV2, SKIP_ALL_ENEMIES_INACTIVE, slotEventView } from "./turn.js";
 import type { WorldStateV2 } from "@life-sim/shared";
 
 /**
@@ -252,52 +251,72 @@ describe("敌人耗尽 ⇒ 整条触发跳过（ADR-0021 决策 1.2）", () => {
     advanceTurnV2(state, { action: { type: "patrol", description: "" } }, template, lookup);
     expect(state.battle).not.toBeNull();
     expect(state.battle!.enemies.map((e) => e.characterId)).toEqual(["npc-a"]);
-    expect(state.firedEvents["ev-ambush"]).toBe(state.turnIndex);
+    // `recordFire` 的时点随 ADR-0034 §2 步 3 后移到**结算**（战斗结束）之后：
+    // 建场只是「呈现 + 开战」，此时还不得写事实层（否则 once/冷却会提前被消耗）。
+    expect(state.slot).toMatchObject({ eventId: "ev-ambush" });
+    expect(state.firedEvents["ev-ambush"]).toBeUndefined();
   });
 });
 
-describe("TriggerResult.skipped 诊断位（ADR-0021 决策 1.4 · QA D-1 收口）", () => {
+describe("敌人耗尽 / 并发战斗的可观察等价（`triggerEventV2` 已删，ADR-0034 §5 重写）", () => {
   /**
-   * 直接驱动一次触发路由：`TriggerResult` 是引擎内部累加器（不进存档/投影/API），
-   * 经导出的 `triggerEventV2` 取到它，是 `skipped` 唯一的读取点。
+   * **失效原因**：`triggerEventV2` 随 `pendingEvents` 一起删除（ADR-0034 §5）。
+   * 它是旧模型中「把一条事件塞进待决队列并读回 `TriggerResult`」的唯一测试抓手，
+   * 而 `V2TurnResult` 从不暴露 `skipped` ⇒ **诊断位在新模型里没有对外读取点**，
+   * 无法再断言它的取值，只能断言同一路径的**可观察结果**（战斗/事实/槽）。
+   *
+   * 三条替代断言各自的落点：
+   * ① 敌人耗尽 ⇒ 槽被清空、不留下任何待呈现场景（`slotEventView === null`），不建场、零事实；
+   * ② 敌人可用 ⇒ 槽呈现为 `kind: "combat"`，并写 `firedEvents`（与 ① 构成对照，防止"永远跳过"的假绿）；
+   * ③ 并发战斗 ⇒ 结构上不可能：槽是标量 + 推进入口在战斗进行中直接拒绝（`battle_in_progress`），
+   *    「后一场静默覆盖前一场」这条旧缺陷的等价防线是**入口拒绝**而不是**整条跳过**。
    */
-  function makeRun(worldId: string) {
-    const { template, lookup, state } = setup(worldId);
-    const event = template.events.find((e) => e.id === "ev-ambush");
-    if (!event) throw new Error("fixture: 缺少 ev-ambush");
-    const run = (): TriggerResult => {
-      const result: TriggerResult = { triggered: [], wheelResult: null };
-      triggerEventV2(state, event, lookup, createRng(1), 0, result);
-      return result;
-    };
-    return { template, lookup, state, run };
-  }
-
-  it("敌人全部非在世 ⇒ skipped 置为 all_enemies_inactive，且无 triggered / 无战斗", () => {
-    const { state, run } = makeRun("w-skip-1");
+  it("① 敌人耗尽 ⇒ 槽清空、无可呈现场景、零事实（`skipped` 的可观察等价）", () => {
+    const { template, lookup, state } = setup("w-skip-1");
     setLifecycle(state, "npc-a", "inactive");
-    const result = run();
-    expect(result.skipped).toBe(SKIP_ALL_ENEMIES_INACTIVE);
-    expect(result.skipped).toBe("all_enemies_inactive");
-    expect(result.triggered).toEqual([]);
+    // 诊断原因字符串本身仍是公开常量（改名要显式改测试）
+    expect(SKIP_ALL_ENEMIES_INACTIVE).toBe("all_enemies_inactive");
+
+    advanceTurnV2(state, { action: { type: "patrol", description: "" } }, template, lookup);
+
     expect(state.battle).toBeNull();
+    expect(state.slot, "被整条跳过的事件不得留在槽里").toBeNull();
+    expect(slotEventView(state, lookup), "不得有任何待呈现场景").toBeNull();
+    expect(state.eventFires.some((f) => f.eventId === "ev-ambush")).toBe(false);
+    expect(state.history.some((h) => h.id.includes("ev-ambush"))).toBe(false);
+    expect(state.missedEvents).toEqual([]); // 判活不是「错失」，不记 miss
   });
 
-  it("敌人可用 ⇒ skipped 保持 undefined（门未命中不留噪声）", () => {
-    const { state, run } = makeRun("w-skip-2");
-    const result = run();
-    expect(result.skipped).toBeUndefined();
-    expect(result.triggered.map((t) => t.id)).toEqual(["ev-ambush"]);
+  it("② 敌人可用 ⇒ 槽呈现 combat 场景并写事实（对照：跳过并非「永远不触发」）", () => {
+    const { template, lookup, state } = setup("w-skip-2");
+    advanceTurnV2(state, { action: { type: "patrol", description: "" } }, template, lookup);
+
     expect(state.battle).not.toBeNull();
+    expect(state.battle!.eventId).toBe("ev-ambush");
+    // 槽内事件在战斗结束前不结算 ⇒ 尚未 recordFire；但场景必须已经呈现出来
+    expect(slotEventView(state, lookup)).toMatchObject({ eventId: "ev-ambush", kind: "combat" });
   });
 
-  it("并发 skip（已有战斗进行中）不置 skipped —— 诊断位只标记判活门", () => {
-    const { lookup, state, run } = makeRun("w-skip-3");
-    state.battle = createBattle("ev-other", { enemies: [{ ref: "enemy-x" }] }, state, lookup);
-    const result = run();
-    expect(result.skipped).toBeUndefined();
-    expect(result.triggered).toEqual([]);
-    expect(state.battle!.eventId).toBe("ev-other"); // 原战斗未被替换
+  it("③ 并发战斗 ⇒ 推进入口直接拒绝（不静默替换、不写第二场的事实）", () => {
+    const { template, lookup, state } = setup("w-skip-3");
+    advanceTurnV2(state, { action: { type: "patrol", description: "" } }, template, lookup);
+    const first = state.battle!;
+    const fires = state.eventFires.length;
+
+    // 战斗是槽的内部过程（ADR-0034 §8-⑦）：战斗未结束时槽仍钉在这场战斗上，
+    // 第二次推进被槽门禁挡下（`pending_event_required`）。
+    expect(() => advanceTurnV2(state, { action: { type: "patrol", description: "" } }, template, lookup)).toThrow(
+      "pending_event_required",
+    );
+    expect(state.battle).toBe(first); // 原战斗未被替换
+    expect(state.eventFires).toHaveLength(fires); // 未写第二场的事实
+    expect(state.slot).toMatchObject({ eventId: "ev-ambush" }); // 槽仍钉在同一事件上
+
+    // 第二道墙独立成立：即使槽被外部清空（旧档/被改坏），战斗未结束也不许推进
+    state.slot = null;
+    expect(() => advanceTurnV2(state, { action: { type: "patrol", description: "" } }, template, lookup)).toThrow(
+      "battle_in_progress",
+    );
   });
 });
 

@@ -113,10 +113,11 @@ describe("数据目录（2026-11-11 用户裁决：不在 apps/server 下，可�
 });
 
 describe("写入与信封（R-PS-01/03）", () => {
-  it("create/save 落盘；信封字段齐全（schemaVersion=2 / savedAt / templateId / fingerprint / state）", () => {
+  it("create/save 落盘；信封字段齐全（schemaVersion=3 / savedAt / templateId / fingerprint / state）", () => {
     const state = makeRealWorld();
     const envelope = readEnvelope(state.id);
-    expect(envelope.schemaVersion).toBe(2);
+    // ADR-0034 §5：单槽 + 单队列模型把 state 层改成不兼容形状，schemaVersion 2 → 3（v2 档拒载）
+    expect(envelope.schemaVersion).toBe(3);
     expect(typeof envelope.savedAt).toBe("string");
     expect(envelope.templateId).toBe("t");
     expect(typeof envelope.templateFingerprint).toBe("string");

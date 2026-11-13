@@ -247,7 +247,7 @@ describe("T3-03 / T3-04 · runOpening 初始化编排与 origin", () => {
 });
 
 describe("T3-05 · handoff 与首轮推进（R-OP-07 / R-TM-02）", () => {
-  it("handoff 置 openingCompleted=true，即时事件进 pendingEvents，未来事件登记 schedule", () => {
+  it("handoff 置 openingCompleted=true，即时事件占槽（from: opening），未来事件入 delayQueue", () => {
     const { state, ctx } = fixture();
     const tpl = openingTemplate({
       handoff: {
@@ -258,7 +258,9 @@ describe("T3-05 · handoff 与首轮推进（R-OP-07 / R-TM-02）", () => {
     const { state: opened, run } = runOpening(state, tpl, ctx);
     const final = handoff(opened, run);
     expect(final.openingCompleted).toBe(true);
-    expect(final.pendingEvents.map((p) => p.eventId)).toContain("ev-curse-sighting");
+    // ADR-0034 §1：即时事件的第一条**占槽**（`from: "opening"`），不再是 pendingEvents 数组；
+    // 只有一条 ⇒ 槽里恰好是它（S1：不存在"两条同时待决"的形状）。
+    expect(final.slot).toEqual({ eventId: "ev-curse-sighting", from: "opening" });
     // R2.5：未来事件真正入队（origin=opening、绝对窗口 1 天），不再写 flags 标记。
     const legacyPrefix = "opening" + "Scheduled:";
     expect(Object.keys(final.flags).some((k) => k.startsWith(legacyPrefix))).toBe(false);
@@ -269,7 +271,7 @@ describe("T3-05 · handoff 与首轮推进（R-OP-07 / R-TM-02）", () => {
     expect(scheduled?.window.start).toBe(1440);
     // 纯函数：入参逐字段未被改写
     expect(opened.openingCompleted).toBe(false);
-    expect(opened.pendingEvents).toEqual([]);
+    expect(opened.slot).toBeNull();
   });
 
   it("completionConditions 不满足时 handoff 拒绝（错误可诊断）", () => {
@@ -280,16 +282,24 @@ describe("T3-05 · handoff 与首轮推进（R-OP-07 / R-TM-02）", () => {
     expect(() => handoff(opened, run)).toThrow(/opening_not_complete/);
   });
 
-  it("handoff 后首轮 advanceTurnV2 能正常消费 chains / schedule", () => {
+  it("handoff 后首轮 advanceTurnV2 能正常消费 schedule 队列", () => {
+    /**
+     * 原用例名是「…消费 chains / schedule」。两处结构变化必须在断言里交代清楚：
+     *
+     * ① `chains[]` 已删除（ADR-0034 §5）：旧断言读 `final.chains` / `res.state.chains` 已无对象。
+     * ② **本轮发现（上报，不在本文件固化）**：`startChain` 效果现在只把 chainId 收进
+     *    `ctx.startedChains`，由 `turn.ts` 的 `enqueueChainStarts` 入队；而 `opening.ts` 的
+     *    worldSetup/objectives/choices 三个 `applySetup` 都**丢弃** `startedChains`
+     *    ⇒ 在 opening 里写 `startChain` 当前**不会**把起点事件入队（旧模型它是直接改 `state.chains` 的）。
+     *    真实模板（jjk-2006 opening.yaml）用 `handoff.pendingEvents: [ev-opening-wheel]` 表达入口，
+     *    不依赖这条路径，故无实害；是否要接线由主理人裁决，本测试不冻结这个缺口。
+     *
+     * 因此本用例只钉住**仍成立**的契约：handoff 把未来事件按绝对量入队，且首轮 `nextTurn`
+     * 真的会扫到它（槽空 ⇒ 扫队列 ⇒ 取出占槽）。旧模型「一轮 drain 多条」已被 S1 收敛为一条。
+     */
     const { state, ctx, template, lookup } = fixture();
     const tpl = openingTemplate({
-      worldSetup: {
-        flags: { openingDone: true },
-        effects: [
-          { type: "startChain", chainId: "chain-creation" },
-          { type: "advanceTo", value: { value: 1, unit: "day" } },
-        ],
-      },
+      worldSetup: { flags: { openingDone: true }, effects: [{ type: "advanceTo", value: { value: 1, unit: "day" } }] },
       handoff: {
         pendingEvents: [],
         schedule: [{ eventId: "ev-opening-wheel", at: { value: 1, unit: "day" } }],
@@ -298,14 +308,19 @@ describe("T3-05 · handoff 与首轮推进（R-OP-07 / R-TM-02）", () => {
     const { state: opened, run } = runOpening(state, tpl, ctx);
     const final = handoff(opened, run);
     expect(final.openingCompleted).toBe(true);
-    expect(final.chains.some((c) => c.id === "chain-creation" && c.status === "active")).toBe(true);
+    expect(final.slot).toBeNull();
+    // 未来事件按「相对世界起始」固化为绝对量（交接时已 advanceTo 到第 1 天）
+    const wheel = final.delayQueue.find((i) => i.definitionId === "ev-opening-wheel" && i.status === "waiting");
+    expect(wheel?.window.start).toBe(1440);
 
     const res = advanceTurnV2(final, { action: { type: "rest" } }, template, lookup);
     expect(res.state.openingCompleted).toBe(true);
-    // schedule 实例在首轮时间推进后由 drainScheduledEvents 出队触发（统一事件系统）
-    expect(res.triggeredEvents.some((e) => e.id === "ev-opening-wheel")).toBe(true);
-    // 既有链状态保留并参与首轮管线
-    expect(res.state.chains.some((c) => c.id === "chain-creation")).toBe(true);
+    // 首轮时间推进到 1500 > 1440 ⇒ 到期，被 nextTurn 取出占槽
+    expect(res.state.slot).toMatchObject({ eventId: "ev-opening-wheel", from: "queueTake" });
+    // 只有被**结算**的事件才进 triggeredEvents（§2 步 3）：先呈现、等选项 ⇒ 本轮不算触发
+    expect(res.triggeredEvents.some((e) => e.id === "ev-opening-wheel")).toBe(false);
+    // 取出即摘除：实例状态转 fired，不会被下一轮重复上桌
+    expect(res.state.delayQueue.find((i) => i.definitionId === "ev-opening-wheel")?.status).toBe("fired");
   });
 
   it("最小默认开局（未提供 opening.yaml）直接完成交接", () => {
@@ -316,7 +331,7 @@ describe("T3-05 · handoff 与首轮推进（R-OP-07 / R-TM-02）", () => {
     expect(final.openingCompleted).toBe(true);
     expect(run.executedSteps).toEqual([]);
     expect(run.instances).toEqual([]);
-    expect(final.pendingEvents).toEqual([]);
+    expect(final.slot).toBeNull();
   });
 });
 

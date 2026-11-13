@@ -8,7 +8,8 @@ import { createLookup } from "./v2/lookup.js";
 import { createBattle, finishBattle, performBattleAction } from "./v2/battle.js";
 import { applyEffectsV2, checkAllConditions, computeMax, playerEffectiveAttributes, type EffectContextV2 } from "./v2/engine.js";
 import { projectSnapshotV2 } from "./v2/projection.js";
-import { advanceTurnV2, battleActionV2, chooseOptionV2 } from "./v2/turn.js";
+import { advanceTurnV2, battleActionV2, chooseOptionV2, slotEventView } from "./v2/turn.js";
+import { enqueueScheduled } from "./v2/scheduler.js";
 import { createDefaultOpeningTemplate } from "./v2/opening.js";
 import { createActiveWorldV2, makeTestTemplate } from "./v2/test-utils.js";
 import {
@@ -196,7 +197,17 @@ describe("V2 引擎 · advanceTime 绝对/相对时间推进", () => {
 });
 
 describe("V2 引擎 · 事件链起点触发（回归）", () => {
-  it("转动转盘 → startChain 把链起点事件压入待决，队列只含 normal，不卡死", () => {
+  it("转动转盘 → startChain 把链起点事件送进队列，随即被取出占槽；槽内仍是可呈现的 normal 场景", () => {
+    /**
+     * **失效原因**：旧断言读 `state.chains`（链运行时状态）与 `state.pendingEvents`（待决数组）。
+     * ADR-0034 §5 把两者都删除：链退化为 `nextEventId` 边，待决队列被标量 `slot` 取代。
+     *
+     * **等价替代断言**：
+     * ① `startChain` 的产出 = 起点事件进 `delayQueue` 并**在同一轮的 nextTurn 里被取出占槽**
+     *   （`from: "queueTake"`）——这就是旧断言「链 active + ev-w01 在待决队列里」的全部含义；
+     * ② 「待决里只允许 normal，否则 pendingEventView 返回 null 导致卡死」→ 改为直接问投影：
+     *   `slotEventView` 必须非 null 且 kind 为 normal（卡死判据直接可观察，不再靠 kind 间接推断）。
+     */
     const template = loadJjkTemplate();
     const lookup = createLookup(template);
     const state = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 7 }, template, "w-report");
@@ -204,14 +215,14 @@ describe("V2 引擎 · 事件链起点触发（回归）", () => {
     state.firedEvents["ev-opening-wheel"] = state.turnIndex;
 
     chooseOptionV2(state, { optionId: "opt-begin" }, template, lookup);
-    // 链注册为 active
-    expect(state.chains.some((c) => c.id === "chain-creation" && c.status === "active")).toBe(true);
-    // 链起点 ev-w01 进入待决队列
-    expect(state.pendingEvents.some((p) => p.eventId === "ev-w01")).toBe(true);
-    // 待决队列里只允许 normal 事件（否则 pendingEventView 返回 null 导致卡死）
-    expect(state.pendingEvents.every((p) => lookup.event(p.eventId)?.kind === "normal")).toBe(true);
-    // 不处于卡死状态：有待决 normal 事件可结算
-    expect(state.pendingEvents.length).toBeGreaterThan(0);
+    // 链起点 ev-w01 进入延时队列（delay 0）后立刻被取走占槽
+    expect(state.slot).toMatchObject({ eventId: "ev-w01", from: "queueTake" });
+    // 卡死判据：槽内容必须能投影成一个场景
+    expect(slotEventView(state, lookup)).toMatchObject({ eventId: "ev-w01", kind: "normal" });
+    // 队列里不再留着它（同一条事件不可能既在槽又在队列）
+    expect(
+      state.delayQueue.some((i) => i.definitionId === "ev-w01" && i.status === "waiting"),
+    ).toBe(false);
   });
 });
 
@@ -441,49 +452,77 @@ describe("V2 引擎 · 章节进度投影（D-07）", () => {
 });
 
 describe("V2 引擎 · 事件轮次", () => {
-  it("普通事件进入待决队列，选项按 visibleWhen 过滤", () => {
+  it("普通事件占槽呈现（slotEvent），选项按 visibleWhen 过滤", () => {
     const { state, template } = makeState();
     const lookup = createLookup(template);
     const res = advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
-    expect(res.snapshot.pendingEvent?.eventId).toBe("ev-normal");
-    const optionIds = res.snapshot.pendingEvent!.options.map((o) => o.id);
+    // ADR-0034 §5：投影唯一真源是 `slotEvent`（`pendingEvent` 恒 null，只剩过渡字段壳）
+    expect(res.snapshot.slotEvent).toMatchObject({ eventId: "ev-normal", kind: "normal" });
+    expect(res.snapshot.pendingEvent).toBeNull();
+    const optionIds = res.snapshot.slotEvent!.options!.map((o) => o.id);
     expect(optionIds).toContain("opt-plain");
     expect(optionIds).not.toContain("opt-secret");
-    // 待决事件存在时禁止推进轮次
+    // 槽被占时禁止推进轮次
     expect(() => advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup)).toThrow(
       "pending_event_required",
     );
   });
 
-  it("选择选项生效：结算推进一轮，尾管线为下一槽位补入池事件", () => {
+  it("选择选项生效：结算推进一轮，尾管线抽到的池事件被 nextTurn 取出呈现", () => {
     const { state, template } = makeState();
     const lookup = createLookup(template);
     advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
     const turnBefore = state.turnIndex;
     const res = chooseOptionV2(state, { optionId: "opt-plain" }, template, lookup);
     expect(state.flags.chosePlain).toBe(true);
-    // #34 结算轮：turnIndex +1；事件轮跑完整管线，pool 门控立刻为下一槽位重新抽取事件。
+    // #34 结算轮：turnIndex +1；事件轮跑完整管线，pool 门控立刻为下一槽位重新抽取事件
+    // （ADR-0034 §3-6：抽取只入队，上桌靠 nextTurn 的"槽空 ⇒ 扫队列"）。
     expect(state.turnIndex).toBe(turnBefore + 1);
-    expect(res.snapshot.pendingEvent?.eventId).toBe("ev-normal");
+    // 上一轮池抽到的两条（ev-normal 已结算、ev-wheel 仍在队）里，队头是 ev-wheel ⇒ 本轮呈现转盘。
+    // 注意这是**呈现**（只掷骰、等确认），不是结算：`wheelResult` 有值但 `turnIndex` 不再变。
+    expect(res.snapshot.slotEvent).toMatchObject({ eventId: "ev-wheel", kind: "random" });
+    expect(res.snapshot.slotEvent?.wheel?.label).toBeDefined();
+    expect(state.turnIndex).toBe(turnBefore + 1);
   });
 
-  it("转盘事件自动结算，weightBy 随有效属性加权", () => {
-    const { state, template } = makeState();
+  it("转盘：呈现只掷骰、确认才结算，weightBy 随有效属性加权", () => {
+    // 只保留转盘事件，隔离普通事件占槽（否则第一轮上桌的是 ev-normal）
+    const base = makeTestTemplate();
+    const onlyWheel = (template: WorldTemplateV2): WorldTemplateV2 =>
+      ({ ...template, events: base.events.filter((e) => e.id === "ev-wheel") }) as unknown as WorldTemplateV2;
+
+    // 极高幸运：大吉权重 1 + 1000×0.4 = 401 ≫ 凶 3 ⇒ 必出大吉
+    const template = onlyWheel(makeTestTemplate());
     const lookup = createLookup(template);
-    // 低幸运：大吉权重 1+2=3 与 凶 3 平分……改用极高幸运必出大吉
-    state.player.attributes.luck = 1000; // 1 + 400 = 401 vs 3
-    const res = advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
-    expect(res.wheelResult?.label).toBe("大吉");
-    expect(state.lastWheel?.label).toBe("大吉");
+    const state = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed: 42 }, template, "w-wheel-luck");
+    state.player.attributes.luck = 1000;
+    const moodBefore = state.player.mood;
 
-    // 负幸运：大吉权重 max(0, 1-4)=0 → 必为凶
-    const { state: s2, template: t2 } = makeState(7);
+    // ① 呈现：掷骰、写 lastWheel(s)，**效果未应用、turnIndex 不变**（ADR-0034 §2 步 1）
+    const present = advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
+    expect(present.wheelResult?.label).toBe("大吉");
+    expect(state.lastWheel?.label).toBe("大吉");
+    expect(state.slot).toMatchObject({ eventId: "ev-wheel", from: "queueTake" });
+    expect(state.player.mood, "呈现不得应用那一格的效果").toBe(moodBefore);
+
+    // ② 确认：`advanceTurnV2` 在 random 槽上即"确认"（§8-⑩），结算**呈现过的那一格**
+    const confirm = advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
+    expect(confirm.wheelResult?.label).toBe("大吉");
+    expect(state.player.mood).toBe(moodBefore + 10); // 大吉格的 adjustMood +10
+    expect(state.slot).toBeNull();
+
+    // 负幸运：大吉权重 max(0, 1 + (-10)×0.4) = 0 ⇒ 必为凶
+    const template2 = onlyWheel(makeTestTemplate());
+    const lookup2 = createLookup(template2);
+    const s2 = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed: 7 }, template2, "w-wheel-bad");
     s2.player.attributes.luck = -10;
-    const res2 = advanceTurnV2(s2, { action: { type: "rest", description: "" } }, t2, createLookup(t2));
-    expect(res2.wheelResult?.label).toBe("凶");
+    const present2 = advanceTurnV2(s2, { action: { type: "rest", description: "" } }, template2, lookup2);
+    expect(present2.wheelResult?.label).toBe("凶");
+    const confirm2 = advanceTurnV2(s2, { action: { type: "rest", description: "" } }, template2, lookup2);
+    expect(confirm2.wheelResult?.label).toBe("凶");
   });
 
-  // ---------- D-03：单轮多个转盘结果不再互相覆盖 ----------
+  // ---------- D-03 / ADR-0034：转盘呈现记录（lastWheels）----------
 
   function makeMultiWheelWorld(seed = 42): { state: WorldStateV2; template: WorldTemplateV2; lookup: ReturnType<typeof createLookup> } {
     const base = makeTestTemplate();
@@ -491,7 +530,7 @@ describe("V2 引擎 · 事件轮次", () => {
       id,
       title,
       narrative: `${title}的转盘。`,
-      // 两个池事件同轮必中（probability 1），冷却 99 天保证下一轮不再触发 ⇒ 可验证「当轮清空」
+      // 两个池事件必中（probability 1），冷却 99 天保证结算后不再抽到
       trigger: { source: "pool", probability: 1, cooldown: { value: 99, unit: "day" } },
       kind: "random",
       settle: { random: { wheel: { segments: [{ weight: 1, label, effects: [{ type: "adjustMood", value: 1 }] }] } } },
@@ -506,35 +545,64 @@ describe("V2 引擎 · 事件轮次", () => {
     return { state, template, lookup };
   }
 
-  it("D-03：同轮两个 random 事件都进入 lastWheels，顺序为触发顺序，lastWheel 仍为最后一个", () => {
+  it("D-03 重写：一轮只呈现一个转盘；确认轮顺带呈现下一个，lastWheels 按呈现顺序累积", () => {
+    /**
+     * **失效原因**：原断言「同轮两个 random 事件都进入 lastWheels」依赖
+     * 「一轮里多个转盘同时结算」。ADR-0034 §4 S1 把槽收敛成标量 ⇒ **一轮最多呈现一个场景**，
+     * 「同轮两个转盘」这个形状结构性地不可能（这正是 S1 要消除的）。
+     *
+     * **等价替代断言**（两个转盘仍然都会被呈现、都会各自结算，只是**分两轮**）：
+     * ① 两个池转盘都已入队，但只有队头被取出呈现；
+     * ② 确认这一格时顺带呈现下一个（呈现不占额外轮次），故该响应里 lastWheels 有两条、
+     *    且顺序 = 呈现顺序 = 入队序；
+     * ③ 每一格的效果各结算一次（mood 只 +1，而不是 +2 ⇒ 没有"同轮双结算"）。
+     */
     const { state, template, lookup } = makeMultiWheelWorld();
-    const res = advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
+    const moodBefore = state.player.mood;
+    const r1 = advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
 
-    expect(res.snapshot.lastWheels.length).toBe(2);
-    expect(res.snapshot.lastWheels.map((w) => w.label)).toEqual(["上上签", "平"]);
-    expect(res.snapshot.lastWheels.map((w) => w.eventId)).toEqual(["ev-wheel-a", "ev-wheel-b"]);
+    // ① 一轮只上桌一个
+    expect(r1.snapshot.lastWheels.map((w) => w.eventId)).toEqual(["ev-wheel-a"]);
+    expect(r1.snapshot.lastWheels[0].label).toBe("上上签");
+    expect(state.slot).toMatchObject({ eventId: "ev-wheel-a", from: "queueTake" });
+    expect(state.delayQueue.filter((i) => i.status === "waiting").map((i) => i.definitionId)).toEqual([
+      "ev-wheel-b",
+    ]);
+    expect(state.player.mood, "只呈现不结算").toBe(moodBefore);
+
+    // ② 确认 a ⇒ 结算 a 的那一格，并顺带呈现 b（同一条响应里两条呈现记录）
+    const r2 = advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
+    expect(r2.snapshot.lastWheels.map((w) => w.eventId)).toEqual(["ev-wheel-a", "ev-wheel-b"]);
     // D-16：标题随结果落进状态，刷新后不必回查本轮 triggeredEvents
-    expect(res.snapshot.lastWheels.map((w) => w.title)).toEqual(["晨间占卜", "夜间抽签"]);
-    expect(res.snapshot.lastWheel?.title).toBe("夜间抽签");
-    // 向后兼容：单槽 lastWheel / V2TurnResult.wheelResult 仍是「最后一个」
-    expect(res.snapshot.lastWheel?.label).toBe("平");
-    expect(res.wheelResult?.label).toBe("平");
+    expect(r2.snapshot.lastWheels.map((w) => w.title)).toEqual(["晨间占卜", "夜间抽签"]);
+    expect(r2.snapshot.lastWheels.map((w) => w.label)).toEqual(["上上签", "平"]);
+    // ③ 只有 a 的效果被结算（+1），b 仍是"已呈现未确认"
+    expect(state.player.mood).toBe(moodBefore + 1);
+    expect(state.slot).toMatchObject({ eventId: "ev-wheel-b" });
+    // 单槽 lastWheel = 最近一次呈现
+    expect(r2.snapshot.lastWheel?.title).toBe("夜间抽签");
     // 状态层与投影同源（投影不自行推测）
-    expect(res.snapshot.lastWheels).toEqual(state.lastWheels);
+    expect(r2.snapshot.lastWheels).toEqual(state.lastWheels);
   });
 
-  it("D-03：lastWheels 是「当轮」而非累计历史（下一轮起点清空，lastWheel 保持最近一次）", () => {
+  it("D-03 重写：lastWheels 只在自由行动轮起点清空（确认轮必须保留上一轮那一格）", () => {
     const { state, template, lookup } = makeMultiWheelWorld();
-    advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
-    expect(state.lastWheels?.length).toBe(2);
+    advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup); // R1 呈现 a
+    advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup); // R2 确认 a + 呈现 b
+    expect(state.lastWheels?.map((w) => w.eventId)).toEqual(["ev-wheel-a", "ev-wheel-b"]);
 
-    const second = advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
-    // 冷却期内不再触发转盘 ⇒ 本轮列表为空，而不是沿用/累加上一轮
-    expect(second.snapshot.lastWheels).toEqual([]);
+    // R3 确认 b：**确认轮不清空**（§8-⑩ 约束 (a)：清了就取不到"玩家看到的那一格"）
+    const r3 = advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
+    expect(r3.snapshot.lastWheels.map((w) => w.eventId)).toEqual(["ev-wheel-a", "ev-wheel-b"]);
+    expect(state.slot).toBeNull();
+
+    // R4 自由行动轮：起点清空「当轮呈现集」，而不是累积历史
+    const r4 = advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
+    expect(r4.snapshot.lastWheels).toEqual([]);
     expect(state.lastWheels).toEqual([]);
-    expect(second.wheelResult).toBeNull();
+    expect(r4.wheelResult).toBeNull();
     // 单槽语义不变：仍是历史上「最近一次」的转盘
-    expect(second.snapshot.lastWheel?.label).toBe("平");
+    expect(r4.snapshot.lastWheel?.label).toBe("平");
   });
 
   it("行动钩子触发战斗，胜利结算 onVictory 效果", () => {
@@ -620,9 +688,22 @@ describe("V2 引擎 · 事件轮次", () => {
     expect(state.history.some((h) => h.summary.includes("并发战斗"))).toBe(false);
   });
 
-  it("combat 并发优先级：事件链 > 行动触发", () => {
+  /**
+   * ⚠ **三条「跨来源优先级」用例已按 ADR-0034 重写**（原文是「事件链 > 时间触发 > 行动触发 > 事件池」）。
+   *
+   * **失效原因**：旧模型有一个 `pendingEvents` 数组 + 一次性 resolver 顺序（链 → schedule → hook → pool），
+   * 才存在「多条事件竞争同一格时谁赢」。新模型的槽是**标量**（§4 S1），且下一轮判定链只有
+   * 「槽有 ⇒ 处理它 / 槽空 ⇒ 扫队列 / 都没有 ⇒ 自由行动」三条分支（§2）：
+   * ⇒ **不存在跨来源优先级排序**，实际决定谁上桌的是**写点顺序**：
+   *   行动钩子在 §2 步 4 直接写 `slot`（`from: "hook"`），队列扫描（§2 步 7 的 nextTurn）只在**槽空**时发生。
+   *
+   * **等价替代断言**（更强，因为它冻结的是结构性质而不是排序表）：
+   * ① 行动钩子在同轮抢先占槽，`slot.from === "hook"`；
+   * ② 队列/池里的事件**不丢失、不抢占**：仍在 `delayQueue` 里 `waiting`，且本轮不写事实；
+   * ③ 池在槽被占时**不摇**（§3-6 阈值），所以不会出现「同一轮多出第二条候选」。
+   */
+  it("combat：行动钩子先写槽（from: hook），队列里的另一场战斗保持等待、不抢占", () => {
     const template = makeTestTemplate();
-    // 追加链战斗事件与链定义：nextTurn 步在本轮推进到战斗步骤
     template.events.push({
       id: "ev-chain-combat",
       title: "主线战斗",
@@ -631,33 +712,30 @@ describe("V2 引擎 · 事件轮次", () => {
       kind: "combat",
       settle: { combat: { enemies: [{ ref: "enemy-x", levelScale: 1 }] } },
     });
-    template.chains = [
-      {
-        id: "chain-test",
-        startEventId: "ev-chain-combat",
-        steps: [
-          { eventId: "ev-chain-combat", advanceWhen: "nextTurn" },
-          { eventId: "ev-chain-combat", advanceWhen: "onSettle" },
-        ],
-      },
-    ];
     const lookup = createLookup(template);
     const state = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed: 42 }, template, "w-priority");
-    // 注入 active 链，使 nextTurn 步在本轮触发链战斗
-    state.chains.push({ id: "chain-test", stepIndex: 0, status: "active", startedTurn: 0 });
+    // 模拟「另一条 combat 也在同一时刻待上桌」：直接进队列（链起点入队是合法来源，§4 R3）
+    enqueueScheduled({ state, definitionId: "ev-chain-combat", origin: { kind: "effect", id: "chain-test" } });
 
     const res = advanceTurnV2(state, { action: { type: "patrol", description: "" } }, template, lookup);
-    // 链战斗（事件链）优先于行动钩子战斗（action-hook）抢占战斗槽位
-    expect(state.battle).not.toBeNull();
-    expect(state.battle!.eventId).toBe("ev-chain-combat");
-    // 行动钩子战斗被整条跳过，不留痕迹
-    expect(state.firedEvents["ev-ambush"]).toBeUndefined();
-    expect(res.triggeredEvents.some((e) => e.id === "ev-ambush")).toBe(false);
+
+    expect(state.slot).toMatchObject({ eventId: "ev-ambush", from: "hook" });
+    expect(state.battle!.eventId).toBe("ev-ambush");
+    // 队列里的那一场仍在等（不丢、不抢占、不写事实）
+    expect(
+      state.delayQueue.find((i) => i.definitionId === "ev-chain-combat")?.status,
+    ).toBe("waiting");
+    expect(state.firedEvents["ev-chain-combat"]).toBeUndefined();
+    expect(res.triggeredEvents.some((e) => e.id === "ev-chain-combat")).toBe(false);
   });
 
-  it("combat 并发优先级：时间触发 > 行动触发", () => {
+  it("combat：时间触发的战斗不会被行动钩子插队（钩子先写槽，schedule 留队）", () => {
+    /**
+     * 语义**反转**记录（不是放宽）：旧模型里 schedule 战斗优先于 action-hook 战斗；
+     * 新模型里钩子在 §2 步 4 先写槽、扫描在其后 ⇒ **钩子赢**。
+     * 这不是"优先级换了"，而是"没有优先级表"：谁先写槽谁上桌（§4 S4 白名单 + 写点顺序）。
+     */
     const template = makeTestTemplate();
-    // 追加 schedule 战斗事件；窗口起点 1 小时 = 首轮默认步长，故首轮即到期
     template.events.push({
       id: "ev-schedule-combat",
       title: "剧情战斗",
@@ -670,25 +748,18 @@ describe("V2 引擎 · 事件轮次", () => {
     const state = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed: 42 }, template, "w-sched");
     const res = advanceTurnV2(state, { action: { type: "patrol", description: "" } }, template, lookup);
 
-    // schedule 战斗（时间触发）优先于 action-hook 战斗抢占槽位
-    expect(state.battle).not.toBeNull();
-    expect(state.battle!.eventId).toBe("ev-schedule-combat");
-    expect(state.firedEvents["ev-ambush"]).toBeUndefined();
-    expect(res.triggeredEvents.some((e) => e.id === "ev-ambush")).toBe(false);
+    expect(state.battle!.eventId).toBe("ev-ambush");
+    expect(
+      state.delayQueue.find((i) => i.definitionId === "ev-schedule-combat")?.status,
+    ).toBe("waiting");
+    expect(res.triggeredEvents.some((e) => e.id === "ev-schedule-combat")).toBe(false);
   });
 
-  it("normal 队列优先级：事件链 > 时间触发 > 行动触发 > 事件池", () => {
+  it("normal：同轮只有一条上桌（行动钩子占槽），队列与池各自留位", () => {
     const template = makeTestTemplate();
-    // 追加三种来源的 normal 事件；pool 的 ev-normal 已存在（优先级最低）
+    // 摘掉 combat 钩子，避免战斗面板干扰「normal 上桌」的观察
+    template.events = template.events.filter((e) => e.id !== "ev-ambush");
     template.events.push(
-      {
-        id: "ev-chain-normal",
-        title: "链事件",
-        narrative: "主线。",
-        trigger: { source: "chain" },
-        kind: "normal",
-        settle: { normal: { options: [{ id: "opt-ok", text: "继续" }] } },
-      },
       {
         id: "ev-sched-normal",
         title: "时间事件",
@@ -706,99 +777,76 @@ describe("V2 引擎 · 事件轮次", () => {
         settle: { normal: { options: [{ id: "opt-ok", text: "继续" }] } },
       },
     );
-    template.chains = [
-      {
-        id: "chain-normal-test",
-        startEventId: "ev-chain-normal",
-        steps: [
-          { eventId: "ev-chain-normal", advanceWhen: "nextTurn" },
-          { eventId: "ev-chain-normal", advanceWhen: "onSettle" },
-        ],
-      },
-    ];
     const lookup = createLookup(template);
     const state = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed: 42 }, template, "w-normal-prio");
-    state.chains.push({ id: "chain-normal-test", stepIndex: 0, status: "active", startedTurn: 0 });
 
     const res = advanceTurnV2(state, { action: { type: "patrol", description: "" } }, template, lookup);
 
-    // 槽位防护（单槽串行化模型）：运行期 pendingEvents 恒 ≤ 1；首条（最高优先级）normal 事件入槽呈现，
-    // 其余 normal 事件因槽位被占用，经守卫转入延时队列（origin.kind==='effect'、status==='waiting'）
-    // 轮询，等槽位空出再回到 pendingEvents——不丢失、不卡死。
-    expect(state.pendingEvents.length).toBe(1);
-    expect(state.slot?.eventId).toBe("ev-chain-normal");
-    expect(res.snapshot.pendingEvent?.eventId).toBe("ev-chain-normal");
-
-    // 其余 3 条 normal 事件被守卫拦截、落入延时队列（而非入 pendingEvents）
-    const deferred = state.delayQueue.filter(
-      (i) => i.origin.kind === "effect" && i.status === "waiting",
-    );
-    const deferredIds = new Set(deferred.map((i) => i.definitionId));
-    expect(deferredIds.has("ev-sched-normal")).toBe(true);
-    expect(deferredIds.has("ev-hook-normal")).toBe(true);
-    expect(deferredIds.has("ev-normal")).toBe(true);
+    // ① 钩子直接占槽（唯一写点：§2 步 4）
+    expect(state.slot).toMatchObject({ eventId: "ev-hook-normal", from: "hook" });
+    expect(res.snapshot.slotEvent).toMatchObject({ eventId: "ev-hook-normal", kind: "normal" });
+    // ② 队列里的时间事件仍在等（未到期前不会上桌，且不因槽被占而丢失）
+    expect(state.delayQueue.filter((i) => i.status === "waiting").map((i) => i.definitionId)).toEqual([
+      "ev-sched-normal",
+    ]);
+    // ③ 池在槽被占时不摇（§3-6）：本轮不会多出第二条候选
+    expect(state.delayQueue.some((i) => i.origin.kind === "pool")).toBe(false);
+    // ④ 一轮只结算一条：钩子事件尚未被结算（等玩家选择）
+    expect(res.triggeredEvents.some((e) => e.id === "ev-hook-normal")).toBe(false);
   });
 
-  it("normal 队列：后到的高优先级事件插队，同优先级保持 FIFO", () => {
+  it("normal 队列：后继占槽优先于队列取出；同 start 的实例按 enqueueSeq 保序（替代「插队」概念）", () => {
+    /**
+     * **失效原因**：旧用例预置 `pendingEvents` 三条并断言「高优先级插队 / 同优先级 FIFO」。
+     * 新模型没有数组、也没有插队：槽空才扫队列，扫到即取（§2 ②）、取到即占槽；
+     * 同 start 的先后由 `sortScheduled` 的 `enqueueSeq` 决定（§3-1 三键全序）。
+     * 三条等价替代断言：① 结算产生的后继**直接占槽**，队列一条都不动；
+     * ② 后继结算后（无后继）槽空，才轮到队头；③ 两条同 start 实例按入队序逐轮取出（FIFO）。
+     */
     const template = makeTestTemplate();
-    // 一个不会自动触发的 pool 事件，用于观察同优先级项的相对顺序
-    template.events.push({
-      id: "ev-pool-normal-2",
-      title: "随机事件二",
-      narrative: "另一个随机事件。",
-      trigger: { source: "pool", probability: 0 },
-      kind: "normal",
-      settle: { normal: { options: [{ id: "opt-ok", text: "继续" }] } },
-    });
-    // 链事件改由 choose 结算路径的 nextEventId 触发（不经过轮次管线的 resolver 顺序）
     const evNormal = template.events.find((e) => e.id === "ev-normal");
     const plain = evNormal?.kind === "normal" ? evNormal.settle.normal.options.find((o) => o.id === "opt-plain") : undefined;
-    if (plain) plain.nextEventId = "ev-chain-normal";
-    template.events.push({
-      id: "ev-chain-normal",
-      title: "链事件",
-      narrative: "主线。",
-      trigger: { source: "chain" },
-      kind: "normal",
-      settle: { normal: { options: [{ id: "opt-ok", text: "继续" }] } },
-    });
+    if (!plain) throw new Error("fixture: ev-normal/opt-plain 缺失");
+    plain.nextEventId = "ev-chain-normal";
+    template.events.push(
+      {
+        id: "ev-chain-normal",
+        title: "链事件",
+        narrative: "主线。",
+        trigger: { source: "chain" },
+        kind: "normal",
+        settle: { normal: { options: [{ id: "opt-ok", text: "继续" }] } },
+      },
+      ...["ev-q-first", "ev-q-second"].map((id) => ({
+        id,
+        title: `队列事件 ${id}`,
+        narrative: "预置队列事件。",
+        trigger: { source: "chain" as const },
+        kind: "normal" as const,
+        settle: { normal: { options: [{ id: "opt-ok", text: "继续" }] } },
+      })),
+    );
     const lookup = createLookup(template);
     const state = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed: 42 }, template, "w-normal-insert");
-    // 预置遗留队列：三个同优先级 pool 事件，相对顺序需保持
-    state.pendingEvents.push(
-      { eventId: "ev-normal" },
-      { eventId: "ev-pool-normal-2" },
-      { eventId: "ev-normal" },
-    );
+    // 预置两条已到期实例（同一 start ⇒ 只由 enqueueSeq 定序）
+    enqueueScheduled({ state, definitionId: "ev-q-first", origin: { kind: "effect", id: "q" } });
+    enqueueScheduled({ state, definitionId: "ev-q-second", origin: { kind: "effect", id: "q" } });
+    state.slot = { eventId: "ev-normal", from: "queueTake" };
 
     chooseOptionV2(state, { optionId: "opt-plain" }, template, lookup);
-    // 槽位防护：预置遗留队列仍占用槽位，结算触发的高优先级 ev-chain-normal 被守卫拦截，
-    // 转入延时队列（origin.kind==='effect'、status==='waiting'），不插入 pendingEvents。
-    expect(state.pendingEvents.some((p) => p.eventId === "ev-chain-normal")).toBe(false);
-    expect(
-      state.delayQueue.some(
-        (i) => i.definitionId === "ev-chain-normal" && i.origin.kind === "effect" && i.status === "waiting",
-      ),
-    ).toBe(true);
+    // ① 后继占槽，队列原样不动
+    expect(state.slot).toEqual({ eventId: "ev-chain-normal", from: "successor", fromEventId: "ev-normal" });
+    expect(state.delayQueue.filter((i) => i.status === "waiting").map((i) => i.definitionId)).toEqual([
+      "ev-q-first",
+      "ev-q-second",
+    ]);
 
-    // 后续轮次：逐条结算遗留队列释放槽位，被拦的高优事件经 scheduledEvents 出队、回到 pendingEvents 并正常结算。
-    // 每次引擎入队至多 1 条新事件，pendingEvents 整体收敛；用「首项可见选项」推进。
-    const ctx = { state, lookup, rng: () => 0.5 };
-    let guard = 0;
-    while (guard++ < 8 && !state.pendingEvents.some((p) => p.eventId === "ev-chain-normal")) {
-      const pend = state.pendingEvents[0];
-      if (!pend) break;
-      const ev = lookup.event(pend.eventId);
-      if (!ev || ev.kind !== "normal") break;
-      if (state.battle && !state.battle.over) break;
-      const opt = ev.settle.normal.options.find((o) => checkAllConditions(o.visibleWhen, ctx));
-      if (!opt) break;
-      chooseOptionV2(state, { optionId: opt.id }, template, lookup);
-    }
-    expect(state.pendingEvents.some((p) => p.eventId === "ev-chain-normal")).toBe(true);
-    expect(state.pendingEvents.length).toBeLessThanOrEqual(1);
-    // 被拦的高优事件已回到 pendingEvents，可正常结算（不抛错）
-    expect(() => chooseOptionV2(state, { optionId: "opt-ok" }, template, lookup)).not.toThrow();
+    // ② 后继无后继 ⇒ 槽空，才轮到队头
+    chooseOptionV2(state, { optionId: "opt-ok" }, template, lookup);
+    expect(state.slot).toMatchObject({ eventId: "ev-q-first", from: "queueTake" });
+    // ③ 结算队头后取出第二条 ⇒ FIFO
+    chooseOptionV2(state, { optionId: "opt-ok" }, template, lookup);
+    expect(state.slot).toMatchObject({ eventId: "ev-q-second", from: "queueTake" });
   });
 
   it("献祭技能按层数结算伤害并消耗补正", () => {
@@ -838,14 +886,16 @@ describe("V2 引擎 · 事件轮次", () => {
     state.battle = null;
     expect(state.player.statuses.some((s) => s.statusId === "inj")).toBe(true);
 
-    // 休息一次 → restProgress=1，仍存在（先清空巡逻触发的待决事件）
+    // 休息一次 → restProgress=1，仍存在（先清空巡逻触发的槽 / 队列，ADR-0034 §1）
     state.battle = null;
-    state.pendingEvents = [];
+    state.slot = null;
+    state.delayQueue = [];
     advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
     expect(state.player.statuses.find((s) => s.statusId === "inj")?.restProgress).toBe(1);
     // 第二次休息 → 痊愈
     state.battle = null;
-    state.pendingEvents = [];
+    state.slot = null;
+    state.delayQueue = [];
     advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
     expect(state.player.statuses.some((s) => s.statusId === "inj")).toBe(false);
   });
@@ -873,17 +923,24 @@ describe("V2 引擎 · 咒术转盘开局链", () => {
     // 创建世界即为转盘入口事件，无需先推进轮次
     expect(state.slot?.eventId).toBe("ev-opening-wheel");
 
-    // 开始转盘链
+    // 开始转盘链：startChain 的效果 = 起点事件进队列 → 同轮被取出占槽（ADR-0034 §4 R3）
     chooseOptionV2(state, { optionId: "opt-begin" }, template, lookup);
-    expect(state.chains.some((c) => c.id === "chain-creation" && c.status === "active")).toBe(true);
+    expect(state.slot).toMatchObject({ eventId: "ev-w01", from: "queueTake" });
 
     // 逐步推进创建链；每步选一个「能验证机制」的选项
+    // ADR-0034 §2：槽内可能有两种 kind —— normal 等选项、random 等「确认」（= 调 advanceTurnV2）
     let guard = 0;
     while (guard++ < 40) {
-      const pend = state.pendingEvents[0];
+      const pend = state.slot;
       if (!pend || !/^ev-w\d{2}$/.test(pend.eventId)) break;
       const ev = template.events.find((e) => e.id === pend.eventId);
-      if (!ev || ev.kind !== "normal") break;
+      if (!ev) break;
+      if (ev.kind === "random") {
+        // ev-w12 是真转盘：呈现（掷骰）→ 确认（结算那一格）
+        advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
+        continue;
+      }
+      if (ev.kind !== "normal") break;
       let optId = ev.settle.normal.options[0].id;
       const pickByText = (needle: string) => {
         const o = ev.settle.normal.options.find((x) => x.text.includes(needle));
@@ -921,8 +978,18 @@ describe("V2 引擎 · 咒术转盘开局链", () => {
       chooseOptionV2(state, { optionId: optId }, template, lookup);
     }
 
-    // 创建链收束（ev-w12 是真转盘：random 即时结算；ev-w13 入学式收尾）
-    expect(state.chains.find((c) => c.id === "chain-creation")?.status).toBe("completed");
+    /**
+     * **失效原因**：原断言读 `state.chains`（`status === "completed"`）。ADR-0034 §5 删除链运行时状态，
+     * 「链是否走完」不再有字段可读。
+     * **等价替代断言**：链走完 == 图上再没有可走的下一条边，可直接从状态观察：
+     *   ① 槽空（ev-w13 无 `nextEventId` ⇒ 结算后 `slot === null`）；
+     *   ② 队列里没有残留的 wNN 实例（13 步都已取出/结算，没有卡住的一条）；
+     *   ③ 每一步都留下 `wNN` 标记（原断言保留）+ 时间落到入学式那天。
+     */
+    expect(state.slot).toBeNull();
+    expect(
+      state.delayQueue.filter((i) => /^ev-w\d{2}$/.test(i.definitionId) && i.status === "waiting"),
+    ).toEqual([]);
     // 性别 / 年龄由玩家在事件里定下（setIdentity 生效）
     expect(state.player.gender).toBe("female");
     expect(state.playerAgeAtStart).toBe(15);
