@@ -55,8 +55,8 @@ typecheck → shared test → game-core test → playthrough（串行）→ web 
 - 跨会话事实与已裁决决定：`docs/PROJECT_MEMORY.md`
 - 协作流程（专家团 / 迭代技能）：`.workbuddy/experts/README.md`、`.workbuddy/skills/`
 
-代码经 GitHub 远程仓库 `git@github.com:Kazagask/ai-life-simulator.git` 同步，
-云端 `git clone https://github.com/Kazagask/ai-life-simulator.git` 即可开始；
+代码经 GitHub 远程仓库 `git@github.com:Kazagask/ai-life-simulator.git` 同步。**仓库为私有**，
+云端需带凭据 clone（`git clone git@github.com:Kazagask/ai-life-simulator.git`，无 SSH 则用 HTTPS + PAT）；
 `apps/web/dist` 由 `pnpm build` 生成，未构建时 `/` 返回 503 `web_dist_missing`。
 默认无 `LIFE_SIM_LLM_*` 环境变量 ⇒ Mock 零回归、不调用任何 LLM。
 

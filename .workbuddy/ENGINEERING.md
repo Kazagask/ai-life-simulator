@@ -17,7 +17,7 @@
 | 单端口 | `PORT`（默认 3000），绑定 `0.0.0.0`；Fastify 同时托管 API 与 `apps/web/dist` |
 | 云端应用身份 | `wbapp_6BjykHXBJu8kLx2VWyxeie`，云服务 ACTIVE（2026-11-13 `inspect` 核实，billingStatus normal） |
 | 已发布分享链接 | https://cursed-wheel-life.app.workbuddy.host/?sharecode=AWEIS4D6KT |
-| Git remote | `origin` = `git@github.com:Kazagask/ai-life-simulator.git`（用户 2026-11-13 创建，空仓库、HTTPS 匿名可读）；因本机 SSH 公钥未绑定 GitHub，`pushurl` 暂走 HTTPS + 已存凭据，详见 `docs/CLOUD_DEV.md §1` |
+| Git remote | `origin` = `git@github.com:Kazagask/ai-life-simulator.git`（用户 2026-11-13 创建）。**私有仓库**：2026-11-13 匿名 `GET https://api.github.com/repos/...` 与网页均返回 404，故 clone / 拉取必须带凭据（本机 SSH 已可用；`pushurl` 亦为 SSH），详见 `docs/CLOUD_DEV.md §1` |
 | WorkBuddy 云端项目 | `projectId=p_b65216f5322d464eb95088a64eaf38fa`；代码经上述 GitHub 仓库同步，项目内有内置任务管理系统（清单见 `tasks/CLOUD_TASKS.md`） |
 | 当前 HEAD | `2a296d6`（文档收尾）；功能与 ADR 收口于 `0f42bd0` |
 

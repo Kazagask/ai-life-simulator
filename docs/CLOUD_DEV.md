@@ -16,28 +16,28 @@
 | Chrome / Chromium | **仅 UI e2e 需要**；API 冒烟不需要 | `CHROME_PATH` |
 | 外部网络 | **不需要**（默认 Mock，零 LLM 调用） | 见 §5 |
 
-✅ 代码经 GitHub 远程仓库 `git@github.com:Kazagask/ai-life-simulator.git` 同步（HTTPS 匿名可读）。云端直接 clone 即可，不依赖本机磁盘。
-⚠️ **首次推送需要 GitHub 认证**：SSH 公钥未绑定时会报 `Permission denied (publickey)`；改用 HTTPS + PAT，或把本机 `~/.ssh/id_rsa.pub` 加入 GitHub SSH Keys。详见 §1。
+✅ 代码经 GitHub 远程仓库 `git@github.com:Kazagask/ai-life-simulator.git` 同步，云端直接 clone 即可，不依赖本机磁盘。
+⚠️ **仓库是私有的**（2026-11-13 实测：匿名 `GET https://api.github.com/repos/Kazagask/ai-life-simulator`
+与网页均为 404），因此 **clone 必须带凭据**：SSH key 已绑定 GitHub 时用 SSH，
+否则用 HTTPS + Personal Access Token。匿名 `git clone https://...` 会失败。详见 §1。
 
 ## 1. 取回工程并起步
 
-用户已建 GitHub 远程仓库，云端直接 clone（进入含 `pnpm-workspace.yaml` 的那一层）：
+用户已建 GitHub 远程仓库（**私有**），云端需在具备凭据的环境下 clone（进入含 `pnpm-workspace.yaml` 的那一层）：
 
 ```bash
-git clone https://github.com/Kazagask/ai-life-simulator.git
+# 私有仓库：二选一，匿名 HTTPS clone 会 404
+git clone git@github.com:Kazagask/ai-life-simulator.git        # 环境内已配 SSH key
+# git clone https://<PAT>@github.com/Kazagask/ai-life-simulator.git   # 无 SSH 时用 PAT
 cd ai-life-simulator
 pnpm install
 pnpm build          # 必须：生成 apps/web/dist，否则 / 返回 503 web_dist_missing
 pnpm start          # 默认 0.0.0.0:3000
 ```
 
-**推送认证**：仓库 SSH 地址为 `git@github.com:Kazagask/ai-life-simulator.git`。本机 `~/.ssh/id_rsa.pub`
-（`SHA256:DLryRDsmOs+u1FV0Vaa5BgNqLOnl0IkOrz97CYhwz1g`）在 2026-11-13 实测**未被 GitHub 接受**
-（`Permission denied (publickey)`）。可用的两条路：
-1. 把该公钥加到 GitHub → Settings → SSH and GPG keys（保留纯 SSH）；
-2. 用 HTTPS + Personal Access Token。本机 `git config credential.helper = manager` 已存有 github.com 凭据，
-   故本轮本地配置采用「`origin` fetch 走 SSH、`pushurl` 走 HTTPS」的混合形式；SSH key 绑定后可执行
-   `git remote set-url --delete --push origin https://github.com/Kazagask/ai-life-simulator.git` 切回纯 SSH。
+**认证现状（2026-11-13 更新）**：本机 `~/.ssh/id_rsa.pub` 已绑定 GitHub，`ssh -T git@github.com` 认证通过；
+`origin` 的 fetch 与 push 均走 SSH，`git push origin main` 实测成功（`28cce18..601f1f7`）。
+原先「SSH 未绑定、push 走 HTTPS」的记录已过期。
 
 **不要**为了绕开认证使用 `--force` 推送，或把 `origin` 改指向另一个仓库。
 
