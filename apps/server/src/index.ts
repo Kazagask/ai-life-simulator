@@ -31,7 +31,8 @@ import { BattleCommandSchema, EndingNarrativeOutputSchema, EvaluationSummaryOutp
 import type { EndingConfig, EndingRecord, V2Snapshot, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
 import { getEndingConfig, getEvaluationConfig, getOpeningTemplates, getTemplateFingerprint, loadTemplates } from "./templates.js";
 import { dataDir, hydrate, loadPersistedWorlds, worldStore } from "./store.js";
-import { createLLMProvider, readLLMConfig } from "./llm/provider.js";
+import { createLLMProvider, readLLMConfig, resolveProviderForRequest, type LLMProvider } from "./llm/provider.js";
+import { userCredentials } from "./llm/userCredentials.js";
 import {
   adapterFromOutcome,
   decorateEndingView,
@@ -85,6 +86,26 @@ const lookups = new Map([...templates.entries()].map(([id, t]) => [id, createLoo
  */
 const llmProvider = createLLMProvider(readLLMConfig());
 app.log.info({ provider: llmProvider.id }, "llm_provider_ready");
+
+// R2.8 · R-LLM-07/08：声明请求级 provider 槽位（仅类型，不写任何凭证字面量）。
+// 非可选：preHandler 在每个请求进入 handler 前都赋值，故读取处视为已定义。
+declare module "fastify" {
+  interface FastifyRequest {
+    llmProvider: LLMProvider;
+  }
+}
+
+/**
+ * R2.8 · R-LLM-07/08：每个请求按 `x-life-sim-llm-session` 头解析用户自带 key 凭证，
+ * 命中 ⇒ 构造用户 key 的 OpenAI 兼容 provider（优先级 ①），否则回退全局 provider（②/③）。
+ * 凭证只在内存查找、绝不入日志、绝不进响应体。未带头 / 头无效 ⇒ 回退全局 provider。
+ */
+app.addHook("preHandler", (request, _reply, done) => {
+  const sid = request.headers["x-life-sim-llm-session"];
+  const creds = typeof sid === "string" ? userCredentials.lookup(sid) : undefined;
+  request.llmProvider = resolveProviderForRequest(creds, llmProvider);
+  done();
+});
 
 // ---------- 存档加载（R-PS-05 / ADR-0007）：四道校验关，坏档 error 跳过不阻断 ----------
 
@@ -186,6 +207,7 @@ async function endingOutcomeFor(
   template: WorldTemplateV2,
   lookup: ReturnType<typeof createLookup>,
   cfg: TurnPipelineConfig = pipelineOf(template.meta.id),
+  provider: LLMProvider = llmProvider,
 ): Promise<NarrativeOutcome> {
   if (world.termination === null) return TEMPLATE_OUTCOME;
   const resolution = resolveEndingBase(world, lookup, cfg);
@@ -197,7 +219,7 @@ async function endingOutcomeFor(
       allowedEvidenceIds: resolution.base.evidenceIds,
     }),
     EndingNarrativeOutputSchema,
-    llmProvider,
+    provider,
   );
   logNarrativeDiagnostic(outcome.diagnostic);
   return outcome;
@@ -212,13 +234,14 @@ async function decorateSnapshot(
   world: WorldStateV2,
   template: WorldTemplateV2,
   lookup: ReturnType<typeof createLookup>,
+  provider: LLMProvider = llmProvider,
 ): Promise<V2Snapshot> {
   const ending = snapshot.ending;
   if (!ending || ending.visibility === "hidden") return snapshot;
   const key = `${world.id}:${snapshot.turnIndex}`;
   let outcome = endingOutcomeCache.get(key);
   if (outcome === undefined) {
-    outcome = await endingOutcomeFor(world, template, lookup);
+    outcome = await endingOutcomeFor(world, template, lookup, pipelineOf(template.meta.id), provider);
     endingOutcomeCache.set(key, outcome);
   }
   return decorateEndingView(snapshot, outcome);
@@ -242,7 +265,7 @@ function scheduleFlavors(
     turnIndex: snapshot.turnIndex,
     worldTime: snapshot.worldTime,
     events,
-    provider: llmProvider,
+    provider: request.llmProvider,
     timeoutMs: FLAVOR_TIMEOUT_MS,
     onDiagnostic: (diagnostic) => request.log.warn({ diagnostic }, "narrative_fallback"),
   });
@@ -296,6 +319,29 @@ const useItemSchema = z.object({ itemId: z.string().min(1) });
 
 app.get("/health", async () => ({ ok: true, service: "life-sim-server", protocol: "v2" }));
 
+/**
+ * R2.8 · R-LLM-07：登录页提交自定义 LLM 凭证，服务端仅内存持有并 mint 不透明 sessionId。
+ * 凭证绝不回显、绝不落盘、绝不进日志。校验失败转 400，不崩溃。
+ */
+const llmCredentialsSchema = z.object({
+  apiKey: z.string().min(1),
+  model: z.string().min(1),
+  baseUrl: z.string().url().optional(),
+});
+
+app.post("/api/llm-credentials", async (request, reply) => {
+  const parsed = llmCredentialsSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({ error: "invalid_credentials", detail: parsed.error.flatten() });
+  }
+  try {
+    const sessionId = userCredentials.mint(parsed.data);
+    return reply.code(201).send({ sessionId });
+  } catch {
+    return reply.code(400).send({ error: "invalid_credentials" });
+  }
+});
+
 app.get("/api/templates", async () => ({
   templates: [...templates.values()].map((t) => ({
     id: t.meta.id,
@@ -327,7 +373,7 @@ app.post("/api/worlds", async (request, reply) => {
   }
   const world = worldStore.create(parsed.data, template);
   const lookup = lookups.get(template.meta.id)!;
-  const snapshot = await decorateSnapshot(projectWorld(world, template, lookup), world, template, lookup);
+  const snapshot = await decorateSnapshot(projectWorld(world, template, lookup), world, template, lookup, request.llmProvider);
   return reply.code(201).send({ worldId: world.id, snapshot });
 });
 
@@ -342,6 +388,7 @@ app.get("/api/worlds/:id", async (request, reply) => {
       found.world,
       found.template,
       found.lookup,
+      request.llmProvider,
     ),
     // 可选新增字段：非权威缓存里的事件 flavor（缺省 {}）；缺省完全等同原行为
     eventFlavors: getFlavors(id),
@@ -364,7 +411,7 @@ app.post("/api/worlds/:id/turns", async (request, reply) => {
     worldStore.save(res.state);
     // fire-and-forget：绝不 await LLM、不阻塞回合结算（R-LLM-05）
     scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup);
+    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup, request.llmProvider);
     return {
       worldId: found.world.id,
       turnIndex: res.snapshot.turnIndex,
@@ -393,7 +440,7 @@ app.post("/api/worlds/:id/events/choose", async (request, reply) => {
     const res = chooseOptionV2(found.world, parsed.data, found.template, found.lookup, pipelineOf(found.template.meta.id));
     worldStore.save(res.state);
     scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup);
+    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup, request.llmProvider);
     return {
       worldId: found.world.id,
       snapshot,
@@ -420,7 +467,7 @@ app.post("/api/worlds/:id/battle", async (request, reply) => {
     const res = battleActionV2(found.world, parsed.data, found.template, found.lookup, pipelineOf(found.template.meta.id));
     worldStore.save(res.state);
     scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup);
+    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup, request.llmProvider);
     return {
       worldId: found.world.id,
       snapshot,
@@ -447,7 +494,7 @@ app.post("/api/worlds/:id/items/use", async (request, reply) => {
     const res = useItemV2(found.world, parsed.data, found.template, found.lookup, pipelineOf(found.template.meta.id));
     worldStore.save(res.state);
     scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup);
+    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup, request.llmProvider);
     return {
       worldId: found.world.id,
       snapshot,
@@ -487,7 +534,7 @@ app.post("/api/worlds/:id/equipment/equip", async (request, reply) => {
   try {
     const res = equipV2(found.world, parsed.data, found.template, found.lookup);
     worldStore.save(res.state);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup);
+    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup, request.llmProvider);
     return { worldId: found.world.id, snapshot };
   } catch (error) {
     return handleEquipError(request, reply, error);
@@ -507,7 +554,7 @@ app.post("/api/worlds/:id/equipment/unequip", async (request, reply) => {
   try {
     const res = unequipV2(found.world, parsed.data, found.template, found.lookup);
     worldStore.save(res.state);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup);
+    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.template, found.lookup, request.llmProvider);
     return { worldId: found.world.id, snapshot };
   } catch (error) {
     return handleEquipError(request, reply, error);
@@ -606,7 +653,7 @@ app.post("/api/worlds/:id/archive", async (request, reply) => {
     : await generateNarrative(
         buildEvaluationSummaryRequest(evaluation),
         EvaluationSummaryOutputSchema,
-        llmProvider,
+        request.llmProvider,
       );
   logNarrativeDiagnostic(summaryOutcome.diagnostic);
   const finalEvaluation = masked
@@ -617,7 +664,7 @@ app.post("/api/worlds/:id/archive", async (request, reply) => {
   // `snapshot.ending.narrativeSource`（主理人裁决 3：玩家可见准绳）。
   const endingOutcome = masked
     ? TEMPLATE_OUTCOME
-    : await endingOutcomeFor(found.world, found.template, found.lookup, cfg);
+    : await endingOutcomeFor(found.world, found.template, found.lookup, cfg, request.llmProvider);
   const endingAdapter = masked ? undefined : adapterFromOutcome(endingOutcome);
   const ending = resolveEnding(
     found.world,

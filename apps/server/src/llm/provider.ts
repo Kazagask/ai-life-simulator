@@ -2,6 +2,7 @@ import type { NarrativeInput, NarrativeOutputSchemaLike } from "@life-sim/game-c
 import { MockProvider } from "./mock.js";
 import { OpenAICompatibleProvider } from "./openaiCompatible.js";
 import { WorkBuddyCloudProvider } from "./workbuddyCloud.js";
+import { DEFAULT_OPENAI_BASE_URL, type UserCredentials } from "./userCredentials.js";
 
 /**
  * R2.7 · LLMProvider 统一接口（R-LLM-01 / ADR-0027 决策 1）。
@@ -77,4 +78,25 @@ export function createLLMProvider(config: LLMConfig): LLMProvider {
     return new OpenAICompatibleProvider({ baseUrl, model, apiKey, timeoutMs: config.timeoutMs });
   }
   return new MockProvider();
+}
+
+/**
+ * R2.8 · R-LLM-08：按**请求**解析 provider 的三级优先级。
+ * ① 若请求携带有效用户凭证（登录页自带 key，服务端内存持有）⇒ 用 `OpenAICompatibleProvider` 代调；
+ * ② 否则回退到启动期从 env 构造的全局 provider（platform-keyless / mock）。
+ *
+ * 用户 key 本次调用失败 ⇒ 由编排层（`generateNarrative`）回退模板，**不自动降级到 ②**；
+ * 下次仍按 ① 优先。凭证错误不静默穿透到平台免密。
+ */
+export function resolveProviderForRequest(
+  userCreds: UserCredentials | undefined,
+  fallback: LLMProvider,
+): LLMProvider {
+  if (!userCreds) return fallback;
+  const baseUrl = (userCreds.baseUrl?.trim() || DEFAULT_OPENAI_BASE_URL).replace(/\/+$/, "");
+  return new OpenAICompatibleProvider({
+    baseUrl,
+    model: userCreds.model.trim(),
+    apiKey: userCreds.apiKey.trim(),
+  });
 }
