@@ -16,16 +16,26 @@ import { cloud } from "./cloud";
  */
 const DEFAULT_TIMEOUT_MS = 12000;
 
-let cachedModelId: string | null = null;
+let modelIdPromise: Promise<string | null> | null = null;
 
-/** 选一个可用模型（未禁用）；空列表 / 全禁用 / 不可达 ⇒ null。 */
-async function pickModelId(): Promise<string | null> {
-  if (cachedModelId !== null) return cachedModelId;
-  const models = await cloud.llm.models.list();
-  const usable = models.find((m) => m.disabled !== true);
-  if (!usable) return null;
-  cachedModelId = usable.id;
-  return usable.id;
+/**
+ * 选一个可用模型（未禁用）；空列表 / 全禁用 / 不可达 ⇒ null。
+ *
+ * 缓存的是 **promise** 而不是结果：结局叙事与人生总结会在首屏并发调用，
+ * 只缓存结果的话两个调用会同时穿透去打两次 `GET /models`。失败 / 无模型
+ * 一律不缓存，后续调用可以重试（避免一次抖动把整局钉死在模板上）。
+ */
+function pickModelId(): Promise<string | null> {
+  if (modelIdPromise !== null) return modelIdPromise;
+  const task = cloud.llm.models
+    .list()
+    .then((models) => models.find((m) => m.disabled !== true)?.id ?? null)
+    .catch(() => null);
+  modelIdPromise = task;
+  void task.then((id) => {
+    if (id === null) modelIdPromise = null;
+  });
+  return task;
 }
 
 /**
