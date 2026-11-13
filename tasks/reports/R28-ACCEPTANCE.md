@@ -34,7 +34,7 @@
 | 需求 | 裁定 | 依据（详见 §2） |
 |---|---|---|
 | **R-TG-01** 身份=`(目录名, 版本目录名)` + 两级选择 | **PASS** | AC①④⑤：`renamed-tpl/1.0.0` 建局 ⇒ `world.templateId=renamed-tpl`；`startVersion=2.0.0`/`10`（补 0 全序，非 `versions[0]`）；**AC③ 复验通过**：非法版本目录名 ⇒ 启动期报错（exit=1） |
-| **R-TG-04** 启动期 fail-fast（**六形态**） | **PASS** | 逐个构造：yaml 语法错 / Zod 校验失败 / `meta.id`≠目录名 / 零模板 / 非法版本目录名 ⇒ 子进程 **exit=1**；空版本目录 ⇒ 启动成功 + `template_version_empty`（B-4 #3 豁免，**仅限名字合法的版本目录**） |
+| **R-TG-04** 启动期 fail-fast（**五形态**，按需求枚举的类别计） | **PASS** | 逐类构造：① yaml 语法错 ② Zod 校验失败 ③ `meta.id`≠目录名 ④ **版本目录名不合 `^\d+(\.\d+){0,2}$`**（`7639d7a` 前属漏实现，复验已补齐）⑤ 零模板 ⇒ 子进程 **exit=1**；空版本目录 ⇒ 启动成功 + `template_version_empty`（B-4 #3 豁免）。**第 4 类不区分目录内是否为空**：`v2/` 与空的 `beta/` 都拒绝启动——空目录豁免只给「名字合法」的版本目录。 |
 | **R-TG-08** 模板引用固化进信封、`persist` 不查全局表 | **PASS** | AC① 换掉磁盘模板后 `save` ⇒ 三元组逐字节不变（前置断言确认注册表指纹已变，排除空转）；② 无 `getTemplateFingerprint`/`sha256:unknown`；③ 缺 record ⇒ `template_ref_missing`；④ 唯一性推断 + 回填（正 2 格 + 真实数据副本 8 份旧档全部回填 `1.0.0`） |
 | **R-TG-10** 封闭原因码 + 列表可见不可载 + 409 | **PASS（AC① 第 3 形态证据形式降级，需求侧已认领）** | 四格矩阵 + `template_missing` / `template_version_ambiguous`（含「两版本都不匹配指纹仍判歧义」反例）/ 封闭枚举扫描 / 真 HTTP 409 `world_unloadable` + 可删；`template_invalid` 只能以 stub 注册表证映射（见 §3 P2-1） |
 | **R-TG-14** 两级选择 + `openingId` 归属 | **PASS（服务端契约实测；AC①/④ 交互未实测）** | 同模板两版本 openings 不同 ⇒ 提交另一版本 `openingId` ⇒ 400 + `allowed:["op-2006-kyoto"]`；多版本缺版本号 ⇒ 400 + `versions:["1.0.0","2","10"]`（补 0 全序）；`main.tsx:773-817` 代码核对：openings 取自 `version?.openings`、切模板/切版本均清空 `openingId`、默认版本取 `startVersion` |
@@ -66,7 +66,7 @@
 | `pnpm --filter @life-sim/game-core test` | **0** | 36 文件 / **522 passed** | 全量回归（含 QA 新增 44 例） |
 | 其中 `src/v2/r28-save-migration.test.ts` | 0 | **13 passed** | 四格矩阵 + 原因码 + R-TG-08 + R-TG-01 AC④ |
 | 其中 `src/v2/r28-hot-reload.test.ts` | 0 | **15 passed** | R-TG-16 八条 AC + R-TG-15 角色/指纹 |
-| 其中 `src/v2/r28-readonly-boundary.test.ts` | 0 | **16 passed** | R-TG-17 + 静态红线 + R-TG-04 六形态退出码 + R-TG-01/10/14 真 HTTP + P2 排序 |
+| 其中 `src/v2/r28-readonly-boundary.test.ts` | 0 | **16 passed** | R-TG-17 + 静态红线 + R-TG-04 五形态退出码（含空/非法名两边界）+ R-TG-01/10/14 真 HTTP + P2 排序 |
 
 > 首轮为 519 passed / 13 例边界文件；复验把那条「断言旧 warn 现状」的用例拆成三条（空版本目录 / 非法名非空 / 非法名空目录）+ 新增 P2 排序用例 ⇒ 522。
 
@@ -127,17 +127,20 @@ GET     /api/templates                 → 200
 
 ### 2.4 R-TG-04 启动期实测（子进程退出码，复验后）
 
-| 形态 | 期望 | 实测 |
-|---|---|---|
-| yaml 语法坏（`events.yaml`） | 非 0 退出 | **exit=1**，输出含 `events.yaml` |
-| Zod 校验失败（结构坏） | 非 0 退出 | **exit=1**（与上同为 `template_invalid:` 前缀，含文件与首个 issue 路径） |
-| `meta.id` ≠ 目录名 | 非 0 退出 | **exit=1**，`template_invalid: jjk-2006@1.0.0: world.yaml: meta.id (wrong-id) 与模板目录名 (jjk-2006) 不一致` |
-| templates 目录零模板 | 非 0 退出 | **exit=1**，`no_templates_found_in: …` |
-| **非法版本目录名（`v2/` 内 11 个合法 yaml）** | 非 0 退出 | **exit=1**（复验）：`template_version_dir_invalid: <id>=jjk-2006 下存在目录 "v2"，但版本目录名必须是 ^\d+(\.\d+){0,2}$（例如 1.0.0、2、1.2.3）；路径：…\templates\jjk-2006\v2` |
-| 空版本目录（`1.1.0/` 零 yaml，名字合法） | 启动成功 + warn | **启动成功**（health 200），列表只有 `1.0.0`，日志 `template_version_empty` |
-| 空的非法名目录（`beta/`） | 当前实现：非 0 退出 | **exit=1** + `template_version_dir_invalid`（已钉成用例，见 §3 说明） |
+类别编号与 `requirements.md` R-TG-04 的枚举一一对应（**共五类**，不另立第六类）：
 
-> 「空版本目录豁免」与「非法名拒绝」的边界被显式钉住：`1.1.0/` 空 ⇒ 启动；`beta/` 空 ⇒ 拒绝。修的是「版本号写错」，没有顺手把「mkdir 还没 cp 完」也判死。
+| 需求枚举的类别 | 实测 |
+|---|---|
+| ① yaml 语法错（`events.yaml`） | **exit=1**，输出含 `events.yaml` |
+| ② Zod 校验失败（结构坏） | **exit=1**（`template_invalid:` 前缀，含文件与首个 issue 路径） |
+| ③ `meta.id` ≠ 目录名 | **exit=1**，`template_invalid: jjk-2006@1.0.0: world.yaml: meta.id (wrong-id) 与模板目录名 (jjk-2006) 不一致` |
+| ④ 版本目录名不合 `^\d+(\.\d+){0,2}$` —— 非空（`v2/` 内 11 个合法 yaml） | **exit=1**（复验）：`template_version_dir_invalid: <id>=jjk-2006 下存在目录 "v2"，但版本目录名必须是 ^\d+(\.\d+){0,2}$（例如 1.0.0、2、1.2.3）；路径：…\templates\jjk-2006\v2` |
+| ④ **同一类别**的边界 —— **空**的 `beta/` | **exit=1** + `template_version_dir_invalid` |
+| ⑤ `specs/data/templates/` 下零模板 | **exit=1**，`no_templates_found_in: …` |
+| （**豁免，不属五类之一**）空版本目录 `1.1.0/`，**名字合法** | **启动成功**（health 200），列表只有 `1.0.0`，日志 `template_version_empty` |
+
+> **第 4 类不区分目录内是否为空**：`v2/` 与空的 `beta/` 都拒绝启动——空目录豁免只给「名字合法」的版本目录。
+> 「空版本目录豁免」与「非法名拒绝」的边界因此被显式钉住：`1.1.0/` 空且名合法 ⇒ 启动；`beta/` 空但名非法 ⇒ 拒绝。修的是「版本号写错」，没有顺手把「mkdir 还没 cp 完」也判死。
 
 ### 2.5 P2 排序复验（`7639d7a`）
 
@@ -221,7 +224,7 @@ semanticFingerprint: sha256:9a945ac31fd9fb10716714bd608127ac87c9b24212721dd44015
 |---|---|---|
 | `packages/game-core/src/v2/r28-save-migration.test.ts` | 新增（`b1cb37a`，复验未改） | 四格矩阵（正1/正2/负1/负2 + 同批向量）+ 其余封闭原因码（`template_missing` / `template_version_ambiguous` 含反例 / `template_invalid` stub / 封闭枚举扫描）+ R-TG-08 AC①②③④ + R-TG-01 AC④ |
 | `packages/game-core/src/v2/r28-hot-reload.test.ts` | 新增（`b1cb37a`，复验未改） | R-TG-16 AC①~⑧（含「目录 mtime 未变」的行为断言、`rescanCount`/`statCount` 增量、口径澄清 #1 的保留旧 Entry）+ R-TG-15 角色/分层指纹 |
-| `packages/game-core/src/v2/r28-readonly-boundary.test.ts` | 新增 + **复验修改** | R-TG-17 静态断言 + 10 条写方法探针（子进程真 HTTP）+ R-TG-16 AC⑦/⑨ 与 R-TG-15 AC⑧ 静态红线 + **R-TG-04 六形态（含拆出的「空版本目录启动成功」「非法名非空 ⇒ exit=1」「空的非法名目录 ⇒ exit=1」三条）** + R-TG-01 AC②/`startVersion` + **P2 三版本排序（两出口一致）** + R-TG-14 两个 400 + R-TG-10 409/可删全链路 |
+| `packages/game-core/src/v2/r28-readonly-boundary.test.ts` | 新增 + **复验修改** | R-TG-17 静态断言 + 10 条写方法探针（子进程真 HTTP）+ R-TG-16 AC⑦/⑨ 与 R-TG-15 AC⑧ 静态红线 + **R-TG-04 五形态退出码（第 4 类的三个边界：`1.1.0/` 空且名合法 ⇒ 放行、`v2/` 非空非法名 ⇒ 拒绝、`beta/` 空非法名 ⇒ 拒绝）** + R-TG-01 AC②/`startVersion` + **P2 三版本排序（两出口一致）** + R-TG-14 两个 400 + R-TG-10 409/可删全链路 |
 | `tasks/reports/R28-ACCEPTANCE.md` | 新增 + **复验更新** | 本报告 |
 
 **未改任何生产代码**（`apps/**`、`packages/**` 源码零改动；复验期间的变异均为临时，已 `git checkout --` 还原并复核 `git status`）。
