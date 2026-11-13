@@ -810,6 +810,8 @@ button {
   letter-spacing: 0.04em;
   pointer-events: none;
 }
+/* 三行折行时降一档字号（9.5px），保证行块不溢出扇区、也不蹭到圆盘内环 */
+.wheel-label--dense { font-size: 9.5px; letter-spacing: 0.02em; }
 .wheel-label.hit { fill: #fff5e8; font-weight: 700; }
 
 .wheel-hub-ring { stroke: color-mix(in srgb, var(--gold) 60%, transparent); stroke-width: 1.4; }
