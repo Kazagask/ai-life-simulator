@@ -2,6 +2,7 @@ import type {
   BattleCommand,
   EndingView,
   HistoryEntryV2,
+  SlotEventView,
   TimeAmount,
   V2Snapshot,
   WheelResultView,
@@ -424,4 +425,4 @@ export function mergeEventFlavors(
   return { ...(prev ?? {}), ...Object.fromEntries(valid) };
 }
 
-export type { V2Snapshot, BattleCommand, WheelResultView, EndingView };
+export type { V2Snapshot, BattleCommand, WheelResultView, SlotEventView, EndingView };

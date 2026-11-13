@@ -19,6 +19,7 @@ import type {
   EndingView,
   EventFlavorMap,
   NarrativeSource,
+  SlotEventView,
   TemplateSummary,
   V2Snapshot,
   WheelResultView,
@@ -162,46 +163,23 @@ function withMergedFlavors(
   return merged === prev.eventFlavors ? prev : { ...prev, eventFlavors: merged };
 }
 
-// ---------- 本轮转盘结果（D-03 / D-09） ----------
-
-/** 转盘去重键：同一事件同轮抽中同一扇区，视觉上就是同一次揭示。 */
-function wheelKey(wheel: WheelResultView): string {
-  return `${wheel.eventId}::${wheel.label}`;
-}
+// ---------- 呈现槽（ADR-0034 §5） ----------
 
 /**
- * 合并「本轮全部转盘结果」（D-03）。
+ * 槽位占位者：事件区的呈现单位 ——「正常事件 / 随机事件 / 战斗 / 自由行动」四者共用一个区域。
  *
- * 权威来源是服务端持久化的 `snapshot.lastWheels`：按触发顺序、当轮清空、刷新后仍在。
- * 瞬态 `lastResult.wheel` 只保留作兜底——它只是本次响应里的「最后一个」结果，
- * 旧服务端尚未下发 `lastWheels` 时靠它兜住单转盘场景；与新字段重复时按 `wheelKey` 去重，
- * 保证同一次揭示不会显示两份。
- */
-function mergeWheels(
-  persistent: WheelResultView[] | undefined,
-  transient: WheelResultView | null,
-): WheelResultView[] {
-  const list = [...(persistent ?? [])];
-  const seen = new Set(list.map(wheelKey));
-  if (transient && !seen.has(wheelKey(transient))) list.push(transient);
-  return list;
-}
-
-/**
- * 「本轮已读过」的转盘签名：轮次 + 本轮持久化转盘集合。
- * 只取 `lastWheels`（不掺瞬态），因此点过「继续」后再来的瞬态清理不会让签名抖动；
- * 轮次一变签名即失效，不需要额外的清理逻辑。
- */
-function wheelSignature(turnIndex: number, persistent: WheelResultView[] | undefined): string {
-  return `${turnIndex}|${(persistent ?? []).map(wheelKey).join(",")}`;
-}
-
-/**
- * 槽位占位者（用户 2026-11-11 裁决）：轮次槽位 = 事件区的呈现单位，
- * 「正常事件 / 随机事件 / 战斗 / 自由行动」四者共用一个区域，一个轮次只呈现一个。
- * 随机事件由服务端结算后随轮次结果直接返回，前端在事件区以转盘揭示它（不再散落在结果卡里）。
+ * ADR-0034 之后这**不再是前端排出来的优先级**：占位者由服务端投影 `V2Snapshot.slotEvent`
+ * （唯一真源）的 `kind` 一一映射而来，前端只负责按它选面板。
  */
 type SlotOccupant = "wheel" | "battle" | "event" | "action";
+
+/** `slotEvent.kind` → 事件区的呈现者。空槽即自由行动。 */
+function occupantOf(slot: SlotEventView | null): SlotOccupant {
+  if (slot === null) return "action";
+  if (slot.kind === "random") return "wheel";
+  if (slot.kind === "combat") return "battle";
+  return "event";
+}
 
 const SLOT_BADGE: Record<SlotOccupant, string> = {
   wheel: "随机事件",
@@ -229,9 +207,6 @@ function App() {
     worldId: string;
     summarySource: NarrativeSource | undefined;
   } | null>(null);
-  // 本轮转盘是否已被「继续」读掉（签名 = 轮次 + 本轮转盘集合，见 wheelSignature）。
-  // 放在 App 而不是 LifeTab：切页签会卸载 LifeTab，本状态必须活过重挂载。
-  const [dismissedWheelSig, setDismissedWheelSig] = useState<string | null>(null);
   // ---------- 账号登录（ADR-0025） ----------
   // 认证**不阻塞游戏**：这三个状态只影响「档案」页签与结算页的一行提示。
   const [session, setSession] = useState<CloudSession | null>(null);
@@ -355,7 +330,6 @@ function App() {
     setTab("life");
     setNotice(null);
     setLastResult(null);
-    setDismissedWheelSig(null);
   }, []);
 
   const wrap = useCallback(
@@ -408,6 +382,19 @@ function App() {
   const advance = useCallback(
     (action: { type: string; description: string }) =>
       worldId ? wrap(() => api.advanceTurn(worldId, action)) : undefined,
+    [worldId, wrap],
+  );
+
+  /**
+   * 转盘「继续」= **确认**（ADR-0034 §8-⑩）。
+   *
+   * 槽内是 `random` 时 `POST /turns` 的语义就是"确认已呈现的那一格"：不消耗行动、不推时间、
+   * 净 +1 轮。请求体里的 `action` 被引擎忽略（服务端 zod 只要求 `type` 非空字符串），
+   * 所以这里发一个**明确的确认标记**，而不是再借自由行动的动作 id —— 否则日志/抓包里
+   * 看起来像玩家做了一次「探索」。确认后的响应带 `wheelResult`，用它对账"这一格是什么"。
+   */
+  const confirmWheel = useCallback(
+    () => (worldId ? wrap(() => api.advanceTurn(worldId, { type: "wheel-confirm", description: "" })) : undefined),
     [worldId, wrap],
   );
 
@@ -498,7 +485,6 @@ function App() {
     setSnapshot(null);
     setNotice(null);
     setLastResult(null);
-    setDismissedWheelSig(null);
   }, []);
 
   if (!worldId || !snapshot) {
@@ -529,16 +515,16 @@ function App() {
     );
   }
 
-  const battleActive = snapshot.battle !== null && snapshot.battle.over === null;
-  const interacting = battleActive || snapshot.pendingEvent !== null;
+  // 呈现槽（ADR-0034 §5）：`slotEvent` 是**唯一**真源 —— 非空 = 有东西在等玩家（事件 / 转盘 / 战斗），
+  // 空 = 可自由行动。前端不再自己排「转盘 > 战斗 > 待决事件」的优先级，也不再看队列。
+  // 连底栏的「事件待决 / 战斗进行中」浮标也直接读它，`battle` 不再参与准入判断。
+  const slot = snapshot.slotEvent;
+  // 转盘槽不挂浮标：转盘自己的「命运之轮 / 继续」已经说明要做什么，而 `.interact-hint` 是
+  // `position: fixed` 的贴底气泡，会正好压在事件区底部的「继续」上（D-05 同一处坑）。
+  const interacting = slot !== null && slot.kind !== "random";
 
-  // 本轮全部转盘（D-03）：权威来源是服务端持久化列表，刷新后仍在（D-09）。
-  // 「继续」读掉之后按签名压制，避免同一轮重复呈现。
-  const wheels = mergeWheels(snapshot.lastWheels, lastResult?.wheel ?? null);
-  const wheelSig = wheelSignature(snapshot.turnIndex, snapshot.lastWheels);
-  const visibleWheels = dismissedWheelSig === wheelSig ? [] : wheels;
   // 刚结算的这一轮才播转盘动画；从存档恢复（刷新后 lastResult 为空）直接呈现已落定结果，
-  // 否则每次刷新都要白等 2.6s 才看到「继续」（D-09）。
+  // 否则每次刷新都要白等 4s 才看到「继续」（D-09）。
   const wheelsFresh = lastResult !== null && lastResult.turnIndex === snapshot.turnIndex;
   // 只认「当前 worldId 的归档响应」：切换 / 重开世界后旧值自动失效（零回归，无额外重置）。
   const summarySource =
@@ -566,17 +552,16 @@ function App() {
             snapshot={snapshot}
             busy={busy}
             lastResult={lastResult}
-            wheels={visibleWheels}
             wheelsFresh={wheelsFresh}
             signedIn={session !== null}
             summarySource={summarySource}
             onAdvance={advance}
+            onConfirmWheel={confirmWheel}
             onChoose={choose}
             onBattle={battle}
             onUseItem={useItem}
             onArchive={archive}
             onEndLife={endLife}
-            onDismissWheel={() => setDismissedWheelSig(wheelSig)}
           />
         )}
         {tab === "personal" && (
@@ -603,7 +588,11 @@ function App() {
           </button>
         ))}
       </nav>
-      {interacting && <div className="interact-hint">{battleActive ? "⚔ 战斗进行中" : "⚡ 事件待决"}</div>}
+      {interacting && (
+        <div className="interact-hint">
+          {slot?.kind === "combat" ? "⚔ 战斗进行中" : slot?.kind === "random" ? "⚄ 命运待确认" : "⚡ 事件待决"}
+        </div>
+      )}
     </div>
   );
 }
@@ -1262,7 +1251,6 @@ function LifeTab({
   snapshot,
   busy,
   lastResult,
-  wheels,
   wheelsFresh,
   signedIn,
   summarySource,
@@ -1272,54 +1260,50 @@ function LifeTab({
   onUseItem,
   onArchive,
   onEndLife,
-  onDismissWheel,
+  onConfirmWheel,
 }: {
   snapshot: V2Snapshot;
   busy: boolean;
   lastResult: LastResult | null;
-  /** 本轮**待呈现**的转盘结果（已按「继续」签名过滤；空数组 = 本轮无转盘可看） */
-  wheels: WheelResultView[];
-  /** 这批转盘是刚结算的（true，播动画）还是从存档恢复的（false，直接落定） */
+  /** 槽内这枚转盘是刚掷出的（true，播动画）还是从存档恢复的（false，直接落定） */
   wheelsFresh: boolean;
   /** 已登录 WorkBuddy 账号：只影响结算页那行「存进人生档案」的提示 */
   signedIn: boolean;
   /** R2.7 / T-S2：归档响应的人生总结来源；缺省 / 非 llm 时展示与改前逐字一致 */
   summarySource?: NarrativeSource;
   onAdvance: (action: { type: string; description: string }) => void;
+  /** 转盘「继续」= 确认已呈现的那一格（ADR-0034 §8-⑩，走 `/turns`，不带行动语义） */
+  onConfirmWheel: () => void;
   onChoose: (optionId: string) => void;
   onBattle: (command: BattleCommand) => void;
   onUseItem: (itemId: string) => void;
   onArchive: () => void;
   onEndLife: () => void;
-  onDismissWheel: () => void;
 }) {
   // 已终止 / 已归档：世界不再接受动作，只呈现结局（服务端同时清空 availableActions）
   const ended = snapshot.status === "terminated" || snapshot.status === "archived";
 
-  // 槽位唯一：一个轮次的事件区只呈现一个占位者。
-  // 转盘（随机事件，服务端已结算）> 战斗 > 待决事件 > 自由行动（空槽）。
-  // 转盘标题随结果一起下发并持久化（D-16 / QA P2-2）：直接读 `wheel.title`，不再拿
-  // `eventId` 去本次响应的 `triggeredEvents` 反查——那条路只在「刚结算」时存在，
-  // 刷新后必然查空、标题回落「随机事件」。旧档物理上没有该字段，才回退「随机事件」。
-  const wheelItems = wheels.map((wheel) => ({
-    wheel,
-    title: wheel.title ?? "随机事件",
-  }));
-  const occupant: SlotOccupant =
-    wheelItems.length > 0
-      ? "wheel"
-      : snapshot.battle
-        ? "battle"
-        : snapshot.pendingEvent
-          ? "event"
-          : "action";
+  // 呈现位（ADR-0034 §5）：唯一真源是 `snapshot.slotEvent`，前端只按 `kind` 选面板：
+  // normal → 选项面板 / random → 转盘（已掷好的那一格）/ combat → 战斗面板 / 空槽 → 自由行动。
+  // 转盘标题随结果一起下发并持久化（D-16 / QA P2-2）：读 `slot.title`（内核已回填 `wheel.title`），
+  // 不再拿 `eventId` 去 `triggeredEvents` 反查——那条路只在「刚结算」时存在，刷新后必然查空。
+  const slot = snapshot.slotEvent;
+  const occupant = occupantOf(slot);
 
   // 「本轮还发生了什么」：已结算的其它事件叙述。
-  // 待决事件由事件面板呈现、转盘由转盘区呈现（本轮可能多个），都不在底栏重复。
-  const wheelEventIds = new Set(wheels.map((w) => w.eventId));
-  const alsoHappened = (lastResult?.events ?? []).filter(
-    (e) => e.id !== snapshot.pendingEvent?.eventId && !wheelEventIds.has(e.id),
-  );
+  // 槽内正在呈现的那一格由事件区负责（`slotEvent.eventId` 是唯一真源），不在底栏重复。
+  const alsoHappened = (lastResult?.events ?? []).filter((e) => e.id !== slot?.eventId);
+
+  /**
+   * 转盘确认后（槽已让位）仍要让玩家看到「这一格是什么」：直接读**确认响应**带回的
+   * `wheelResult`，不从本地状态猜。正在槽里演的那一格由事件区负责，不重复展示。
+   */
+  const settledWheel =
+    lastResult !== null &&
+    lastResult.wheel !== null &&
+    lastResult.wheel.eventId !== slot?.wheel?.eventId
+      ? lastResult.wheel
+      : null;
 
   // 平台免密 LLM（R-LLM-09 前端路径，用户裁决：后端没做 LLM 就抛给前端）。
   // 触发条件：后端没出该事件的 LLM flavor（回退模板）+ 用户没配自带 key。
@@ -1368,26 +1352,37 @@ function LifeTab({
           {lastResult?.elapsed && <p className="slot-elapsed">过去{lastResult.elapsed}</p>}
 
           <div className="slot-body">
-            {occupant === "wheel" && wheelItems.length > 0 && (
+            {slot !== null && slot.kind === "random" && slot.wheel !== undefined && (
               <WheelDeck
-                key={wheelSignature(snapshot.turnIndex, wheels)}
-                items={wheelItems}
+                key={`${slot.eventId}:${slot.wheel.label}`}
+                items={[{ wheel: slot.wheel, title: slot.title }]}
                 animate={wheelsFresh}
-                onContinue={onDismissWheel}
+                busy={busy}
+                onContinue={onConfirmWheel}
               />
             )}
-            {occupant === "battle" && (
+            {/* 投影缺 `wheel` 时的逃生口：仍然给一个可点的「继续」，不让玩家卡在空槽前 */}
+            {slot !== null && slot.kind === "random" && slot.wheel === undefined && (
+              <div className="event-body">
+                <h2>{slot.title}</h2>
+                <p>{slot.narrative}</p>
+                <button className="primary wheel-continue" disabled={busy} onClick={onConfirmWheel}>
+                  继续
+                </button>
+              </div>
+            )}
+            {slot !== null && slot.kind === "combat" && (
               <BattlePanel
                 snapshot={snapshot}
                 busy={busy}
                 onBattle={onBattle}
-                onContinue={() => onAdvance({ type: "free", description: "" })}
+                onContinue={onConfirmWheel}
               />
             )}
-            {occupant === "event" && (
-              <EventPanel snapshot={snapshot} busy={busy} onChoose={onChoose} />
+            {slot !== null && slot.kind === "normal" && (
+              <EventPanel slot={slot} busy={busy} onChoose={onChoose} />
             )}
-            {occupant === "action" && (
+            {slot === null && (
               <ActionPanel
                 snapshot={snapshot}
                 busy={busy}
@@ -1415,7 +1410,17 @@ function LifeTab({
         </section>
       )}
 
-      {lastResult && !ended && alsoHappened.length === 0 && wheelItems.length === 0 && !snapshot.pendingEvent && !snapshot.battle && (
+      {settledWheel !== null && (
+        <section className="card result">
+          <h3 className="result-title">命运落定</h3>
+          <div className="event-card">
+            <strong>⚄ {settledWheel.title ?? "随机事件"}</strong>
+            <p>{settledWheel.label}</p>
+          </div>
+        </section>
+      )}
+
+      {lastResult && !ended && alsoHappened.length === 0 && settledWheel === null && slot === null && (
         <p className="muted result-quiet">世界平静地流转着。</p>
       )}
     </div>
@@ -1592,6 +1597,10 @@ const WHEEL_SPIN_EASING = "cubic-bezier(.16,.8,.12,1)";
 const WHEEL_REBOUND_DEG = 2;
 const WHEEL_REBOUND_MS = 220;
 const WHEEL_REBOUND_EASING = "cubic-bezier(.32,.78,.4,1)";
+/** 兜底余量：动画/回调全部失效时，最多再等这么久就必须让「继续」可点（宁可少看动画，不能少出口）。 */
+const WHEEL_SETTLE_SLACK_MS = 1200;
+/** 起转兜底：rAF 迟迟不来（后台标签、被节流的渲染）时，直接起转，不再等那一帧。 */
+const WHEEL_KICKOFF_SLACK_MS = 1500;
 
 /**
  * 随机事件揭示：服务端已用 RNG 结算（`wheelResult` / `lastWheels`），前端只做视觉呈现，
@@ -1645,10 +1654,19 @@ function WheelReveal({
       setPhase("done");
       return;
     }
-    // 先渲染 0° 再翻到目标角，浏览器才有过渡起点（同帧切换会被合并成瞬移）
-    const raf = requestAnimationFrame(() => setPhase("spin"));
+    // 先渲染 0° 再翻到目标角，浏览器才有过渡起点（同帧切换会被合并成瞬移）。
+    // 只在仍是 idle 时推进：若兜底已经把状态推到后面，别把它拽回来重放一次。
+    const raf = requestAnimationFrame(() => setPhase((p) => (p === "idle" ? "spin" : p)));
     return () => cancelAnimationFrame(raf);
   }, [animate]);
+
+  // 起转兜底（验收项「动画失败不能让人卡死」）：`requestAnimationFrame` 在后台标签里可能一直不来，
+  // 那样转子会永远停在 0°、`settled` 永远 false、「继续」永远不可点。到点主动起转。
+  useEffect(() => {
+    if (phase !== "idle") return;
+    const id = window.setTimeout(() => setPhase((p) => (p === "idle" ? "spin" : p)), WHEEL_KICKOFF_SLACK_MS);
+    return () => window.clearTimeout(id);
+  }, [phase]);
 
   // 兜底推进：transitionend 在某些环境（后台标签页、被浏览器合并）可能不来，
   // 那时转盘会永远停在「转动中」。用超时把状态机推下去，正常路径下是空转。
@@ -1762,24 +1780,28 @@ function WheelReveal({
 }
 
 /**
- * 本轮转盘揭晓序列（D-03 一轮多个转盘）。
+ * 转盘揭晓（槽内这一枚）。
  *
- * 取舍：**第一枚走完整旋转动画，其余在首枚落定时一次性快速揭示**。
- * - 为什么不让每枚都转：同轮多个 `kind: random` 事件是同一批结算结果，逐枚连转 = 3×2.6s 的
- *   纯等待，且玩家并没有「为下一枚做决定」的余地，动画只是过场。
- * - 为什么不把结果一次性全列出来：首枚的旋转仍是「这一轮发生了什么」的主要反馈，
- *   保留它让玩家看清转盘机制（概率 = 扇区面积）。
- * - 后续结果不加转盘，只给「事件标题 + 命中扇区」的紧凑卡片（带淡入），
- *   玩家一眼扫完即可点一次「继续」进入下一步。
+ * ADR-0034 之后槽是单槽：一次只有一个 `random` 事件在演，所以 deck 通常只有一枚。
+ * `items > 1` 的紧凑卡片分支保留下来是为了兼容旧快照/回放，不再主动使用。
+ *
+ * **不变量（验收项）**：「继续」永远存在。它是这一格唯一的推进出口 —— 动画哪怕一格没转
+ * （rAF 没跑、transitionend 没来、后台标签被节流），按钮也必须在那儿、并且到点变得可点，
+ * 否则玩家会被永久卡在「轮盘转动中…」。所以：
+ *  - 按钮**首帧就渲染**，动画期间只是 `disabled`；
+ *  - 除动画完成回调外，另有一条与动画无关的**超时兜底**把按钮解锁。
  */
 function WheelDeck({
   items,
   animate,
+  busy,
   onContinue,
 }: {
   items: Array<{ wheel: WheelResultView; title: string }>;
-  /** 是否播放首枚的旋转动画（存档恢复的场景不播，见 D-09） */
+  /** 是否播放旋转动画（存档恢复的场景不播，见 D-09） */
   animate: boolean;
+  /** 确认请求在途：按钮要一起禁用（引擎无状态区分「确认」和「行动」，双击会变成一次自由行动） */
+  busy: boolean;
   onContinue: () => void;
 }) {
   const [firstSettled, setFirstSettled] = useState(!animate);
@@ -1787,6 +1809,20 @@ function WheelDeck({
   const continueRef = React.useRef<HTMLButtonElement | null>(null);
   const first = items[0];
   const rest = items.slice(1);
+
+  /**
+   * 动画失败的兜底解锁：与 `onSettled` 回调完全独立。
+   * 只要 `animate`（首帧就禁用）而动画到头来没跑起来，超时后照样把「继续」点亮 ——
+   * 最坏情况是玩家少看一次动画，绝不会少一个出口。
+   */
+  useEffect(() => {
+    if (firstSettled) return;
+    const id = window.setTimeout(
+      () => setFirstSettled(true),
+      WHEEL_SPIN_MS + WHEEL_REBOUND_MS + WHEEL_SETTLE_SLACK_MS,
+    );
+    return () => window.clearTimeout(id);
+  }, [firstSettled]);
 
   /**
    * D-05：转盘落定时「继续」会出现在事件区底部，430×932 竖屏下常被固定底栏（tabbar +
@@ -1850,13 +1886,15 @@ function WheelDeck({
       )}
 
       <div className="wheel-foot">
-        {firstSettled ? (
-          <button ref={continueRef} className="primary wheel-continue" onClick={onContinue}>
-            继续
-          </button>
-        ) : (
-          <p className="wheel-spinning-text">轮盘转动中…</p>
-        )}
+        {/* 常驻：动画期间禁用而非缺席（缺了它就没有推进出口） */}
+        <button
+          ref={continueRef}
+          className="primary wheel-continue"
+          disabled={!firstSettled || busy}
+          onClick={onContinue}
+        >
+          继续
+        </button>
       </div>
     </div>
   );
@@ -1865,27 +1903,30 @@ function WheelDeck({
 // ---------- 事件面板（选项） ----------
 
 function EventPanel({
-  snapshot,
+  slot,
   busy,
   onChoose,
 }: {
-  snapshot: V2Snapshot;
+  /** `slotEvent.kind === "normal"` 的那一格（调用方已按 kind 收窄，这里不再传整份 snapshot） */
+  slot: SlotEventView;
   busy: boolean;
   onChoose: (optionId: string) => void;
 }) {
-  const ev = snapshot.pendingEvent!;
+  // 走 `slotEvent.options`（服务端已按 `visibleWhen` 过滤）。缺省成空数组而不是非空断言：
+  // 投影字段缺失时宁可显示「没有可选项」，也不要整页崩在 `undefined.map`。
+  const options = slot.options ?? [];
   return (
     <div className="event-body">
-      <h2>{ev.title}</h2>
-      <p>{ev.narrative}</p>
+      <h2>{slot.title}</h2>
+      <p>{slot.narrative}</p>
       <div className="option-list">
-        {ev.options.map((opt) => (
+        {options.map((opt) => (
           <button key={opt.id} className="option" disabled={busy} onClick={() => onChoose(opt.id)}>
             {opt.text}
           </button>
         ))}
       </div>
-      {ev.options.length === 0 && <p className="muted">（没有可选项……）</p>}
+      {options.length === 0 && <p className="muted">（没有可选项……）</p>}
     </div>
   );
 }
@@ -3003,21 +3044,8 @@ function WorldTab({ snapshot }: { snapshot: V2Snapshot }) {
             </p>
             <div className="row">
               <span className="chip">命运偏离度：{snapshot.evaluation.canonDeviation}</span>
-              <span className="chip">进行中事件链：{snapshot.activeChains.length}</span>
             </div>
           </section>
-
-          {snapshot.activeChains.length > 0 && (
-            <section className="card">
-              <h3>正在发生的事件链</h3>
-              {snapshot.activeChains.map((chain) => (
-                <div key={chain.id} className="event-card">
-                  <strong>{chain.id}</strong>
-                  <p className="muted">状态：{chain.status} · 后续将自动演化</p>
-                </div>
-              ))}
-            </section>
-          )}
         </>
       )}
 
