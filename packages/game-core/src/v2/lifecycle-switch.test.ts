@@ -484,7 +484,7 @@ describe("模板级断言（jjk-2006）· 涩谷身体争夺的玩家选择判�
     if (event?.kind !== "normal") throw new Error("fixture: ev-sh-05 不存在或不再是 normal");
     triggerEventV2(state, event, lookup, createRng(5), 0, { triggered: [], wheelResult: null });
     expect(
-      state.scheduledEvents.some(
+      state.delayQueue.some(
         (i) => i.definitionId === "ev-sh-05" && i.origin.kind === "effect" && i.status === "waiting",
       ),
     ).toBe(true);

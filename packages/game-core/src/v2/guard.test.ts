@@ -69,7 +69,7 @@ describe("T2-02 · 门禁：开局未完成 ⇒ NOT_ACTIVE", () => {
     const lookup = createLookup(template);
     const state = createWorldV2(INPUT, template, "w-not-active");
     // 预置待决事件：若门禁不在最前，会先抛 pending_event_required 而非 NOT_ACTIVE。
-    state.pendingEvents = [{ eventId: "ev-handoff-normal" }];
+    state.slot = { eventId: "ev-handoff-normal", from: "queueTake" };
     const before = structuredClone(state);
     expect(guardCodeOf(() => advanceTurnV2(state, REST, template, lookup))).toBe("NOT_ACTIVE");
     expect(state).toEqual(before);
@@ -117,7 +117,7 @@ describe("T2-02 · 门禁：openingCompleted=true 首轮推进", () => {
     const legacyPrefix = "opening" + "Scheduled:";
     expect(Object.keys(state.flags).some((k) => k.startsWith(legacyPrefix))).toBe(false);
     expect(
-      state.scheduledEvents.some(
+      state.delayQueue.some(
         (i) => i.definitionId === "ev-handoff-sched" && i.status === "waiting" && i.origin.kind === "opening",
       ),
     ).toBe(true);

@@ -225,7 +225,7 @@ describe("敌人耗尽 ⇒ 整条触发跳过（ADR-0021 决策 1.2）", () => {
     expect(state.history.some((h) => h.id.includes("ev-ambush"))).toBe(false);
     expect(res.triggeredEvents.some((e) => e.id === "ev-ambush")).toBe(false);
     // 槽位：未入待决队列，onVictory 未结算（空 enemies ⇒ 即胜漏洞被封）
-    expect(state.pendingEvents).toEqual([]);
+    expect(state.slot).toBeNull();
     expect(state.flags.won).toBeUndefined();
     expect(state.missedEvents).toEqual([]);
     // 时间/轮次：只有行动本身的步长，战斗未额外推进 timeCost

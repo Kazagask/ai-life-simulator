@@ -73,7 +73,7 @@ describe("T1-07 · 槽位守卫与结算轮（#34 / R-EV-01/02/14）", () => {
     const template = makeTemplate([normal("ev-free", { source: "chain" })]);
     const lookup = createLookup(template);
     const state = world(template);
-    state.pendingEvents = [{ eventId: "ev-free" }];
+    state.slot = { eventId: "ev-free", from: "queueTake" };
 
     const res = chooseOptionV2(state, { optionId: "opt-ok" }, template, lookup);
     expect(state.turnIndex).toBe(1);
@@ -90,7 +90,7 @@ describe("T1-07 · 槽位守卫与结算轮（#34 / R-EV-01/02/14）", () => {
     ]);
     const lookup = createLookup(template);
     const state = world(template);
-    state.pendingEvents = [{ eventId: "ev-cost" }];
+    state.slot = { eventId: "ev-cost", from: "queueTake" };
 
     const res = chooseOptionV2(state, { optionId: "opt-ok" }, template, lookup);
     expect(state.worldTime).toBe(120);
@@ -103,7 +103,7 @@ describe("T1-07 · 槽位守卫与结算轮（#34 / R-EV-01/02/14）", () => {
     const template = makeTemplate([normal("ev-free", { source: "chain" })]);
     const lookup = createLookup(template);
     const state = world(template);
-    state.pendingEvents = [{ eventId: "ev-free" }];
+    state.slot = { eventId: "ev-free", from: "queueTake" };
     const before = structuredClone(state);
     expect(() => advanceTurnV2(state, REST, template, lookup)).toThrow("pending_event_required");
     expect(state).toEqual(before); // 拒绝时逐字段不变
@@ -114,7 +114,7 @@ describe("T1-07 · 槽位守卫与结算轮（#34 / R-EV-01/02/14）", () => {
     const lookup = createLookup(template);
     const state = world(template);
     expect(() => chooseOptionV2(state, { optionId: "opt-missing" }, template, lookup)).toThrow("no_pending_event");
-    state.pendingEvents = [{ eventId: "ev-free" }];
+    state.slot = { eventId: "ev-free", from: "queueTake" };
     expect(() => chooseOptionV2(state, { optionId: "opt-missing" }, template, lookup)).toThrow("option_not_available");
   });
 
@@ -207,14 +207,14 @@ describe("T1-04/06 · 效果 DSL 接线与链步单一推进规则", () => {
 
     applyEffectsV2(ctx, [{ type: "enqueueEvent", eventId: "ev-target", delay: { value: 2, unit: "hour" } }]);
     expect(ctx.enqueued).toEqual(["ev-target"]);
-    const inst = state.scheduledEvents.find(
+    const inst = state.delayQueue.find(
       (i) => i.definitionId === "ev-target" && i.origin.kind === "effect",
     );
     expect(inst?.window.start).toBe(120);
     expect(inst?.hasEnd).toBe(false);
     expect(inst?.status).toBe("waiting");
     // createWorldV2 已为 schedule 定义入队一条 schedule-init 实例（窗口 1 天），互不干扰
-    expect(state.scheduledEvents.some((i) => i.origin.kind === "schedule-init" && i.window.start === 1440)).toBe(true);
+    expect(state.delayQueue.some((i) => i.origin.kind === "schedule-init" && i.window.start === 1440)).toBe(true);
   });
 
   it("无效输入：enqueueEvent 引用未知事件直接抛可诊断错误，不静默吞掉", () => {
@@ -225,7 +225,7 @@ describe("T1-04/06 · 效果 DSL 接线与链步单一推进规则", () => {
     expect(() => applyEffectsV2(ctx, [{ type: "enqueueEvent", eventId: "ev-missing" }])).toThrow(
       /enqueueEvent 引用未知事件/,
     );
-    expect(state.scheduledEvents).toHaveLength(0);
+    expect(state.delayQueue).toHaveLength(0);
   });
 
   it("advanceChain 效果收口到 alignChainStep：无 nextTurn 步时不盲目 +1", () => {
@@ -274,7 +274,7 @@ describe("T1-09 · 确定性与玩家端投影边界", () => {
         origin: { kind: "effect", id: "test" },
         start: { value: 1, unit: "hour" },
       });
-      state.pendingEvents = [{ eventId: "ev-chain-a" }];
+      state.slot = { eventId: "ev-chain-a", from: "queueTake" };
       chooseOptionV2(state, { optionId: "opt-ok" }, template, lookup);
       advanceTurnV2(state, REST, template, lookup);
       return state;
@@ -286,7 +286,7 @@ describe("T1-09 · 确定性与玩家端投影边界", () => {
     const template = makeTemplate([normal("ev-free", { source: "chain" })]);
     const lookup = createLookup(template);
     const state = world(template);
-    state.pendingEvents = [{ eventId: "ev-free" }];
+    state.slot = { eventId: "ev-free", from: "queueTake" };
     recordFire(state, "ev-free");
     enqueueScheduled({
       state,

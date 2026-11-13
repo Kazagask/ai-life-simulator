@@ -282,7 +282,7 @@ describe("往返一致性（R-PS-07）", () => {
   it("R2.5：实例层 / 事实层新字段逐字段往返无损（含 hasEnd 无限期与错失标签）", () => {
     const state = makeRealWorld();
     // 注入一份完整的 R2.5 新状态（不依赖调度器，仅测存档边界）
-    state.scheduledEvents = [
+    state.delayQueue = [
       {
         instanceId: "evi-0",
         definitionId: "ev-saved",
@@ -314,13 +314,13 @@ describe("往返一致性（R-PS-07）", () => {
     worldStore.save(state);
     const envelope = readEnvelope(state.id) as { state: WorldStateV2 };
     const parsed = WorldStateV2Schema.parse(envelope.state);
-    expect(parsed.scheduledEvents).toEqual(state.scheduledEvents);
+    expect(parsed.delayQueue).toEqual(state.delayQueue);
     expect(parsed.enqueueSeqCounter).toBe(2);
     expect(parsed.eventFires).toEqual(state.eventFires);
     expect(parsed.lastFiredIndex).toEqual(state.lastFiredIndex);
     expect(parsed.missedEvents).toEqual(state.missedEvents);
     // 无 end 的实例不使用任何数值哨兵
-    expect("end" in parsed.scheduledEvents[0].window).toBe(false);
+    expect("end" in parsed.delayQueue[0].window).toBe(false);
   });
 
   it("R2.5：旧 schemaVersion=1 存档被拒且原因可诊断", () => {
@@ -353,7 +353,7 @@ describe("往返一致性（R-PS-07）", () => {
     expect(WorldStateV2Schema.safeParse(badReason).success).toBe(false);
 
     const badHasEnd = structuredClone(state);
-    badHasEnd.scheduledEvents.push({
+    badHasEnd.delayQueue.push({
       instanceId: "evi-9", definitionId: "ev", origin: { kind: "effect", id: "ev" },
       window: { start: 0 }, hasEnd: true, enqueuedAt: 0, enqueueSeq: 9, status: "waiting",
     });

@@ -479,7 +479,7 @@ describe("统一门禁 · 已终止 / 已归档世界经四入口都拒绝写入
         reason: "终止", worldTime: 0, turnIndex: 0, source: "condition",
       });
       // 预置会导致后续业务检查抛错的状态，证明门禁在其它检查之前
-      state.pendingEvents = [{ eventId: "ev-x" }];
+      state.slot = { eventId: "ev-x", from: "queueTake" };
       const before = structuredClone(state);
       expect(guardCode(() => fn(state, template))).toBe("TERMINATED");
       expect(state).toEqual(before);
@@ -489,7 +489,7 @@ describe("统一门禁 · 已终止 / 已归档世界经四入口都拒绝写入
       const template = makeTemplate();
       const state = makeActive();
       state.archived = true;
-      state.pendingEvents = [{ eventId: "ev-x" }];
+      state.slot = { eventId: "ev-x", from: "queueTake" };
       const before = structuredClone(state);
       expect(guardCode(() => fn(state, template))).toBe("TERMINATED");
       expect(state).toEqual(before);

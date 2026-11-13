@@ -68,7 +68,7 @@ function makeTemplate(events: EventV2[], chains?: WorldTemplateV2["chains"]): Wo
  */
 function makeState(template: WorldTemplateV2): WorldStateV2 {
   const state = createWorldV2({ templateId: "t", playerName: "测试者", seed: 1 }, template, "w-sched");
-  state.scheduledEvents = [];
+  state.delayQueue = [];
   state.enqueueSeqCounter = 0;
   return state;
 }
@@ -104,16 +104,16 @@ describe("T1-03 · TimeSpec 换算与三键排序（R-EV-04/05）", () => {
     });
     const first = enqueueScheduled({ state, definitionId: "e-first", origin, start: { value: 1, unit: "day" }, end: { value: 2, unit: "day" } });
 
-    expect(state.scheduledEvents.map((i) => i.definitionId)).toEqual([
+    expect(state.delayQueue.map((i) => i.definitionId)).toEqual([
       "e-short", "e-first", "e-long", "e-noend", "e-late",
     ]);
     // 幂等：重复排序结果一致
-    expect(sortScheduled(state.scheduledEvents)).toEqual(state.scheduledEvents);
+    expect(sortScheduled(state.delayQueue)).toEqual(state.delayQueue);
     expect(noEnd.hasEnd).toBe(false);
     expect(short.hasEnd).toBe(true);
     expect(late.window.end).toBeUndefined();
     expect(first.enqueueSeq).toBeGreaterThan(short.enqueueSeq);
-    expectNoConfigSnapshot(state.scheduledEvents);
+    expectNoConfigSnapshot(state.delayQueue);
   });
 });
 
@@ -128,11 +128,11 @@ describe("T1-03 · 出队终判与错失（R-EV-06/07/12、#36）", () => {
     // 入队/到期时条件均不满足 ⇒ hold，零错失
     expect(drain(state, template)).toEqual([]);
     expect(state.missedEvents).toHaveLength(0);
-    expect(state.scheduledEvents[0].status).toBe("waiting");
+    expect(state.delayQueue[0].status).toBe("waiting");
 
     state.flags.ready = true;
     expect(drain(state, template)).toEqual(["ev-cond"]);
-    expect(state.scheduledEvents[0].status).toBe("fired");
+    expect(state.delayQueue[0].status).toBe("fired");
 
     // 反向：定义现值改了，已 fired 实例不会被重复出队
     state.flags.ready = false;
@@ -151,11 +151,11 @@ describe("T1-03 · 出队终判与错失（R-EV-06/07/12、#36）", () => {
     state.worldTime = 99999999; // 无 end：不因时间过期
     state.flags.gone = true;
     expect(drain(state, template)).toEqual([]);
-    expect(state.scheduledEvents[0].status).toBe("expired");
+    expect(state.delayQueue[0].status).toBe("expired");
     expect(state.missedEvents).toEqual([
       {
         eventId: "ev-miss",
-        instanceId: state.scheduledEvents[0].instanceId,
+        instanceId: state.delayQueue[0].instanceId,
         turnIndex: 0,
         worldTime: 99999999,
         reason: "miss_when",
@@ -172,7 +172,7 @@ describe("T1-03 · 出队终判与错失（R-EV-06/07/12、#36）", () => {
     enqueueScheduled({ state, definitionId: "ev-forever", origin, start: { value: 1, unit: "day" } });
     state.worldTime = 10 ** 9;
     expect(drain(state, template)).toEqual([]);
-    expect(state.scheduledEvents[0].status).toBe("waiting");
+    expect(state.delayQueue[0].status).toBe("waiting");
     expect(state.missedEvents).toHaveLength(0);
   });
 
@@ -191,7 +191,7 @@ describe("T1-03 · 出队终判与错失（R-EV-06/07/12、#36）", () => {
     });
     state.worldTime = 1440;
     for (let i = 0; i < 3; i++) expect(drain(state, template)).toEqual([]);
-    expect(state.scheduledEvents[0].status).toBe("waiting");
+    expect(state.delayQueue[0].status).toBe("waiting");
     expect(state.missedEvents).toHaveLength(0);
 
     state.worldTime = 2880; // == end：仍不过期
@@ -200,11 +200,11 @@ describe("T1-03 · 出队终判与错失（R-EV-06/07/12、#36）", () => {
 
     state.worldTime = 2881; // > end
     expect(drain(state, template)).toEqual([]);
-    expect(state.scheduledEvents[0].status).toBe("expired");
+    expect(state.delayQueue[0].status).toBe("expired");
     expect(state.missedEvents).toEqual([
       {
         eventId: "ev-window",
-        instanceId: state.scheduledEvents[0].instanceId,
+        instanceId: state.delayQueue[0].instanceId,
         turnIndex: 0,
         worldTime: 2881,
         reason: "window_expired",
@@ -279,7 +279,7 @@ describe("T1-03 · 确定性、门控与事实层（R-EV-05/07/15、R-LM-03）",
     const first = run();
     const second = run();
     expect(second.fired).toEqual(first.fired);
-    expect(second.state.scheduledEvents).toEqual(first.state.scheduledEvents);
+    expect(second.state.delayQueue).toEqual(first.state.delayQueue);
     expect(second.state.missedEvents).toEqual(first.state.missedEvents);
     expect(first.fired).toEqual(["ev-a", "ev-b"]);
   });
@@ -305,7 +305,7 @@ describe("T1-03 · 确定性、门控与事实层（R-EV-05/07/15、R-LM-03）",
     expect(enqueueCandidate({
       state, definition: lookup.event("ev-pool-cond")!, origin: { kind: "pool", id: "ev-pool-cond" }, lookup, rng: rngNever,
     })).toBeUndefined();
-    expect(state.scheduledEvents).toHaveLength(0);
+    expect(state.delayQueue).toHaveLength(0);
     expect(state.missedEvents).toHaveLength(0);
     expect(state.enqueueSeqCounter).toBe(0);
   });
@@ -325,7 +325,7 @@ describe("T1-03 · 确定性、门控与事实层（R-EV-05/07/15、R-LM-03）",
     expect(inst?.window.start).toBe(state.worldTime);
     expect(inst?.hasEnd).toBe(false);
     expect(rolls).toBe(0);
-    expect(state.scheduledEvents).toHaveLength(1);
+    expect(state.delayQueue).toHaveLength(1);
   });
 
   it("pool + combat：加载期拒绝（含替代写法）；抽取期防御不产生实例", () => {
@@ -356,7 +356,7 @@ describe("T1-03 · 确定性、门控与事实层（R-EV-05/07/15、R-LM-03）",
       state, definition: def, origin: { kind: "pool", id: def.id },
       lookup: createLookup(template), rng: () => 0, preGated: true,
     })).toBeUndefined();
-    expect(state.scheduledEvents).toHaveLength(0);
+    expect(state.delayQueue).toHaveLength(0);
   });
 
   it("recordFire 是唯一写入口：三处索引/日志一次写齐，事实只追加", () => {
@@ -430,15 +430,15 @@ describe("T1-04 · 世界初始化即入队（R-EV-08）", () => {
       normal("ev-pool", { source: "pool", probability: 1 }),
     ]);
     const state = createWorldV2({ templateId: "t", playerName: "测试者", seed: 1 }, template, "w-init");
-    expect(state.scheduledEvents).toHaveLength(2);
-    expect(state.scheduledEvents.map((i) => i.definitionId)).toEqual(["ev-day1", "ev-day2"]);
-    expect(state.scheduledEvents.map((i) => i.origin.kind)).toEqual(["schedule-init", "schedule-init"]);
-    expect(state.scheduledEvents[0].window).toEqual({ start: 1440 });
-    expect(state.scheduledEvents[0].hasEnd).toBe(false);
-    expect(state.scheduledEvents[1].window).toEqual({ start: 2880, end: 4320 });
-    expect(state.scheduledEvents[1].hasEnd).toBe(true);
+    expect(state.delayQueue).toHaveLength(2);
+    expect(state.delayQueue.map((i) => i.definitionId)).toEqual(["ev-day1", "ev-day2"]);
+    expect(state.delayQueue.map((i) => i.origin.kind)).toEqual(["schedule-init", "schedule-init"]);
+    expect(state.delayQueue[0].window).toEqual({ start: 1440 });
+    expect(state.delayQueue[0].hasEnd).toBe(false);
+    expect(state.delayQueue[1].window).toEqual({ start: 2880, end: 4320 });
+    expect(state.delayQueue[1].hasEnd).toBe(true);
     expect(state.enqueueSeqCounter).toBe(2);
-    expectNoConfigSnapshot(state.scheduledEvents);
+    expectNoConfigSnapshot(state.delayQueue);
   });
 });
 

@@ -126,10 +126,10 @@ describe("时间系统集成 · 推进模式与条件", () => {
     const state = createActiveWorldV2({ templateId: "t", playerName: "测试者", seed: 1 }, template, "w1");
 
     advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
-    expect(state.pendingEvents).toHaveLength(0);
+    expect(state.slot).toBeNull();
 
     advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
-    expect(state.pendingEvents[0]?.eventId).toBe("ev-gate");
+    expect(state.slot?.eventId).toBe("ev-gate");
   });
 
   it("schedule 事件的 window.start 用 TimeSpec 相对世界起始（now=0 入队）触发", () => {
@@ -150,7 +150,7 @@ describe("时间系统集成 · 推进模式与条件", () => {
     const state = createActiveWorldV2({ templateId: "t", playerName: "测试者", seed: 1 }, template, "w1");
 
     advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
-    expect(state.pendingEvents[0]?.eventId).toBe("ev-sched");
+    expect(state.slot?.eventId).toBe("ev-sched");
   });
 
   it("投影输出 formattedTime 与 lifeStage（消除前端公历硬编码）", () => {
@@ -410,6 +410,6 @@ describe("R2.6 · 历法模型与字面量（ADR-0013）", () => {
     // 休一天 = 1440 分钟 = 2000-01-02 00:00 ⇒ 到期触发
     advanceTurnV2(state, { action: { type: "rest", description: "" } }, template, lookup);
     expect(state.worldTime).toBe(1440);
-    expect(state.pendingEvents[0]?.eventId).toBe("ev-date");
+    expect(state.slot?.eventId).toBe("ev-date");
   });
 });

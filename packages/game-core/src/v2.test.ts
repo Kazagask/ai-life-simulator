@@ -200,7 +200,7 @@ describe("V2 引擎 · 事件链起点触发（回归）", () => {
     const template = loadJjkTemplate();
     const lookup = createLookup(template);
     const state = createActiveWorldV2({ templateId: "jjk-2006", playerName: "测试者", seed: 7 }, template, "w-report");
-    state.pendingEvents = [{ eventId: "ev-opening-wheel" }];
+    state.slot = { eventId: "ev-opening-wheel", from: "queueTake" };
     state.firedEvents["ev-opening-wheel"] = state.turnIndex;
 
     chooseOptionV2(state, { optionId: "opt-begin" }, template, lookup);
@@ -726,11 +726,11 @@ describe("V2 引擎 · 事件轮次", () => {
     // 其余 normal 事件因槽位被占用，经守卫转入延时队列（origin.kind==='effect'、status==='waiting'）
     // 轮询，等槽位空出再回到 pendingEvents——不丢失、不卡死。
     expect(state.pendingEvents.length).toBe(1);
-    expect(state.pendingEvents[0]?.eventId).toBe("ev-chain-normal");
+    expect(state.slot?.eventId).toBe("ev-chain-normal");
     expect(res.snapshot.pendingEvent?.eventId).toBe("ev-chain-normal");
 
     // 其余 3 条 normal 事件被守卫拦截、落入延时队列（而非入 pendingEvents）
-    const deferred = state.scheduledEvents.filter(
+    const deferred = state.delayQueue.filter(
       (i) => i.origin.kind === "effect" && i.status === "waiting",
     );
     const deferredIds = new Set(deferred.map((i) => i.definitionId));
@@ -776,7 +776,7 @@ describe("V2 引擎 · 事件轮次", () => {
     // 转入延时队列（origin.kind==='effect'、status==='waiting'），不插入 pendingEvents。
     expect(state.pendingEvents.some((p) => p.eventId === "ev-chain-normal")).toBe(false);
     expect(
-      state.scheduledEvents.some(
+      state.delayQueue.some(
         (i) => i.definitionId === "ev-chain-normal" && i.origin.kind === "effect" && i.status === "waiting",
       ),
     ).toBe(true);
@@ -871,7 +871,7 @@ describe("V2 引擎 · 咒术转盘开局链", () => {
     );
 
     // 创建世界即为转盘入口事件，无需先推进轮次
-    expect(state.pendingEvents[0]?.eventId).toBe("ev-opening-wheel");
+    expect(state.slot?.eventId).toBe("ev-opening-wheel");
 
     // 开始转盘链
     chooseOptionV2(state, { optionId: "opt-begin" }, template, lookup);

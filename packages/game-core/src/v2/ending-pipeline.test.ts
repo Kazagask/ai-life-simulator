@@ -497,7 +497,7 @@ describe("结局投影与归档", () => {
     const template = makeTemplate();
     const cfg = endingConfig();
     const state = makeActive(template);
-    state.pendingEvents.push({ eventId: "ev-not-exists" });
+    state.slot = { eventId: "ev-not-exists", from: "queueTake" };
     const snapshot = projectSnapshotV2(state, template, createLookup(template), null, cfg.endings);
     expect(snapshot.pendingEvent).toBeNull();
     expect(snapshot.status).toBe("running"); // 未终止时仍按 running 投影

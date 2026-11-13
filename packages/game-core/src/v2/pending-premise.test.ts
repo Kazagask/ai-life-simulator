@@ -178,7 +178,7 @@ describe("ADR-0024 ①：排队期间角色死亡 ⇒ 该场景撤下", () => {
 
     // 排空也必须真的把它从队列里摘掉，否则自由行动会被槽位守卫永久拒绝（ADR 决策 2.5 的硬死锁）。
     const res = useItemV2(state, { itemId: "item-heal" }, template, lookup);
-    expect(state.pendingEvents).toEqual([]);
+    expect(state.slot).toBeNull();
     expect(res.snapshot.pendingEvent).toBeNull();
   });
 
@@ -209,7 +209,7 @@ describe("ADR-0024 ①：排队期间角色死亡 ⇒ 该场景撤下", () => {
     expect(state.pendingEvents.map((p) => p.eventId)).toEqual(["ev-waiting"]);
     const res = chooseOptionV2(state, { optionId: "opt-wait" }, template, lookup);
     expect(res.snapshot.pendingEvent).toBeNull();
-    expect(state.pendingEvents).toEqual([]);
+    expect(state.slot).toBeNull();
   });
 });
 
@@ -346,7 +346,7 @@ describe("ADR-0024 ⑧：旧档含失效队首 ⇒ 载入规范化", () => {
 
     const { dropped } = revalidatePendingV2(state, lookup);
     expect(dropped).toEqual(["ev-waiting", "ev-chain-step"]); // 保序
-    expect(state.pendingEvents).toEqual([]);
+    expect(state.slot).toBeNull();
     // 零协议变更：PendingEvent 形状没改、schema 仍通过
     expect(WorldStateV2Schema.safeParse(state).success).toBe(true);
     // 幂等：再跑一次不再产生丢弃
@@ -355,7 +355,7 @@ describe("ADR-0024 ⑧：旧档含失效队首 ⇒ 载入规范化", () => {
 
   it("前提为真的旧档条目原样保留（规范化不误伤）", () => {
     const { lookup, state } = setup("w-premise-9");
-    state.pendingEvents = [{ eventId: "ev-waiting" }];
+    state.slot = { eventId: "ev-waiting", from: "queueTake" };
     expect(revalidatePendingV2(state, lookup).dropped).toEqual([]);
     expect(state.pendingEvents).toEqual([{ eventId: "ev-waiting" }]);
   });
@@ -374,7 +374,7 @@ describe("ADR-0024 诊断位与附则", () => {
     expect(state.eventFires.some((f) => f.eventId === "ev-waiting")).toBe(true);
     // 但本次响应里不再呈现它，队列也被排空
     expect(res.snapshot.pendingEvent).toBeNull();
-    expect(state.pendingEvents).toEqual([]);
+    expect(state.slot).toBeNull();
     // 附则：同一响应不再报「已失效的场景」（否则 triggeredEvents 与 snapshot 自相矛盾）
     expect(res.triggeredEvents.map((t) => t.id)).not.toContain("ev-waiting");
   });
@@ -391,6 +391,6 @@ describe("ADR-0024 诊断位与附则", () => {
     expect("droppedPending" in res).toBe(false);
     expect(JSON.stringify(state)).not.toContain("droppedPending");
     // 丢弃本身仍然生效：两个条目都被排空（保序由 revalidatePendingV2 的返回值保证）
-    expect(state.pendingEvents).toEqual([]);
+    expect(state.slot).toBeNull();
   });
 });

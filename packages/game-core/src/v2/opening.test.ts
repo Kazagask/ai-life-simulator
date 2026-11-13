@@ -262,7 +262,7 @@ describe("T3-05 · handoff 与首轮推进（R-OP-07 / R-TM-02）", () => {
     // R2.5：未来事件真正入队（origin=opening、绝对窗口 1 天），不再写 flags 标记。
     const legacyPrefix = "opening" + "Scheduled:";
     expect(Object.keys(final.flags).some((k) => k.startsWith(legacyPrefix))).toBe(false);
-    const scheduled = final.scheduledEvents.find(
+    const scheduled = final.delayQueue.find(
       (i) => i.definitionId === "ev-sp-briefing" && i.status === "waiting",
     );
     expect(scheduled?.origin).toEqual({ kind: "opening", id: "op-test" });
