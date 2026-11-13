@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { CloudSession } from "@tencent-ai/workbuddy-cloud-sdk";
 import "./style.css";
@@ -26,6 +26,7 @@ import type {
 } from "./api";
 import { bootstrapAuth, signOutOfWorkBuddy, signInWithWorkBuddy, userDisplayName } from "./auth";
 import { cloud } from "./cloud";
+import { platformEndingNarrative, platformEventFlavor, platformEvaluationSummary } from "./platformLlm";
 import { deleteLifeRecord, listLifeRecords, saveLifeRecord, shouldAutoArchive } from "./records";
 import type { LifeRecordRow } from "./records";
 
@@ -1146,9 +1147,55 @@ function EvaluationBreakdown({
   );
 }
 
+// ---------- 平台免密 LLM（前端补叙事：后端没做 LLM 时才触发，失败保持模板） ----------
+
+/** 人生总结：仅「生命结束 + 后端未出 LLM + 用户未配自带 key」时补一次（纯展示，失败保持模板总结）。 */
+function usePlatformSummary(
+  snapshot: V2Snapshot,
+  summarySource: NarrativeSource | undefined,
+): string | null {
+  const [text, setText] = useState<string | null>(null);
+  const requested = useRef(false);
+  const base = snapshot.evaluation?.summary;
+  const ended = snapshot.status === "terminated" || snapshot.status === "archived";
+  useEffect(() => {
+    if (requested.current) return;
+    if (!ended || !base) return;
+    if (summarySource === "llm") return;
+    if (getLlmSession() !== null) return;
+    requested.current = true;
+    void platformEvaluationSummary(base).then((r) => {
+      if (r) setText(r);
+    });
+  }, [base, summarySource, ended]);
+  return text;
+}
+
+/** 结局叙事：仅「后端未出 LLM + 非隐藏结局 + 用户未配自带 key」时补一次（纯展示，失败保持模板结局）。 */
+function usePlatformEnding(ending: EndingView): { title: string; summary: string } | null {
+  const [text, setText] = useState<{ title: string; summary: string } | null>(null);
+  const requested = useRef(false);
+  useEffect(() => {
+    if (requested.current) return;
+    if (ending.narrativeSource === "llm") return;
+    if (ending.visibility === "hidden") return;
+    if (getLlmSession() !== null) return;
+    requested.current = true;
+    void platformEndingNarrative({
+      title: ending.title,
+      summary: ending.summary,
+      source: ending.source,
+    }).then((r) => {
+      if (r) setText(r);
+    });
+  }, [ending]);
+  return text;
+}
+
 // ---------- 玩家状态卡 ----------
 
 function PlayerCard({ snapshot, summarySource }: { snapshot: V2Snapshot; summarySource?: NarrativeSource }) {
+  const platformSummary = usePlatformSummary(snapshot, summarySource);
   const p = snapshot.player;
   const labels = snapshot.labels;
   const labelOrder = Object.keys(labels.attributes);
@@ -1190,7 +1237,7 @@ function PlayerCard({ snapshot, summarySource }: { snapshot: V2Snapshot; summary
           ))}
         </div>
       )}
-      <p className="eval-line">{snapshot.evaluation.summary}{summarySource === "llm" && <AiNarrativeTag />}</p>
+      <p className="eval-line">{platformSummary ?? snapshot.evaluation.summary}{(summarySource === "llm" || platformSummary !== null) && <AiNarrativeTag />}</p>
       <EvaluationBreakdown evaluation={snapshot.evaluation} status={snapshot.status} />
     </section>
   );
@@ -1274,6 +1321,30 @@ function LifeTab({
     (e) => e.id !== snapshot.pendingEvent?.eventId && !wheelEventIds.has(e.id),
   );
 
+  // 平台免密 LLM（R-LLM-09 前端路径，用户裁决：后端没做 LLM 就抛给前端）。
+  // 触发条件：后端没出该事件的 LLM flavor（回退模板）+ 用户没配自带 key。
+  // 由前端 `cloud.llm` 补一次；失败 / 未部署云环境 ⇒ platformEventFlavor 返回 null，
+  // 保持模板文案（自然降级 mock）。纯展示瞬态：不写世界状态、不进回放、不落库。
+  const [platformFlavors, setPlatformFlavors] = useState<Record<string, string>>({});
+  const requestedFlavorIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!lastResult) {
+      requestedFlavorIds.current = new Set();
+      setPlatformFlavors({});
+      return;
+    }
+    if (getLlmSession() !== null) return; // 用户自带 key：后端已出 LLM flavor，前端不重复生成
+    for (const ev of lastResult.events) {
+      const serverFlavor = lastResult.eventFlavors?.[ev.id];
+      if (serverFlavor !== undefined && serverFlavor !== "") continue;
+      if (requestedFlavorIds.current.has(ev.id)) continue;
+      requestedFlavorIds.current.add(ev.id);
+      void platformEventFlavor(ev.title, ev.narrative).then((text) => {
+        if (text) setPlatformFlavors((prev) => ({ ...prev, [ev.id]: text }));
+      });
+    }
+  }, [lastResult]);
+
   return (
     <div className="stack">
       <PlayerCard snapshot={snapshot} summarySource={summarySource} />
@@ -1337,7 +1408,7 @@ function LifeTab({
               <div key={event.id} className="event-card">
                 <strong>⚡ {event.title}</strong>
                 {/* R2.7 / R-NAR-03：有 flavor 用服务端已校验文案，缺失 / 空串回退模板文案（零回归） */}
-                <p>{resolveEventNarrative(event, lastResult?.eventFlavors)}</p>
+                <p>{resolveEventNarrative(event, { ...platformFlavors, ...lastResult?.eventFlavors })}</p>
               </div>
             ))}
           </div>
@@ -1373,17 +1444,20 @@ function EndingPanel({
   signedIn: boolean;
   onArchive: () => void;
 }) {
+  // 后端已出 LLM 结局 / 隐藏结局 / 已配自带 key ⇒ 不触发；否则补一次，失败保持模板结局。
+  const platformEnding = usePlatformEnding(ending);
   return (
     <section className={`card ending-card ${ending.visibility === "hidden" ? "ending-hidden" : ""}`}>
       <span className="tag">{archived ? "本局已封存" : "本局已结束"}</span>
-      <h2 className="ending-title">{ending.title}</h2>
-      <p className="ending-summary">{ending.summary}</p>
+      <h2 className="ending-title">{platformEnding?.title ?? ending.title}</h2>
+      <p className="ending-summary">{platformEnding?.summary ?? ending.summary}</p>
       {/* R2.7 / T-S1：仅 llm 来源在 meta 行尾追加中性小标记；template / fallback / 缺字段
           ⇒ 行内无新增节点、无新增空白，与改前逐字相同。隐藏结局由服务端保证不做 LLM
           装饰（narrativeSource 恒非 llm），故不会带此标记，前端也不反推 hidden 原文。 */}
       <p className="muted ending-meta">
         第 {ending.turnIndex} 轮 · {SOURCE_LABELS[ending.source] ?? ending.source}
-        {ending.visibility === "hidden" ? " · 隐藏结局" : ""}{ending.narrativeSource === "llm" && <AiNarrativeTag />}
+        {ending.visibility === "hidden" ? " · 隐藏结局" : ""}
+        {(ending.narrativeSource === "llm" || platformEnding !== null) && <AiNarrativeTag />}
       </p>
       {!archived && (
         <button className="ghost" disabled={busy} onClick={onArchive}>
@@ -2260,6 +2334,7 @@ function StoryChapterChip({ chapter }: { chapter: number | undefined }) {
 
 /** 属性面板：只复述投影已有字段，不做任何前端推算（与 DNF 的 M 面板信息区对应）。 */
 function StatsPanel({ snapshot, summarySource }: { snapshot: V2Snapshot; summarySource?: NarrativeSource }) {
+  const platformSummary = usePlatformSummary(snapshot, summarySource);
   const p = snapshot.player;
   const labels = snapshot.labels.attributes;
   const order = Object.keys(labels);
@@ -2304,7 +2379,7 @@ function StatsPanel({ snapshot, summarySource }: { snapshot: V2Snapshot; summary
         <span className="chip">{snapshot.formattedTime}</span>
         <StoryChapterChip chapter={snapshot.storyChapter} />
       </div>
-      <p className="eval-line">{snapshot.evaluation.summary}{summarySource === "llm" && <AiNarrativeTag />}</p>
+      <p className="eval-line">{platformSummary ?? snapshot.evaluation.summary}{(summarySource === "llm" || platformSummary !== null) && <AiNarrativeTag />}</p>
       <EvaluationBreakdown evaluation={snapshot.evaluation} status={snapshot.status} />
     </section>
   );
