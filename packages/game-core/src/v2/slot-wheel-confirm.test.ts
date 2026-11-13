@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EventV2, WorldTemplateV2 } from "@life-sim/shared";
+import { projectSnapshotV2 } from "./projection.js";
 import { createLookup, type TemplateLookup } from "./lookup.js";
 import { createActiveWorldV2, makeTestTemplate } from "./test-utils.js";
 import { advanceTurnV2, slotEventView } from "./turn.js";
@@ -53,6 +54,76 @@ function setup(worldId: string): { template: WorldTemplateV2; lookup: TemplateLo
   return { template, lookup, state };
 }
 
+describe("ADR-0034 §8-⑪ · 槽实例 id 与失效留痕", () => {
+  /** 带条件的事件：条件是 `flag allow=true`，便于把前提弄假。 */
+  function makeConditional(): WorldTemplateV2 {
+    const template = makeWheelTemplate();
+    template.events.push({
+      id: "ev-cond",
+      title: "条件事件",
+      narrative: "有条件。",
+      trigger: { source: "chain", conditions: [{ flag: "allow", eq: true }] },
+      kind: "normal",
+      settle: { normal: { options: [{ id: "opt-cond", text: "继续" }] } },
+    } as EventV2);
+    return template;
+  }
+
+  function atSlot(worldId: string) {
+    const template = makeConditional();
+    const lookup = createLookup(template);
+    const state = createActiveWorldV2({ templateId: "test", playerName: "测试者", seed: 5 }, template, worldId);
+    state.flags.allow = true;
+    enqueueScheduled({
+      state,
+      definitionId: "ev-cond",
+      origin: { kind: "pool", id: "ev-cond" },
+      start: { value: 0, unit: "minute" },
+    });
+    advanceTurnV2(state, { action: { type: "rest" } }, template, lookup); // 取出 → 占槽
+    return { template, lookup, state };
+  }
+
+  it("queueTake 占槽时带上实例 id；successor/hook 等来源不造 id", () => {
+    const { state } = atSlot("w-instance-queue-take");
+    expect(state.slot?.from).toBe("queueTake");
+    expect(typeof state.slot?.instanceId).toBe("string");
+  });
+
+  it("实例 id 不进投影（§8-⑥ 反作弊）：snapshot 序列化后不含该值", () => {
+    const { template, lookup, state } = atSlot("w-instance-projection");
+    const instId = state.slot?.instanceId;
+    expect(typeof instId).toBe("string");
+    const snapshot = projectSnapshotV2(state, template, lookup);
+    expect(snapshot.slotEvent?.eventId).toBe("ev-cond");
+    expect(JSON.stringify(snapshot)).not.toContain(instId as string);
+  });
+
+  it("槽前提失效且带实例 id ⇒ 写 missedEvents（复用既有 miss_when）；清槽后可自由行动", () => {
+    const { template, lookup, state } = atSlot("w-instance-missed");
+    const instId = state.slot?.instanceId;
+    state.flags.allow = false; // 前提失效
+    const t0 = state.turnIndex;
+    expect(() => advanceTurnV2(state, { action: { type: "rest" } }, template, lookup)).not.toThrow();
+    expect(state.slot).toBeNull();
+    expect(state.turnIndex).toBe(t0 + 1);
+    const miss = state.missedEvents.find((m: any) => m.eventId === "ev-cond");
+    expect(miss?.instanceId).toBe(instId);
+    expect(miss?.reason).toBe("miss_when");
+  });
+
+  it("槽前提失效但没有实例 id（successor 来源）⇒ 不写 missedEvents、不造 id", () => {
+    const { template, lookup, state } = atSlot("w-instance-no-id");
+    // 改造成 successor 来源（模拟"上一步的后继"）：去掉实例 id
+    state.slot = { eventId: "ev-cond", from: "successor", fromEventId: "ev-prev" };
+    state.flags.allow = false;
+    const before = state.missedEvents.length;
+    expect(() => advanceTurnV2(state, { action: { type: "rest" } }, template, lookup)).not.toThrow();
+    expect(state.slot).toBeNull();
+    expect(state.missedEvents.length).toBe(before); // 退化进非持久化 droppedPending，属预期
+  });
+});
+
 describe("ADR-0034 §8-⑩ · random 槽：呈现 / 确认分离", () => {
   it("投影给出 kind=random + 已掷出的那一格（前端据此把「继续」解释为确认）", () => {
     const { lookup, state } = setup("w-wheel-present");
@@ -78,6 +149,17 @@ describe("ADR-0034 §8-⑩ · random 槽：呈现 / 确认分离", () => {
     expect(state.flags.wheelPick).toBe(expected);
     // 确认轮要把"这一格是什么"回填给前端
     expect(res.wheelResult?.eventId).toBe("ev-wheel-x");
+  });
+
+  it("找不到「呈现的那一格」时抛可诊断错误，不退化成 segments[0]", () => {
+    const { template, lookup, state } = setup("w-wheel-no-present");
+    // 人为破坏呈现态：槽里是 random，但既无 lastWheels 也无 lastWheel
+    state.slot = { eventId: "ev-wheel-x", from: "successor", fromEventId: "ev-x" };
+    state.lastWheels = [];
+    state.lastWheel = null;
+    expect(() => advanceTurnV2(state, { action: { type: "rest" } }, template, lookup)).toThrow(
+      /wheel_confirm_without_presentation/,
+    );
   });
 
   it("幂等：同一 random 槽第二次提交不再结算（走槽空分支，不重复记火/重复落账）", () => {

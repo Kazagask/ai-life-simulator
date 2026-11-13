@@ -147,6 +147,8 @@ const SlotSceneSchema = z
     eventId: z.string().min(1),
     from: z.enum(["successor", "opening", "death", "hook", "queueTake"]),
     fromEventId: z.string().min(1).optional(),
+    /** 仅 `from === "queueTake"` 写入（ADR-0034 §8-⑪）；不得进投影 */
+    instanceId: z.string().min(1).optional(),
   })
   .strict();
 

@@ -212,6 +212,17 @@ export interface SlotScene {
   from: "successor" | "opening" | "death" | "hook" | "queueTake";
   /** `from === "successor"` 时记录上一个事件 id（诊断用，不参与判定） */
   fromEventId?: string;
+  /**
+   * 该事件来自**队列实例**时带上实例 id（仅 `from === "queueTake"` 会写，ADR-0034 §8-⑪）。
+   *
+   * 为什么需要它：`MissedEventRecord.instanceId` 是「错失事实能回指到队列实例」的唯一凭据。
+   * 槽路径（`revalidateSlot`）失效时若没有实例 id，就只能退化进非持久化的 `droppedPending`——
+   * 那是**预期**，不是 bug：`successor` / `hook` / `opening` / `death` 四个来源根本没有队列实例，
+   * **不得造 id**（造假 id 会污染 `missedEvents` 的回指）。
+   *
+   * 反作弊：它属于队列身份，**不得进投影**（§8-⑥）——`slotEvent` / history / 错误详情都不带。
+   */
+  instanceId?: string;
 }
 
 // ---------- R2.5 事实层 / 派生索引 ----------

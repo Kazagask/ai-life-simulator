@@ -278,11 +278,29 @@ function scanStream(state: WorldStateV2): Rng {
  */
 export function revalidateSlot(state: WorldStateV2, lookup: TemplateLookup): { dropped: string[] } {
   if (state.slot === null) return { dropped: [] };
-  const def = lookup.event(state.slot.eventId);
+  const scene = state.slot;
+  const def = lookup.event(scene.eventId);
   // 定义缺失：加载期完整性错误 ⇒ 不越权删除语义（与 ADR-0024 一致），但槽不能拿去呈现。
   if (!def) return { dropped: [] };
   const ctx: ConditionContext = { state, lookup, rng: scanStream(state) };
-  if (checkEventPremise(def, ctx).ok) return { dropped: [] };
+  const premise = checkEventPremise(def, ctx);
+  if (premise.ok) return { dropped: [] };
+
+  // ADR-0034 §8-⑪：「失效必须留痕」在槽路径上要尽量写进**持久化**的 missedEvents；
+  // 但 `MissedEventRecord` 需要 `instanceId`，只有 `queueTake` 出来的槽有 ⇒
+  //   • 有实例 id：写 missedEvents（reason 复用既有枚举：missWhen ⇒ miss_when；条件失效同样按
+  //     永久失效处理，因为槽已把事件摘除）；
+  //   • 无实例 id（successor/hook/opening/death）：**不造 id**，退化为非持久化 `droppedPending`。
+  if (scene.instanceId !== undefined) {
+    state.missedEvents.push({
+      eventId: def.id,
+      instanceId: scene.instanceId,
+      turnIndex: state.turnIndex,
+      worldTime: state.worldTime,
+      reason: "miss_when",
+      ...(premise.ok === false && premise.missWhen && premise.label !== undefined ? { label: premise.label } : {}),
+    });
+  }
   const dropped = [def.id];
   state.slot = null;
   return { dropped };
@@ -464,13 +482,19 @@ function settleRandomSlot(
   const shown =
     (state.lastWheels ?? []).find((w) => w.eventId === def.id) ??
     (state.lastWheel !== null && state.lastWheel.eventId === def.id ? state.lastWheel : undefined);
-  const seg = wheel.segments.find((s) => s.label === shown?.label) ?? wheel.segments[0]!;
-  // 确认轮也要把"这一格是什么"回填给前端（否则点完"继续"只看得到 turnIndex 变了）
-  if (shown !== undefined) {
-    result.wheelResult = shown;
-    if (!(state.lastWheels ?? []).some((w) => w.eventId === def.id)) {
-      (state.lastWheels ??= []).push(shown);
-    }
+  // **不得静默兜底**（团队裁决）：找不回"呈现的那一格"说明呈现/确认链路断了，
+  // 悄悄取 `segments[0]` 会让玩家看到的与结算的永久错位，且测试看不出来。
+  if (shown === undefined) {
+    throw new Error(`wheel_confirm_without_presentation: ${def.id}（槽来源 ${state.slot?.from ?? "?"}）没有已呈现的扇区`);
+  }
+  const seg = wheel.segments.find((s) => s.label === shown.label);
+  if (seg === undefined) {
+    throw new Error(`wheel_segment_missing: ${def.id} 呈现的「${shown.label}」在模板 segments 里找不到`);
+  }
+  // 回填：确认这一轮的响应仍要能展示"这一格是什么"
+  result.wheelResult = shown;
+  if (!(state.lastWheels ?? []).some((w) => w.eventId === def.id)) {
+    (state.lastWheels ??= []).push(shown);
   }
   settleSlotEvent({
     state,
@@ -659,7 +683,12 @@ function nextTurn(
 
     const scanned = scanDelayQueue(state, lookup, scanStream(state), createTimeAdapter(template));
     if (scanned.kind === "taken") {
-      state.slot = { eventId: scanned.definition.id, from: "queueTake" };
+      // ADR-0034 §8-⑪：**只有**队列取出这条路带实例 id（其余四个来源没有队列实例，不得造 id）
+      state.slot = {
+        eventId: scanned.definition.id,
+        from: "queueTake",
+        instanceId: scanned.instance.instanceId,
+      };
       continue;
     }
     return; // 空槽
@@ -772,6 +801,10 @@ export function advanceTurnV2(
   pipeline?: TurnPipelineConfig,
 ): V2TurnResult {
   assertActive(state);
+  // ADR-0024 决策 2.5 的**排空通道**必须排在门禁之前：槽内事件前提已假 ⇒ 先静默清槽，
+  // 否则 `pending_event_required` 会把玩家永久挡在自由行动之外（前端看到 `slotEvent === null`
+  // 却提交不了任何行动 = 硬死锁）。
+  const droppedAtEntry = revalidateSlot(state, lookup).dropped;
   // 槽被占 ⇒ 必须先处理槽内事件（ADR-0034 §5：`pending_event_required` 语义重述，不新增错误码）。
   // 例外：槽内是 `random` ⇒ 本次调用即**「转盘确认」**（ADR-0034 §2 步 2 明确把"转盘确认"列为输入，
   // 而服务端没有也不该新增专用路由）。此时不消耗行动、不推时间，只把已呈现的那一格结算掉。
@@ -790,7 +823,11 @@ export function advanceTurnV2(
   // ---- 0. 转盘确认：槽内是 random ⇒ 结算它，然后照常走"其他判定 → nextTurn" ----
   if (confirmingWheel) {
     const wheelEvent = lookup.event(state.slot!.eventId)!;
-    const wheelResult: TriggerResult = { triggered: [], wheelResult: null };
+    const wheelResult: TriggerResult = {
+      triggered: [],
+      wheelResult: null,
+      ...(droppedAtEntry.length > 0 ? { droppedPending: [...droppedAtEntry] } : {}),
+    };
     settleRandomSlot(state, template, lookup, rng, wheelResult, wheelEvent);
     postSettleJudgements(state, template, lookup, rng);
     nextTurn(state, template, lookup, rng, wheelResult);
@@ -825,7 +862,11 @@ export function advanceTurnV2(
   }
   state.player.age = state.playerAgeAtStart + adapter.elapsedYears(state.worldTime);
 
-  const result: TriggerResult = { triggered: [], wheelResult: null };
+  const result: TriggerResult = {
+    triggered: [],
+    wheelResult: null,
+    ...(droppedAtEntry.length > 0 ? { droppedPending: [...droppedAtEntry] } : {}),
+  };
 
   // ---- 2. 行动效果（`startChain` 只入队，绝不直接占槽） ----
   const actionCtx: EffectContextV2 = { state, lookup, rng, logs: [] };
