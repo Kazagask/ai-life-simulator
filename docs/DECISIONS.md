@@ -355,6 +355,8 @@ R2.4 第一轮交付后用户补充两点：① 背包里装备和物品要**分
 
 > **〔被 ADR-0026 修订，2026-11-13〕** 本决策中「立即事件的呈现排队沿用既有 `EVENT_SOURCE_PRIORITY`，不新增排序结构」「同窗多事件逐轮各占一槽（R-EV-14）」的**队列化表述已撤销**：`pendingEvents` 不再是可积压多条的 FIFO，运行期由 `triggerEventV2` 顶部「槽位守卫」强制恒 ≤ 1（单槽），多 normal 事件经 `enqueueScheduled(ZERO_SPEC)` 串行化进槽位。**R-EV-14 须拆分**：「结算推进轮次（占槽）」一半保持不变（仍由 T1-07 战斗结算用例断言）；「同窗多事件逐轮各占一槽」一半被本 ADR 取代。`#35` 加载期拒绝同 `onActionId` 立即 `action-hook` 仍保留，但「单轮至多 1 个立即事件」改由运行期守卫强制。详见 ADR-0026。
 
+> **〔再修订（ADR-0030），2026-11-13〕** 本决策「槽位唯一」的**语义边界**被 ADR-0030 扩围：槽位不是 `pendingEvents`，而是「一个轮次只呈现一个」的**四方共用位**（`wheel | battle | event | action`，前端 `apps/web/src/main.tsx:203-204`/`:1308-1315`）。ADR-0026 的「单槽 ≤1」不撤销，但只是四类占用者中的 `event` 一类：`battle` 占位时 `pendingEvents` 允许为空（守卫盲区，normal 可抢入事件槽），`random` 结算时占位却从不进 `pendingEvents`。准入判据改由派生式 `slotTakenFor()` 给出（L1 pending ∨ L2 battle ∨ L3 chainReserve，含链自身豁免），见 ADR-0030 决策 1/2；「续步优先于 drain」作为独立修复项 F2（ADR-0030 决策 3）覆盖 `nextEventId` 伪链。
+
 6. **链组合**：`ChainStep.delay?: TimeSpec` 表达"3 天后触发"；链断链判定 `evaluateChain()` 纯函数——链 active 的充分条件之一是时间队列存在该链的未触发实例（修复 stepIndex 双写漂移的结构性风险）；`advanceWhen: nextTurn` 保留（"下一轮"是槽位语义，非 x 轮后，Q-R25-06）。
 
 ### 被否决的备选
@@ -2113,6 +2115,8 @@ RNG ⇒ 「逐字节等价重构」立刻不成立（RNG 流被多扣一次，�
 **插入 ADR-0024 末尾：**
 > **〔被 ADR-0026 调和，2026-11-13〕** 本 ADR「问题」节与「现状核实」中「`pendingEvents` 是只承载槽位呈现的 FIFO」「积压到 5 条」等表述，及隐含的「加固而非退役」定调，**已被 ADR-0026 修正**：`pendingEvents` 现定义为**单槽（≤1）**，非积压队列。**本 ADR 的前提复核机制本身（决策 1–4、决策 8 的 `event_premise_invalidated`、决策 2.2 的 `revalidatePendingV2`、决策 2.1 的 `checkEventPremise`、决策 4 的 `droppedPending`）全部保留为纵深防御**——且因串行化后事件改走 `drainScheduledEvents→evaluateDue` 每轮重估条件，复核覆盖面反而更全。状态行「已实施」维持有效（复核机制仍生效），仅定性被修正。
 
+> **〔被 ADR-0030 扩围，2026-11-13〕** 本 ADR 的「单槽」结论**维持有效、不撤销**，但被明确为**四分之一**：决策 1 把槽定义为 `pendingEvents ≤ 1`、决策 2 把机制定义为「入队互斥」、决策 3 的「`combat` / `random` 不受本守卫影响」一节，在实测中被证伪为**盲区**——`battle` 占位时 `pendingEvents` 可为空（战斗进行中尾管线仍可把 normal 放进事件槽，`turn.ts:453` 只挡 combat），`random` 结算时占位却从不进 `pendingEvents`（守卫看不见转盘）。**量化基线**：守卫把「normal 链步被日常插队」严口径中断从 6 次降到 **0 次**（有效，成果归本 ADR），但线上 326 轮存档仍留 **2 次 combat 型链中断**（一次未覆盖）。后续由 ADR-0030 把准入扩为 `L1 pending ∨ L2 battle ∨ L3 chainReserve`（派生式，禁置位标记），并把「续步优先于 drain」作为独立修复项 F2。本 ADR 决策 5 的「守卫可整块删除回退」性质**保留**（ADR-0030 不改变其可逆性判定），但删除守卫后的行为不再视为「正确行为」，只视为「旧行为」。
+
 ## ADR-0027 AI 叙事层接入：LLM Provider 抽象 + 服务端编排 + 确定性边界
 
 > **本条覆盖**：将 2026-11-13 与用户讨论确定的「AI 叙事层（LLM 接入）」落地为正式决策——`LLMProvider` 统一接口（Mock / WorkBuddy 云服务 SDK / OpenAI 兼容）、服务端凭证路由、确定性边界、strict Zod + 证据白名单回退、事件 flavor 异步生成。属于 **T-2 协议/契约变更**（动 server/engine 编排契约 + shared schema 新增），须先写 ADR（AGENTS §0.3）。
@@ -2517,3 +2521,166 @@ R2.7 已实现 `LLMProvider` 三层路由（mock / workbuddy-cloud / openai-comp
 ### 明确不做
 
 模板市场 / 搜索 / 评分 / 导出；任何导入端点与导入 UI；删除 / 下架 / 引用守卫；模板副本 GC；zip；`fs.watch` / 定时器式热加载；资源下发（schema 引用字段 + 端点 + 消毒）；自定义函数执行；模板字节快照；存档上云 / 跨设备续玩；`schemaVersion` 升 3；抗 YAML 别名炸弹防护（未实测，不得写进验收）。
+
+## ADR-0030 呈现槽准入统一：四类占用者 + 链续步保留
+
+> **本条覆盖**：把「单槽」从**入队互斥**（ADR-0026 的 `pendingEvents ≤ 1`）扩为**呈现槽准入**——槽位是前端一个轮次只呈现一个的**四方共用位**（`wheel | battle | event | action`），引擎侧必须为四类占用者统一判定准入，并为「链续步已结算、尚未入槽」的空窗保留槽位。属 **T-2 触发策略语义变更**（`AGENTS.md` §0.3）：改 `packages/game-core` 的运行期准入语义 ⇒ 必须先 ADR。
+> **本条不改协议面**：`packages/shared` 零改动（`PendingEvent` / `ChainStateV2` / `MissReason` / `schemaVersion` / 投影字段集全不动）⇒ **旧档可直接载入**。
+
+- **状态**：**已接受（2026-11-13，待用户批准实施）**。ADR 先行落档，实现等用户点头（实施顺序见「决策 8」）。
+- **起草人**：系统架构师（高见远）；证据复核与量化基线来自内核复现报告（同迭代 `event-slot-rootcause`）。
+- **关联**：**ADR-0026（被本条扩围，见文末回指注记）**、ADR-0011 决策 5（再修订）、ADR-0024（前提复核保留为纵深防御，不变）、ADR-0012/0021（combat 判活 skip，不变）、OPEN_QUESTIONS 事件冲突议题。
+
+### 问题：槽位语义只落地了四分之一
+
+结构性事实（以代码为准）：
+
+| 事实 | 证据 |
+|---|---|
+| 前端「轮次槽位」是**一个区域四类占位者共用**，优先级 `wheel > battle > event > action` | `apps/web/src/main.tsx:203-204`（`type SlotOccupant`）、`:1308-1315`（`occupant` 取值） |
+| 引擎「槽位」只读 `pendingEvents` | `turn.ts:471`（`event.kind === "normal" && state.pendingEvents.length > 0`） |
+| ⇒ **battle 占位时 `pendingEvents` 可为空**：战斗进行中，尾管线仍可把 normal 事件放进事件槽 | 战斗互斥只挡 combat（`turn.ts:453`）；`advanceTurnV2` 步骤 2 可起战，步骤 3 / 步骤 8 照常 drain + pool |
+| ⇒ **random 结算时占位却从不进 `pendingEvents`**：守卫完全看不见转盘 | `turn.ts:497-499` 注释与 random 分支 |
+| ⇒ **链续步在「已结算、未入槽」的空窗没有保留位**：延时链步、`nextEventId` 直连被 drain 抢在前面 | `turn.ts:597-608`、`:736-745`；`:1074-1078`、`:1140-1150`、`:1223-1226`（drain 均在续步链接之前） |
+
+**量化基线（本次最硬的证据）**：
+
+| 样本 | 链中断（严口径） | 按类型 |
+|---|---|---|
+| 守卫上线前的本地旧档 | **8 次** | A = normal 6 / random 2 |
+| 守卫上线后的线上 326 轮存档（世界 `aa775496-…`） | **2 次** | A **全部是 combat** |
+
+⇒ **定性：语法糖有效，但只覆盖四分之一，不是「临时实验失败」。** 守卫把「normal 链步被日常插队」从 6 降到 0（这部分成果由 ADR-0026 持有、本条不撤销），而 **combat / random 型链步一次未覆盖**；normal 一侧只剩「battle 占位时的事件槽盲区」。
+
+**为什么不能靠 `state.chains` 覆盖伪链（写死理由，防后来者重走）**：模板 `chains:` 只有 `chain-creation` 一条（`specs/data/templates/jjk-2006/1.0.0/events.yaml:3881-3899`，13 步全 `onSettle`），而 `trigger.source: "chain"` 的事件有 78 条，其中涩谷 / 死灭回游 / 新宿全是 `nextEventId` 串起来的**伪链**：`advanceChainOnSettle` 对它们走「chainState 未命中 ⇒ 立即 `triggerEventV2(next)`」分支（`turn.ts:571-576`），**不写 chainId、不产生 chainState**。所以 `state.chains` 里查不到它们，链保留判据（L3）**只覆盖「声明了 delay 的真链步」**，伪链的主战场必须靠 **F2 排程顺序**解决。
+
+### 决策 1：准入判据必须是**派生式**，禁止存布尔标记
+
+1. **派生式定义**（纯读、无新状态、无新字段）：
+
+```
+slotTakenFor(state, def, chainId):
+  L1  normalOnly   : def.kind === "normal" && state.pendingEvents.length > 0
+  L2  battle       : state.battle !== null && !state.battle.over
+  L3  chainReserve : ∃ c ∈ state.chains:
+                       c.status === "active"
+                       && state.scheduledEvents.some(i => i.chainId === c.id && i.status === "waiting")
+                       && c.id !== chainId            // 自身豁免：链自己的续步不得被自己的保留位挡死
+```
+
+2. **明确禁止「置布尔标记 / 存 reservation 字段」**：链步可能 `hold`（条件不满足、窗口内留队）或 `drop`（`missWhen` / `window_expired`），处置在 `evaluateDue`（`scheduler.ts:276-294`）与 drain 循环头（`:330-340`）里。**置位式标记一旦链步掉队就永久占槽 ⇒ 全服池事件永久被挡**（单点故障放大成全局饥饿）。派生式则天然自愈：实例一 `expired` / `cancelled`，谓词自动为假。
+3. **L3 只认「有 waiting 链步实例」而不认「链 status === active」**：`ChainStateV2.status` 只有 `active | completed`（`packages/shared/src/v2.ts:240-246`，**没有 paused / cancelled**）。因此「已结束或被取消」= `completed` ⇒ 排除；`active` 却无待发实例 = 要么正被玩家决策（L1 已占位）、要么是断链僵尸 ⇒ **不保留**。这条把 ADR-0026「不处置僵尸链」的已知风险挡在门外，**不得**改用 `evaluateChain() === "active"`（`scheduler.ts:369-383` 的第三分支「还有 steps 没走」会让僵尸链永久占位）。
+
+### 决策 2（F1）：准入三层落地，`pendingEvents` 不再是「槽位」的唯一等价物
+
+守卫位置不变（`turn.ts:465-485`，`recordFire`（`:487`）之前，命中即 `return`、不记火、不进 `triggered`、不写 `history`），只把**条件**从 L1 扩为 `L1 ∨ L2 ∨ L3`。抽成纯函数 `slotTakenFor()` 供 `triggerEventV2` 与测试单点调用。
+
+### 决策 3（F2）：`nextEventId` / `advanceChainOnSettle` 续步必须**先于 drain**
+
+这是修 78 条线性伪链的关键，**独立于 F1**（即使 L2/L3 全开，只要 drain 跑在续步链接之前，日常事件仍会先抢到空槽）。三处结算路径把「续步链接」提到「drain」之前：
+
+| 入口 | 现状次序 | 目标次序 |
+|---|---|---|
+| 事件结算 | `chooseOptionV2:1074-1078`（effects → drain → chainStarts → `advanceChainOnSettle`） | effects → chainStarts → **续步链接** → drain |
+| 战斗结算 | `battleActionV2:1140-1150`（outcome effects → drain → chainStarts → `nextEventId`） | outcome effects → chainStarts → **`nextEventId`** → drain |
+| 用物品 | `useItemV2:1223-1226`（effects → drain → chainStarts） | effects → **chainStarts** → drain |
+
+理由：续步事件是**同一叙事序列的下一环**，它与「恰好到期」的延时实例竞争同一个槽时，语义上必须由续步先呈现；否则「先到先得」会把主线切碎。此改动**不新增调度结构**（复用既有 `drainDue` 接线点，只调整调用次序）。
+
+### 决策 4（F4）：守卫分支必须去重，否则实例膨胀
+
+`drainScheduledEvents` 单 pass 遍历**排序快照**（`scheduler.ts:317`），本 pass 内新入队的实例不在快照里、`start > now` 即 `break`（`:321`）⇒ **同 pass 不会自旋**。但 `drainDue`（`turn.ts:302-325`）允许 `MAX_DRAIN_PASSES = 8`（`:295`）：守卫命中路径**不置** `result.drainRequested`，正常单 pass 收敛；**一旦同轮别的触发（random 段效果推进时间 / `enqueueEvent`）置了 `drainRequested`**，下一 pass 会再次撞上「`start = now` 恒到期」的被挡实例 ⇒ **同一次 `drainDue` 内最多堆 8 个同事件实例**，而 `scheduledEvents` 只增不删（无 GC，见 BACKLOG）。裁定：守卫分支在 `enqueueScheduled` 之前**按 `(definitionId, chainId)` 去重**（已存在 `status === "waiting"` 的同事件实例则直接 `return`），把「每次重试都新建实例」压成「一个实例反复重判」。
+
+### 决策 5（F5）：random 纳入 L2 / L3，**不纳入 L1**
+
+| kind | L1 `pendingEvents` | L2 `battle` | L3 `chainReserve` |
+|---|---|---|---|
+| normal | 挡 | **挡（新增，本轮真凶修复）** | 挡 |
+| random（转盘） | **不挡** | **挡（新增）** | 挡 |
+| combat | **本轮不挡**（见决策 7 边界） | 挡（既有 `turn.ts:453`） | 挡 |
+
+- random **不进 L1**：转盘与事件卡片本就并存（前端 `wheel > event` 只是视觉优先），若被 `pendingEvents` 挡，会被日常事件长期压死。
+- random 延后**语义安全**：守卫位于 `recordFire`（`turn.ts:487`）之前，命中即 `return` ⇒ 不记火、不选 segment、不 `applyEffectsV2`、不写 `lastWheel(s)`；重放到期时在**那一轮**才结算并写 `lastWheel(s)`。代价：转盘呈现晚一轮（`D-03` 当轮语义仍自洽），**不会重复结算**。
+
+### 决策 6（诊断位）：`TriggerResult.slotDeferred`
+
+新增**非持久化**诊断位 `slotDeferred?: { eventId: string; by: "pending" | "battle" | "chainReserve" }[]`，口径与既有 `skipped` / `droppedPending` 相同（引擎内部 `TriggerResult`，**不进 `WorldStateV2` / 不进投影 / 不进 API / 不进存档**）。理由：没有它，线上只能靠历史差分反推「这轮为什么没出卡」（同 BACKLOG B-14 的教训）。
+
+### 决策 7：边界 —— 本轮不做
+
+| 不做 | 理由 |
+|---|---|
+| **combat 被 `pendingEvents` 挡**（反向对称洞：战斗在事件卡占槽时仍可开打，同样会遮住卡片） | 与 L2 同构但方向相反，**无观察到的事例**（线上 2 次 A 全为「normal 在战斗期间抢槽」）；扩大改动面会动既有战斗用例 ⇒ 记 BACKLOG，另案 |
+| 改 `pendingEventPriority`（`turn.ts:332-342`）或把 admission 改成「按优先级择优」 | 单槽下优先级**实际已失效**（被延后事件重新入队拿新 `enqueueSeq`，admission 只看 `(start, hasEnd, end, enqueueSeq)`，`scheduler.ts:71-82`，从不读 priority）；修它会改主轮 RNG 顺序 ⇒ 记 BACKLOG |
+| 改 `opening.handoff` 直写 `pendingEvents`（`opening.ts:239-241` 绕过守卫） | 开局一次性注入，`#34` 已有其门禁 ⇒ 记 BACKLOG |
+| `scheduledEvents` 的 GC / 归档裁剪 | 与本条正交；当前只影响存档体积 ⇒ 记 BACKLOG |
+| 扩 `MissReason` / 给实例加「允许失效」位 / 升 `schemaVersion` | 违反 ADR-0024 决策 8、ADR-0026 决策 5「不扩协议面」 |
+
+### 决策 8：实施顺序（依赖方向不可反）
+
+1. **F1**（`slotTakenFor` 三层，`turn.ts:465-485`）—— 先有准入，后面才有意义。
+2. **F2**（三处结算路径的续步优先，`turn.ts:1074-1078` / `:1140-1150` / `:1223-1226`）—— 独立于 F1，可并行落；修伪链主战场。
+3. **F4**（守卫去重）+ **F5**（random 纳入 L2/L3）—— 依赖 F1 的函数形态。
+4. **决策 6 诊断位** —— 与测试同步落，否则回归只能靠差分反推。
+
+### 被否决的备选
+
+- **在 `WorldStateV2` 加 `slotReservation?: { chainId, until }` 并置位**：直接违反决策 1 第 2 条（链步 `hold`/`drop` 后标记无法回收 ⇒ 永久饥饿）；且新增持久化字段 = 改存档结构（T-2 协议变更），旧档兼容要靠可选字段补丁，收益不成比例。**否决**。
+- **用 `state.chains` / `evaluateChain()` 做唯一判据**：对伪链覆盖 0 例（问题节已写死理由）；`evaluateChain` 第三分支还会让僵尸链永久占位。**否决**。
+- **退役 `pendingEvents`，全部改走 `scheduledEvents` 单队列**：破坏投影契约（`snapshot.pendingEvent`）与 `pending_event_required` 语义，且要升 `schemaVersion` 拒载旧档。**否决**（与 ADR-0026「被否决的备选」同口径）。
+- **把「章节门 `time >=` 滞后」也当引擎缺陷修（例如让 drain 主动推进世界时间到下一个门）**：引擎替模板做时间决策＝把游戏规则塞进通用内核，违反 `AGENTS.md` §5「不得把世界观专属规则硬编码进通用引擎」。**否决**（见「不予修复 / 另案」）。
+
+### 影响面与文件归属
+
+| 改动点 | 归属 | 依据 | 写冲突 |
+|---|---|---|---|
+| F1 `slotTakenFor` + 守卫条件扩围 | `packages/game-core/src/v2/turn.ts:465-485` | 准入判定在 `triggerEventV2`（槽位语义归属层） | `turn.ts` 是热点，须与其它改轮次管线的任务串行 |
+| F2 续步优先 | `turn.ts:1074-1078`、`:1140-1150`、`:1223-1226` | 结算路径次序 | 同上 |
+| F4 去重 / F5 random 纳入 / 诊断位 | `turn.ts:465-485`、`:263-286`（`TriggerResult`） | 同上 | 同上 |
+| 测试 | `packages/game-core/src/v2.test.ts`、`lifecycle-switch.test.ts`、`playthrough.test.ts` | 见「验证要点」 | 低 |
+| `packages/shared` / 投影 / 前端 / 存档 | **零改动** | 决策 7 边界 | 无 |
+
+### 不变量检查表
+
+| 不变量 | 现状 | 本决策影响 | 保护措施 |
+|---|---|---|---|
+| 同 seed 同输入同结果 | 成立 | **F2 改变 drain 与续步链接的相对次序 ⇒ 条件 `random` 的 RNG 消耗顺序变化** | 变化一次性、可复现；按 ADR-0026 决策 6 口径属「预期非回归」；结构性断言（章节 ≥8、`chapterFires` 不重复、`pendingEvents ≤1`）必须仍绿 |
+| hidden 不进入玩家端 API | 成立 | 无影响 | `slotDeferred` 只进引擎内部 `TriggerResult`，不进投影 |
+| 世界观规则只进模板 | 成立 | 强化：引擎仅判 `kind` / `battle` / `chainId`，**不读模板语义**，不按章节/角色分支 | 决策 1 谓词不含任何模板专有名词；时间锚错位留模板侧（T-1） |
+| 时间/随机/ID 可注入 | 成立 | 准入是纯读判定，不新增 `Date` / `Math.random` / 新 ID 源 | 谓词无副作用；F2 只调整调用次序 |
+| R3 穿越 seam 未被封死 | 三个预留点未硬化 | 中性偏好：链保留判据读实例 `status` 而非时间单调假设（`window.start` 只用于 drain 排序） | 不得把「链步已到期」写死成「时间只会向前」 |
+| `pendingEvents` 单槽（≤1） | 成立（ADR-0026） | **不变**（本条是扩围，不是撤销） | L1 原样保留 |
+| `pending_event_required` 守卫 | 成立（`turn.ts:893`） | 不变 | 不动 |
+
+### 验证要点
+
+1. **战斗期间不吸纳 normal**：尾管线在战斗进行中触发 normal ⇒ 断言 `pendingEvents` 仍为空、该事件进 `scheduledEvents` 且 `slotDeferred[].by === "battle"`。
+2. **战斗结束后续步先于日常**：combat 结算 + 同轮另有 due 的 pool 实例 ⇒ 断言 `pendingEvents[0].eventId` 是 `nextEventId` 续步，日常实例仍 `waiting`。
+3. **链延时步保留槽位**：构造 `ChainStep.delay` 的真链，续步入队后触发 pool 事件 ⇒ 断言被挡（`by === "chainReserve"`）；链步 `expired`/`drop` 后**自动解除**（不置位、不自愈失败）。
+4. **自身豁免**：链自己的续步 arrival 不被自己的保留位挡死（无 `chainId` 匹配时不进 L3）。
+5. **F4 去重**：一次 `drainDue` 内 `pass > 1` 的场景（random 段效果推进时间）⇒ 断言同 `(definitionId, chainId)` 的 waiting 实例 ≤ 1。
+6. **random 延后不重复结算**：被挡的 random 在重放的那一轮只写一次 `lastWheel(s)`、只 `recordFire` 一次。
+7. **必跑回归**：`v2.test.ts:725-800`（单槽 ≤1 + 串行化回放；**实例计数断言会因 F4 去重需改写**）、`lifecycle-switch.test.ts:480-497`（守卫延后 + 经链回归）、`playthrough.test.ts:133-155`（6 种子 × 2 开局结构性断言）、`scheduler.test.ts:308-433`（队列长度）、`combat-refs.test.ts:227-228`（`pendingEvents === []`）、`r25-acceptance.test.ts:71+`（T1-07 结算占槽）。
+8. **回归预期幅度**：F2 挪动次序 ⇒ 逐事件时序与个别种子 `day` 值会变（`day ≈ 4736–4756` 基线须重录）；**允许变化的只有逐事件时序细节**，章节数 / `chapterFires` 唯一性 / 五维区间必须不动。
+
+### 不予修复 / 另案（两类证据被重新定性）
+
+| 现象 | 定性 | 归属 |
+|---|---|---|
+| `t297 ev-sh-05 → d3-megumi → t304 ev-ch6-gate` | **不是链中断**：`ev-sh-05` 是涩谷弧收束（无 `nextEventId`），三选项均 `advanceTo day 4694`（`events.yaml:3110/3124/3140`）< 第六章门 `time >= 4700`（`:3162`）⇒ **结构性 6 天空窗**，期间日常事件是正确的 | **模板时间锚错位**，T-1（免 ADR，`AGENTS.md` §0.3）。修法：`advanceTo` 对齐门的 `time >=`，或把门改成「flag + priority」立即门。**需用户裁决**；改动会使模板语义指纹变化 ⇒ **全部旧档拒载**（ADR-0007 / ADR-0029 既定策略） |
+| `t311 ev-cg-04 → d3-nobara → t320 ev-ch7-gate` | 同构：`cg-04 advanceTo 4728`（`:3442`）< 第七章门 `time >= 4736`（`:3464`）⇒ 8 天空窗 | 同上 |
+
+**不要在引擎里兜这件事**（见「被否决的备选」最后一条）：空窗是模板作者的时间编排选择，引擎强行补齐＝把游戏规则写进内核。
+
+### 遗留登记（同步 `docs/BACKLOG.md`）
+
+combat 被 `pendingEvents` 挡（对称洞）/ `pendingEventPriority` 在单槽下实际失效（admission 不读优先级）/ `opening.handoff` 绕过守卫 / `scheduledEvents` 无 GC。
+
+### 回指注记（append-only，已落地）
+
+原 ADR 正文一律未删未改，只在两处末尾追加了修订注记：
+
+| 位置 | 注记内容摘要 |
+|---|---|
+| ADR-0011 决策 5 末尾（本文件 `:358`，紧接 ADR-0026 的注记之后） | 「槽位唯一」的语义边界被扩围为四方共用位；ADR-0026 的单槽 ≤1 不撤销，只对应 `event` 一类；准入判据改由 `slotTakenFor()` 派生 |
+| ADR-0026 末尾（本文件 `:2118`） | 决策 1/2 的单槽定义、决策 3 的「combat / random 不受影响」被证伪为盲区；附量化基线（normal 6→0、combat 2 次未覆盖）；本 ADR 决策 5 的「可整块删除回退」性质保留，但删除后的行为不再视为正确行为 |
