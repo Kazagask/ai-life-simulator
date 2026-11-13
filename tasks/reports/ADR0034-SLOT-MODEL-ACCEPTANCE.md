@@ -469,7 +469,9 @@ AssertionError: expected 0 to be greater than 0.01
 | **同源**：槽内前提失效后**两者同时变 null**（证明不是两份独立实现） | PASS |
 | 空槽 / 世界终止后：两者都为 `null` | PASS |
 
-⇒ 我**没有**因为"`pendingEvent` 有值"判 FAIL。附带观察（非缺陷）：投影每次会**算两遍** `slotEventView`（`slotEvent` 一次、`pendingEvent` 内部再一次），确定性输出相同，只是多一次纯读求值；若要省，把 `slotEvent` 的结果传进 `pendingEventView` 即可。
+> ⚠️ **本节已被 §12 取代**：`pendingEvent` / `activeChains` 已在 `f7d4b15` **删除**，现在只有 `slotEvent`。本节保留用于记录「当时的过渡期口径」。
+
+⇒ 我**没有**因为「`pendingEvent` 有值」判 FAIL。附带观察（非缺陷）：投影每次会**算两遍** `slotEventView`（`slotEvent` 一次、`pendingEvent` 内部再一次），确定性输出相同，只是多一次纯读求值；若要省，把 `slotEvent` 的结果传进 `pendingEventView` 即可。
 
 ### 9.3 三条 P2 已在 `e954494` 修复（我复核了内容）
 
@@ -595,7 +597,7 @@ AssertionError: seed 5 章节门未触发：ev-ch4-gate: expected undefined to b
 |---|---|---|---|---|
 | R-1 | **S4 计数口径** | **按「具名来源」计 ⇒ 5 个 ⇒ PASS**（不按赋值语句） | `turn.ts:830` 是 `applyDeathRouteInPlace` 的克隆回写，只能写 `death` 来源的值或原值，**产生不了第 6 个 `from`**；把"赋值语句条数"当口径会把语义上不存在的写点算成缺陷，反而逼实现改一个没问题的地方 | ADR §4 S4 措辞 + `shared/v2.ts:205-214` 注释（`7b578ad`）+ 本报告 §2.3 |
 | R-2 | **`assignSlot()` 单入口 + 写点枚举测试** | **不在本轮**，留在加固清单；落地时把克隆回写作为**特例显式处理** | ADR §12-1 | ADR §12-1 |
-| R-3 | **`pendingEvent` 兼容层** | 不判 FAIL；`slotEvent` 是唯一真源，`pendingEvent` 是过渡兼容层；**两者在 normal 槽上必须一致** | `pendingEventView` 内部就是调 `slotEventView`（同源）；前端 5 处引用尚未切换 | 本报告 §9.2（5 条一致性断言，全绿） |
+| R-3 | **`pendingEvent` 兼容层**（→ **已被 §12 取代：字段已删除**） | 不判 FAIL；`slotEvent` 是唯一真源，`pendingEvent` 是过渡兼容层；**两者在 normal 槽上必须一致** | `pendingEventView` 内部就是调 `slotEventView`（同源）；前端 5 处引用尚未切换 | 本报告 §9.2（5 条一致性断言，全绿） |
 | R-4 | **反作弊的 `instanceId` 口径** | 装备/战斗视图里的 `instanceId` 是**既有协议字段**，不是 §8-⑪ 禁的队列身份 ⇒ 按 ADR 判 PASS | 前端靠它发 `unequip` / 选战斗目标；禁掉会打断链路 | 本报告 §2.9 |
 | R-5 | **「一轮只结算一个」的保证强度** | ADR §4 S1 改为两段更诚实：**①结构保证**（`slot` 标量装不下第二个）+ **②实现顺序约定**（`nextTurn` 对 normal/random 只呈现不结算） | 我第一轮 §2.1 的注记 | ADR §4 S1（`7b578ad`）+ §12-4 |
 | R-6 | **投影重复求值** | 记为**小优化**，不单开条目：每次投影会把槽视图算两遍（`projection.ts:249` 与 `pendingEventView` 内部各一次），输出确定、无害 | 本报告 §9.2 观察 | ADR §12-5 |
@@ -605,14 +607,108 @@ AssertionError: seed 5 章节门未触发：ev-ch4-gate: expected undefined to b
 
 ---
 
-## 附录 A · 探针全文（24 例）
+---
 
-> 现址：`D://code//_lifesim_qa_probe//packages//game-core//src//v2//__qa-adr0034-probe.test.ts`（仓库外的 worktree，**不在主仓库里**）。
-> 分布：S1 正向 1 + 反向 4；S2 十入口 1 + 被拒 1；§3-3 两例；A2' 五例；G2 两例；反作弊两例；`pendingEvent` 一致性 5 例；确定性 1 例（真实模板）。
+## 12. 过渡字段删除复验（范围复验，基线 `f7d4b15`）
+
+> 主理人要求：只验「两个字段真的没了 + `slotEvent` 单一真源 + 投影形状没被删坏 + `apps/web` 一行未动」，不重跑全量。
+> **本节取代 §9.2 与 §11-R3 关于「`pendingEvent` 是过渡兼容层」的描述**——它现在已被**删除**，只剩 `slotEvent`。
+
+### 12.1 范围：`f7d4b15` 动了 8 个文件，`apps/web` **0 行**
+
+```
+$ git show --stat --oneline f7d4b15
+ apps/server/smoke/narrative.smoke.ts              |  2 --
+ packages/game-core/src/v2.test.ts                 |  4 ++--
+ packages/game-core/src/v2/ending-pipeline.test.ts |  8 ++++----
+ packages/game-core/src/v2/guard.test.ts           |  8 +++++---
+ packages/game-core/src/v2/projection.ts           | 19 ++++---------------
+ packages/game-core/src/v2/r25-acceptance.test.ts  | 13 ++++++++-----
+ packages/game-core/src/v2/turn.ts                 | 16 ----------------
+ packages/shared/src/v2.ts                         | 15 ---------------
+ 8 files changed, 23 insertions(+), 62 deletions(-)
+```
+
+- **`apps/web` 命中 0 次**（`git show f7d4b15 --stat --format="" | grep -c "apps/web"` = 0）✅
+- 唯一越界是 `apps/server/smoke/narrative.smoke.ts` 的 **−2 行**夹具（`makeSnapshot` 里的 `pendingEvent: null` / `activeChains: []`）——它**必须**同批删，否则 `pnpm typecheck` 红。与内核的说法一致。
+- 其余：协议层删两个字段 + `PendingEventView` 接口；投影层删两处写入；`turn.ts` 删 `pendingEventView`（−16 行）；4 个测试文件改断言。
+
+### 12.2 两个字段**真的不存在**（类型 + 运行时 + 负向锁会红）
+
+| 层面 | 检查 | 结果 |
+|---|---|---|
+| 类型层 | `grep -n "pendingEvent\|activeChains" packages/shared/src/v2.ts` | **0 命中**（只剩一句注释提到开局的 `handoff.pendingEvents`，不是被删字段） |
+| 运行时 | 我自己的探针：`"pendingEvent" in snapshot === false` / `"activeChains" in snapshot === false`，**空槽 / 有槽 / 终止态三种情形**都断言 | **PASS**（同时正向对照 `slotEvent` / `lastWheels` 仍在，确认不是把相邻字段一起删了） |
+| 全仓引用 | `grep -rn "\.pendingEvent\b\|\.activeChains\b" packages apps` | **0 命中**（代码零引用） |
+| 前端 | `grep -rn "pendingEvent\|activeChains" apps/web/src` | **0 命中**；`slotEvent` 出现 **9 处** |
+
+**负向锁的独立变异验证（我自己做的，不采信内核自述）**：在我那份仓库外 worktree 里把两个字段**塞回投影对象**
 
 ```ts
-// packages/game-core/src/v2/__qa-adr0034-probe.test.ts（临时文件，验收后已删除）
-// 19 例：S1 正向 1 + 反向 4；S2 十入口 1 + 被拒 1；§3-3 两例；A2' 五例；G2 两例；反作弊两例；确定性 1 例（真实模板）
+ slotEvent: ended ? null : slotEventView(state, lookup),
++...({ pendingEvent: null, activeChains: [] } as Record<string, unknown>),   // MUTATION
+```
+
+跑 3 个相关测试文件 ⇒ **4 failed / 48 passed**，且失败**精确**是这四条（全部 `expected true to be false`）：
+
+```
+FAIL  ending-pipeline.test.ts > 结局投影与归档 > 终止后 slotEvent 投影为 null（…）
+FAIL  r25-acceptance.test.ts > T1-09 · 确定性与玩家端投影边界 > hidden 与实例层/事实层字段不进入玩家端投影
+FAIL  __qa-adr0034-probe.test.ts > QA-字段删除 > 投影对象上两个字段的 `in` 为 false（负向锁的独立复现）
+FAIL  __qa-adr0034-probe.test.ts > QA-字段删除 > 空槽 / 终止态的投影同样没有这两个字段
+```
+
+还原后（`git checkout f7d4b15 -- projection.ts turn.ts`，`grep -c MUTATION` = 0）⇒ 3 个文件全绿（52 passed）。
+⇒ **这两条负向锁不是空转**：字段一旦复活，它们必红。内核的说法成立，我独立复现了。
+
+### 12.3 `slotEvent` 是单一真源；每份快照**只算一次**（实测 2 → 1）
+
+| 检查 | 结果 |
+|---|---|
+| `projection.ts` 里 `slotEventView` 的出现 | **1 处 import + 1 处调用**（`:252`），另一处只是注释里的字样；`pendingEventView` / `PendingEventView` 全仓**代码零引用**（仅 2 条注释提到「已删除」） |
+| 「每份快照只算一次」是否成立 | **成立，且我做了前后对照实测**：在 `slotEventView` 顶部插一个 `globalThis.__slotViewCalls++` 计数探针，同一份 normal 槽状态调一次 `projectSnapshotV2` —— **`ee5a20b`（删除前）= 2 次**（失败信息 `expected 2 to be 1`，即 `slotEvent` 一次 + `pendingEventView` 内部再一次），**`f7d4b15`（删除后）= 1 次**（全绿）；连调两次快照 = 2 次（线性，不是缓存造成的假 1） |
+| ⇒ ADR §12-5 的「投影重复求值」 | **已随本提交消失**，可从加固清单勾掉 |
+
+> 说明：那个计数探针是我为**测量**临时加的（只在我那份 worktree 里，未提交，测完即删），没有留成测试——否则等于要求内核永远保留一个仅供测试的计数器。
+
+### 12.4 删除**没有**动到模拟语义（六种子逐字段一致）
+
+`playthrough` 六种子在 `f7d4b15`（删字段后）与 `ee5a20b`（删字段前）**完全相同**：
+
+| 种子 | 结局 | 天数 | 回合 | 章节段数 | overall | ch4/5/6/7 门次数 |
+|---|---|---|---|---|---|---|
+| s1 | end-death | 4736 | 325 | 14 | 94.45 | 1/1/1/1 |
+| s2 | end-death | 4736 | 349 | 14 | 94.73 | 1/1/1/1 |
+| s3 | end-secret-thrice | 4755 | 333 | 15 | 94.70 | 1/1/1/1 |
+| s4 | end-death | 4736 | 349 | 14 | 94.93 | 1/1/1/1 |
+| s5 | end-secret-thrice | 4755 | 346 | 15 | 95.01 | 1/1/1/1 |
+| s6 | end-death | 4736 | 341 | 14 | 94.68 | 1/1/1/1 |
+
+- 与 §5 / §8.2 / §10.4 记录的三轮基线**逐字段一致**（结局、天数、回合、章节、overall 全同）
+- 章节段数 14–15，仍 ≥ 8；四门各恰好 1 次（`e954494` 补的锁继续有效）
+- 结论：**删的是纯投影字段，模拟语义零变化**（符合预期，也是一条「改动确实只发生在表现层」的旁证）
+
+### 12.5 其它
+- 主仓库 `pnpm typecheck` → **0 错**
+- 我的探针更新为 **21 例**（原 24 例里的 5 条 `pendingEvent` 一致性断言随字段删除而作废，改为 2 条负向锁；另 1 条计数用例是测量工具，测完删除）
+- 探针仍在仓库外 `D://code//_lifesim_qa_probe`（现停在 `f7d4b15`），主仓库零残留
+
+### 12.6 裁定
+
+**PASS。** 两个字段在类型层与运行时都已消失、负向锁经独立变异验证确认真会红、`slotEvent` 是唯一真源且每份快照只算一次（实测 2 → 1）、六种子语义零变化、`apps/web` 一行未动、唯一越界（smoke 夹具 −2 行）属必要。
+
+---
+
+## 附录 A · 探针全文（21 例，`f7d4b15` 版）
+
+> 现址：`D:\code\_lifesim_qa_probe\packages\game-core\src\v2\__qa-adr0034-probe.test.ts`（仓库外的 worktree，**不在主仓库里**；当前停在 `f7d4b15`）。
+> 21 例分布：S1 正向 1 + 反向 4；S2 十入口 1 + 被拒 1；§3-3 两例；A2' 五例；G2 两例；反作弊两例；字段删除负向锁 2 例；确定性 1 例（真实模板）。
+> 原 5 条 `pendingEvent` 一致性断言已随 `f7d4b15` 删除字段而作废，替换为 2 条负向锁（§12.2）。
+
+```ts
+// QA 临时探针（验收 ADR-0034，**不属于交付物**）：现驻仓库外 worktree，f7d4b15 版共 21 例。
+// 21 例：S1 正向 1 + 反向 4；S2 十入口 1 + 被拒 1；§3-3 两例；A2' 五例；G2 两例；
+//        反作弊两例；字段删除负向锁 2 例（pendingEvent / activeChains）；确定性 1 例（真实模板）
 
 /**
  * QA 临时探针（验收 ADR-0034，**不属于交付物**）：跑完即删。
@@ -1320,64 +1416,31 @@ describe("QA-确定性 · 真实模板同 seed 两次跑逐字节相同", () => 
   });
 });
 
+// ---------- 过渡字段已删除（f7d4b15）+ slot 视图单次求值 ----------
 
-// ---------- pendingEvent 兼容层（主理人 2026-11-13 口径：slotEvent 唯一真源，两者在 normal 槽上必须一致） ----------
-
-describe("QA-pendingEvent · 过渡兼容层与 slotEvent 的一致性", () => {
-  it("normal 槽：pendingEvent 与 slotEvent 的 eventId/title/narrative/options 逐字段一致", () => {
-    const { state, template, lookup } = world([EV.a, EV.b], "qa-pe-normal");
+describe("QA-字段删除 · pendingEvent / activeChains 真的不存在，slotEvent 是单一真源", () => {
+  it("投影对象上两个字段的 `in` 为 false（负向锁的独立复现）", () => {
+    const { state, template, lookup } = world([EV.a, EV.b], "qa-gone-1");
     state.slot = { eventId: "ev-a", from: "queueTake" };
-    const snap = projectSnapshotV2(state, template, lookup);
-    expect(snap.slotEvent?.kind).toBe("normal");
-    expect(snap.pendingEvent).not.toBeNull();
-    expect(snap.pendingEvent!.eventId).toBe(snap.slotEvent!.eventId);
-    expect(snap.pendingEvent!.title).toBe(snap.slotEvent!.title);
-    expect(snap.pendingEvent!.narrative).toBe(snap.slotEvent!.narrative);
-    expect(snap.pendingEvent!.options).toEqual(snap.slotEvent!.options ?? []);
-    // 选项的可见性过滤是同一次计算的结果（不是两份实现）
-    expect(snap.pendingEvent!.options.map((o) => o.id)).toEqual(
-      snap.slotEvent!.options!.map((o) => o.id),
-    );
+    const snapshot = projectSnapshotV2(state, template, lookup) as Record<string, unknown>;
+    expect("pendingEvent" in snapshot).toBe(false);
+    expect("activeChains" in snapshot).toBe(false);
+    // 正向对照：不该把相邻字段一起删掉
+    expect("slotEvent" in snapshot).toBe(true);
+    expect("lastWheels" in snapshot).toBe(true);
   });
 
-  it("random 槽：slotEvent.kind=random 且 pendingEvent 必须为 null（不得让前端误判为可自由行动）", () => {
-    const { state, template, lookup } = world([EV.wheel, EV.b, EV.c1], "qa-pe-random");
-    due(state, "ev-wheel");
-    advanceTurnV2(state, REST, template, lookup); // 呈现（掷骰）
-    const snap = projectSnapshotV2(state, template, lookup);
-    expect(snap.slotEvent?.kind).toBe("random");
-    expect(snap.pendingEvent).toBeNull();
-  });
-
-  it("combat 槽：slotEvent.kind=combat 且 pendingEvent 必须为 null", () => {
-    const { state, template, lookup } = world([EV.combat], "qa-pe-combat");
-    advanceTurnV2(state, PATROL, template, lookup);
-    expect(state.slot?.eventId).toBe("ev-combat");
-    const snap = projectSnapshotV2(state, template, lookup);
-    expect(snap.slotEvent?.kind).toBe("combat");
-    expect(snap.pendingEvent).toBeNull();
-  });
-
-  it("同源：槽内前提失效后两者同时变 null（不是两份独立实现）", () => {
-    const { state, template, lookup } = world([EV.gated], "qa-pe-samesrc");
-    state.slot = { eventId: "ev-gated", from: "queueTake" };
-    expect(projectSnapshotV2(state, template, lookup).pendingEvent).not.toBeNull();
-    killed(state); // npcState alive 变假
-    const snap = projectSnapshotV2(state, template, lookup);
-    expect(snap.slotEvent).toBeNull();
-    expect(snap.pendingEvent).toBeNull();
-  });
-
-  it("空槽 / 终止后：slotEvent 与 pendingEvent 都为 null", () => {
-    const { state, template, lookup } = world([EV.a, EV.b], "qa-pe-empty");
-    expect(projectSnapshotV2(state, template, lookup).slotEvent).toBeNull();
-    expect(projectSnapshotV2(state, template, lookup).pendingEvent).toBeNull();
-    state.slot = { eventId: "ev-a", from: "queueTake" };
+  it("空槽 / 终止态的投影同样没有这两个字段（不是只有某条分支才删）", () => {
+    const { state, template, lookup } = world([EV.a, EV.b], "qa-gone-2");
+    const empty = projectSnapshotV2(state, template, lookup) as Record<string, unknown>;
+    expect("pendingEvent" in empty).toBe(false);
+    expect("activeChains" in empty).toBe(false);
     state.termination = { reason: "qa", worldTime: 0, turnIndex: 0, source: "condition", endingId: "end-x" };
-    const snap = projectSnapshotV2(state, template, lookup);
-    expect(snap.slotEvent).toBeNull();
-    expect(snap.pendingEvent).toBeNull();
+    const ended = projectSnapshotV2(state, template, lookup) as Record<string, unknown>;
+    expect("pendingEvent" in ended).toBe(false);
+    expect("activeChains" in ended).toBe(false);
   });
+
 });
 ```
 
@@ -1401,9 +1464,12 @@ describe("QA-pendingEvent · 过渡兼容层与 slotEvent 的一致性", () => {
 | 服务端 | `PORT=3457 npx tsx apps/server/src/index.ts` → `HTTP=200` |
 | 存档协议 | `apps/server/src/store.ts:50` `SCHEMA_VERSION = 3`；`shared/v2-state.ts:248` `slot: SlotSceneSchema.nullable()` |
 | `pendingEvent` 一致性 | 探针 `QA-pendingEvent` 5 例；实现 `turn.ts:1274-1283`（`pendingEventView` 内部调 `slotEventView`） |
-| 探针位置 | `D://code//_lifesim_qa_probe//packages//game-core//src//v2//__qa-adr0034-probe.test.ts`（仓库外 worktree；主仓库零残留） |
+| 探针位置 | `D:\code\_lifesim_qa_probe\packages\game-core\src\v2\__qa-adr0034-probe.test.ts`（仓库外 worktree；主仓库零残留） |
 | P2 三项修复 | `git diff eebae60 e954494`：`playthrough.test.ts`(+9) / `slot-invariants.test.ts`(标题) / `shared/v2.ts`(注释) |
 | P2-1 变异验证 | 变异后 `vitest run playthrough.test.ts` → `seed 5 章节门未触发：ev-ch4-gate`（§10.2） |
 | 裁定记录 | §11（R-1…R-7，逐条含依据与落地位置） |
+| 字段删除（范围） | `git show --stat f7d4b15`：8 文件 +23 −62，`apps/web` 命中 0（§12.1） |
+| 字段删除（负向锁变异） | 塞回两字段 ⇒ `4 failed / 48 passed`，四条均 `expected true to be false`（§12.2） |
+| slot 视图单次求值 | 计数探针实测 `ee5a20b`=2 → `f7d4b15`=1（§12.3） |
 
 ---
