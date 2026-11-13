@@ -529,19 +529,22 @@ function poolDrawConfig(template: WorldTemplateV2): { skipWhenSlotOccupied: bool
  * 队列恒满 ⇒ 池永久停摆 ⇒ `source: pool` 的章节门永远摇不出来 ⇒ 主线卡死到 `timeReached`。
  * 两条规则各自正确，组合致命：没有人负责回答「队列里的东西会不会永远出不去」。
  *
- * 口径 = `status === "waiting"` ∧ 定义存在 ∧ 未过期 ∧ **前提此刻成立**：
- * - 定义缺失 / 已过期 ⇒ 扫描会把它们摘掉，不算"待演的内容"；
- * - 前提不成立（`conditions` / `missWhen`）⇒ 现在不能演，不该挤占抽取名额；
- * - **冷却中的实例仍计入**：冷却会自然解除，属"活内容"，不计入会把阈值开得过大。
+ * 口径 = 「可上桌」两条同时成立（ADR §13.5 写死的判据）：
+ * 1. `window.start <= worldTime`（**未到期的不计** —— 它还没到上场时间，不该挡今天的抽取）；
+ * 2. `checkEventPremise(def, ctx).ok`（`missWhen` / `conditions` 不成立的不计）。
+ * 另加两条不计入：定义缺失（清理归加载期完整性校验）、已过期（`worldTime > window.end`，
+ * 扫描会把它摘掉并记 `window_expired`）。**冷却中的实例仍计入**：冷却会自然解除，属"活内容"。
  *
- * 求值用**独立派生流**（`scanStream`，`seed + 37`）：条件里若含 `random`，每轮重复求值
- * 不得扰动主轮 RNG（§3-5 同源裁定）。纯读：不改任何实例、不写状态、不记错失。
+ * 求值用**独立派生流**（`scanStream`，`seed + 37`）：条件里若含 `random`，每轮对每个 `waiting`
+ * 求值一次（用量与队列长度线性），绝不可用主轮 `ctx.rng`（§3-5）。纯读：只计数，不改 `status`、
+ * 不写 `missedEvents`、不推 `turnIndex`、不动 `slot`。
  */
 function countPresentableQueue(state: WorldStateV2, lookup: TemplateLookup): number {
   const rng = scanStream(state);
   let presentable = 0;
   for (const inst of state.delayQueue) {
     if (inst.status !== "waiting") continue;
+    if (inst.window.start > state.worldTime) continue; // 未来实例不挡路
     const def = lookup.event(inst.definitionId);
     if (!def) continue;
     if (inst.hasEnd && inst.window.end !== undefined && state.worldTime > inst.window.end) continue;

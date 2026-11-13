@@ -475,3 +475,80 @@ describe("G2-3 · 池阈值的计数口径 = 「当前可上桌」的实例（§
     expect(state.slot).toMatchObject({ eventId: "ev-gated", from: "queueTake" });
   });
 });
+
+// ---------- G2-3 补充（§13.5「另建议补两条」，主理人已要求内核实现）----------
+
+describe("G2-3 补充 · 未来实例不挡路 + 计数是纯读/确定性", () => {
+  it("① 未来实例（window.start > now）不计入阈值 ⇒ 池仍摇得出来", () => {
+    const { state, template: tpl, lookup } = world([EV.p, EV.s, EV.gate], "w-g23d");
+    // 三条「明天才到期」的实例顶在队列里（ev-p 定义窗口 1 天）
+    for (let i = 0; i < 3; i += 1) {
+      enqueueScheduled({
+        state,
+        definitionId: "ev-p",
+        origin: { kind: "effect", id: "ev-p" },
+        start: { value: 1, unit: "day" },
+      });
+    }
+    expect(state.delayQueue.filter((i) => i.status === "waiting")).toHaveLength(3);
+
+    advanceTurnV2(state, REST, tpl, lookup);
+
+    // 未到期的三条不挡今天的抽取：章节门被摇出来
+    expect(state.delayQueue.some((i) => i.definitionId === "ev-gate")).toBe(true);
+    expect(state.slot).toMatchObject({ eventId: "ev-gate", from: "queueTake" });
+  });
+
+  it("② 计数纯读：不改 status、不记错失、不写事实、不清理队列", () => {
+    const { state, template: tpl, lookup } = world([EV.free, EV.gate], "w-g23e");
+    // 三条**可上桌**实例 ⇒ 阈值真的封顶 ⇒ 本轮确定走 return 分支（计数被执行但只读）
+    for (let i = 0; i < 3; i += 1) enqueueDue(state, "ev-free");
+    const turnBefore = state.turnIndex;
+    const firesBefore = state.eventFires.length;
+    const missedBefore = state.missedEvents.length;
+
+    advanceTurnV2(state, REST, tpl, lookup);
+
+    // 只有自由行动那一步推了轮次；计数（以及"池被跳过"）不产生任何事实
+    expect(state.turnIndex).toBe(turnBefore + 1);
+    expect(state.eventFires).toHaveLength(firesBefore);
+    expect(state.missedEvents).toHaveLength(missedBefore);
+    // 计数不清理队列：长度仍是 3，且只有扫描取出的那一条变成 fired
+    expect(state.delayQueue).toHaveLength(3);
+    expect(state.delayQueue.map((i) => i.status)).toEqual(["fired", "waiting", "waiting"]);
+    // 池确实被封顶（没有被"纯读"顺手放行）
+    expect(state.delayQueue.some((i) => i.definitionId === "ev-gate")).toBe(false);
+  });
+
+  it("③ 同 seed 两次跑：阈值口径引入的求值不扰动主轮 RNG（结果逐字段一致）", () => {
+    const run = (worldId: string): string => {
+      const { state, template: tpl, lookup } = world([EV.combat, EV.p, EV.s, EV.gate, EV.free], worldId);
+      // 队列里同时放「死实例」「未来实例」「可上桌实例」，把三条计数分支都走到
+      killA(state);
+      enqueueDue(state, "ev-gated");
+      enqueueDue(state, "ev-free");
+      enqueueScheduled({
+        state,
+        definitionId: "ev-p",
+        origin: { kind: "effect", id: "ev-p" },
+        start: { value: 1, unit: "day" },
+      });
+      for (let i = 0; i < 6; i += 1) {
+        if (state.battle !== null) {
+          battleActionV2(state, { type: "skill", skillId: "sk-strike" }, tpl, lookup);
+          continue;
+        }
+        if (state.slot !== null) {
+          const ev = lookup.event(state.slot.eventId);
+          if (ev?.kind === "normal") chooseOptionV2(state, { optionId: "opt-ok" }, tpl, lookup);
+          else advanceTurnV2(state, REST, tpl, lookup);
+          continue;
+        }
+        advanceTurnV2(state, PATROL, tpl, lookup);
+      }
+      // 世界 id 是入参常量，用结构化序列化比较"除 id 外一切"
+      return JSON.stringify({ ...state, id: "same" });
+    };
+    expect(run("w-det-a")).toBe(run("w-det-b"));
+  });
+});
