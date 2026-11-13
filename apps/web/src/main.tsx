@@ -3,9 +3,13 @@ import { createRoot } from "react-dom/client";
 import type { CloudSession } from "@tencent-ai/workbuddy-cloud-sdk";
 import "./style.css";
 import {
+  ApiError,
   api,
   clearLlmSession,
+  defaultVersionOf,
   getLlmSession,
+  isLoadableVersion,
+  loadableVersionOf,
   mergeEventFlavors,
   resolveEventNarrative,
   submitLlmCredentials,
@@ -605,10 +609,24 @@ function App() {
 
 // ---------- 创建世界 ----------
 
-const STATUS_LABELS: Record<WorldSummary["status"], { label: string; cls: string }> = {
+const STATUS_LABELS: Record<"running" | "terminated" | "archived", { label: string; cls: string }> = {
   running: { label: "进行中", cls: "st-running" },
   terminated: { label: "已收束", cls: "st-terminated" },
   archived: { label: "已封存", cls: "st-archived" },
+};
+
+/**
+ * R2.8 / R-TG-10 C-5：不可载档的封闭 reason → 玩家可读的一句话。
+ * 服务端的 `detail` 带内部路径与指纹，**不渲染**；未知 reason 只给中性文案，不写进 DOM。
+ */
+const UNLOADABLE_REASON_LABELS: Record<string, string> = {
+  template_missing: "模板已被移除，这一局无法继续",
+  template_version_missing: "该模板版本已被移除，这一局无法继续",
+  template_content_drift: "模板内容已变更，这一局无法继续",
+  template_invalid: "模板损坏，这一局无法继续",
+  world_state_invalid: "存档损坏，无法载入",
+  envelope_json_invalid: "存档损坏，无法载入",
+  envelope_schema_version_unsupported: "存档格式过旧，无法载入",
 };
 
 function WorldList({
@@ -628,6 +646,26 @@ function WorldList({
       <span className="tag">我的世界</span>
       <ul className="world-list">
         {worlds.map((w) => {
+          // 不可载的档没有 state 可投影：给一行「可见但不可打开」的条目，删除照旧可用。
+          if (w.loadable === false) {
+            return (
+              <li key={w.id} className="world-item">
+                <div className="world-open is-unloadable">
+                  <div className="world-line">
+                    <strong>{w.templateId}</strong>
+                    <span className="badge st-archived">不可载入</span>
+                  </div>
+                  <div className="world-line muted">
+                    <span>{UNLOADABLE_REASON_LABELS[w.reason] ?? "存档或模板已变更，无法载入"}</span>
+                    <span>{w.savedAt.slice(0, 10)}</span>
+                  </div>
+                </div>
+                <button className="ghost world-delete" onClick={() => onDelete(w.id)}>
+                  删除
+                </button>
+              </li>
+            );
+          }
           const st = STATUS_LABELS[w.status];
           return (
             <li key={w.id} className="world-item">
@@ -651,6 +689,44 @@ function WorldList({
       </ul>
     </section>
   );
+}
+
+/**
+ * R2.8 / T-TG-07：把建局失败翻译成玩家可读的一句话 + 服务端给出的候选。
+ *
+ * 两个枚举错误自带候选列表，必须展示出来（否则玩家只会看到「请求失败」而不知道该选什么）：
+ *  - `template_version_required`(400) + `versions[]`：该模板多版本，必须显式选版本；
+ *  - `opening_not_found`(400/404) + `allowed[]`：开局不属于所选版本。本批服务端把状态码从
+ *    404 改成 400，这里两种都认（只按 `error` 码分支，不按状态码分支）。
+ * 其余一律回退到 `ApiError.message`（含状态码与 Fastify 的 code），不静默吞掉。
+ */
+function describeCreateError(
+  e: unknown,
+  openingNameOf: (id: string) => string,
+): { text: string; candidates: string[] } {
+  if (!(e instanceof ApiError)) {
+    return { text: e instanceof Error ? e.message : String(e), candidates: [] };
+  }
+  switch (e.code) {
+    case "template_version_required":
+      return {
+        text: "这个世界模板有多个版本，请先选一个版本再进入。",
+        candidates: e.body?.versions ?? [],
+      };
+    case "template_version_missing":
+      return { text: "所选版本已不存在（模板可能刚被更新），请重新选择版本。", candidates: [] };
+    case "template_invalid":
+      return { text: "所选版本当前无法载入，请换一个版本。", candidates: [] };
+    case "template_not_found":
+      return { text: "这个世界模板已不存在，请刷新页面后重试。", candidates: [] };
+    case "opening_not_found":
+      return {
+        text: "所选开局不属于当前版本，请重新选择开局。",
+        candidates: (e.body?.allowed ?? []).map(openingNameOf),
+      };
+    default:
+      return { text: e.message, candidates: [] };
+  }
 }
 
 function SetupScreen({
@@ -679,10 +755,66 @@ function SetupScreen({
   const [openingId, setOpeningId] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  /** 建局失败时服务端给的候选（版本 / 开局名），纯展示，不参与任何本地校验。 */
+  const [candidates, setCandidates] = useState<string[]>([]);
   // 登录/退出是云端动作：单独一套状态，失败只在这里出一句话，不影响建局表单的校验文案
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
-  const openings = templates[0]?.openings ?? [];
+
+  // ---------- R2.8 / T-TG-07：两级模板选择（模板 → 版本 → 开局） ----------
+  // 只保存「玩家显式点过的值」，生效值每次渲染派生：模板列表异步到达、或版本被热更新移除时，
+  // UI 会自动回落到服务端默认版本，不会卡在一个已失效的空选择上。
+  const [pickedTemplateId, setPickedTemplateId] = useState<string | null>(null);
+  /** 版本与模板 id 一起存：版本号在不同模板间可能同名，换模板后必须失效。 */
+  const [pickedVersion, setPickedVersion] = useState<{ templateId: string; version: string } | null>(
+    null,
+  );
+
+  const template: TemplateSummary | undefined =
+    templates.find((t) => t.id === pickedTemplateId) ?? templates[0];
+  const explicitVersion =
+    pickedVersion !== null &&
+    pickedVersion.templateId === template?.id &&
+    template?.versions.some((v) => v.version === pickedVersion.version) === true
+      ? pickedVersion.version
+      : undefined;
+  // 默认版本必须用服务端给的 `startVersion`，**不是** `versions[0]`（两者语义不同）。
+  const versionId =
+    explicitVersion ?? (template !== undefined ? defaultVersionOf(template) : undefined);
+  // 只有可载版本才能建局；不可载时保留其版本号，让 UI 说明「为什么进不去」而不是静默换版本。
+  const version = loadableVersionOf(template, versionId);
+  /**
+   * 开局**必须取自当前选中的版本**。旧实现写死 `templates[0]?.openings`（R-TG-14 缺陷），
+   * 多模板时会把 A 模板的开局 id 提交给 B 模板 ⇒ 服务端 `opening_not_found`。
+   */
+  const openings = version?.openings ?? [];
+  // 只有一个选项时不给玩家多余层级（内部仍走两级数据，提交时仍带 templateVersion）。
+  const showTemplatePicker = templates.length > 1;
+  const showVersionPicker = (template?.versions.length ?? 0) > 1;
+
+  const openingNameOf = (id: string): string => openings.find((o) => o.id === id)?.name ?? id;
+
+  /** 换模板：版本回到该模板的服务端默认，开局重置（开局属于版本）。 */
+  const changeTemplate = (id: string) => {
+    setPickedTemplateId(id);
+    setPickedVersion(null);
+    setOpeningId("");
+    setCandidates([]);
+  };
+
+  /** 换版本：开局重置——否则会把上一个版本的 openingId 提交出去。 */
+  const changeVersion = (v: string) => {
+    setPickedVersion(template !== undefined ? { templateId: template.id, version: v } : null);
+    setOpeningId("");
+    setCandidates([]);
+  };
+
+  // 防线（R-TG-14）：openings 来源变了而 openingId 已不在其中 ⇒ 清空。
+  // 覆盖「模板列表被服务端热更新」这类不经过上面两个 handler 的变化。
+  useEffect(() => {
+    if (openingId === "") return;
+    if (!openings.some((o) => o.id === openingId)) setOpeningId("");
+  }, [openings, openingId]);
 
   // R2.8 / FE-01：登录页「自定义 LLM 凭证」可折叠配置。仅持有不透明 sessionId，不存 key 字面量。
   const [apiKey, setApiKey] = useState("");
@@ -715,20 +847,31 @@ function SetupScreen({
       setLocalError("请先给角色起一个名字");
       return;
     }
+    if (template === undefined || version === undefined) {
+      setLocalError("世界模板还没载入完成（或该版本不可载入），请稍候或换一个版本");
+      return;
+    }
     setBusy(true);
     setLocalError(null);
+    setCandidates([]);
     try {
-      const template = templates[0];
       const parsedSeed = seed.trim() === "" ? undefined : Number.parseInt(seed.trim(), 10);
-      const res = await api.createWorld(
-        template?.id ?? "jjk-2006",
-        name.trim(),
-        Number.isFinite(parsedSeed) ? parsedSeed : undefined,
-        openingId === "" ? undefined : openingId,
-      );
+      const validSeed = parsedSeed !== undefined && Number.isInteger(parsedSeed) ? parsedSeed : undefined;
+      // 开局防御：只提交**属于当前版本**的 id，绝不把别的模板/版本的开局发出去（R-TG-14）。
+      const openingForSubmit = openings.some((o) => o.id === openingId) ? openingId : undefined;
+      const res = await api.createWorld({
+        templateId: template.id,
+        // 恒带版本：多版本时服务端强制要求；单版本时显式传更可诊断（服务端同样接受）。
+        templateVersion: version.version,
+        playerName: name.trim(),
+        ...(validSeed !== undefined ? { seed: validSeed } : {}),
+        ...(openingForSubmit !== undefined ? { openingId: openingForSubmit } : {}),
+      });
       onCreated(res.worldId, res.snapshot);
     } catch (e) {
-      setLocalError(e instanceof Error ? e.message : String(e));
+      const described = describeCreateError(e, openingNameOf);
+      setLocalError(described.text);
+      setCandidates(described.candidates);
     } finally {
       setBusy(false);
     }
@@ -792,17 +935,58 @@ function SetupScreen({
         {authError && <p className="error-text">{authError}</p>}
       </header>
 
-      {templates.map((t) => (
-        <section key={t.id} className="card">
-          <span className="tag">{t.startYear} · 世界模板</span>
-          <h2>{t.name}</h2>
-          <p className="muted">{t.description}</p>
+      {/* 模板卡片：只描述**当前选中版本**，不再把所有模板平铺一堆（两级结构下会误导） */}
+      {template === undefined ? (
+        <section className="card">
+          <h2>正在载入世界模板…</h2>
+          <p className="muted">若一直停在这里，请确认服务端已启动（GET /api/templates）。</p>
         </section>
-      ))}
+      ) : (
+        <section className="card">
+          <span className="tag">
+            {version !== undefined ? `${version.startYear} · 世界模板` : "版本不可用"}
+          </span>
+          <h2>{version?.name ?? template.name}</h2>
+          {version !== undefined ? (
+            <p className="muted">{version.description}</p>
+          ) : (
+            <p className="error-text">该版本当前不可载入，请换一个版本。</p>
+          )}
+        </section>
+      )}
 
       <WorldList worlds={worlds} onOpen={onOpen} onDelete={onDelete} />
 
       <section className="card form">
+        {/* 只有一个模板 / 一个版本时不显示多余层级，玩家点一次就能进 */}
+        {showTemplatePicker && (
+          <label>
+            <span>世界模板</span>
+            <select value={template?.id ?? ""} onChange={(e) => changeTemplate(e.target.value)}>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {showVersionPicker && template !== undefined && (
+          <label>
+            <span>版本（内容与规则随版本不同）</span>
+            <select value={versionId ?? ""} onChange={(e) => changeVersion(e.target.value)}>
+              {template.versions.map((v) => (
+                <option key={v.version} value={v.version} disabled={!isLoadableVersion(v)}>
+                  {!isLoadableVersion(v)
+                    ? `${v.version}（不可载入）`
+                    : v.version === template.startVersion
+                      ? `${v.version}（默认）`
+                      : v.version}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label>
           <span>角色姓名</span>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="例如：乙羽遥" maxLength={20} />
@@ -823,7 +1007,9 @@ function SetupScreen({
           <input value={seed} onChange={(e) => setSeed(e.target.value)} placeholder="留空随机" inputMode="numeric" />
         </label>
         {(localError || error) && <p className="error-text">{localError ?? error}</p>}
-        <button className="primary" disabled={busy} onClick={start}>
+        {/* 服务端在 400/404 里给了候选（版本 / 合法开局），原样展示，不静默失败 */}
+        {candidates.length > 0 && <p className="muted">可选：{candidates.join(" / ")}</p>}
+        <button className="primary" disabled={busy || version === undefined} onClick={start}>
           {busy ? "正在构建世界…" : "进入这个世界"}
         </button>
       </section>

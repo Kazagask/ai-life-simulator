@@ -66,6 +66,47 @@ export async function submitLlmCredentials(input: LlmCredentialInput): Promise<s
   return res.sessionId;
 }
 
+/**
+ * 服务端错误体里前端真正用得到的字段（R2.8 / T-TG-07）。
+ *
+ * 建局的两个枚举错误会带**候选列表**，缺了它玩家只能看到一句「请求失败」而不知道该选什么：
+ *  - 400 `template_version_required` + `versions[]`
+ *  - 400/404 `opening_not_found` + `allowed[]`
+ * 其余字段只用于拼一条可诊断的 message，不参与任何游戏判定。
+ */
+export interface ApiErrorBody {
+  error?: string;
+  message?: string;
+  code?: string;
+  /** `opening_not_found` 时该版本合法的 openingId 列表（服务端下发，前端只做展示）。 */
+  allowed?: string[];
+  /** `template_version_required` 时该模板的可载版本列表。 */
+  versions?: string[];
+  templateId?: string;
+  templateVersion?: string;
+}
+
+/**
+ * 带状态码与服务端错误体的请求错误。
+ * 继承 `Error`：既有的 `e instanceof Error ? e.message : ...` 调用点行为不变。
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly body: ApiErrorBody | null;
+
+  constructor(status: number, message: string, body: ApiErrorBody | null) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.body = body;
+  }
+
+  /** 服务端错误码：优先业务码 `error`，回退 Fastify 的 `code`（如 `FST_ERR_CTP_INVALID_MEDIA_TYPE`）。 */
+  get code(): string | undefined {
+    return this.body?.error ?? this.body?.code;
+  }
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   // 合并请求头：带 body 时声明 JSON；若已建立 LLM 会话，附带 session 头（不透明 id，不含 key）。
   const headers: Record<string, string> = {};
@@ -79,11 +120,12 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     let detail = `${res.status}`;
+    let body: ApiErrorBody | null = null;
     try {
       // Fastify 的错误体是 { statusCode, code, error, message }。
       // error 只是一句通用短语（如 "Unsupported Media Type"），真正能定位问题的是
       // message（带具体 Content-Type）与 code（FST_ERR_CTP_*），三者一起展示。
-      const body = (await res.json()) as { error?: string; message?: string; code?: string };
+      body = (await res.json()) as ApiErrorBody;
       const parts = [body.error ?? `${res.status}`];
       if (body.message && body.message !== body.error) parts.push(body.message);
       if (body.code) parts.push(body.code);
@@ -91,9 +133,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     } catch {
       /* 忽略解析失败 */
     }
-    const error = new Error(`请求失败：${detail}`) as Error & { status: number };
-    error.status = res.status;
-    throw error;
+    throw new ApiError(res.status, `请求失败：${detail}`, body);
   }
   return (await res.json()) as T;
 }
@@ -104,17 +144,85 @@ export interface OpeningSummary {
   description: string;
 }
 
-export interface TemplateSummary {
+/** 可载入版本（`loadable: true`）：带完整展示字段与**属于该版本**的开局列表。 */
+export interface LoadableTemplateVersion {
   id: string;
+  version: string;
   name: string;
   description: string;
   startYear: number;
   openings: OpeningSummary[];
+  assetCount: number;
+  assetFingerprint: string;
+  loadable: true;
 }
 
-export interface WorldSummary {
+/** 存在但不可载入的版本（`loadable: false`）：只有身份与原因，无展示字段、不可建局。 */
+export interface UnloadableTemplateVersion {
+  id: string;
+  version: string;
+  loadable: false;
+  /** 服务端诊断串（可能含内部路径）。**不渲染**，仅供控制台排查。 */
+  reason: string;
+}
+
+/** R2.8 / R-TG-01：`GET /api/templates` 的版本层（可载 / 不可载的判别联合）。 */
+export type TemplateVersionSummary = LoadableTemplateVersion | UnloadableTemplateVersion;
+
+/**
+ * R2.8 / R-TG-01：`GET /api/templates` 的模板层（两级结构：先选模板、再选版本）。
+ *
+ * `startVersion` 是服务端定义的**默认选中版本**（唯一可载版本 ⇒ 它本身；多版本 ⇒ 补 0 后
+ * 全序最高的**可载**版本）。它与 `versions[0]`（最低版本）语义不同，**必须用 `startVersion`**。
+ */
+export interface TemplateSummary {
+  id: string;
+  name: string;
+  startVersion?: string;
+  versions: TemplateVersionSummary[];
+}
+
+export function isLoadableVersion(v: TemplateVersionSummary): v is LoadableTemplateVersion {
+  return v.loadable;
+}
+
+/**
+ * 取模板的默认选中版本（R-TG-01 契约：用 `startVersion`，不要用 `versions[0]`）。
+ *
+ * 兜底顺序：`startVersion`（且确实可载）→ 最高可载版本 → `startVersion` 原值（该 id 下全不可载，
+ * 让 UI 显示「版本不可用」而不是静默换一个）→ 首个版本。`versions` 服务端已按版本号升序给出。
+ */
+export function defaultVersionOf(template: TemplateSummary): string | undefined {
+  const start =
+    template.startVersion !== undefined
+      ? template.versions.find((v) => v.version === template.startVersion)
+      : undefined;
+  if (start?.loadable === true) return start.version;
+  const highestLoadable = template.versions.filter(isLoadableVersion).at(-1);
+  if (highestLoadable !== undefined) return highestLoadable.version;
+  return template.startVersion ?? template.versions[0]?.version;
+}
+
+/**
+ * 取某模板下指定版本；版本号不存在或当前不可载时返回 `undefined`。
+ * 建局前用它判定「能不能提交」，避免把不可载版本发出去换一个 409。
+ */
+export function loadableVersionOf(
+  template: TemplateSummary | undefined,
+  version: string | undefined,
+): LoadableTemplateVersion | undefined {
+  if (template === undefined || version === undefined) return undefined;
+  const found = template.versions.find((v) => v.version === version);
+  return found?.loadable === true ? found : undefined;
+}
+
+/** 可继续的世界行（R-PS-04）：`savedAt` 倒序由服务端保证。 */
+export interface LoadableWorldSummary {
   id: string;
   templateId: string;
+  /** R2.8 / R-TG-01：存档固化的模板版本引用。 */
+  templateVersion?: string;
+  loadable?: true;
   templateName: string;
   playerName: string;
   turnIndex: number;
@@ -124,6 +232,24 @@ export interface WorldSummary {
   endingTitle?: string;
   savedAt: string;
 }
+
+/**
+ * R2.8 / R-TG-10 C-5：**存在但不可载**的档（坏档 / 模板内容变了 / 模板被删）。
+ *
+ * 服务端只下发诊断字段：`reason` 是封闭枚举、`detail` 是具体对象（**可能含内部路径，
+ * 前端不渲染**）。这类行在列表里可见、可删，但**不可打开**（没有 state 可投影）。
+ */
+export interface UnloadableWorldSummary {
+  id: string;
+  templateId: string;
+  templateVersion?: string;
+  loadable: false;
+  reason: string;
+  detail?: string;
+  savedAt: string;
+}
+
+export type WorldSummary = LoadableWorldSummary | UnloadableWorldSummary;
 
 export interface InteractionResponse {
   worldId: string;
@@ -166,6 +292,19 @@ export interface ArchiveResponse {
   };
 }
 
+export interface CreateWorldInput {
+  templateId: string;
+  playerName: string;
+  /**
+   * R2.8 / R-TG-01：版本目录名。**始终带上**——多版本时服务端强制要求
+   * （缺 ⇒ 400 `template_version_required`），单版本时显式传更可诊断（服务端亦接受）。
+   */
+  templateVersion?: string;
+  seed?: number;
+  /** R-OP-01：必须是**所选版本**的开局 id；省略则服务端取该版本的首个开局。 */
+  openingId?: string;
+}
+
 export const api = {
   listTemplates() {
     return request<{ templates: TemplateSummary[] }>("/api/templates");
@@ -190,15 +329,16 @@ export const api = {
       body: JSON.stringify({ instanceId }),
     });
   },
-  /** R-OP-01：省略 openingId 时服务端取加载顺序首个开局。 */
-  createWorld(templateId: string, playerName: string, seed?: number, openingId?: string) {
+  /** R-OP-01 / R-TG-01：两级模板建局；`templateVersion` 与 `openingId` 的归属约束见 `CreateWorldInput`。 */
+  createWorld(input: CreateWorldInput) {
     return request<{ worldId: string; snapshot: V2Snapshot }>("/api/worlds", {
       method: "POST",
       body: JSON.stringify({
-        templateId,
-        playerName,
-        ...(seed !== undefined ? { seed } : {}),
-        ...(openingId !== undefined ? { openingId } : {}),
+        templateId: input.templateId,
+        playerName: input.playerName,
+        ...(input.templateVersion !== undefined ? { templateVersion: input.templateVersion } : {}),
+        ...(input.seed !== undefined ? { seed: input.seed } : {}),
+        ...(input.openingId !== undefined ? { openingId: input.openingId } : {}),
       }),
     });
   },

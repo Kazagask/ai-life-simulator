@@ -1380,6 +1380,12 @@ details.llm-config .llm-saved {
   border-color: color-mix(in srgb, var(--accent, #7aa2ff) 60%, var(--border));
 }
 
+/* R2.8 / R-TG-10 C-5：不可载的档只展示、不可打开（同 .world-open 外观，但不给 pointer 暗示） */
+.world-open.is-unloadable {
+  cursor: default;
+  opacity: 0.75;
+}
+
 .world-line {
   display: flex;
   justify-content: space-between;
