@@ -403,6 +403,145 @@ characters:
       traits: [silent]
     relationship: 0
 
+  # ══════════════ 建安五年 · 衣带诏（第七轮） ══════════════
+  # 全部由 world.yaml 的 npcSpawnRules 管辖：陈留局保持 unspawned（不上屏），
+  # 衣带诏局由 ev-ydz-wheel 逐格 spawn，玩家占用的那一位不刷 ⇒ 防分身口径一致。
+  # 吉平不做玩家身份，因此 ev-ydz-exposed 可以安全写他的 setNpcLifecycle。
+  - id: npc-dong-cheng
+    isEnemy: false
+    visibility: public
+    identity: { name: 董承, age: 42, gender: male, description: 车骑将军、国舅。锦袍玉带一并赐下之后，府里的灯点了两回又吹了两回。 }
+    mood: { value: 46 }
+    attributes: { command: 6, intellect: 6, physique: 5, luck: 3, reputation: 7, tianyi: 3 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 把一件东西藏得很好，又忍不住让人看见自己藏了东西。
+      knownGoals: [纠合忠义之士]
+    private:
+      goals: [keep-edict]
+      traits: [anxious, loyal]
+    relationship: 4
+    relations:
+      - { to: npc-wang-zi-fu, kind: colleague, visibility: known, value: 58 }
+      - { to: npc-xian-di, kind: colleague, visibility: known, value: 72 }
+      - { to: npc-ji-ping, kind: friend, visibility: known, value: 44 }
+      - { to: player, kind: colleague, visibility: known, value: 10 }
+
+  - id: npc-wang-zi-fu
+    isEnemy: false
+    visibility: public
+    identity: { name: 王子服, age: 38, gender: male, description: 工部侍郎。探病时先看见袖口那一角白绢，义状上第一个名字由他起头。 }
+    mood: { value: 52 }
+    attributes: { command: 5, intellect: 7, physique: 4, luck: 4, reputation: 5, tianyi: 2 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 先量一量绢够写几个名字，再决定要不要问。
+      knownGoals: [把名字签到该签的地方]
+    private:
+      goals: [sign-first]
+      traits: [observant]
+    relationship: 3
+    relations:
+      - { to: npc-wu-zi-lan, kind: friend, visibility: known, value: 46 }
+      - { to: npc-zhong-ji, kind: colleague, visibility: known, value: 40 }
+
+  - id: npc-xian-di
+    isEnemy: false
+    visibility: public
+    identity: { name: 汉献帝, age: 20, gender: male, description: 许田围场之后，把血写的绢缝进玉带夹层赐下去，一句话也没多说。 }
+    mood: { value: 38 }
+    attributes: { command: 3, intellect: 6, physique: 3, luck: 4, reputation: 9, tianyi: 4 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 话都写在带子里，嘴上一句不留。
+      knownGoals: [把那一页交出去]
+    private:
+      goals: [send-edict]
+      traits: [quiet]
+    relationship: 2
+
+  - id: npc-ji-ping
+    isEnemy: false
+    visibility: public
+    identity: { name: 吉平, age: 44, gender: male, description: 随朝太医。建安五年元旦咬指立誓，借诊治头风把药端进去；后来什么也没供。 }
+    mood: { value: 55 }
+    attributes: { command: 4, intellect: 7, physique: 4, luck: 2, reputation: 6, tianyi: 1 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 药箱扣得很紧，手指却没藏住。
+      knownGoals: [把那一罐药端完]
+    private:
+      goals: [keep-silence]
+      traits: [resolute]
+    relationship: 3
+    relations:
+      - { to: npc-dong-cheng, kind: friend, visibility: known, value: 51 }
+      - { to: player, kind: friend, visibility: known, value: 8 }
+
+  - id: npc-ma-teng
+    isEnemy: false
+    visibility: public
+    identity: { name: 马腾, age: 44, gender: male, description: 西凉太守。歃血时说若得十人可成大事，边报一到便收拾人马回凉州。 }
+    mood: { value: 61 }
+    attributes: { command: 8, intellect: 5, physique: 8, luck: 5, reputation: 7, tianyi: 1 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 来得快，走得也快，走之前把名字留下了。
+      knownGoals: [回西凉]
+    private:
+      goals: [leave-xudu]
+      traits: [decisive]
+    relationship: 2
+    relations:
+      - { to: npc-liubei, kind: colleague, visibility: known, value: 38 }
+
+  - id: npc-zhong-ji
+    isEnemy: false
+    visibility: public
+    identity: { name: 种辑, age: 40, gender: male, description: 长水校尉。与吴硕一同来探病，白绢摊开时没多问，名字写得很快。 }
+    mood: { value: 50 }
+    attributes: { command: 6, intellect: 5, physique: 6, luck: 3, reputation: 4, tianyi: 1 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 不追问年份，只问轮到谁。
+      knownGoals: [把绢写完]
+    private:
+      goals: [sign-roster]
+      traits: [direct]
+    relationship: 1
+
+  - id: npc-wu-zi-lan
+    isEnemy: false
+    visibility: public
+    identity: { name: 吴子兰, age: 39, gender: male, description: 昭信将军。被王子服请来相见，在义状上添了一个名字。 }
+    mood: { value: 49 }
+    attributes: { command: 6, intellect: 5, physique: 6, luck: 3, reputation: 4, tianyi: 1 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 来之前已经猜到要签什么，还是来了。
+      knownGoals: [不负同席]
+    private:
+      goals: [sign-roster]
+      traits: [steady]
+    relationship: 1
+
+  - id: npc-qin-qing-tong
+    isEnemy: false
+    visibility: public
+    identity: { name: 秦庆童, age: 26, gender: male, description: 董府家奴。挨了罚之后从后门出去，把听见的那句誓带进了司空府。 }
+    mood: { value: 33 }
+    attributes: { command: 2, intellect: 5, physique: 4, luck: 6, reputation: 1, tianyi: 5 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 走的时候没回头，也没人拦。
+      knownGoals: [把话带到]
+    private:
+      goals: [report]
+      traits: [resentful]
+    relationship: 0
+    relations:
+      - { to: npc-caocao, kind: rival, visibility: inferred, value: 12 }
+
 # ══════════════ 玩家初始模板 ══════════════
 # 出身/性别/台词技能全部由命数转盘决定，这里只给「一个刚到陈留的人」应有的东西。
 playerTemplate:

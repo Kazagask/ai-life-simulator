@@ -14,10 +14,31 @@
 #   死亡事件 ev-hero-fall 复用既有事件定义，不新增 source 枚举、不改 HP 判据。
 
 terminationConditions:
+  # 陈留主线：第 60 天收束。saga eq 190 让衣带诏局（过渡常发生在第 59 天之后）
+  # 不会被这一条提前截断 —— 第七轮「初平元年 → 建安五年」的关键分流。
   - type: timeReached
     params:
       conditions:
         - { time: { gte: { value: 60, unit: day } } }
+        - { flag: saga, eq: 190 }
+    combinator: AND
+    terminationMode: afterSettle
+
+  # 衣带诏：剧情自己收束。ev-ydz-tianyi 写 ydzDone ⇒ 无论从新开局（0 天）
+  # 还是两个折叠入口（第 7 / 59 天）进入，都在同一段剧情终点结束，时间不跳跃。
+  - type: worldState
+    params:
+      conditions:
+        - { flag: ydzDone, eq: true }
+    combinator: AND
+    terminationMode: afterSettle
+
+  # 兜底：衣带诏局万一卡住，第 120 天强制收束（不会与陈留第 60 天那条互相触发）。
+  - type: timeReached
+    params:
+      conditions:
+        - { time: { gte: { value: 120, unit: day } } }
+        - { flag: saga, eq: 200 }
     combinator: AND
     terminationMode: afterSettle
 
@@ -218,5 +239,86 @@ endings:
       source: template
       title: 军令下了
       summary: 主位上议了那么多次都没定下的军令，最后你自己写了，还按了印。史书仍旧只写「盟主召诸将议事」，不写那一夜谁先站起来。天意把没下的军令抹平得干干净净，这回连主位也一并空了。
+
+  # ══════════════ 第七轮 · 建安五年衣带诏结局 ══════════════
+  # 优先级 50/60/70 高于陈留第一章（0/10）与第二章（20/25），低于隐藏结局（100，
+  # 需五条 fork flag 全齐 + tianyi ≥ 60 —— 衣带诏局拿不到，不会误命中）。
+  # 过渡局（初平元年折过来）单独一篇：义状上本来就没有你的名字。
+  - endingId: end-ydz-transition
+    name: 名册上没你的名字
+    description: 初平元年折过来的玩家收束。看完这一章，账册仍合在自己怀里。
+    triggerConditions:
+      - { flag: saga, eq: 200 }
+      - { flag: ydzEntry, eq: 过渡 }
+    priority: 70
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 名册上没你的名字
+      summary: 天意把十年折成一步，你从陈留走到了许都，又看着七年里该发生的事一件件发生。义状上没有你的名字，被划掉的名册上也没有。你把自己那一本账册合上——历书仍停在初平元年，更漏已经报过建安五年，两份都不肯让。官渡还在前面，天意照例先到一步。
+
+  - endingId: end-ydz-dongcheng
+    name: 带子里的那一页
+    description: 董承线收束。绢被搜出来了，灯点过两回的事没人记。
+    triggerConditions:
+      - { flag: saga, eq: 200 }
+      - { flag: origin, eq: 董承 }
+    priority: 60
+    endingType: tragic
+    narrativeConfig:
+      source: template
+      title: 带子里的那一页
+      summary: 白绢和血字并排摆着，七个名字一个没少。你把门闩上的那两回灯、把「先不拆」的那一夜都留着，天意一件也没撤销，只让所有人觉得本来就该被搜出来。名册抄到最后一行时，抄册的人照旧没问是谁。
+
+  - endingId: end-ydz-liubei
+    name: 城门开得很顺
+    description: 刘备线收束。该走的时候走了，筷子响过一次。
+    triggerConditions:
+      - { flag: saga, eq: 200 }
+      - { flag: origin, eq: 刘备 }
+    priority: 60
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 城门开得很顺
+      summary: 雷声替你挡了半句话，截击袁术的令也下得比预想中顺。出许都那天你回头点了一遍人，比来时一个不少。义状上那个写小了的名字没被人擦掉，天意也没放大它——它只是把官渡排在前面，等你走到。
+
+  - endingId: end-ydz-caocao
+    name: 照旧留档
+    description: 曹操线收束。三份年份不同的文书，最后抄成一行。
+    triggerConditions:
+      - { flag: saga, eq: 200 }
+      - { flag: origin, eq: 曹操 }
+    priority: 60
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 照旧留档
+      summary: 白绢、血字、那一笼没派上用场的馒头，都归进了该归的格子。你说过「不可能，绝对不可能」，说完还是照旧留档。天意把三本年号不同的账册抄成一行，落款仍是初平元年——你要的也只是这一行别再被谁改掉。
+
+  - endingId: end-ydz-shark
+    name: 祥瑞
+    description: 乌角鲨线收束。旧簿子上多了一笔，谁也没擦。
+    triggerConditions:
+      - { flag: saga, eq: 200 }
+      - { flag: origin, eq: 一头乌角鲨 }
+    priority: 60
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 祥瑞
+      summary: 护城河里的那头鱼被记成祥瑞，义状上还留着一块谁也认不出的湿印。天意没解释第七个名字，也没把它擦掉。名册被划到最后一格时，河面照旧很平——反正这一章里，最离谱的一笔从一开始就没被追究过。
+
+  - endingId: end-ydz-normal
+    name: 建安五年，衣带诏
+    description: 衣带诏通用收束。七个人的名字、一罐没喝下去的药、官渡。
+    triggerConditions:
+      - { flag: saga, eq: 200 }
+    priority: 50
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 建安五年，衣带诏
+      summary: 玉带夹层里的血字被搜出来了，义状上七个名字一个没少，太医没能端完那罐药。该走的两个人早已出城，官渡仍在前面。天意把这一切抄成一行，只改写所有人的认知：历书那一格还是初平元年，可谁都觉得建安五年本来就是这么过来的。你写过的那一页没被撕，只是没人再提。
 
 fallback: end-tianyi-normal

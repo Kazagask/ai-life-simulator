@@ -21,6 +21,7 @@
       openingDone: true
       creationDone: true
       chapter: 1
+      saga: 190
       anchor1Done: false
       mainline: 讨董
       feastCount: 0
@@ -46,4 +47,56 @@
     - { flag: openingDone, eq: true }
   handoff:
     pendingEvents: [ev-opening-wheel]
+    schedule: []
+
+# ══════════════ 第二个开局 · 建安五年衣带诏（第七轮） ══════════════
+# 前端在 openings.length > 1 时自动出现开局下拉（apps/web/src/main.tsx），
+# 服务端按 openingId 选择（R-OP-01），不传则默认取首个 ⇒ 陈留主线仍是默认。
+#
+# 【两套剧情的隔离】chapter: 200 与 saga: 200 让陈留那些 chapter=1/2/3 的
+# schedule 事件全部 hold（有 window.end 的到期静默过期），衣带诏块则全是 chain，
+# 由 handoff.pendingEvents 起头 ⇒ 两套剧情互不串线。
+# 【时间口径】建安五年是剧情层年号：更漏报建安五年，历书仍停在初平元年那一格
+# （T-2 多套年号未授权）。本开局不写任何绝对年份到时间坐标，worldTime 从 0
+# 起按 chain timeCost 逐段推进；终止由 endings.yaml 的 ydzDone 裁决。
+- openingId: op-200-yidaizhao
+  name: 200 · 建安五年衣带诏
+  description: 许都。更漏已经报到建安五年，历书却还停在初平元年那一格——天意改了人，没顾上改纸。转盘决定你是董承、刘备、曹操、王子服、送膳的小黄门、相府门客，还是护城河里那头乌角鲨；七种活法都要经过一条缝了血诏的玉带、一张七个名字的义状，最后被天意抄回官渡。
+  entryConditions: []
+  steps:
+    - { id: step-enter-xudu, kind: required }
+  characterSetup:
+    flags:
+      origin: 未定
+  worldSetup:
+    flags:
+      openingDone: true
+      creationDone: true
+      chapter: 200
+      saga: 200
+      mainline: 衣带诏
+      eraName: 建安五年
+      ydzDone: false
+      feastCount: 0
+  # 关系指向可能被玩家占用的人：unspawned 时边随隐藏节点一起被投影剔除，
+  # 转盘 spawn 之后自然可达，与陈留开局完全同一套生命周期口径。
+  npcSetup:
+    relations:
+      - { npcId: npc-dong-cheng, value: 5, source: 宫道同席 }
+      - { npcId: npc-ji-ping, value: 4, source: 送药时点头之交 }
+      - { npcId: npc-xian-di, value: 3, source: 赐带时在阶下 }
+      - { npcId: npc-wang-zi-fu, value: 3, source: 义状同案 }
+    visibility:
+      npc-caocao: unknown
+      npc-qin-qing-tong: unknown
+      npc-hua-xiong: unknown
+  eventPools: []
+  objectives:
+    flags:
+      objective: 看一眼那道诏，活到天意把它抄成一行为止
+  choices: {}
+  completionConditions:
+    - { flag: openingDone, eq: true }
+  handoff:
+    pendingEvents: [ev-ydz-open]
     schedule: []

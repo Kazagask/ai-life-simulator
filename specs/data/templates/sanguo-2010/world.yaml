@@ -28,6 +28,15 @@
 #   deathRoute 收束玩家人生。死亡不推进时间，时间账与第五轮完全一致。
 #   名单与时点见 docs/SANGUO_TEMPLATE_BRIEF.md §12。
 #
+# 【第七轮 · 第二个开局 · 建安五年衣带诏】opening.yaml 新增 op-200-yidaizhao，
+#   陈留主线在第 7 天「提前放映」与第 59 天第三章接口各留一个天意折叠入口，
+#   两条路汇入同一段衣带诏剧情（events.yaml 的 ev-ydz-*，全 chain、逐段 1 天）。
+#   ⚠ 建安五年是**剧情层年号**（eraName flag + 叙事）：显示层仍是本文件下面
+#   那个全局静态「初平 N年」，T-2 多套年号未授权、未动契约面。折叠写进叙事：
+#   天意改人、改事，没顾上改历书那一格。因此衣带诏块不 advanceTo、不写绝对
+#   年份到时间坐标，从哪天进入都只往前走；终止由 endings.yaml 的 ydzDone 裁决，
+#   陈留第 60 天 timeReached 加了 `saga eq 190` 只管陈留。见考据文档 §13。
+#
 # 梗的原句、人物、是否二创合成句等考据统一留在 docs/SANGUO_TEMPLATE_BRIEF.md §1、§3、§11、§12；
 # 模板内不写出处、不写播出序号、不按播出顺序排时间。
 # 使用纪律（草案 §4.3）：叙事给原句、选项给流行句式；每条梗在 yaml 注释标明出处；
@@ -37,7 +46,7 @@
 meta:
   id: sanguo-2010
   name: 三国演义 · 天意发力了
-  description: 190 年，陈留。十八路诸侯会盟讨董，命数转盘会决定你这一世是谁：一路诸侯、帐下谋士、普通小兵、一头乌角鲨，或者刘备、曹操、袁绍本人。七种出身各有自己的故事，却都走向同一场讨董大会。此后你可以把剧情浪到任何离谱的地方——当场称帝、集体自刎、把玉玺当石头、追问中午吃什么——但正月初九，天意会发力，把所有人的认知悄悄改写回主线。
+  description: 两个开局，一条主线。190 年陈留，十八路诸侯会盟讨董，命数转盘决定你是诸侯、谋士、小兵、一头乌角鲨，还是刘备、曹操、袁绍本人；或者让天意把十年折成一步，从建安五年许都的衣带诏开局，做董承、刘备、曹操、王子服、送膳的小黄门、相府门客，或是护城河里那头乌角鲨。剧情可以浪到任何离谱的地方，但天意一定会发力，把所有人的认知悄悄改写回主线。
   startYear: 190
   engineProtocol: v2
 
@@ -161,6 +170,17 @@ actions:
 # 关系边同理：任一端 unspawned 会被投影剔除（projection.ts 的 hiddenNodeIds），
 # 所以玩家=曹操时「npc-caocao 与玩家的关系」不会泄漏成一个不存在的自己。
 npcSpawnRules:
+  # 陈留一章（转盘 ev-wheel-fate 刷）
   - { id: rule-liubei-arrival, characterRef: npc-liubei }
   - { id: rule-caocao-arrival, characterRef: npc-caocao }
   - { id: rule-yuan-shao-arrival, characterRef: npc-yuan-shao }
+  # 建安五年一章（转盘 ev-ydz-wheel 刷）：名单在陈留局保持 unspawned ⇒ 不上屏，
+  # 衣带诏局按「玩家是谁就不刷谁」逐格 spawn ⇒ 与陈留同一套防分身口径。
+  - { id: rule-dong-cheng-arrival, characterRef: npc-dong-cheng }
+  - { id: rule-wang-zi-fu-arrival, characterRef: npc-wang-zi-fu }
+  - { id: rule-xian-di-arrival, characterRef: npc-xian-di }
+  - { id: rule-ji-ping-arrival, characterRef: npc-ji-ping }
+  - { id: rule-ma-teng-arrival, characterRef: npc-ma-teng }
+  - { id: rule-zhong-ji-arrival, characterRef: npc-zhong-ji }
+  - { id: rule-wu-zi-lan-arrival, characterRef: npc-wu-zi-lan }
+  - { id: rule-qin-qing-tong-arrival, characterRef: npc-qin-qing-tong }
