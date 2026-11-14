@@ -2,7 +2,7 @@
 # 单定义双面（simulation / combat，至少其一）。天意侵蚀不是"惩罚"，是干涉的可见痕迹。
 # 二创机制对照见 docs/SANGUO_TEMPLATE_BRIEF.md §2。
 statuses:
-  # 【天意侵蚀 · 精神错乱】教科书例子：荀彧「徐州城不愧为中原第一雄关啊」（新三国）。
+  # 【天意侵蚀 · 精神错乱】教科书例子：荀彧「徐州城不愧为中原第一雄关啊」。
   - id: st-tianyi-erosion
     name: 天意侵蚀 · 精神错乱
     description: 智力下降、记忆错乱、感官失能。你开始觉得徐州确实是中原第一雄关。
@@ -15,7 +15,7 @@ statuses:
       hitChance: -0.1
     visibility: known
 
-  # 【天意侵蚀 · 集体失焦】第 5 集陈留大食堂：正经会议集体跑偏，只关心吃什么。
+  # 【天意侵蚀 · 集体失焦】陈留军议：正经会议集体跑偏，只关心吃什么。
   - id: st-collective-distraction
     name: 天意侵蚀 · 集体失焦
     description: 「吃什么？是啊，吃什么？」——没人记得刚才在讨论讨董。

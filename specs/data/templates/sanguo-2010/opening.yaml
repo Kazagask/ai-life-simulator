@@ -9,7 +9,7 @@
 
 - openingId: op-190-chenliu
   name: 190 · 陈留会盟
-  description: 十八路诸侯讨董，你也在场。转盘会决定你是诸侯、谋士、小兵、一头乌角鲨，还是刘备、曹操、袁绍本人；七条故事都从陈留出发，第八天，天意会把一切拉回主线。
+  description: 十八路诸侯讨董，你也在场。转盘会决定你是诸侯、谋士、小兵、一头乌角鲨，还是刘备、曹操、袁绍本人；七条故事都从陈留出发，正月初九，天意会把一切拉回主线。
   entryConditions: []
   steps:
     - { id: step-enter-chenliu, kind: required }

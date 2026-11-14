@@ -1,5 +1,5 @@
 # 三国演义 · 道具 · items.yaml
-# 梗出处逐条标注；考据见 docs/SANGUO_TEMPLATE_BRIEF.md §1。
+# 原句与考据统一留在 docs/SANGUO_TEMPLATE_BRIEF.md；模板内不写出处。
 items:
   # 「不可能，绝对不可能！八万个馒头……啃上半个月」——曹操，新三国（刘备夺徐州）。
   # 陈留大食堂的通用货币：无论军情多急，馒头总能出现。
@@ -14,8 +14,8 @@ items:
       - { type: adjustResource, resource: hp, value: 20 }
       - { type: adjustMood, value: 3 }
 
-  # 「恭喜爹可以称帝了！」——孙策对孙坚，新三国第 6 集约 16:15，长乐宫得传国玉玺。
-  # 注意：维基语录误归在孙坚名下，多数来源为孙策。谐音梗「撑地」。
+  # 孙坚得玺时，孙策捧玺跪贺；这句话是孙策的台词，不是玩家选项。
+  # 玩家在 events.yaml 的玉玺事件里只有旁观选项，拿不到这件道具。
   - id: item-yuxi
     type: key
     name: 传国玉玺
@@ -24,7 +24,7 @@ items:
     usableInBattle: false
     usableOutsideBattle: false
 
-  # 「一对笑面虎，两头乌角鲨」——公孙瓒，新三国第 11 集，评袁绍袁术。
+  # 「一对笑面虎，两头乌角鲨」——公孙瓒评二袁的一句评语，属于后面的年份。
   # 「乌角鲨」是编剧自造、现实中不存在；本模板把它做成真实生物，是「魔幻」的主要投放口。
   - id: item-wujiaosha
     type: consumable

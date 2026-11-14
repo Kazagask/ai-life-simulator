@@ -2,8 +2,7 @@
 # ⚠ 防分身：npc-liubei / npc-caocao / npc-yuan-shao 由 world.yaml 的 npcSpawnRules 管辖，
 #   开局 unspawned（不上屏）。玩家 roll 到该人物时，转盘不会 spawn 对应规则 ⇒ 世界里
 #   只存在一个此人（就是玩家自己）。三人的定义仍然保留，供另外六种身份的局使用。
-#   玩家若是刘备，ev-zifen（叙述「刘备拔剑」）等以其为第三视角的池事件会被 origin 条件排除，
-#   改由专属剧情链用第二人称讲同一件事 —— 叙事层也不出现第二个自己。
+#   以其为第三视角的叙述一律改成第二人称或旁观；叙事层也不出现第二个自己。
 # 讨董一章出场阵容。台词技能由事件解锁给玩家，NPC 只挂基础攻击（避免张冠李戴）。
 #
 # 【关系图谱 · 第四轮】本轮起正式使用 R2.6 / ADR-0014 的 `relations` 关系边，
@@ -21,7 +20,7 @@ characters:
   - id: npc-caocao
     isEnemy: false
     visibility: public
-    identity: { name: 曹操, age: 35, gender: male, description: 第 1 集在长乐宫前当着百官与西凉卫兵高喊「国贼董卓嘛！」，无人理会。 }
+    identity: { name: 曹操, age: 35, gender: male, description: 曾在长乐宫前当着百官与西凉卫兵高喊「国贼董卓嘛！」，无人理会；那是会盟之前的旧事。 }
     mood: { value: 62 }
     attributes: { command: 9, intellect: 9, physique: 6, luck: 7, reputation: 8, tianyi: 2 }
     skills: [sk-basic-strike]
@@ -42,7 +41,7 @@ characters:
   - id: npc-liubei
     isEnemy: false
     visibility: public
-    identity: { name: 刘备, age: 29, gender: male, description: 「三军听令，开城迎敌」与第 36 集「战至最后一刻，自刎归天！」都是他说的；二创把两句剪成一句。 }
+    identity: { name: 刘备, age: 29, gender: male, description: 「三军听令，开城迎敌」与「战至最后一刻，自刎归天」都归在他名下，二创把两句剪成一句；后一句属于后面的年份。 }
     mood: { value: 58 }
     attributes: { command: 7, intellect: 6, physique: 6, luck: 9, reputation: 6, tianyi: 5 }
     skills: [sk-basic-strike]
@@ -81,7 +80,7 @@ characters:
   - id: npc-sun-ce
     isEnemy: false
     visibility: public
-    identity: { name: 孙策, age: 15, gender: male, description: 「恭喜爹可以称帝了！」——第 6 集约 16:15，捧玺跪贺。维基语录误归孙坚名下。 }
+    identity: { name: 孙策, age: 15, gender: male, description: 孙坚得玺时捧玺跪贺「恭喜爹可以称帝了！」；这句话是孙策说的，玩家不能说。 }
     mood: { value: 74 }
     attributes: { command: 7, intellect: 5, physique: 8, luck: 8, reputation: 3, tianyi: 3 }
     skills: [sk-basic-strike]
@@ -101,7 +100,7 @@ characters:
   - id: npc-gongsun-zan
     isEnemy: false
     visibility: public
-    identity: { name: 公孙瓒, age: 38, gender: male, description: 第 11 集评袁绍袁术「一对笑面虎，两头乌角鲨」；第 5 集大食堂里傻笑附和「吃什么！是啊，是啊！」 }
+    identity: { name: 公孙瓒, age: 38, gender: male, description: 评袁绍袁术「一对笑面虎，两头乌角鲨」；军议跑题时也傻笑附和「吃什么！是啊，是啊！」 }
     mood: { value: 68 }
     attributes: { command: 6, intellect: 5, physique: 7, luck: 6, reputation: 5, tianyi: 1 }
     skills: [sk-basic-strike]
@@ -145,7 +144,7 @@ characters:
     attributes: { command: 5, intellect: 4, physique: 5, luck: 4, reputation: 6, tianyi: 3 }
     skills: [sk-basic-strike]
     public:
-      personality: 第 5 集闹着要告老还乡，被一句「你走了，我们吃什么？」留了下来。
+      personality: 军议上闹着要告老还乡，被一句「你走了，我们吃什么？」留了下来。
       knownGoals: [称帝, 先吃饭]
     private:
       goals: [become-emperor]
@@ -159,7 +158,7 @@ characters:
   - id: npc-lv-boshe
     isEnemy: false
     visibility: public
-    identity: { name: 吕伯奢, age: 60, gender: male, description: 误杀之后，曹操对着遗体说「伯父，不是阿瞒害了你，是这个乱世害了你呀」。集数第 2/3 集来源冲突，模板不写死。 }
+    identity: { name: 吕伯奢, age: 60, gender: male, description: 误杀之后，曹操对着遗体说「伯父，不是阿瞒害了你，是这个乱世害了你呀」；那是陈留起兵之前的旧事。 }
     mood: { value: 40 }
     attributes: { command: 1, intellect: 4, physique: 2, luck: 1, reputation: 2, tianyi: 4 }
     skills: []
