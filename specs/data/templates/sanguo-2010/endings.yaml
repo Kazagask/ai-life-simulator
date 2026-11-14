@@ -244,6 +244,50 @@ endings:
   # 优先级 50/60/70 高于陈留第一章（0/10）与第二章（20/25），低于隐藏结局（100，
   # 需五条 fork flag 全齐 + tianyi ≥ 60 —— 衣带诏局拿不到，不会误命中）。
   # 过渡局（初平元年折过来）单独一篇：义状上本来就没有你的名字。
+  # 过渡局按陈留身份分线（priority 80 > 通用过渡 70 > 新开局分线 60）。
+  # 通用「名册上没你的名字」对衣带诏的讨伐对象不成立，故曹操单列一篇。
+  - endingId: end-ydz-tr-cao
+    name: 绢上那七个名字
+    description: 初平元年折过来的曹操收束。要杀的是你，你照旧留档。
+    triggerConditions:
+      - { flag: saga, eq: 200 }
+      - { flag: ydzEntry, eq: 过渡 }
+      - { flag: origin, eq: 曹操 }
+    priority: 80
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 绢上那七个名字
+      summary: 十年前你在陈留矫诏会盟，十年后许都白绢上七个名字合起来要对付的正是你。药端到案前没被喝下去，太医撞在阶下，匣子是你的人打开的。天意把这一页照旧留档：它改了人、改了事，唯独没让历书那一格跟着改，也没让你从「被写的那一个」变成「旁听的那一个」。官渡在前面，账册仍合在你自己怀里。
+
+  - endingId: end-ydz-tr-liu
+    name: 这一回筷子没白掉
+    description: 初平元年折过来的刘备收束。先把人点齐，再谈名分。
+    triggerConditions:
+      - { flag: saga, eq: 200 }
+      - { flag: ydzEntry, eq: 过渡 }
+      - { flag: origin, eq: 刘备 }
+    priority: 80
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 这一回筷子没白掉
+      summary: 从陈留末席折到许都后园，你还是那个先把人点齐再谈名分的人。雷替你挡了半句，截击的令也下得比预想中顺；义状上那个写小了的名字，天意没擦也没放大。出城那天回头点了一遍人，比来时一个不少。官渡在前面。
+
+  - endingId: end-ydz-tr-yuan
+    name: 河北的那一页
+    description: 初平元年折过来的袁绍收束。绢上没有你，粮册翻了新的一页。
+    triggerConditions:
+      - { flag: saga, eq: 200 }
+      - { flag: ydzEntry, eq: 过渡 }
+      - { flag: origin, eq: 袁绍 }
+    priority: 80
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 河北的那一页
+      summary: 许都的事传到河北时已经变成一张席次图。天意把十年折成一步，却没把主位挪过来：绢上七个名字里没有你，被划掉的名册里也没有。你只把河北的粮册翻到新的一页——官渡在前面，这回不用问是谁举荐的。
+
   - endingId: end-ydz-transition
     name: 名册上没你的名字
     description: 初平元年折过来的玩家收束。看完这一章，账册仍合在自己怀里。

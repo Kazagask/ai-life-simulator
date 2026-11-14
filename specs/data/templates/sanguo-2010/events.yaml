@@ -49,7 +49,8 @@
 #   ① opening.yaml 新增 op-200-yidaizhao（前端 openings > 1 自动出开局下拉）；
 #   ② 第 7 天「提前放映」与第 59 天第三章接口各留一个天意折叠选项 ⇒ ev-ydz-fold，
 #      与新开局在 ev-ydz-edict 汇合；过渡局保留原 origin、不重转转盘，
-#      因此陈留身份在许都只有「没参与」的兜底选项（与公共事件口径一致）；
+#      但 ev-ydz-arrival 按 origin 接进建安五年人物链（刘/曹/乌角鲨复用
+#      ev-ydz-line-*-1/2，袁绍与虚构组各有一条过渡专属链）⇒ 不再只有旁观兜底；
 #   ③ 衣带诏块全 chain、逐段 timeCost 1 天 ⇒ 从哪天进入都单调向前，
 #      终止由 endings.yaml 的 ydzDone 裁决（陈留第 60 天条件已分流 saga eq 190）。
 #      建安五年是**剧情层年号**（eraName + 叙事），显示层仍是全局静态「初平 N年」：
@@ -2169,61 +2170,44 @@ events:
   # ══════════════════════════════════════════════════════════════════════════
 
   - id: ev-ch2-1
-    title: 徐州 · 让城
-    narrative: 徐州城下，陶谦病重，印绶被推到你面前。城外还站着路上跟来的人，他们只问一句：城门今天开不开。没人问你愿不愿意接。
+    title: 徐州城下 · 各人有各人的事
+    narrative: 徐州城下，陶谦病重。使者捧着印绶从案前起身，往人群里某一处走；城外路上跟来的人只问一句：城门今天开不开。那枚印绶最后落在谁手里，要看你是谁——天意这一回没替谁改。
     trigger:
       source: chain
-      timeCost: { value: 2, unit: day }
     kind: normal
     settle:
       normal:
         options:
-          - id: opt-ch2-1-open
-            text: 先开城门，印绶放一边
-            effects:
-              - { type: setFlag, id: ch2GateOpen, value: true }
-              - { type: adjustAttribute, attribute: reputation, value: 1 }
-              - { type: addRelationEdge, fromId: npc-gongsun-zan, toId: player, kind: friend, visibility: known, value: 22 }
-              - { type: log, text: 城门先开了。印绶在案上放到落灰，也没有人催你拿。, visibility: public }
-            nextEventId: ev-ch2-2
           - id: opt-ch2-1-liu
-            text: 接下名分，但先把名册上的人安置进城
+            text: 迎上去，先把名册上的人安置进城
             visibleWhen:
               - { flag: origin, eq: 刘备 }
             effects:
-              - { type: setFlag, id: ch2LiuAccept, value: true }
-              - { type: adjustRelation, fromId: npc-gongsun-zan, toId: player, kind: friend, value: 8 }
-              - { type: log, text: 你在陈留学会的第一件事是点人，不是点兵。徐州接不接得下，先看路上那些人有没有地方睡。, visibility: public }
-            nextEventId: ev-ch2-2
+              - { type: log, text: 使者走到你面前就停了。这一页写的是三让三辞，不是城门开不开。, visibility: public }
+            nextEventId: ev-ch2-1-liu
           - id: opt-ch2-1-cao
-            text: 先点仓，别急着接印
+            text: 不迎，先叫人把仓册取来
             visibleWhen:
               - { flag: origin, eq: 曹操 }
             effects:
-              - { type: setFlag, id: ch2CaoGranary, value: true }
-              - { type: adjustRelation, fromId: npc-xun-yu, toId: player, kind: colleague, value: 8 }
-              - { type: log, text: 城可以明天接，粮得今天数。你把这句话写进文书，落款只写了「先记着」。, visibility: public }
-            nextEventId: ev-ch2-2
+              - { type: log, text: 使者从你身边过去了，没停。案上那枚印绶从头到尾没朝你这边偏过一寸。, visibility: public }
+            nextEventId: ev-ch2-1-cao
           - id: opt-ch2-1-yuan
-            text: 先问是谁举荐的
+            text: 让快马把消息送回河北，先看座次
             visibleWhen:
               - { flag: origin, eq: 袁绍 }
             effects:
-              - { type: setFlag, id: ch2YuanSeats, value: true }
-              - { type: adjustRelation, fromId: npc-yuan-shu, toId: npc-yuan-shao, kind: elder-brother, value: 5 }
-              - { type: log, text: 印绶摆得端不端正，比城门开不开更要紧——至少主位上是这么算的。你没说破。, visibility: public }
-            nextEventId: ev-ch2-2
-          - id: opt-ch2-1-fictional
-            text: 先把城外的人放进来，再回案上
+              - { type: log, text: 徐州的事传到河北时，已经变成一张席次图了。, visibility: public }
+            nextEventId: ev-ch2-1-yuan
+          - id: opt-ch2-1-open
+            text: 先开城门，案上的事轮不到你
             visibleWhen:
               - { flag: origin, ne: 刘备 }
               - { flag: origin, ne: 曹操 }
               - { flag: origin, ne: 袁绍 }
             effects:
-              - { type: adjustAttribute, attribute: reputation, value: 1 }
-              - { type: adjustMood, value: 2 }
-              - { type: log, text: 你替开城门的人扶了一把门闩。案上那枚印绶，始终没人递到你手里。, visibility: public }
-            nextEventId: ev-ch2-2
+              - { type: log, text: 印绶被捧去了别处。你只管门闩，没管那张案。, visibility: public }
+            nextEventId: ev-ch2-1-other
           - id: opt-ch2-1-if-soldier
             text: 想起那一页：半句话报上去了
             visibleWhen:
@@ -2231,8 +2215,108 @@ events:
             effects:
               - { type: adjustAttribute, attribute: tianyi, value: 1 }
               - { type: log, text: 天意翻给你看：城门那天没开，因为战报上仍旧什么都没写。你伸手推开了门。, visibility: public }
+            nextEventId: ev-ch2-1-other
+
+  # ── 第二章第 1 段的四条身份分支：同一段 2 天，各自叙事，统一接 ev-ch2-2 ──
+  # 只有刘备这一支叫「让城」；另外三支明确写印绶没到自己手里。
+  - id: ev-ch2-1-liu
+    title: 徐州 · 三让
+    narrative: 印绶推到你面前，一共三回。第一回你退了半步，第二回你说城外的人还没地方睡，第三回陶谦已经说不出话，只把印搁在你手里。天意没催，它只把城门先开了。
+    trigger:
+      source: chain
+      timeCost: { value: 2, unit: day }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ch2-liu-accept
+            text: 接下名分，但先把名册上的人安置进城
+            effects:
+              - { type: setFlag, id: ch2LiuAccept, value: true }
+              - { type: adjustRelation, fromId: npc-gongsun-zan, toId: player, kind: friend, value: 8 }
+              - { type: log, text: 你在陈留学会的第一件事是点人，不是点兵。徐州接不接得下，先看路上那些人有没有地方睡。, visibility: public }
+            nextEventId: ev-ch2-2
+          - id: opt-ch2-liu-gate
+            text: 先开城门，印绶放一边
+            effects:
+              - { type: setFlag, id: ch2GateOpen, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 1 }
+              - { type: addRelationEdge, fromId: npc-gongsun-zan, toId: player, kind: friend, visibility: known, value: 22 }
+              - { type: log, text: 城门先开了。印绶在案上放到落灰，也没有人催你拿——除了名册上那些还站在城外的人。, visibility: public }
             nextEventId: ev-ch2-2
 
+  - id: ev-ch2-1-cao
+    title: 徐州 · 仓册
+    narrative: 陶谦的使者没往你这边来。徐州让城是别人家的事，你面前只有一本仓册：粮几囤、车几乘、这一路能不能养得起一支兵。城门开不开，你记了一笔，没下判断。
+    trigger:
+      source: chain
+      timeCost: { value: 2, unit: day }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ch2-cao-granary
+            text: 先点仓，别急着替谁接印
+            effects:
+              - { type: setFlag, id: ch2CaoGranary, value: true }
+              - { type: adjustRelation, fromId: npc-xun-yu, toId: player, kind: colleague, value: 8 }
+              - { type: log, text: 城可以明天接，粮得今天数。你把这句话写进文书，落款只写了「先记着」。, visibility: public }
+            nextEventId: ev-ch2-2
+          - id: opt-ch2-cao-file
+            text: 只在文书上写「徐州，照旧」
+            effects:
+              - { type: adjustAttribute, attribute: command, value: 1 }
+              - { type: log, text: 印绶落进谁手里，天意没让你在这一页写。你也没替自己补一句。, visibility: public }
+            nextEventId: ev-ch2-2
+
+  - id: ev-ch2-1-yuan
+    title: 河北 · 座次
+    narrative: 让城的消息到河北时已经不是消息了，是一张席次图。主位上没人问陶谦病得重不重，只问那枚印绶是谁举荐、往哪一边递。你听完，把图卷了起来。
+    trigger:
+      source: chain
+      timeCost: { value: 2, unit: day }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ch2-yuan-seats
+            text: 先问是谁举荐的
+            effects:
+              - { type: setFlag, id: ch2YuanSeats, value: true }
+              - { type: adjustRelation, fromId: npc-yuan-shu, toId: npc-yuan-shao, kind: elder-brother, value: 5 }
+              - { type: log, text: 印绶摆得端不端正，比城门开不开更要紧——至少主位上是这么算的。你没说破。, visibility: public }
+            nextEventId: ev-ch2-2
+          - id: opt-ch2-yuan-roll
+            text: 把席次图卷起来，先看河北的粮
+            effects:
+              - { type: adjustAttribute, attribute: reputation, value: 1 }
+              - { type: log, text: 徐州的印绶没往河北递，河北的粮册倒先翻开了新的一页。天意没把这两件事抄在一行里。, visibility: public }
+            nextEventId: ev-ch2-2
+
+  - id: ev-ch2-1-other
+    title: 城外 · 门闩
+    narrative: 印绶被捧去了别处，从头到尾没朝你这边偏过一寸。城外路上跟来的人还站着，他们只问一句：城门今天开不开。这一页里你能答的只有这一句。
+    trigger:
+      source: chain
+      timeCost: { value: 2, unit: day }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ch2-other-gate
+            text: 先把城外的人放进来，再回案上
+            effects:
+              - { type: setFlag, id: ch2GateOpen, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 1 }
+              - { type: adjustMood, value: 2 }
+              - { type: addRelationEdge, fromId: npc-gongsun-zan, toId: player, kind: friend, visibility: known, value: 22 }
+              - { type: log, text: 你替开城门的人扶了一把门闩。案上那枚印绶，始终没人递到你手里。, visibility: public }
+            nextEventId: ev-ch2-2
+          - id: opt-ch2-other-note
+            text: 把今天记成半页，剩下半页留给别人
+            effects:
+              - { type: log, text: 名册上这一页只写了城门。让城那一段写在哪儿，你没问，天意也没替你补。, visibility: public }
+            nextEventId: ev-ch2-2
   # ── 改元 · 剧情层（T-1 纯 yaml），显示层多地区切换仍属 T-2 未做 ──
   - id: ev-ch2-2
     title: 改元 · 三本账册
@@ -2588,8 +2672,9 @@ events:
   #      → 7 条身份链（各 2 段）→ ev-ydz-edict …
   #   ② 初平元年主线：ev-day7-dissolve 的「往下翻一页」或 ev-ch3-gate 的
   #      「把十年折成一步」→ ev-ydz-fold → ev-ydz-arrival → ev-ydz-edict。
-  #      两条入口在 ev-ydz-edict 汇合；过渡局保留原 origin，不重转转盘，
-  #      因此陈留身份在许都只有「没参与」的兜底选项（与公共事件口径一致）。
+  #      两条入口在 ev-ydz-edict 汇合；过渡局保留原 origin、不重转转盘，
+  #      但 ev-ydz-arrival 按 origin 接进建安五年人物链（第八轮）：
+  #      刘/曹/乌角鲨复用 ev-ydz-line-*-1/2，袁绍/虚构组各走一条过渡专属链。
   #
   # 【时间口径 · 最重要】建安五年是**剧情层年号**（eraName flag + 叙事），
   #   显示层仍是 world.yaml 的全局静态「初平 N年」——T-2 多套年号未授权，本轮
@@ -2640,10 +2725,10 @@ events:
               - { type: log, text: 十年被折成一步。名册上那些旧名字也跟着走了过来，天意没解释为什么。, visibility: public }
             nextEventId: ev-ydz-arrival
 
-  # ── 过渡局开场：不重转转盘，按陈留身份给一句回响 ──
+  # ── 过渡局开场：不重转转盘，按陈留 origin 分流到建安五年人物链 ──
   - id: ev-ydz-arrival
-    title: 许都 · 旧名册
-    narrative: 你带着那一本陈留的账册站在许都宫道上，衣带刚赐下去，玉带夹层里硬着一块。守门的人翻了翻名册，说上面这些名字他一个也不认得；你也没解释。天意照例先到一步。
+    title: 许都宫道 · 旧名册
+    narrative: 许都宫道上，衣带刚赐下去。守门的人翻着名册，把十年前那些名字念了一遍，念到其中一个时停了停——他没说那名字是谁，只把册子往你这边推了半寸。天意照例先到一步：它把人带来了，没说该站哪一边。
     trigger:
       source: chain
       timeCost: { value: 1, unit: day }
@@ -2651,12 +2736,15 @@ events:
     settle:
       normal:
         options:
-          - id: opt-ydz-arrival-watch
-            text: 站在宫道边，看那件锦袍被捧过去
+          - id: opt-ydz-arrival-cao
+            text: 先问一句：那道诏上要杀的是谁
+            visibleWhen:
+              - { flag: origin, eq: 曹操 }
             effects:
               - { type: setFlag, id: ydzEntry, value: 过渡 }
-              - { type: log, text: 你没进那间屋子。义状上不会有你的名字，天意也没替你补一个。, visibility: public }
-            nextEventId: ev-ydz-edict
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: log, text: 没人敢答。案上那份还没抄完的文书，落款处空着一格——绢上七个名字合起来，指的正是这一格。你没让人把册子合上。, visibility: public }
+            nextEventId: ev-ydz-line-cao-1
           - id: opt-ydz-arrival-liu
             text: 把「列位弟兄」那句咽回去，先问今天吃什么
             visibleWhen:
@@ -2664,17 +2752,16 @@ events:
             effects:
               - { type: setFlag, id: ydzEntry, value: 过渡 }
               - { type: adjustMood, value: 2 }
-              - { type: log, text: 这一世的许都里没有第二个你。天意把那句台词收走了，只留下筷子的响声。, visibility: public }
-            nextEventId: ev-ydz-edict
-          - id: opt-ydz-arrival-cao
-            text: 先问一句：诏书上写的是谁
+              - { type: log, text: 这一世的许都里没有第二个你。后园的菜畦还等着浇水，天意把那句台词收走了，只留下筷子的响声。, visibility: public }
+            nextEventId: ev-ydz-line-liu-1
+          - id: opt-ydz-arrival-yuan
+            text: 让快马回河北，许都的事先记一页
             visibleWhen:
-              - { flag: origin, eq: 曹操 }
+              - { flag: origin, eq: 袁绍 }
             effects:
               - { type: setFlag, id: ydzEntry, value: 过渡 }
-              - { type: adjustAttribute, attribute: intellect, value: 1 }
-              - { type: log, text: 没人敢答。案上那份还没抄完的文书，落款处空着一格，正好是你的名字该在的地方。, visibility: public }
-            nextEventId: ev-ydz-edict
+              - { type: log, text: 绢上七个名字里没有你，被划掉的名册里也没有。河北的粮册倒是翻到了新的一页。, visibility: public }
+            nextEventId: ev-ydz-tr-yuan-1
           - id: opt-ydz-arrival-shark
             text: 顺着护城河游过去，趴在宫道石阶上
             visibleWhen:
@@ -2683,8 +2770,66 @@ events:
               - { type: setFlag, id: ydzEntry, value: 过渡 }
               - { type: grantItem, itemId: item-wujiaosha, count: 1 }
               - { type: log, text: 宫里把十年前那头鱼也记成了祥瑞。天意没改这一笔，反正谁也不追究。, visibility: public }
+            nextEventId: ev-ydz-line-shark-1
+          - id: opt-ydz-arrival-watch
+            text: 站在宫道边，看那件锦袍被捧过去
+            visibleWhen:
+              - { flag: origin, ne: 刘备 }
+              - { flag: origin, ne: 曹操 }
+              - { flag: origin, ne: 袁绍 }
+              - { flag: origin, ne: 乌角鲨 }
+            effects:
+              - { type: setFlag, id: ydzEntry, value: 过渡 }
+              - { type: log, text: 你没进那间屋子。义状上不会有你的名字，天意也没替你补一个。, visibility: public }
+            nextEventId: ev-ydz-tr-other-1
+
+  # ── 过渡局专属链：陈留身份里没有对应建安身份的两支（袁绍 / 虚构组）──
+  # 其余三支直接复用新开局的人物链 ev-ydz-line-{cao,liu,shark}-1/2，
+  # 链尾本来就汇入 ev-ydz-edict，因此两条入口共用同一套人物剧情。
+  - id: ev-ydz-tr-yuan-1
+    title: 河北 · 官渡前夜
+    narrative: 许都的更漏报了建安五年，河北的更漏没跟着改。案上摊着两封文书：一封说宫里赐了一条玉带，一封说绢上有七个名字。你先把第二封压回匣底——绢上没有你，这一页却仍得由你来翻。
+    trigger:
+      source: chain
+      timeCost: { value: 1, unit: day }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ydz-tr-yuan-grain
+            text: 不问绢上是谁，先点河北的粮
+            effects:
+              - { type: adjustAttribute, attribute: command, value: 1 }
+              - { type: log, text: 粮册比绢厚得多。天意把许都那一页折了十年，没折动河北这一本。, visibility: public }
+            nextEventId: ev-ydz-edict
+          - id: opt-ydz-tr-yuan-seats
+            text: 问一句：这七个名字是谁举荐的
+            effects:
+              - { type: adjustMood, value: -1 }
+              - { type: log, text: 没人答得上来。主位上照旧把席次摆正，绢上那件事就摆到了下一页。, visibility: public }
             nextEventId: ev-ydz-edict
 
+  - id: ev-ydz-tr-other-1
+    title: 许都 · 没写上去的那一页
+    narrative: 你带着陈留那本账册站在宫道边，衣带被捧过去了，白绢也铺开了。守门的人翻名册时没找到你，倒是在册子最后一页看见十年前陈留的墨迹——他没问，你也没解释。天意把人带来了，没替你在绢上添名字。
+    trigger:
+      source: chain
+      timeCost: { value: 1, unit: day }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-ydz-tr-other-account
+            text: 把陈留那本账册翻到新的一页
+            effects:
+              - { type: adjustMood, value: 2 }
+              - { type: log, text: 新的一页还是空的。天意没拦你写，也没替你写：这一章里你是记的人，不是被记的人。, visibility: public }
+            nextEventId: ev-ydz-edict
+          - id: opt-ydz-tr-other-watch
+            text: 只看着，等那件袍子进府
+            effects:
+              - { type: log, text: 袍子进府了，门合上。你手里那本账册比来时重了一点，天意没称过。, visibility: public }
+            nextEventId: ev-ydz-edict
   - id: ev-ydz-wheel
     title: 命数转盘 · 建安五年
     narrative: 转盘上七格：四个有名字的人，两个连名字都没人记，还有一格画着一条鱼。带子已经赐下去了，签名的白绢也铺开了，只是还没人落笔。转盘自己转了起来。
@@ -3220,13 +3365,13 @@ events:
             nextEventId: ev-ydz-roster
 
           - id: opt-ydz-edict-cao
-            text: 让人把「赐带」照例记一笔，别多问
+            text: 让人把「赐带」照例记一笔——那道诏要杀的是你
             visibleWhen:
               - { flag: origin, eq: 曹操 }
             effects:
               - { type: setFlag, id: ydzEdict, value: true }
               - { type: adjustAttribute, attribute: intellect, value: 1 }
-              - { type: log, text: 簿子上只多了两个字。天意把夹层那一页留到以后再翻，没提前给你看。, visibility: public }
+              - { type: log, text: 簿子上只多了两个字。夹层那一页写的是「殄灭奸党」，奸党是谁，天意没提前给你看；这府里的簿子本来就是你批的。, visibility: public }
             nextEventId: ev-ydz-roster
 
   # ── 公共剧情 2/7 · 义状签名（严格按演义里谁先谁后） ──
@@ -3285,13 +3430,13 @@ events:
             nextEventId: ev-ydz-wine
 
           - id: opt-ydz-roster-cao
-            text: 先不派人去问，等白绢自己出来
+            text: 先不派人去问——那七个名字要杀的是你
             visibleWhen:
               - { flag: origin, eq: 曹操 }
             effects:
               - { type: setFlag, id: ydzSigned, value: true }
               - { type: adjustAttribute, attribute: command, value: 1 }
-              - { type: log, text: 匣子还没被打开，你已经知道里面是一块绢。天意把「知道」的时辰记晚了一天。, visibility: public }
+              - { type: log, text: 匣子还没被打开，你已经知道里面是一块绢，也知道绢上七个名字合起来要对付谁。天意把「知道」的时辰记晚了一天，没让它提前改动任何一行。, visibility: public }
             nextEventId: ev-ydz-wine
 
   # ── 公共剧情 3/7 · 青梅煮酒 ──
@@ -3322,13 +3467,13 @@ events:
               - { type: log, text: 一句天意替你挡了后半句。天意发力了，只是这次它站在你这边。, visibility: public }
             nextEventId: ev-ydz-leave
           - id: opt-ydz-wine-say
-            text: 把那句再说一遍，看谁先低头
+            text: 把「惟使君与操耳」再说一遍，看谁先低头
             visibleWhen:
               - { flag: origin, eq: 曹操 }
             effects:
               - { type: setFlag, id: ydzWine, value: true }
               - { type: adjustAttribute, attribute: command, value: 1 }
-              - { type: log, text: 说完还是没人低头。雷替两个人把这一页翻了过去，天意照单全收。, visibility: public }
+              - { type: log, text: 话是你说的，筷子是对方掉的，雷替他解的围。两个人都没低头，天意照单全收——这一页里你不是旁听的那一个。, visibility: public }
             nextEventId: ev-ydz-leave
           - id: opt-ydz-wine-if
             text: 想起自己提前收好的那双筷子
@@ -3388,13 +3533,13 @@ events:
             nextEventId: ev-ydz-jiping
 
           - id: opt-ydz-leave-cao
-            text: 准了截击的令，顺手把出城的日子记下
+            text: 准了截击的令——出城的是你放走的人
             visibleWhen:
               - { flag: origin, eq: 曹操 }
             effects:
               - { type: setFlag, id: ydzLeft, value: true }
               - { type: adjustAttribute, attribute: command, value: 1 }
-              - { type: log, text: 日子记在一张没署名的笺上。天意把这张笺留到官渡，谁也没提前看。, visibility: public }
+              - { type: log, text: 令是你准的，人是你放走的。日子记在一张没署名的笺上，天意把这张笺留到官渡，谁也没提前看。, visibility: public }
             nextEventId: ev-ydz-jiping
           - id: opt-ydz-leave-dong
             text: 看着两队人马先后出城，把匣子往里推了推
@@ -3454,13 +3599,13 @@ events:
             nextEventId: ev-ydz-exposed
 
           - id: opt-ydz-jiping-cao
-            text: 照旧传太医，头风的日子不改
+            text: 照旧传太医——那罐药是端给你的
             visibleWhen:
               - { flag: origin, eq: 曹操 }
             effects:
               - { type: setFlag, id: ydzPlot, value: true }
               - { type: adjustAttribute, attribute: intellect, value: 1 }
-              - { type: log, text: 头风照约定的日子发作。天意没提前打招呼，也没让这一页少一行。, visibility: public }
+              - { type: log, text: 头风照约定的日子发作，药也照约定的时辰端来。天意没提前打招呼：它只保证这一罐不会被喝下去，没保证端药的人手不抖。, visibility: public }
             nextEventId: ev-ydz-exposed
 
   # ── 公共剧情 6/7 · 事发（吉平殉死，义状与衣带诏被搜出） ──
@@ -3484,14 +3629,14 @@ events:
               - { type: log, text: 太医那一格先空了。天意没把划掉的线擦回去——后果不撤销，是它唯一的规矩。, visibility: public }
             nextEventId: ev-ydz-tianyi
           - id: opt-ydz-exposed-cao
-            text: 把白绢和血字并排放好，照旧留档
+            text: 把白绢和血字并排放好——抄检是你的人做的
             visibleWhen:
               - { flag: origin, eq: 曹操 }
             effects:
               - { type: setNpcLifecycle, npcId: npc-ji-ping, state: inactive, reasonCode: 撞阶殉死 }
               - { type: setFlag, id: ydzExposed, value: true }
               - { type: adjustAttribute, attribute: command, value: 1 }
-              - { type: log, text: 两样东西摆成一排，年份却差了一年。天意把年份那一栏抄成同一行，没解释。, visibility: public }
+              - { type: log, text: 两样东西摆成一排，年份却差了一年。阶下撞的是替你看病的人，匣子是你的人打开的。天意把年份那一栏抄成同一行，没解释，也没让你改写这一页。, visibility: public }
             nextEventId: ev-ydz-tianyi
           - id: opt-ydz-exposed-huangmen
             text: 把食盒收走，别让人看见还有一副碗筷
@@ -3554,6 +3699,15 @@ events:
               - { type: setFlag, id: mainline, value: 官渡 }
               - { type: adjustAttribute, attribute: tianyi, value: -3 }
               - { type: log, text: 天意把这一章抄成一行：建安五年，衣带诏事发，官渡在前面。你写过的那些字没被擦掉，只是没人再提。, visibility: public }
+          - id: opt-ydz-tianyi-cao
+            text: 记一笔：绢上要杀的是你，官渡前面等的也是你
+            visibleWhen:
+              - { flag: origin, eq: 曹操 }
+            effects:
+              - { type: setFlag, id: ydzDone, value: true }
+              - { type: setFlag, id: mainline, value: 官渡 }
+              - { type: adjustAttribute, attribute: command, value: 1 }
+              - { type: log, text: 七个名字还在绢上，被划掉的名册还在案上。天意把这一章抄成一行，没把你从「被写的那一个」改成「旁听的那一个」。, visibility: public }
           - id: opt-ydz-tianyi-keep
             text: 把自己那一页折好收进怀里
             effects:
