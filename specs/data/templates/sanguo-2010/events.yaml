@@ -35,6 +35,15 @@
 #   池事件 once 挡不住已入队实例（第四轮已证伪），本模板不再使用随机池。
 # ══════════════════════════════════════════════════════════════════════════
 
+# 【第六轮 · 人物死亡】死亡是**世界事实**，不是玩家选项的奖励：
+#   ① 吕伯奢开局 inactive（189 冬前情，不占天数）；正月初三汜水关五人阵亡，
+#      写在 ev-day2-sishui 的**每个**选项里（幂等）⇒ 无论玩家怎么选都会发生；
+#   ② 死者用 npcState 条件做名册回响（第 3 天 / 路上 / 第 7 天），对死者写关系
+#      会被引擎静默忽略，模板故意留着这一笔作为可验证的冻结证据；
+#   ③ 二月十二战争沙盘 onVictory 让「旗后面的人」阵亡；onDefeat 只记 battleLost；
+#   ④ 只有开战时立过军令状（vowNoRetreat）且战败，才由 endings.yaml 的 deathRoute
+#      收束玩家人生 ⇒ 默认 7 条身份线与战争矩阵完全不受影响。
+#   死亡不推进时间、不改 window / timeCost / nextEventId，时间账与第五轮一致。
 events:
   # ────────────── 开局：命数转盘（7 格 → 7 条故事） ──────────────
 
@@ -959,6 +968,12 @@ events:
               - { type: setFlag, id: day2Done, value: true }
               - { type: adjustAttribute, attribute: command, value: 1 }
               - { type: log, text: 出战顺序记在册角，谁也没问名字是怎么报完的。, visibility: hidden }
+              - { type: setNpcLifecycle, npcId: npc-bao-zhong, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-yu-she, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-pan-feng, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-zu-mao, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-hua-xiong, state: inactive, reasonCode: 温酒未凉 }
+              - { type: log, text: 名册上一连划掉五行。天意没有拦，也没有把任何一行补回来。, visibility: public }
           - id: opt-day2-liu
             text: 让关羽去，酒先温着
             visibleWhen:
@@ -968,6 +983,12 @@ events:
               - { type: adjustAttribute, attribute: command, value: 2 }
               - { type: adjustAttribute, attribute: reputation, value: 2 }
               - { type: adjustRelation, npcId: npc-gongsun-zan, value: 2 }
+              - { type: setNpcLifecycle, npcId: npc-bao-zhong, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-yu-she, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-pan-feng, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-zu-mao, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-hua-xiong, state: inactive, reasonCode: 温酒未凉 }
+              - { type: log, text: 名册上一连划掉五行。天意没有拦，也没有把任何一行补回来。, visibility: public }
           - id: opt-day2-cao
             text: 把旗号和出战顺序记下来
             visibleWhen:
@@ -975,6 +996,12 @@ events:
             effects:
               - { type: setFlag, id: caoRule, value: true }
               - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: setNpcLifecycle, npcId: npc-bao-zhong, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-yu-she, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-pan-feng, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-zu-mao, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-hua-xiong, state: inactive, reasonCode: 温酒未凉 }
+              - { type: log, text: 名册上一连划掉五行。天意没有拦，也没有把任何一行补回来。, visibility: public }
           - id: opt-day2-yuan
             text: 先议谁出战，议到明日
             visibleWhen:
@@ -982,6 +1009,12 @@ events:
             effects:
               - { type: setFlag, id: yuanDelay, value: true }
               - { type: adjustMood, value: 2 }
+              - { type: setNpcLifecycle, npcId: npc-bao-zhong, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-yu-she, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-pan-feng, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-zu-mao, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-hua-xiong, state: inactive, reasonCode: 温酒未凉 }
+              - { type: log, text: 名册上一连划掉五行。天意没有拦，也没有把任何一行补回来。, visibility: public }
           - id: opt-day2-fictional
             text: 替报名字的人喊一声「说出吾名，吓汝一跳！」
             visibleWhen:
@@ -993,6 +1026,12 @@ events:
               - { type: adjustAttribute, attribute: tianyi, value: 1 }
               - { type: adjustMood, value: 4 }
               - { type: log, text: 名字报完了。天意觉得可以了，于是打脸开始。, visibility: public }
+              - { type: setNpcLifecycle, npcId: npc-bao-zhong, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-yu-she, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-pan-feng, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-zu-mao, state: inactive, reasonCode: 汜水关阵亡 }
+              - { type: setNpcLifecycle, npcId: npc-hua-xiong, state: inactive, reasonCode: 温酒未凉 }
+              - { type: log, text: 名册上一连划掉五行。天意没有拦，也没有把任何一行补回来。, visibility: public }
 
   # 第 3 天 · 虎牢关（三英战吕布）
   - id: ev-day3-hulao
@@ -1049,6 +1088,14 @@ events:
               - { type: adjustRelation, npcId: npc-xu-sheng, value: 3 }
               - { type: log, text: 江东的铁壁表示：若敢来犯，必叫你大败而归。, visibility: public }
 
+          - id: opt-day3-dead-roll
+            text: 把昨日划掉的五行再数一遍
+            visibleWhen:
+              - { npcState: { npcId: npc-hua-xiong, state: inactive } }
+            effects:
+              - { type: adjustRelation, npcId: npc-hua-xiong, value: -5 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: log, text: 名字还在，人不在了。想再改一改对他的印象，笔却落不下去——死者的关系已经冻结。, visibility: public }
   # 第 4 天 · 陈留大食堂（军议跑题，forkMeal 全员可得）
   - id: ev-day4-canteen
     title: 陈留大食堂
@@ -1252,6 +1299,16 @@ events:
               - { type: adjustAttribute, attribute: tianyi, value: 2 }
               - { type: log, text: 一头几年后才该被提起的鱼，今天就游到了你手边。没人觉得该拦。, visibility: public }
 
+          - id: opt-day7-deceased
+            text: 把划掉的五行从账册背面抄回正面
+            visibleWhen:
+              - { npcState: { npcId: npc-pan-feng, state: inactive } }
+            effects:
+              - { type: setFlag, id: forkSuicide, value: true }
+              - { type: setFlag, id: forkBlameEra, value: true }
+              - { type: setFlag, id: forkShark, value: true }
+              - { type: adjustAttribute, attribute: tianyi, value: 1 }
+              - { type: log, text: 天意能把几页提前放映，却不肯把划掉的名字补回来。散席时名册比来时轻了五页。, visibility: public }
   # ────────────── 天意 · 世界线修正（本模板唯一硬规则） ──────────────
   # source: schedule ⇒ 建世界时按 window.start 一次性入队，第 8 天必然触发。
   # once + priority 100 + conditions(chapter=1) ⇒ 只收束第一章一次。
@@ -1358,6 +1415,15 @@ events:
               - { type: adjustMood, value: 3 }
               - { type: log, text: 没人回答，但队伍已经列好了。袁术营的账册上，今天记作仲家元年。, visibility: public }
 
+          - id: opt-war-vow
+            text: 立军令状：此战不回头
+            effects:
+              - { type: setFlag, id: warActive, value: true }
+              - { type: setFlag, id: warPhase, value: 1 }
+              - { type: setFlag, id: warEdge, value: 0 }
+              - { type: setFlag, id: warRegion, value: 初平 }
+              - { type: setFlag, id: vowNoRetreat, value: true }
+              - { type: log, text: 军令状写下去了。天意在旁边多记了一行，没给你看。, visibility: public }
   # ── 博弈 1：点兵 → 阵列。战势加成直接带进对垒（统御 / 名册）。 ──
   - id: ev-war-drill
     title: 阵列 · 三份名册
@@ -1498,11 +1564,13 @@ events:
               - { type: log, text: 你枕着三本互不承认的账册睡了一夜，醒来只记得初平元年。, visibility: hidden }
 
   # ── 主将对垒（战斗副本的核心） ──
-  # 敌人是「旗号」而非华雄本人（避免与 npc-hua-xiong 分身），见 characters.yaml。
-  # 胜/败/撤统一接 ev-war-close：天意不区分这三者，战报都抄回主线。
+  # 敌人是「旗号」而非华雄本人：华雄汜水关已阵亡，这里出来的是那面旗和
+  # 旗后面的人（npc-flag-bearer），避免分身。胜/败/撤统一接 ev-war-close。
+  # 第六轮：onVictory 让旗后面的人阵亡；onDefeat 只记 battleLost，
+  # 是否致死由 endings.yaml 的 deathRoute 按「立誓 + 战败」裁决。
   - id: ev-war-duel
     title: 阵前 · 主将对垒
-    narrative: 旗上写着「华雄」，可华雄本人还在中军帐里。出来的是这面旗和旗后面的人——两军都不打算追究。你们隔着一片谁也没扫过的空地站定，两边的账册上，年份整整差了三年。
+    narrative: 旗上写着「华雄」，可这个名字汜水关那天就被划掉了。出来的是那面旗和旗后面的人——两军都不打算追究。你们隔着一片谁也没扫过的空地站定，两边的账册上，年份整整差了三年。
     trigger:
       source: chain
     kind: combat
@@ -1514,12 +1582,14 @@ events:
         fleeCheck: { preset: opposed, attacker: command, defender: command, baseChance: 0.5 }
         onVictory:
           effects:
+            - { type: setNpcLifecycle, npcId: npc-flag-bearer, state: inactive, reasonCode: 阵前旗倒 }
             - { type: adjustFlag, id: warEdge, value: 3 }
             - { type: adjustAttribute, attribute: reputation, value: 2 }
-            - { type: log, text: 旗倒了。没有人去核实倒下的是谁，战报上写的是「主将退」。, visibility: public }
+            - { type: log, text: 旗倒了，旗后面的人也没再站起来。战报上写的是「主将退」，没人去核实是谁。, visibility: public }
           nextEventId: ev-war-close
         onDefeat:
           effects:
+            - { type: setFlag, id: battleLost, value: true }
             - { type: adjustMood, value: -5 }
             - { type: log, text: 你退了回来。对面也没追——他好像也在等谁把战报写好。, visibility: public }
           nextEventId: ev-war-close
@@ -1531,6 +1601,8 @@ events:
   # ── 收兵 · 恢复日常 ──
   # clearFlag 后 action-hook 的 conditions 必然为 false（缺失 flag ⇒ false），
   # 因此「战争行动」自动失效，点兵/开席/问策/歇息回到 world.yaml 里的原义。
+  # 第六轮：旗后面的人在这里统一注销（与 onVictory 同一 reasonCode，幂等）。
+  # 天意不区分胜/败/撤，战报都抄成「主将退」⇒ 三条路径都会从名册上划掉他。
   - id: ev-war-close
     title: 天意 · 战报归正
     narrative: 仗打完了，或者没打完——天意不区分这两件事。三份战报摆在一起，年号各不相同，最后都被抄成同一行：初平元年，讨董。各营私改的年份没人再提，你也想不起来自己写过哪一本。
@@ -1545,6 +1617,7 @@ events:
             visibleWhen:
               - { flag: warEdge, gte: 4 }
             effects:
+              - { type: setNpcLifecycle, npcId: npc-flag-bearer, state: inactive, reasonCode: 阵前旗倒 }
               - { type: clearFlag, id: warActive }
               - { type: clearFlag, id: warPhase }
               - { type: clearFlag, id: warEdge }
@@ -1555,6 +1628,7 @@ events:
           - id: opt-war-return
             text: 照实收兵，回营
             effects:
+              - { type: setNpcLifecycle, npcId: npc-flag-bearer, state: inactive, reasonCode: 阵前旗倒 }
               - { type: clearFlag, id: warActive }
               - { type: clearFlag, id: warPhase }
               - { type: clearFlag, id: warEdge }
@@ -1642,6 +1716,15 @@ events:
               - { type: log, text: 天意把折起来的那一页翻给你看：名册末尾空着，因为没有人跟着你走。你合上了册子。, visibility: public }
             nextEventId: ev-road-2
 
+          - id: opt-road-1-deceased
+            text: 把名册上划掉的那几行单独折起来
+            visibleWhen:
+              - { npcState: { npcId: npc-hua-xiong, state: inactive } }
+            effects:
+              - { type: addRelationEdge, fromId: npc-zu-mao, toId: npc-sun-jian, kind: colleague, visibility: known, value: 10 }
+              - { type: adjustMood, value: -2 }
+              - { type: log, text: 折起来的那几页再也添不进新关系；天意只肯把名字留在纸上，不肯把人还回来。, visibility: public }
+            nextEventId: ev-road-2
   # ── 路上 2/5 · 一顿饭（timeCost 4 天，承接 forkMeal） ──
   - id: ev-road-2
     title: 路上 · 那顿饭
@@ -2303,3 +2386,19 @@ events:
             text: 往前走
             effects:
               - { type: log, text: 第二章到此为止。后续章节在此接续，主线仍是天意说了算。, visibility: public }
+  # ── 玩家战死事件（endings.yaml deathRoute 的 event 模式复用） ──
+  # 不在任何 chain / schedule 里 ⇒ 平时永不触发；只有战败且立过军令状时，
+  # 引擎把它登记进 firedEvents + history（结局证据），再收束人生。
+  - id: ev-hero-fall
+    title: 军令状 · 不回头
+    narrative: 旗还在往前，你没再往后看。战报最后被抄成同一行：初平元年，讨董。名册上又多了一道墨杠，抄册的人没问是谁。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-hero-fall
+            text: 把军令状折好，压在名册下面
+            effects:
+              - { type: log, text: 天意把这一行也抄了回去，只是没抄名字。, visibility: public }

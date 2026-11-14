@@ -5,6 +5,13 @@
 # 低于隐藏结局 100），虚构身份共用「天意如此」，隐藏结局对所有身份开放。
 # ⚠ 三条身份线各自给被排除的池事件补了 fork flag 来源，所以 origin 不会把隐藏结局变成死路。
 # 终止判据只用声明式条件与 playerRequested，**不得以 HP 数值 / HP 归零为判据**（R-EN-07）。
+#
+# 【第六轮 · 玩家战死】deathRoute 是引擎既有的战败死亡路径（协议 §17 / §9.3），
+#   本轮首次在本模板实装。双 flag 门槛：开战选「立军令状」写 vowNoRetreat，
+#   对垒战败由 onDefeat 写 battleLost；两者都在死亡裁决之前写进 flags，
+#   所以 resolveEnding 能选到 end-hero-fall*。默认 7 条身份线与战争矩阵
+#   （都点 opts[0] = 接战）不立誓 ⇒ 战败只照常收兵，人生不提前终止。
+#   死亡事件 ev-hero-fall 复用既有事件定义，不新增 source 枚举、不改 HP 判据。
 
 terminationConditions:
   - type: timeReached
@@ -19,6 +26,13 @@ terminationConditions:
       conditions: []
     combinator: AND
     terminationMode: afterSettle
+
+deathRoute:
+  deathMode: event
+  deathEventId: ev-hero-fall
+  conditions:
+    - { flag: vowNoRetreat, eq: true }
+    - { flag: battleLost, eq: true }
 
 endings:
   - endingId: end-tianyi-normal
@@ -145,5 +159,64 @@ endings:
       source: template
       title: 主位空着
       summary: 河北那句「诸位以为如何」你又说了一次，史书后来只写「盟主召诸将议事」。官渡前夜你把主位留空，没人敢坐，也没人问为什么。天意把三本账册合成一行，替你把没下的那道军令抹平；你松了口气，又觉得这口气比两章都长。
+
+  # ══════════════ 第六轮 · 战死结局（deathRoute 专用） ══════════════
+  # priority 200 / 210 高于隐藏结局（100）：人已经没了，就谈不上摆脱天意。
+  # 三条真实人物线各自收束自己的母题（人数 / 记录 / 军令），虚构四格共用通用篇。
+  # triggerConditions 与 deathRoute.conditions 同门槛 ⇒ 不会在普通终局误命中。
+  - endingId: end-hero-fall
+    name: 军令状
+    description: 战死通用收束。立过不回头的军令状，战报却只抄了一行。
+    triggerConditions:
+      - { flag: vowNoRetreat, eq: true }
+      - { flag: battleLost, eq: true }
+    priority: 200
+    endingType: tragic
+    narrativeConfig:
+      source: template
+      title: 军令状
+      summary: 你没有回头，于是战报上少了一个名字，多了一道墨杠。天意照旧把三本账册抄成同一行——初平元年，讨董；抄册的人没问那一杠底下该写谁。名册上先前划掉的五行还在，现在你是第六行。
+
+  - endingId: end-hero-fall-liubei
+    name: 没能带着他们走
+    description: 刘备线战死收束。这一回，名册是别人替你点的。
+    triggerConditions:
+      - { flag: vowNoRetreat, eq: true }
+      - { flag: battleLost, eq: true }
+      - { flag: origin, eq: 刘备 }
+    priority: 210
+    endingType: tragic
+    narrativeConfig:
+      source: template
+      title: 没能带着他们走
+      summary: 你说过要带着路上的人一起走。军令状写下去那晚，名册还摊着；第二天点名的人换了一个，念到你的名字时停了很久，还是划掉了。天意把世界线拉回原处，只是这一回，替你把名字写进空行旁边的是别人。
+
+  - endingId: end-hero-fall-caocao
+    name: 落款没写完
+    description: 曹操线战死收束。檄文传了出去，落款空着。
+    triggerConditions:
+      - { flag: vowNoRetreat, eq: true }
+      - { flag: battleLost, eq: true }
+      - { flag: origin, eq: 曹操 }
+    priority: 210
+    endingType: tragic
+    narrativeConfig:
+      source: template
+      title: 落款没写完
+      summary: 你想留一份能传出去的东西，最后传出去的是那份没写完的檄文。四个字当年没人听见，这一战之后也没人再替你念。天意把账册抄回初平，落款那一栏空着——抄册的人不肯替死人署名。
+
+  - endingId: end-hero-fall-yuanshao
+    name: 军令下了
+    description: 袁绍线战死收束。那道一直没说出口的军令，最后下给了自己。
+    triggerConditions:
+      - { flag: vowNoRetreat, eq: true }
+      - { flag: battleLost, eq: true }
+      - { flag: origin, eq: 袁绍 }
+    priority: 210
+    endingType: tragic
+    narrativeConfig:
+      source: template
+      title: 军令下了
+      summary: 主位上议了那么多次都没定下的军令，最后你自己写了，还按了印。史书仍旧只写「盟主召诸将议事」，不写那一夜谁先站起来。天意把没下的军令抹平得干干净净，这回连主位也一并空了。
 
 fallback: end-tianyi-normal

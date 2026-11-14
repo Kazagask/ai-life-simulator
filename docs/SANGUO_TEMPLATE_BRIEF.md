@@ -385,3 +385,57 @@ calendar:
 - **公共事件结构**：一条 `source: schedule` 人人触发，选项 = 1 个**无 `visibleWhen` 的兜底选项**（人人可见，并补齐 `fork*` flag，保证隐藏结局对任何身份都可达）＋若干 `visibleWhen: [{ flag: origin, eq: ... }]` 的身份专属选项（该身份的参与方式）。⇒ 完全没参与的身份只有一个选项；有参与的身份多一个专属选项。
 - **随机性**只在开局 7 格转盘与选项分歧，不再用随机池搅乱时间；`once` 对已入队实例无效（`§10.2` 证伪）这条教训继续有效。
 - 五条 `fork*` 全部由公共兜底选项覆盖，`origin` 不再把隐藏结局变成死路。
+
+## 12. 第六轮 · 人物死亡实装（2026-11-14）〔② 已核验〕
+
+### 12.1 先查清：引擎早就做完了，模板一处没用
+
+| 能力 | 位置 | 本轮用法 |
+|---|---|---|
+| NPC 三态 `alive / inactive / unspawned` + `reasonCode` | `shared/src/v2.ts`、`schema/character.ts`（ADR-0012 / ADR-0020） | 初始态只写 `characters.yaml`，运行期一律走效果 |
+| `setNpcLifecycle` 效果（复活 / 死亡 / 失联同一入口） | `schema/common.ts:261`、`game-core/v2/engine.ts:473` | 死亡时自动 `freezeOnDeath`，单向棘轮 |
+| `npcState` 条件（只判状态、不判 `reasonCode`） | `schema/common.ts:170`、`engine.ts:212` | 名册回响选项的出现条件 |
+| 关系写入判活 / 边冻结 | `engine.ts:321/369/413/431` | 对死者写关系静默忽略 |
+| 投影灰化 + 原样下发 `reasonCode` | `projection.ts:216`、`web/main.tsx:2325` | 人物面板可见「成皋误杀 / 汜水关阵亡」 |
+| 参战 ref 判活 | `battle.ts:181`（ADR-0021） | 纯敌人定义不建实例 ⇒ 见 §12.4 的坑 |
+| 战败死亡路径 `deathRoute` | `schema/ending.ts:156`、`ending.ts:322`、`turn.ts:795/1170`、服务端 `templates.ts` 读 `endings.yaml` | 玩家战死 |
+
+**本轮零引擎改动**：8 个 yaml 内接线，不动 schema / Spec / ADR / 前端 / 契约面。
+
+### 12.2 死亡时间账（与 §11.2 同一把尺子，不占新天数）
+
+| 时点 | 日历 / `worldTime` | 死亡 | 依据与写法 |
+|---|---|---|---|
+| 建世界（前情，不占天数） | 189 冬 | 吕伯奢 | `characters.yaml` 的 `lifecycle: { state: inactive, reasonCode: 成皋误杀 }`；曹操身份链只作回忆，不让他「在正月初一死一次」 |
+| 第 2 天 | 正月初三 / 2880 | 鲍忠、俞涉、潘凤、祖茂、华雄 | 汜水关一段：诸侯将领接连出关未回、赤帻引敌、温酒未凉。五人同日结算，写在 `ev-day2-sishui` 的**每个**选项里 |
+| 第 42 天 | 二月十二 / 60480 | 旗后面的人 | 战争沙盘 `onVictory` + `ev-war-close` 两条选项都写同一 reasonCode（幂等）；天意不区分胜/败/撤 |
+| 第 42~44 天 | 二月十二~十四 | 玩家（可选） | 仅「立军令状 `vowNoRetreat` + 对垒战败 `battleLost`」双 flag 命中 `deathRoute`，提前终止 |
+
+死亡**不推进时间**：没有新增 `schedule`、没有改任何 `window` / `timeCost` / `advanceTo` / `nextEventId`，锚点 1/2、ch3、终止时间实测与第五轮逐分钟一致（11520 / 83520 / 84960 / 3月2日）。模板内依旧不写集数、不写出处、不按播出顺序排时间。
+
+### 12.3 名单与考据口径
+
+- 鲍忠（先出关）、俞涉、潘凤、祖茂是汜水关一段里接连出战未回的将校；华雄在同一段末被斩，酒尚温。祖茂是孙坚部将、俞涉属袁术 ⇒ 只给这两人写 `colleague` 边；鲍忠与潘凤的旧主不在本模板，**宁可不写边也不硬凑**（R-OP-05 默认不认识）。
+- 「旗后面的人」是模板自造角色，用来承接战争沙盘里那面写着「华雄」的旗：**华雄已阵亡**，不能让他复活上阵，也不能再造第二个华雄造成分身；纯敌人定义 `enemy-xiliang-commander` 只是战斗 ref。
+- 吕伯奢、四将校、华雄、旗后面的人都不在 7 格命数转盘里 ⇒ 不存在「玩家是某人、帐里还有一个某人」的分身。
+
+### 12.4 接线要点与一个实测坑
+
+1. **死亡与玩家选择解耦**：`setNpcLifecycle` 是幂等的，写进汜水关 5 个选项的**每一个**，所以无论玩家点「看着那杯酒端过去」还是身份专属选项，五人都同日阵亡。不新增独立事件 ⇒ 第 2 天仍只弹一次事件，时间账零扰动。
+2. **`isEnemy: true` 的角色不建 NPC 实例**（`game-core/v2/npc.ts:36`、`turn.ts:149`）。原 `npc-hua-xiong` 带这个标签，直接写 `setNpcLifecycle` 会在运行期抛「指向未知 NPC」。本轮把它改为 `false`（它从来不是任何战斗 ref），战斗参战仍是 `enemy-xiliang-commander`。同理，沙盘阵亡另用 `npc-flag-bearer`，**不对 `enemy-*` 写生命周期**。
+3. **`npcState` 做死后回响**：第 3 天「把划掉的五行再数一遍」、路上 1/5「把名册上划掉的那几行单独折起来」、第 7 天「抄回正面」三个选项只在死者为 `inactive` 时出现；前两条还故意对死者写 `adjustRelation` / `addRelationEdge`，用来验证写入被静默忽略。第 7 天新选项补齐三条 `fork*`，隐藏结局不变死路。
+4. **玩家死亡双 flag 门槛**：开战第三选项写 `vowNoRetreat`，`onDefeat` 写 `battleLost`（都在 `applyDeathRouteInPlace` 之前落 flags），`deathRoute.conditions` 与 `end-hero-fall*` 的 `triggerConditions` 用**同一组门槛** ⇒ 普通战败（7 身份默认路径、战争矩阵）照常收兵，立了誓又没战败也不会误判死亡结局。`deathMode: event` 复用 `ev-hero-fall` 事件定义，不新增 source 枚举、不以 HP 为判据。
+5. **结局按身份**：通用「军令状」+ 刘备「没能带着他们走」/ 曹操「落款没写完」/ 袁绍「军令下了」，priority 200 / 210 高于隐藏结局 100。
+
+### 12.5 验证与一处口径差异
+
+- 7 身份死亡矩阵 **7/7**：开局吕伯奢 `inactive`、汜水关五人同日 `inactive` 且 reasonCode 逐一正确、整局结束后仍为死者、旗后面的人 `阵前旗倒`、三个 `npcState` 回响选项全部上屏、`enemy-xiliang-commander` 不在人物面板、华雄关系在 `adjustRelation -5` 前后恒为 `-8`、时间单调与锚点/结局/防分身全绿。
+- 玩家战死 **4/4**（虚构 / 刘 / 曹 / 袁）：结局按身份命中、`ending.source = battleDefeat`、reason 为「战败死亡事件结算后触发结局」、终止在 2月14日（第 44 天）、未进入第二章。
+- 存档硬证据：33 局存档每局 **4 条 `frozen` 边**（华雄↔董卓两条、俞涉↔袁术、祖茂↔孙坚），无一条「两端都不是死者」；`check-frozen.py` 全绿。
+- **口径差异（如实记录，不改引擎）**：`characters.yaml` 里开局就 `inactive` 的吕伯奢**没有** `frozen` 标记 —— `freezeOnDeath` 只在运行期 `setNpcLifecycle` 时调用。但 `isAliveNode` 判活已挡住所有针对他的关系写入，行为上等价；且本模板不会让他复活，棘轮语义无差别。若将来要「开局已故也带 frozen 标记」，属引擎改动，需另立 ADR。
+- 回归：第五轮 7 身份时间线 **7/7**、if 分支 **7/7**、战争矩阵 **5/5**、fork 覆盖 **OK**；加载期 `LOAD OK`；typecheck / shared / game-core / web build 全绿。
+
+### 12.6 代价与边界
+
+- 模板目录内 4 个 yaml 变化（characters / events / endings / world 注释）⇒ 指纹 `2622c0b4…` → **`f0be54da…`**，第六轮前本模板旧档全部拒载（ADR-0007 既定策略，文件原样保留）；`jjk-2006` 指纹 `d8d81863…` 未变、旧档不受影响。
+- 仍未做 / 未跑：T-2 年号显示、第三章展开、云冒烟、CI、真机点屏、UI 模板选择器；未 push、未部署、未下线。

@@ -5,6 +5,14 @@
 #   以其为第三视角的叙述一律改成第二人称或旁观；叙事层也不出现第二个自己。
 # 讨董一章出场阵容。台词技能由事件解锁给玩家，NPC 只挂基础攻击（避免张冠李戴）。
 #
+# 【第六轮 · 人物死亡】生命周期是单一事实源：`lifecycle` 只写初始态（吕伯奢开局已故），
+#   运行期变更一律由 events.yaml 的 `setNpcLifecycle` 写入，引擎自动冻结相连关系边、
+#   屏蔽此后对该 NPC 的关系写入，投影把 inactive 照常上屏并原样显示 `reasonCode`。
+#   ⚠ 只有 isEnemy: false 的角色才建 NPC 实例；纯敌人定义（enemy-*）不建实例，
+#   对它写 setNpcLifecycle 会抛可诊断错误 —— 所以沙盘阵亡另用 npc-flag-bearer。
+#   死亡时间账见 docs/SANGUO_TEMPLATE_BRIEF.md §12：开局（189 冬前情，不占天数）
+#   → 正月初三汜水关 → 二月十二战争沙盘 → 二月十二战败立誓（玩家）。
+#
 # 【关系图谱 · 第四轮】本轮起正式使用 R2.6 / ADR-0014 的 `relations` 关系边，
 #   `relationship` 标量保留为「NPC→玩家」便捷投影。⚠ 方向语义：
 #   `{ to: B, kind: father }` 读作「**B 是 A 的父亲**」（jjk-2006 夜蛾坑见其头注释）。
@@ -155,9 +163,12 @@ characters:
       - { to: npc-yuan-shao, kind: elder-brother, visibility: known, value: 30 }
       - { to: npc-sun-jian, kind: rival, visibility: known, value: 20 }
 
+  # 开局已故（189 冬 · 成皋）：前情写在曹操身份链里，不占世界天数。
+  # 生命周期是单一事实源 ⇒ 人物面板一开局就标注原因，不会被自主行动或关系写入唤醒。
   - id: npc-lv-boshe
     isEnemy: false
     visibility: public
+    lifecycle: { state: inactive, reasonCode: 成皋误杀 }
     identity: { name: 吕伯奢, age: 60, gender: male, description: 误杀之后，曹操对着遗体说「伯父，不是阿瞒害了你，是这个乱世害了你呀」；那是陈留起兵之前的旧事。 }
     mood: { value: 40 }
     attributes: { command: 1, intellect: 4, physique: 2, luck: 1, reputation: 2, tianyi: 4 }
@@ -228,10 +239,13 @@ characters:
     relations:
       - { to: npc-liubei, kind: rival, visibility: known, value: 24 }
 
+  # 汜水关当天阵亡（正月初三）。原先 isEnemy: true 只作阵营标签、从不作为战斗 ref，
+  # 但敌人定义不建 NPC 实例 ⇒ 无法写 lifecycle。第六轮改为 false 让它有实例，
+  # 阵亡后人物面板灰化并标原因；战斗沙盘的参战 ref 仍是 enemy-xiliang-commander（一面旗）。
   - id: npc-hua-xiong
-    isEnemy: true
+    isEnemy: false
     visibility: public
-    identity: { name: 华雄, age: 36, gender: male, description: 讨董路上第一道关卡。潘凤请战后光速被斩，「我的大斧早就饥渴难耐了」。 }
+    identity: { name: 华雄, age: 36, gender: male, description: 讨董路上第一道关卡。潘凤请战后光速被斩，「我的大斧早就饥渴难耐了」；那杯温酒还没凉，他自己也成了名册上被划掉的一行。 }
     mood: { value: 64 }
     attributes: { command: 6, intellect: 3, physique: 9, luck: 4, reputation: 4, tianyi: 1 }
     skills: [sk-basic-strike]
@@ -280,14 +294,15 @@ characters:
     relationship: 0
 
   # ── 战争沙盘 · 主将对垒用敌人 ──
-  # 注意：华雄本人已是 npc-hua-xiong（在人物面板里），不能再造一个「华雄」当敌人，
-  # 否则玩家=华雄相关剧情会出现分身。这里让**旗号**上阵：出来的不是那个人，
-  # 是那面旗和旗后面的人 —— 两军都不追究，正是本模板要的魔幻感。
+  # 注意：华雄本人已是 npc-hua-xiong（在人物面板里，且汜水关后已阵亡），
+  # 不能再造一个「华雄」当敌人，否则会出现分身。这里让**旗号**上阵：
+  # 名字正月初三就从名册上划掉了，出来的只是那面旗和旗后面的人 ——
+  # 两军都不追究，正是本模板要的魔幻感。
   # 同样不进关系图谱：一面旗不该有旧识。
   - id: enemy-xiliang-commander
     isEnemy: true
     visibility: public
-    identity: { name: 西凉前军主将, age: 34, gender: male, description: 旗上写着「华雄」，本人却还在中军帐里。出来应战的是这面旗和旗后面的人，谁也不打算把这件事说破。 }
+    identity: { name: 西凉前军主将, age: 34, gender: male, description: 旗上写着「华雄」，可这个名字在汜水关那天就被划掉了。出来应战的是这面旗和旗后面的人，谁也不打算把这件事说破。 }
     mood: { value: 70 }
     attributes: { command: 7, intellect: 4, physique: 9, luck: 5, reputation: 6, tianyi: 5 }
     skills: [sk-basic-strike]
@@ -297,6 +312,95 @@ characters:
     private:
       goals: [duel]
       traits: [flag-bearer]
+    relationship: 0
+
+  # ══════════════ 第六轮 · 汜水关阵亡名单 ══════════════
+  # 这四人在会盟之后、虎牢关之前接连出关，都没回来；阵亡由正月初三的
+  # ev-day2-sishui 结算（每个选项都写同一组 setNpcLifecycle，与玩家选择解耦）。
+  # 开局均在世、可上屏、可参与自主行动；结算后人物面板灰化并标注「汜水关阵亡」，
+  # 相连关系边由引擎单向冻结，此后的关系写入一律静默忽略。
+  # 不虚构主君：祖茂、俞涉有明确旧主才写 colleague 边，鲍忠与潘凤的旧主不在本模板，
+  # 宁可不写边也不硬凑（R-OP-05 默认不认识）。四人都不在 7 格转盘里 ⇒ 无分身风险。
+  - id: npc-bao-zhong
+    isEnemy: false
+    visibility: public
+    identity: { name: 鲍忠, age: 27, gender: male, description: 第一个领兵出关的人。名册上他的名字写在最前面，也最先被划掉。 }
+    mood: { value: 54 }
+    attributes: { command: 4, intellect: 3, physique: 6, luck: 2, reputation: 2, tianyi: 0 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 抢着打头阵，连旗号都没来得及插稳。
+      knownGoals: [先立一功]
+    private:
+      goals: [win-battle]
+      traits: [eager]
+    relationship: 0
+
+  - id: npc-yu-she
+    isEnemy: false
+    visibility: public
+    identity: { name: 俞涉, age: 31, gender: male, description: 出关前报了名号，回来时只剩一匹空马。 }
+    mood: { value: 50 }
+    attributes: { command: 4, intellect: 4, physique: 5, luck: 2, reputation: 2, tianyi: 0 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 报名字报得很清楚，之后就没再说过话。
+      knownGoals: [应战]
+    private:
+      goals: [duel]
+      traits: [obedient]
+    relationship: 0
+    relations:
+      - { to: npc-yuan-shu, kind: colleague, visibility: known, value: 30 }
+
+  - id: npc-pan-feng
+    isEnemy: false
+    visibility: public
+    identity: { name: 潘凤, age: 29, gender: male, description: 「我的大斧早就饥渴难耐了」——话音落下没多久，名册上就多了一道墨杠。 }
+    mood: { value: 72 }
+    attributes: { command: 3, intellect: 2, physique: 8, luck: 1, reputation: 3, tianyi: 0 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 信心比战绩长得多。
+      knownGoals: [让人记住这把斧子]
+    private:
+      goals: [be-famous]
+      traits: [boastful]
+    relationship: 0
+
+  - id: npc-zu-mao
+    isEnemy: false
+    visibility: public
+    identity: { name: 祖茂, age: 33, gender: male, description: 把赤帻戴在自己头上引开追兵，替主将争出一条路；那顶头巾后来一直没找回来。 }
+    mood: { value: 58 }
+    attributes: { command: 6, intellect: 6, physique: 6, luck: 3, reputation: 4, tianyi: 0 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 危急时先想的是别人怎么走。
+      knownGoals: [护主将脱身]
+    private:
+      goals: [protect-ally]
+      traits: [loyal]
+    relationship: 0
+    relations:
+      - { to: npc-sun-jian, kind: colleague, visibility: known, value: 48 }
+
+  # 战争沙盘 onVictory 的阵亡对象：旗后面那个始终没报姓名的人。
+  # 不是华雄本人（华雄已阵亡），也不是 enemy-xiliang-commander（纯敌人定义，不建实例，
+  # 对它写 setNpcLifecycle 会在运行期抛「指向未知 NPC」）。不进关系图谱：没人认识他。
+  - id: npc-flag-bearer
+    isEnemy: false
+    visibility: public
+    identity: { name: 旗后面的人, age: 30, gender: male, description: 从头到尾没报过姓名。战报上写「主将退」，写的其实就是他。 }
+    mood: { value: 48 }
+    attributes: { command: 5, intellect: 3, physique: 6, luck: 2, reputation: 1, tianyi: 2 }
+    skills: [sk-basic-strike]
+    public:
+      personality: 只举旗，不解释。
+      knownGoals: [把旗举到收兵]
+    private:
+      goals: [duel]
+      traits: [silent]
     relationship: 0
 
 # ══════════════ 玩家初始模板 ══════════════
