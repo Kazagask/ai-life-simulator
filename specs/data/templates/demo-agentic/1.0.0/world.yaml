@@ -30,3 +30,24 @@ resources:
   mp: { base: 50, perLevel: 0 }
 regen:
   perTurn: { hp: 1, mp: 1 }
+# 「点击为主，打字输入为辅」的常驻点击面：即使呈现槽为空、LLM 本轮没触发，
+# 玩家也必须有东西可点。此处只给 duration、不给 effects —— 保证不与 effect 协议耦合，
+# 也避免骨架模板伪造具体玩法数值（血肉交给 AI 与事件）。
+# 前端点击后以 type = <action.id> 提交 /turns；引擎按 duration 推进世界时间。
+actions:
+  - id: act-explore
+    label: 四处探索
+    description: 在附近走动，看看有什么可发现的。
+    duration: { value: 1, unit: day }
+  - id: act-ask
+    label: 打听消息
+    description: 找人搭话，问清这里最近发生了什么。
+    duration: { value: 1, unit: day }
+  - id: act-rest
+    label: 休整片刻
+    description: 停下来缓一缓，让身上的疲惫退一些。
+    duration: { value: 1, unit: day }
+  - id: act-observe
+    label: 观察自身
+    description: 检查自己的状态与随身之物。
+    duration: { value: 1, unit: hour }
