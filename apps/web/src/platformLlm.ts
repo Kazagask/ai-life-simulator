@@ -1,4 +1,4 @@
-import { cloud } from "./cloud";
+import { cloud, publicConfig } from "./cloud";
 
 /**
  * 前端「平台免密 LLM」回调（R-LLM-09 / ADR-0028 决策 2 的前端路径）。
@@ -15,6 +15,49 @@ import { cloud } from "./cloud";
  * 纯展示层：不写世界状态、不进回放、不落库、不进人生档案。任何失败一律 `null`。
  */
 const DEFAULT_TIMEOUT_MS = 12000;
+
+/**
+ * 平台 endpoint（**单一真源**：直接取 `cloud.ts` 的字面量，绝不复制第二份）。
+ *
+ * SDK 的 LLM 模块把请求拼成 `${endpoint}/.cloud/llm/...`（不是相对路径），所以只要页面
+ * origin 与该 endpoint 不一致，浏览器就会按跨域处理：自定义头 `x-wb-webapp-access-key`
+ * 会让每次调用先发 `OPTIONS`，而平台契约是「同源 Origin 精确匹配」，非发布域名拿不到
+ * `Access-Control-Allow-Origin` ⇒ preflight `net::ERR_FAILED`，控制台只剩一条 CORS 报错。
+ * 这不是可修复的工程 bug，而是「平台免密只在它自己的域名下成立」这一事实。
+ */
+const PLATFORM_ENDPOINT = publicConfig.endpoint;
+
+export interface PlatformLlmAvailability {
+  available: boolean;
+  origin: string | null;
+  endpoint: string;
+}
+
+/**
+ * 平台免密路径是否**在当前页面**可用。
+ *
+ * 判据只有一条：页面 origin 与平台 endpoint 相同。**不要**把它与「用户已自带 key」合并——
+ * 那是两个独立原因（域名不对 / 已有服务端会话），合并后部署域名一旦改对就再也拆不开。
+ */
+export function platformLlmAvailability(): PlatformLlmAvailability {
+  const origin = typeof window === "undefined" ? null : window.location.origin;
+  return { available: origin !== null && origin === PLATFORM_ENDPOINT, origin, endpoint: PLATFORM_ENDPOINT };
+}
+
+/** 不可用只提示一次（每次渲染都 warn 会刷屏，且这属于预期配置而非故障）。 */
+let availabilityWarned = false;
+
+export function isPlatformLlmAvailable(): boolean {
+  const { available, origin } = platformLlmAvailability();
+  if (!available && !availabilityWarned && origin !== null) {
+    availabilityWarned = true;
+    console.warn(
+      `[platformLlm] 平台免密 LLM 已关闭：当前 origin ${origin} 与平台 endpoint ${PLATFORM_ENDPOINT} 不一致；` +
+        "叙事回退模板文案（这是预期行为，不是故障）。",
+    );
+  }
+  return available;
+}
 
 let modelIdPromise: Promise<string | null> | null = null;
 
@@ -47,6 +90,9 @@ export async function platformGenerateText(
   user: string,
   opts: { timeoutMs?: number } = {},
 ): Promise<string | null> {
+  // 第一行就挡在**任何**网络之前：下面 `pickModelId()` 与 `chat.completions.create()`
+  // 都是绝对地址请求，非同源时两次都会被 CORS 拒掉（且只会留下扰人的控制台红字）。
+  if (!isPlatformLlmAvailable()) return null;
   try {
     const model = await pickModelId();
     if (model === null) return null;

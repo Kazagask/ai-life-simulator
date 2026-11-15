@@ -28,7 +28,12 @@ import type {
 } from "./api";
 import { bootstrapAuth, signOutOfWorkBuddy, signInWithWorkBuddy, userDisplayName } from "./auth";
 import { cloud } from "./cloud";
-import { platformEndingNarrative, platformEventFlavor, platformEvaluationSummary } from "./platformLlm";
+import {
+  isPlatformLlmAvailable,
+  platformEndingNarrative,
+  platformEventFlavor,
+  platformEvaluationSummary,
+} from "./platformLlm";
 import { deleteLifeRecord, listLifeRecords, saveLifeRecord, shouldAutoArchive } from "./records";
 import type { LifeRecordRow } from "./records";
 import { interactionMode, toActPayload, toViewModel } from "@life-sim/rpg-ui";
@@ -1215,6 +1220,8 @@ function usePlatformSummary(
     if (!ended || !base) return;
     if (summarySource === "llm") return;
     if (getLlmSession() !== null) return;
+    // 独立原因之二：当前页面 origin 不是平台发布域名 ⇒ 平台免密路径不可用（不合并两个判据）。
+    if (!isPlatformLlmAvailable()) return;
     requested.current = true;
     void platformEvaluationSummary(base).then((r) => {
       if (r) setText(r);
@@ -1232,6 +1239,8 @@ function usePlatformEnding(ending: EndingView): { title: string; summary: string
     if (ending.narrativeSource === "llm") return;
     if (ending.visibility === "hidden") return;
     if (getLlmSession() !== null) return;
+    // 独立原因之二：当前页面 origin 不是平台发布域名 ⇒ 平台免密路径不可用（不合并两个判据）。
+    if (!isPlatformLlmAvailable()) return;
     requested.current = true;
     void platformEndingNarrative({
       title: ending.title,
@@ -1385,6 +1394,8 @@ function LifeTab({
       return;
     }
     if (getLlmSession() !== null) return; // 用户自带 key：后端已出 LLM flavor，前端不重复生成
+    // 独立原因之二：当前页面 origin 不是平台发布域名 ⇒ 平台免密路径不可用（不合并两个判据）。
+    if (!isPlatformLlmAvailable()) return;
     for (const ev of lastResult.events) {
       const serverFlavor = lastResult.eventFlavors?.[ev.id];
       if (serverFlavor !== undefined && serverFlavor !== "") continue;
