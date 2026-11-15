@@ -14,7 +14,7 @@ export class MockProvider implements LLMProvider {
   async complete(request: NarrativeInput, schema: NarrativeOutputSchemaLike): Promise<unknown> {
     const shape = detectOutputShape(schema);
     if (shape === "flavor") {
-      const narrative = "narrative" in request ? request.narrative : "";
+      const narrative = "narrative" in request ? (request.narrative ?? "") : "";
       const title = "title" in request ? request.title : "";
       return { flavor: narrative.length > 0 ? narrative : title.length > 0 ? title : "事件" };
     }

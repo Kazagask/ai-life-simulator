@@ -206,6 +206,9 @@ export function createWorldV2(
     openingCompleted: false,
     termination: null,
     archived: false,
+    // F3 / F4 新契约状态：建世界期给最小空值，后续由引擎 API（Wave 1B）填充。
+    observationLedger: { player: [] },
+    taskDag: { dagId: "initial", version: 0, issuedBy: "template", nodes: [], edges: [] },
   };
   state.player.hp = maxHp(state.player, template);
   state.player.mp = maxMp(state.player, template);
@@ -393,11 +396,11 @@ function settleSlotEvent(input: {
   input.applyEffects();
   state.turnIndex += 1;
   recordFire(state, def.id);
-  result.triggered.push({ id: def.id, title: def.title, narrative: def.narrative });
+  result.triggered.push({ id: def.id, title: def.title, narrative: def.narrative ?? def.title });
   pushHistory(state, template, {
     id: historyId(state, `t${state.turnIndex}-e-${def.id}`),
     type: "event",
-    summary: `${def.title}：${def.narrative}`,
+    summary: `${def.title}：${def.narrative ?? def.title}`,
     visibility: "public",
   });
   if (input.choiceText !== undefined) {
@@ -713,7 +716,7 @@ function nextTurn(
             continue;
           }
           state.battle = createBattle(def.id, def.settle.combat, state, lookup);
-          state.battle.log.push(def.narrative);
+          state.battle.log.push(def.narrative ?? def.title);
         }
         return; // 战斗命令由 battleActionV2 接
       }

@@ -7,6 +7,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@life-sim/shared": path.resolve(__dirname, "../../packages/shared/src/index.ts"),
+      "@life-sim/rpg-ui": path.resolve(__dirname, "../../packages/rpg-ui/src/index.ts"),
     },
   },
   server: {

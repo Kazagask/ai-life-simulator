@@ -14,5 +14,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    /** 旧测试已整体迁到 legacy-tests/ 并保留原文；本配置只收集新最小集。 */
+    include: ["src/**/*.min.test.ts", "src/**/*.accept.test.ts"],
   },
 });

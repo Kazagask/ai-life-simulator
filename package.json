@@ -8,7 +8,8 @@
     "start": "pnpm --filter @life-sim/server start",
     "build": "pnpm typecheck && pnpm --filter @life-sim/web build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "pnpm --filter @life-sim/game-core test"
+    "test": "pnpm --filter @life-sim/shared test && pnpm --filter @life-sim/game-core test && pnpm --filter @life-sim/agent-runtime test && pnpm --filter @life-sim/rpg-ui test",
+    "test:accept": "vitest run --config vitest.accept.config.ts"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

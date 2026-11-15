@@ -69,7 +69,8 @@ export function buildEndingNarrativeRequest(
 export interface EventFlavorRequestInput {
   eventId: string;
   title: string;
-  narrative: string;
+  /** F3：模板 narrative 可缺省，构造请求时按 ?? title 回退。 */
+  narrative?: string;
   worldTime: number;
   turnIndex: number;
 }
@@ -81,7 +82,8 @@ export interface EventFlavorRequestInput {
 export interface EventFlavorRequest {
   readonly eventId: string;
   readonly title: string;
-  readonly narrative: string;
+  /** F3：可缺省；缺省时 buildEventFlavorRequest 已用 title 回退填充。 */
+  readonly narrative?: string;
   readonly worldTime: number;
   readonly turnIndex: number;
 }
@@ -90,7 +92,8 @@ export function buildEventFlavorRequest(input: EventFlavorRequestInput): EventFl
   return Object.freeze({
     eventId: input.eventId,
     title: input.title,
-    narrative: input.narrative,
+    /** ?? title 回退（不是空串）：模板不写 narrative 时把标题作为展示文本。 */
+    narrative: input.narrative ?? input.title,
     worldTime: input.worldTime,
     turnIndex: input.turnIndex,
   });

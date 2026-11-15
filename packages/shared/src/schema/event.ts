@@ -179,7 +179,8 @@ const EventBase = z
   .object({
     id: z.string().min(1),
     title: z.string().min(1),
-    narrative: z.string().min(1),
+    /** F3：LLM 叙事正文不进模板 / 存档；narrative 可缺省，消费侧用 ?? title 回退。 */
+    narrative: z.string().min(1).optional(),
     trigger: EventTriggerSchema,
   })
   .strict();

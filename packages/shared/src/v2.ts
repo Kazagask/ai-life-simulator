@@ -16,6 +16,17 @@ import type {
   WorldTemplateV2,
   TerminationRecord,
 } from "./schema/index.js";
+import type { ObservationLedger } from "./contract/visibility.js";
+import type { TaskDag } from "./contract/task-dag.js";
+import type { LlmInvocation } from "./contract/llm-invocation.js";
+
+/**
+ * 事件叙事回退工具（F3）：narrative 缺省时回退到 title —— 不是空串。
+ * LLM 叙事正文只进 trace，event view 的 narrative 允许缺省，消费侧统一用本函数取展示文本。
+ */
+export function eventNarrativeOrTitle(view: { narrative?: string; title: string }): string {
+  return view.narrative ?? view.title;
+}
 
 /**
  * 协议 V2 运行时类型：世界状态、战斗会话、玩家可见投影与交互命令。
@@ -352,6 +363,18 @@ export interface WorldStateV2 {
   termination: TerminationRecord | null;
   /** 归档只读标记；为真时拒绝任何状态写入 */
   archived: boolean;
+
+  // ---------- F3 / F4 新契约状态（schemaVersion 4 预留；本波旧档不兼容） ----------
+  /** 统一观察者知识台账（F4）：玩家与每个 npc:<id> 共用一套。 */
+  observationLedger: ObservationLedger;
+  /** 任务 DAG：锚点 / 任务完成 / 权威事实进存档（F3）。 */
+  taskDag: TaskDag;
+  /** 进行中的 LLM 调用；回程一律走引擎 API。 */
+  pendingInvocation?: LlmInvocation;
+  /** 当前占用的媒体资源绑定（存档只留引用，不放叙事正文）。 */
+  media?: Array<{ slot: string; assetId: string }>;
+  /** append-only *.trace.jsonl 的引用；叙事正文只进 trace（F3）。 */
+  traceRef?: string;
 }
 
 // ---------- 投影与命令 ----------
@@ -398,7 +421,8 @@ export interface SlotEventView {
    */
   kind: "normal" | "random" | "combat";
   title: string;
-  narrative: string;
+  /** F3：叙事正文可缺省，消费侧用 eventNarrativeOrTitle(view) 回退到 title（不是空串）。 */
+  narrative?: string;
   /** `kind === "normal"` 时按 `visibleWhen` 过滤后的可选项 */
   options?: EventOptionView[];
   /** `kind === "random"` 时已掷出的那一格（幂等：同一槽重复呈现同一结果） */
@@ -668,6 +692,10 @@ export interface V2Snapshot {
   status?: WorldRunStatus;
   /** 已终止时的结局投影；未终止为 null */
   ending?: EndingView | null;
+  /** F3：媒体资源投影（展示就绪，含 url / alt）；存档只留引用。 */
+  media?: Array<{ slot: string; assetId: string; url: string; alt: string }>;
+  /** 是否存在待回程的 LLM 调用（F3 稀疏参与标志）。 */
+  llmPending?: boolean;
 }
 
 export interface V2TurnResult {
