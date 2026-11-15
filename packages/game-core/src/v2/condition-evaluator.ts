@@ -27,6 +27,11 @@ export interface ConditionEvalContext {
   state: WorldStateV2;
   rng: Rng;
   turnIndex: number;
+  /**
+   * 本轮已结算的事件 id 集合（`eventResolved` 求值用）。
+   * 可选：缺省 = 本轮无结算，`eventResolved` 一律 false。做成可选是为了既有调用方不改即编译。
+   */
+  resolvedEventIds?: ReadonlySet<string>;
 }
 
 export type ConditionEvalFn = (
@@ -55,6 +60,9 @@ export function createConditionRegistry(
       flagSet: (args, ctx) => ctx.state.flags[String(args.flag)] === (args.value ?? true),
       nodeCompleted: (args, ctx) =>
         ctx.state.taskDag.nodes.some((n) => n.id === args.nodeId && n.status === "completed"),
+      // 「事件结算后」触发（设计 §3.4 列的第五类）：只认**本轮**结算过的事件，
+      // 不查历史 eventFires —— 否则同一条规则会在之后每一轮重复命中。
+      eventResolved: (args, ctx) => ctx.resolvedEventIds?.has(String(args.eventId)) ?? false,
       ...extra,
     }),
   );
@@ -192,6 +200,8 @@ export interface TriggerOptions {
   budget?: LlmBudget;
   perspective?: Perspective;
   targetPerspective?: Perspective;
+  /** 本轮已结算的事件 id（透传给 `eventResolved`；缺省 = 本轮无结算）。 */
+  resolvedEventIds?: ReadonlySet<string>;
 }
 
 /**
@@ -209,6 +219,7 @@ export function evaluateTriggers(
     state,
     rng: derivedTriggerRng(opts.seed, opts.turnIndex),
     turnIndex: opts.turnIndex,
+    ...(opts.resolvedEventIds !== undefined ? { resolvedEventIds: opts.resolvedEventIds } : {}),
   };
   const out: LlmInvocation[] = [];
   rules.llmTriggers.forEach((trigger, i) => {

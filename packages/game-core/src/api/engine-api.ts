@@ -25,6 +25,7 @@ import {
   buildFacts as computeFacts,
 } from "./perspective.js";
 import { validateDag, type DagValidationResult } from "../v2/task-dag.js";
+import { enqueueScheduled } from "../v2/scheduler.js";
 import type { ConditionRegistry } from "../v2/condition-evaluator.js";
 import { createContentSink, type ContentSink } from "../v2/narrative.js";
 
@@ -190,6 +191,39 @@ const advanceDag: ToolHandler = {
 };
 
 /**
+ * `fact.enqueueEvent`：把**模板里已存在**的事件实例化进延时队列（DAG 分支的落地动作）。
+ *
+ * 设计口径（§3.4「(b) 需要上桌事件 ⇒ fact.enqueueEvent → delayQueue」）：
+ * - LLM **只能选用模板已有事件**，不能凭空发明事件内容 —— `eventId` 必须是
+ *   `env.lookupRefs`（模板 ref 全集）成员，否则 `unknown_reference`（FATAL）。
+ * - 只入队、**不直接占槽**（ADR-0034 §4 R3：写 `slot` 的唯一后继路径是 `applySuccessor`），
+ *   时间锚固在 `state.worldTime` ⇒ 当轮即可被扫描取到，但顺序仍由队列排序决定。
+ * - 权威写入（delayQueue / enqueueSeqCounter）只在本文件发生（调度器只做纯入队构造）。
+ */
+const enqueueEvent: ToolHandler = {
+  run(state, args, _ctx, env) {
+    if (!isRecord(args) || typeof args.eventId !== "string" || args.eventId.length === 0) {
+      return rejected("invalid_arguments", "fact.enqueueEvent 需要 { eventId }");
+    }
+    const eventId = args.eventId;
+    const refs = env.lookupRefs;
+    if (refs !== undefined && !refs.has(eventId)) {
+      return rejected("unknown_reference", `eventId 不在模板 ref 集合内：${eventId}`, {
+        allowedRefs: [...refs].filter((r) => r.startsWith("evt:")).slice(0, 50),
+      });
+    }
+    const instance = enqueueScheduled({
+      state,
+      definitionId: eventId,
+      // origin.kind 是封闭枚举；模板效果与 LLM 提议在引擎里同属「效果驱动入队」。
+      origin: { kind: "effect", id: eventId },
+      absoluteStart: state.worldTime,
+    });
+    return accepted([{ path: `delayQueue.${instance.instanceId}`, after: "waiting" }]);
+  },
+};
+
+/**
  * content.* 共用处理器（F4，追加2）：窗口校验 + 正文进 sink（不写 state）+ 媒体锚点。
  *
  * 硬不变量：**绝不采信 args 自带的窗口**。dispatch 第 2 层只以 ctx.targetPerspective
@@ -243,6 +277,7 @@ function defaultToolRegistry(): Map<string, ToolHandler> {
   const map = new Map<string, ToolHandler>();
   map.set("fact.setKnowledge", setKnowledge);
   map.set("fact.advanceDag", advanceDag);
+  map.set("fact.enqueueEvent", enqueueEvent);
   for (const name of [
     "content.writeNarrative",
     "content.writeMemory",
@@ -420,3 +455,20 @@ export function assignPendingInvocation(
 
 /** 诊断码封闭集合（转出，便于源码守卫 / 测试断言 13 码）。 */
 export const ENGINE_DIAGNOSTIC_CODES = DIAGNOSTIC_CODES;
+
+/**
+ * 结算 tail 的知识授予落账（T-02 / F4）。
+ *
+ * 计算委托纯函数 `computeKnowledgeGrants`（turn.ts 调用），**写入只在本文件发生** ——
+ * 与 `assignSlot` / `assignPendingInvocation` 同一条「权威写入集中在 api/engine-api.ts」约束。
+ * 冲突（同一 `(observer, factRef)` 互斥 level）按 rules 声明顺序先到先得、不抛错：
+ * 授予是模板数据而非玩家意图，不该因为模板自身写重而中断整回合结算。
+ */
+export function assignKnowledgeGrants(
+  state: WorldStateV2,
+  grants: readonly SetKnowledgeArgs[],
+): void {
+  if (grants.length === 0) return;
+  const result = applyKnowledgeBatch(state.observationLedger, grants);
+  state.observationLedger = result.ledger;
+}

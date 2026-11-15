@@ -24,12 +24,18 @@ import type {
   WorldStateV2,
   WorldTemplateV2,
 } from "@life-sim/shared";
-import { assignSlot, assignPendingInvocation, type ToolRegistry } from "../api/engine-api.js";
+import {
+  assignSlot,
+  assignPendingInvocation,
+  assignKnowledgeGrants,
+  type ToolRegistry,
+} from "../api/engine-api.js";
 import {
   createConditionRegistry,
   evaluateTriggers,
   type ConditionRegistry,
 } from "./condition-evaluator.js";
+import { computeKnowledgeGrants } from "./knowledge-grants.js";
 import { createRng, deriveTurnSeed, pickWeighted, type Rng } from "../rng.js";
 import type { RunnerContext } from "./runner-context.js";
 import { evaluateLifeV2 } from "./life-evaluation.js";
@@ -770,8 +776,10 @@ function revalidateThenProject(
   result: TriggerResult,
 ): V2Snapshot {
   recordDroppedPending(result, revalidateSlot(state, lookup).dropped);
-  // 结算 tail 唯一 hook 位：无 gateway 时为空操作（零回归）。
-  runLlmHook(state, pipeline);
+  // 本轮真正结算过的事件 id：`eventResolved` 条件的唯一判据（不查历史 eventFires）。
+  const resolvedEventIds = new Set(result.triggered.map((t) => t.id));
+  // 结算 tail 唯一 hook 位：无 rules / 无 gateway 时为空操作（零回归）。
+  runSettlementHooks(state, pipeline, resolvedEventIds);
   return projectWithConfig(state, template, lookup, pipeline);
 }
 
@@ -798,29 +806,46 @@ export interface TurnPipelineConfig {
 }
 
 /**
- * 结算 tail 的**唯一** LLM hook 位（阶段 B / T-05a）：产出 `LlmInvocation` 交
- * `LlmGateway`，**不 await LLM**（core → llm 回调，回程一律走 dispatch 引擎 API）。
- * 硬不变量：不传 `gateway` ⇒ 完全 no-op，state / 返回结果逐字段不变（零回归）。
+ * 结算 tail 的**唯一** hook 位，分两段，顺序固定：
+ *
+ * ① **知识授予**（F4 / T-02）：按 `rules.yaml` 的 `knowledgeGrants[]` / `inferenceRules[]`
+ *    给在场观察者授 `known` / `inferred`。这段**不依赖 gateway** —— 授权是模板数据
+ *    驱动的确定性事实，与「这轮有没有 LLM 可调」无关；不接网关的模板（如 jjk-2006）
+ *    同样应当按规则授知识。写入经 `assignKnowledgeGrants`（权威写入集中在 engine-api）。
+ *
+ * ② **LLM 触发**（阶段 B / T-05a）：产出 `LlmInvocation` 交 `LlmGateway`，**不 await LLM**
+ *    （core → llm 回调，回程一律走 dispatch 引擎 API）。`rules.llmTriggers[].when` 一条都不
+ *    命中 ⇒ `invocations` 为空 ⇒ **本轮零网关调用**（LLM 稀疏参与的落点，不是每轮跑）。
+ *
+ * 硬不变量：不传 `gateway` 且不传 `rules` ⇒ 完全 no-op，state / 返回结果逐字段不变（零回归）。
  */
-function runLlmHook(state: WorldStateV2, pipeline: TurnPipelineConfig | undefined): void {
-  if (!pipeline?.gateway) return;
+function runSettlementHooks(
+  state: WorldStateV2,
+  pipeline: TurnPipelineConfig | undefined,
+  resolvedEventIds: ReadonlySet<string>,
+): void {
+  if (pipeline?.rules === undefined) return;
   const registry = pipeline.conditionRegistry ?? createConditionRegistry();
-  const invocations: LlmInvocation[] = pipeline.rules
-    ? evaluateTriggers(state, pipeline.rules, registry, {
-        seed: state.seed,
-        turnIndex: state.turnIndex,
-        ...(pipeline.budget !== undefined ? { budget: pipeline.budget } : {}),
-        ...(pipeline.perspective !== undefined ? { perspective: pipeline.perspective } : {}),
-        ...(pipeline.targetPerspective !== undefined
-          ? { targetPerspective: pipeline.targetPerspective }
-          : {}),
-      })
-    : [];
+  assignKnowledgeGrants(
+    state,
+    computeKnowledgeGrants(state, pipeline.rules, registry, state.turnIndex),
+  );
+  if (!pipeline.gateway) return;
+  const invocations: LlmInvocation[] = evaluateTriggers(state, pipeline.rules, registry, {
+    seed: state.seed,
+    turnIndex: state.turnIndex,
+    resolvedEventIds,
+    ...(pipeline.budget !== undefined ? { budget: pipeline.budget } : {}),
+    ...(pipeline.perspective !== undefined ? { perspective: pipeline.perspective } : {}),
+    ...(pipeline.targetPerspective !== undefined
+      ? { targetPerspective: pipeline.targetPerspective }
+      : {}),
+  });
   for (const inv of invocations) {
     // 落账到 pendingInvocation（写入动作在 api/engine-api.ts，源码守卫据此断言）。
     assignPendingInvocation(state, inv);
     // fire-and-forget：invoke 返回 Promise，内核不 await；回程由 agent-runtime 经 dispatch 提交。
-    void pipeline.gateway!.invoke(inv).catch(() => undefined);
+    void pipeline.gateway.invoke(inv).catch(() => undefined);
   }
 }
 

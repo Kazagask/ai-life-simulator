@@ -5,24 +5,25 @@ import { fileURLToPath } from "node:url";
 import { createElement } from "react";
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { V2Snapshot, ViewModel } from "@life-sim/shared";
-import { ViewModelSchema } from "@life-sim/shared";
-import { firstInlineAsset, toViewModel } from "./adapter.js";
-import { MAX_ACT_TEXT, MAX_ACTION_TYPE, clampActText, interactionMode, toActPayload } from "./act.js";
+import type { ContentBlockVM, MediaVM, V2Snapshot, ViewModel } from "@life-sim/shared";
+import { TURN_ACTION_DESCRIPTION_MAX, TURN_ACTION_TYPE_MAX, ViewModelSchema } from "@life-sim/shared";
+import { firstInlineCgBlock, toViewModel } from "./adapter.js";
+import { MAX_ACT_TEXT, MAX_ACT_TYPE, clampActText, interactionMode, toActPayload } from "./act.js";
 import { ActionBar } from "./ActionBar.js";
 import { CgStage, isCgSlot } from "./CgStage.js";
 import { EventStage } from "./EventStage.js";
 import { NarrativeStream, renderOptionBlock } from "./NarrativeStream.js";
 import { Portrait } from "./Portrait.js";
+import { isVisualSlot } from "./slots.js";
 import { StatusBars } from "./StatusBars.js";
 import { WorldClock } from "./WorldClock.js";
 
 const h = createElement;
 const render = (node: ReactElement) => renderToStaticMarkup(node);
 
-it("MAX_ACT_TEXT / MAX_ACTION_TYPE 与服务端 zod 上限（200 / 40）对齐", () => {
-  expect(MAX_ACT_TEXT).toBe(200);
-  expect(MAX_ACTION_TYPE).toBe(40);
+it("展示层的提交上限直接取自共享常量（不再是各写一份数字）", () => {
+  expect(MAX_ACT_TEXT).toBe(TURN_ACTION_DESCRIPTION_MAX);
+  expect(MAX_ACT_TYPE).toBe(TURN_ACTION_TYPE_MAX);
 });
 
 // ---------- 真实形状快照夹具（含可选字段缺省的一组） ----------
@@ -216,18 +217,25 @@ describe("act.ts: 提交边界", () => {
     });
   });
 
-  it("toActPayload：300 字选项 → description 恰好 200 字", () => {
+  it("toActPayload：300 字选项 → description 恰为上限长度且不超限", () => {
     const payload = toActPayload({ text: "往".repeat(300), source: "option" });
     expect(payload.type).toBe("free");
-    expect(payload.description.length).toBe(200);
+    expect(payload.description.length).toBe(MAX_ACT_TEXT);
+    expect(payload.description.length).toBeLessThanOrEqual(TURN_ACTION_DESCRIPTION_MAX);
   });
 
-  it("toActPayload：60 字动作 id 退回自由行动，type 不超过 40", () => {
-    const id = "a".repeat(60);
-    const payload = toActPayload({ id, text: "某个长 id 的动作", source: "action" });
-    expect(payload.type.length).toBeLessThanOrEqual(MAX_ACTION_TYPE);
+  it("toActPayload：id 超过 type 上限退回自由行动；恰好等于上限仍按动作下发", () => {
+    const tooLong = "a".repeat(TURN_ACTION_TYPE_MAX + 1);
+    const payload = toActPayload({ id: tooLong, text: "某个长 id 的动作", source: "action" });
     expect(payload.type).toBe("free");
+    expect(payload.type.length).toBeLessThanOrEqual(MAX_ACT_TYPE);
     expect(payload.description).toBe("某个长 id 的动作");
+
+    const atLimit = "b".repeat(TURN_ACTION_TYPE_MAX);
+    expect(toActPayload({ id: atLimit, text: "边界动作", source: "action" })).toEqual({
+      type: atLimit,
+      description: "",
+    });
   });
 
   it("toActPayload：纯空白文案不产生空 description（服务端 min(1)）", () => {
@@ -358,20 +366,95 @@ describe("NarrativeStream", () => {
     expect(unresolved).not.toContain("<img");
   });
 
-  it("首条可解析的 asset 块胜出，且整段只渲染一张图（与横幅抑制同判据）", () => {
-    const content = [
-      { blockId: "b0", kind: "narrative", text: "推门。" },
-      { blockId: "b1", kind: "asset", assetId: "missing" },
-      { blockId: "b2", kind: "asset", assetId: "cg2" },
-    ];
-    const media = [{ slot: "scene", assetId: "cg2", url: "/cg2.png", alt: "炉火" }];
+  /**
+   * 宿主布局（`apps/web/src/NarrativeStage.tsx`）的两步合成：内联块存在则横幅让位。
+   * 这里复刻这段 6 行规则，用来断言「整屏至多一张图」的不变量。
+   */
+  const screenImages = (view: { content: ContentBlockVM[]; media: MediaVM[] }): string[] => {
+    const inline = firstInlineCgBlock(view);
+    const banner = render(h(CgStage, { media: inline === undefined ? view.media : [] }));
+    const stream = render(h(NarrativeStream, { content: view.content, media: view.media }));
+    return [...banner.matchAll(/src="([^"]+)"/g), ...stream.matchAll(/src="([^"]+)"/g)].map(
+      (m) => m[1] ?? "",
+    );
+  };
 
-    // 解析器不能按 index 取第一条 asset 块：否则横幅已被抑制、流里又跳过 ⇒ 黑场
-    expect(firstInlineAsset(content, media)?.blockId).toBe("b2");
+  it("解析器跳过错配 / 破图 / 立绘 / 道具块，只认画面槽（cg、scene）", () => {
+    const media = [
+      { slot: "portrait.lucy", assetId: "p.lucy", url: "/lucy.png", alt: "露西" },
+      { slot: "cg.opening", assetId: "cg.open", url: "/open.png", alt: "开场" },
+      { slot: "scene", assetId: "s.rain", url: "/rain.png", alt: "雨" },
+      { slot: "item.sword", assetId: "i.sword", url: "/sword.png", alt: "剑" },
+      { slot: "scene", assetId: "s.broken", url: "", alt: "空" },
+    ];
+    const content: ContentBlockVM[] = [
+      { blockId: "b1", kind: "asset", assetId: "missing" },
+      { blockId: "b2", kind: "asset", assetId: "p.lucy" },
+      { blockId: "b3", kind: "asset", assetId: "s.broken" },
+      { blockId: "b4", kind: "asset", assetId: "i.sword" },
+      { blockId: "b5", kind: "asset", assetId: "cg.open" },
+      { blockId: "b6", kind: "asset", assetId: "s.rain" },
+    ];
+
+    // 不能按 index 取「第一条 asset 块」：否则宿主已抑制横幅、流里又跳过 ⇒ 黑场
+    expect(firstInlineCgBlock({ content, media })?.blockId).toBe("b5");
+
+    // `scene` 必须算画面槽：引擎 `content.referenceAsset` 落库时媒体的 slot 就是 "scene"
+    expect(isVisualSlot("scene")).toBe(true);
+    expect(isVisualSlot("scene.rain")).toBe(true);
+    expect(isVisualSlot("cg.opening")).toBe(true);
+    expect(isVisualSlot("portrait.lucy")).toBe(false);
+    expect(isVisualSlot("item.sword")).toBe(false);
+  });
+
+  it("立绘块绝不内联：`[asset(portrait), asset(cg)]` 不再黑场，CG 照常出图", () => {
+    const media = [
+      { slot: "portrait.lucy", assetId: "p.lucy", url: "/lucy.png", alt: "露西" },
+      { slot: "cg.opening", assetId: "cg.open", url: "/open.png", alt: "开场" },
+    ];
+    const content: ContentBlockVM[] = [
+      { blockId: "b1", kind: "narrative", text: "她抬头。" },
+      { blockId: "b2", kind: "asset", assetId: "p.lucy" },
+      { blockId: "b3", kind: "asset", assetId: "cg.open" },
+    ];
+
+    expect(firstInlineCgBlock({ content, media })?.blockId).toBe("b3");
 
     const html = render(h(NarrativeStream, { content, media }));
     expect(html.match(/<img /g)?.length).toBe(1);
-    expect(html).toContain('src="/cg2.png"');
+    expect(html).toContain('src="/open.png"');
+    expect(html).not.toContain("/lucy.png");
+  });
+
+  it("立绘只走立绘排，叙事流不再画一遍（无重复渲染）", () => {
+    const media = [{ slot: "portrait.lucy", assetId: "p.lucy", url: "/lucy.png", alt: "露西" }];
+    const content: ContentBlockVM[] = [
+      { blockId: "b1", kind: "narrative", text: "她抬头。" },
+      { blockId: "b2", kind: "asset", assetId: "p.lucy" },
+    ];
+
+    expect(firstInlineCgBlock({ content, media })).toBeUndefined();
+    expect(render(h(NarrativeStream, { content, media }))).not.toContain("<img");
+    // 立绘由 Portrait 在立绘排里出图，只有那一处
+    expect(render(h(Portrait, { media: media[0]! }))).toContain('src="/lucy.png"');
+  });
+
+  it("「整屏至多一张图」在各类组合下都成立（宿主抑制横幅与流内跳过同判据）", () => {
+    const lucy: MediaVM = { slot: "portrait.lucy", assetId: "p.lucy", url: "/lucy.png", alt: "露西" };
+    const cg: MediaVM = { slot: "cg.opening", assetId: "cg.open", url: "/open.png", alt: "开场" };
+    const scene: MediaVM = { slot: "scene", assetId: "s.rain", url: "/rain.png", alt: "雨" };
+    const asBlock = (assetId: string): ContentBlockVM => ({ blockId: assetId, kind: "asset", assetId });
+
+    // 无内联块 ⇒ 横幅出图；有内联块 ⇒ 横幅让位、流内出图；两者加起来恒为 1
+    expect(screenImages({ content: [], media: [cg] })).toEqual(["/open.png"]);
+    expect(screenImages({ content: [asBlock("cg.open")], media: [cg] })).toEqual(["/open.png"]);
+    expect(screenImages({ content: [asBlock("s.rain")], media: [scene] })).toEqual(["/rain.png"]);
+    // 解析不到资源 ⇒ 不黑场：横幅继续顶上
+    expect(screenImages({ content: [asBlock("missing")], media: [cg] })).toEqual(["/open.png"]);
+    // 立绘块不占 CG 位：横幅仍是 CG，立绘留给立绘排
+    expect(screenImages({ content: [asBlock("p.lucy")], media: [lucy, cg] })).toEqual(["/open.png"]);
+    // 只有立绘：横幅与流都不出图（立绘排单独渲染，不计入这里）
+    expect(screenImages({ content: [asBlock("p.lucy")], media: [lucy] })).toEqual([]);
   });
 
   it("disabled 时选项按钮置灰且带 aria-disabled", () => {
