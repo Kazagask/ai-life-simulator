@@ -210,6 +210,8 @@ export class OpenAiCompatibleProvider implements AgentProvider {
 
     let response: Response;
     try {
+      // 外部取消信号（客户端断开）与单次调用超时**取并集**：传 signal 不等于放弃时限。
+      const timeoutSignal = AbortSignal.timeout(timeoutMs);
       response = await doFetch(this.endpoint(), {
         method: "POST",
         headers: {
@@ -217,7 +219,7 @@ export class OpenAiCompatibleProvider implements AgentProvider {
           authorization: `Bearer ${this.options.apiKey}`,
         },
         body: JSON.stringify(body),
-        signal: req.signal ?? AbortSignal.timeout(timeoutMs),
+        signal: req.signal === undefined ? timeoutSignal : AbortSignal.any([req.signal, timeoutSignal]),
       });
     } catch (err) {
       throw transportError(err);

@@ -10,7 +10,7 @@ import {
 } from "@life-sim/shared";
 import { buildLlmContext } from "./context.js";
 import { runAgentLoop, traceRefFor } from "./loop.js";
-import { buildToolDescriptors, type AgentProvider } from "./tool-registry.js";
+import { buildToolDescriptors, type AgentProvider, type AgentStreamDelta } from "./tool-registry.js";
 
 /**
  * `LlmGateway` 实现：上下文组装 → agentic 循环 → trace 回调。
@@ -36,6 +36,13 @@ export interface AgentGatewayDeps {
   toolProfile?: string;
   worldSkeleton?: string;
   secrets?: string[];
+  /**
+   * 可选：正文增量透传（提供 ⇒ provider 走流式；缺省 ⇒ 完整响应，零行为变化）。
+   * 纯展示通道：不写 trace、不写 sink、不写 state；trace 仍在收尾一次性 emit。
+   */
+  onDelta?: (chunk: AgentStreamDelta) => void;
+  /** 可选：外部取消信号（客户端断开），原样透传给 `provider.chat`。 */
+  signal?: AbortSignal;
   /** 仅延迟测量可注入（测试确定性）。 */
   now?: () => number;
 }
@@ -92,6 +99,8 @@ export class AgentGateway implements LlmGateway {
         ...(this.deps.templateRef !== undefined ? { templateRef: this.deps.templateRef } : {}),
         ...(this.deps.toolProfile !== undefined ? { toolProfile: this.deps.toolProfile } : {}),
         contextHash,
+        ...(this.deps.onDelta !== undefined ? { onDelta: this.deps.onDelta } : {}),
+        ...(this.deps.signal !== undefined ? { signal: this.deps.signal } : {}),
         ...(this.deps.now !== undefined ? { now: this.deps.now } : {}),
       });
 

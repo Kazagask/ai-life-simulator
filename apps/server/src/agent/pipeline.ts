@@ -6,6 +6,7 @@ import { DEFAULT_OPENAI_BASE_URL, type UserCredentials } from "../llm/credential
 import type { LLMConfig } from "../llm/provider.js";
 import type { ReadyTemplateEntry } from "../templates.js";
 import { appendTrace } from "../store.js";
+import { beginNarrativeInvocation } from "../narrative/stream.js";
 
 /**
  * T-11 · 回合结算尾的 LLM 网关注入（与 HTTP 层解耦以便单测）。
@@ -72,12 +73,22 @@ export function pipelineForTurn(
     perspective: "world",
     targetPerspective: "player",
   });
+  // 正文增量的转发频道：只把碎片推到内存频道（SSE 路由负责下发），
+  // trace 仍然只在 onTrace 收尾时一次性落盘（F3：中途不落盘、不进 sink）。
+  const narrativeStream = beginNarrativeInvocation(world.id);
   const gateway = new AgentGateway({
     // 无 key ⇒ mock：这是「无 key 可跑」的正式路径，不是缺省占位。
     provider: createAgentProvider(config ?? {}),
     engineApi,
     templateRef: `${entry.ref.id}@${entry.ref.version}`,
-    onTrace: (trace) => appendTrace(world.id, trace),
+    onTrace: (trace) => {
+      appendTrace(world.id, trace);
+      narrativeStream.done(trace);
+    },
+    onDelta: (chunk) => {
+      narrativeStream.delta(chunk.text ?? "");
+    },
+    signal: narrativeStream.signal,
     ...(entry.rules !== undefined ? { rules: entry.rules } : {}),
   });
   return {

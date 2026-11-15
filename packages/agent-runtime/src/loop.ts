@@ -23,6 +23,7 @@ import {
   validateToolCall,
   type AgentMessage,
   type AgentProvider,
+  type AgentStreamDelta,
   type ToolCallRequest,
 } from "./tool-registry.js";
 import { AgentProviderError } from "./providers/errors.js";
@@ -54,6 +55,13 @@ export interface AgentLoopDeps {
   contextHash?: string;
   /** 可选：trace 落点（网关负责调用；直接使用 loop 时可自接）。 */
   onTrace?: (trace: LlmTrace) => void;
+  /**
+   * 可选：正文增量**只转发**给调用方（提供 ⇒ provider 走流式，缺省 ⇒ 完整响应）。
+   * 绝不写 sink / trace / state：F3 的正文仍然只在收尾时一次性进 trace。
+   */
+  onDelta?: (chunk: AgentStreamDelta) => void;
+  /** 可选：外部取消（如 HTTP 客户端断开）；与每轮 `timeoutMs` 合并，不改变既有时限语义。 */
+  signal?: AbortSignal;
   /** 仅用于测量延迟（不参与任何决策），测试可注入。 */
   now?: () => number;
 }
@@ -173,6 +181,8 @@ export async function runAgentLoop(
         messages,
         tools: inv.tools,
         timeoutMs,
+        ...(deps.onDelta !== undefined ? { onDelta: deps.onDelta } : {}),
+        ...(deps.signal !== undefined ? { signal: deps.signal } : {}),
       });
     } catch (err) {
       const code = classifyProviderError(err);
