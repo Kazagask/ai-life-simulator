@@ -4,13 +4,22 @@
 # demo 流程（开局 → 转盘 → 叙事 → 战斗）：
 #   1. opening.yaml 把它排到 t=1 分钟 ⇒ 第一次推进轮次即**呈现**命数转盘（kind: random）；
 #   2. 确认转盘 ⇒ 写 fateDealt 并 nextEventId → evt:awaken；
-#   3. evt:awaken → evt:trial；evt:trial 的第三个选项直通 evt:ambush（kind: combat）。
+#   3. evt:awaken → evt:trial；evt:trial 的第三个选项直通 evt:ambush（kind: combat）；
+#   4. 战斗三路结局 → evt:closing；收掉后回到自由行动，最终由 endings.yaml 的 30 天收束。
 #
 # 重要：`evt:trial` / `evt:chance` 两个 id 被 rules.yaml 的 contextHints 逐字引用
 # （`evt:trial` / `evt:chance`），**不得改名或删除**，否则 mock 的 DAG 分支轮会静默失效。
 #
-# 池事件（source: pool）统一用 `fateDealt` 门闩：转盘未确认前池子抽不出任何东西，
-# 保证「第一轮取出的一定是转盘」而不是被权重 1 的 evt:awaken 抢了先。
+# ⚠ 本模板**没有 `source: pool` 事件**，这是刻意的，不是漏写：
+# 池子只在「槽为空」的那一瞬抽取，而本图从第一轮到 `evt:closing` 结束，槽位由
+# successor / queueTake 连续占着；唯一空槽时刻是收场轮——池子会在那一轮摇出事件并**立刻**
+# 占掉下一轮（实测 5 个 seed 里 4 个如此，`evt:chance` 摇中后还要再走一次
+# `偶遇转盘 → 落幕卡`，玩家连一轮自由行动都拿不到）。`once` 也治不了：池子在事件**结算前**
+# 就能抽到它，已经在队列里的冗余实例不会因为后来记火而消失（实测队列里躺着
+# `evt:trial <- pool` 的实例，收场后被取出二次占槽）。
+# ⇒ 故事线全部用确定性边（successor / nextEventId）驱动；`evt:chance`（偶遇）仍保留，
+# 由 `evt:trial` 的「走左边 / 走右边」进入。若日后要重新引入随机池，正确做法是给池事件
+# 声明 `window.start` 延迟 + 「故事收束」门闩，并接受它会打断自由行动。
 events:
   - id: "evt:wheel-fate"
     title: 命数转盘
@@ -42,7 +51,7 @@ events:
   - id: "evt:awaken"
     title: 苏醒
     kind: normal
-    trigger: { source: pool, weight: 1, once: true, conditions: [{ flag: fateDealt, eq: true }] }
+    trigger: { source: chain }
     settle:
       normal:
         options:
@@ -50,7 +59,7 @@ events:
   - id: "evt:trial"
     title: 初次试炼
     kind: normal
-    trigger: { source: pool, weight: 1, conditions: [{ flag: fateDealt, eq: true }] }
+    trigger: { source: chain }
     settle:
       normal:
         options:
@@ -96,7 +105,9 @@ events:
   - id: "evt:chance"
     title: 偶遇
     kind: random
-    trigger: { source: pool, probability: 0.3, conditions: [{ flag: fateDealt, eq: true }] }
+    # 由 `evt:trial` 的「走左边 / 走右边」进入（原先还是 0.3 概率的池事件）。
+    # 不做池事件的原因见文件头：池子只会在收场那一瞬抽到它，然后立刻打断自由行动。
+    trigger: { source: chain }
     settle:
       random:
         wheel:
@@ -106,8 +117,12 @@ events:
   - id: "evt:closing"
     title: 落幕
     kind: normal
-    trigger: { source: pool, weight: 1, conditions: [{ flag: fateDealt, eq: true }] }
+    # 只由 successor 进入（战斗三路结局 / evt:chance 两段扇区），不再入池 ⇒ 收掉一次即结束，
+    # 玩家回到自由行动，最终由 endings.yaml 的 timeReached（30 天）收束。这是本轮修的"落幕死循环"。
+    trigger: { source: chain }
     settle:
       normal:
         options:
-          - { id: opt-finish, text: 结束这一局 }
+          # 效果枚举里**没有** endWorld / terminate 之类（common.ts 的 EffectSchema 白名单），
+          # 所以这个按钮做不到"结束这一局"。文案说实话：它只结束这一场景，世界继续走。
+          - { id: opt-finish, text: 合上这一页 }
