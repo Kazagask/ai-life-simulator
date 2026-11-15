@@ -22,11 +22,12 @@ import { createLookup, type TemplateLookup, type TurnPipelineConfig } from "@lif
  * - **身份 = `(目录名, 版本目录名)`**：磁盘形状 `TEMPLATES_DIR/<id>/<version>/`，
  *   id 取上一级目录名、version 取版本目录名（`^\d+(\.\d+){0,2}$`）。无 `_meta.json`、
  *   无服务端生成 id、无导入端点（R-TG-01 / R4 / R-TG-17）。
- * - **目录结构即元数据**：`<id>/` 层只允许子目录；`<version>/` 层只允许 11 个白名单
+ * - **目录结构即元数据**：`<id>/` 层只允许子目录；`<version>/` 层只允许 13 个白名单
  *   `declarative` yaml（平铺在版本目录根）+ `assets/**`；其余文件一律 **warn + 忽略**，
- *   不参与指纹、不参与校验、不拒载（R-TG-15 / H-1）。
+ *   不参与指纹、不参与校验、不拒载（R-TG-15 / H-1）。`assets/manifest.yaml` 是唯一带 `/`
+ *   的嵌套白名单条目，由 `scanVersion` 在顶层循环后按相对路径定向补读（T-06）。
  * - **分层指纹**（实时计算、不落盘）：
- *   `semanticFingerprint` 只算白名单 11 个 yaml（文件名 + `"\0"` + 内容，不含路径）⇒
+ *   `semanticFingerprint` 只算白名单 13 个 yaml（文件名 + `"\0"` + 内容，不含路径）⇒
  *   决定可载性；游离 yaml 不参与（有意偏离旧 `endsWith(".yaml")` 实现）；
  *   `assetFingerprint` 只算 `assets/**`（相对路径 + `"\0"` + 内容），空集取确定常量，
  *   仅用于诊断，**不参与任何拒载判定**（H-2 / C-3）。
@@ -40,9 +41,12 @@ import { createLookup, type TemplateLookup, type TurnPipelineConfig } from "@lif
 const VERSION_PATTERN = /^\d+(\.\d+){0,2}$/;
 
 /**
- * 白名单 declarative yaml（H-2.1）：只有这 11 个文件进语义指纹与加载校验。
+ * 白名单 declarative yaml（T-06：11 → 13）：只有这 13 个文件进语义指纹与加载校验。
  * 前 6 个必需（缺失 ⇒ schema 校验失败）；`equipment/combat-ai` 与
- * `opening/endings/evaluation` 是可选分域。
+ * `opening/endings/evaluation` 是可选分域；末两项 `rules.yaml` /
+ * `assets/manifest.yaml` 是 T-06 新增的**独立声明式文件**（各自独立 loader，
+ * 绝不并入 `TEMPLATE_MERGE_FILES`，也不作为新顶层键塞进 `world.yaml`）。
+ * `assets/manifest.yaml` 是唯一带 `/` 的嵌套条目：顶层 Dirent 不可见，定向补读。
  */
 const DECLARATIVE_FILES = [
   "world.yaml",
@@ -56,14 +60,20 @@ const DECLARATIVE_FILES = [
   "opening.yaml",
   "endings.yaml",
   "evaluation.yaml",
+  "rules.yaml",
+  "assets/manifest.yaml",
 ] as const;
 
 const DECLARATIVE_SET: ReadonlySet<string> = new Set(DECLARATIVE_FILES);
+
+/** 白名单中带 `/` 的嵌套相对路径条目（顶层 Dirent 不可见）。从数组派生，单一事实来源。 */
+const NESTED_DECLARATIVE: readonly string[] = DECLARATIVE_FILES.filter((f) => f.includes("/"));
 
 /**
  * 合并进 `WorldTemplateV2` 的文件（前 6 个必需 + 装备 / 战斗 AI 两个分域）。
  * `opening/endings/evaluation` **不并入**模板对象——它们是可选分域，各有自己的 schema
  * 与消费方（开局 / 结局决胜 / 评价），并入会撞 `WorldTemplateV2Schema` 的 strict 校验。
+ * T-06：保持前 8 项不变，`rules.yaml` / `assets/manifest.yaml` 绝不并入（独立 loader 消费）。
  */
 const TEMPLATE_MERGE_FILES: ReadonlySet<string> = new Set([
   "world.yaml",
@@ -129,6 +139,9 @@ export interface ReadyTemplateEntry extends TemplateEntryBase {
   semanticFingerprint: string;
   assetFingerprint: string;
   assetCount: number;
+  /** T-06 中间态：独立 loader 读取结果，契约冻结前保持 `unknown`（Group B 收窄类型）。 */
+  rules?: unknown;
+  assetManifest?: unknown;
 }
 
 /**
@@ -143,6 +156,13 @@ export interface InvalidTemplateEntry extends TemplateEntryBase {
 
 export type TemplateEntry = ReadyTemplateEntry | InvalidTemplateEntry;
 
+/** `GET /api/templates` 下发的资产公开投影（**不下发二进制、不下发 path**）。 */
+export interface AssetSummary {
+  assetId: string;
+  kind: string;
+  characterRef?: string;
+}
+
 /** 两级模板列表的版本层（`GET /api/templates`）。 */
 export type TemplateVersionSummary =
   | {
@@ -154,6 +174,8 @@ export type TemplateVersionSummary =
       openings: Array<{ id: string; name: string; description: string }>;
       assetCount: number;
       assetFingerprint: string;
+      /** T-06：从 assetManifest 派生的 assetId 列表（无 path / 无二进制）。 */
+      assets?: AssetSummary[];
       loadable: true;
     }
   | { id: string; version: string; loadable: false; reason: string };
@@ -282,6 +304,9 @@ function scanAssets(versionDir: string, logger: TemplateScanLogger, ref: Templat
       );
       continue;
     }
+    // T-06：嵌套声明式白名单文件（assets/manifest.yaml）进语义指纹、由独立 loader 消费，
+    // 不得再计入 assetCount / assetFingerprint（否则双重计入）。二进制资源仍不进语义指纹。
+    if (NESTED_DECLARATIVE.includes(`assets/${file.rel}`)) continue;
     files.push(file);
   }
   files.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
@@ -357,6 +382,55 @@ function loadOptionalConfig<T>(
   } catch (error) {
     throw new Error(`${file}: ${firstIssue(error)}`);
   }
+}
+
+// ---------- T-06：两个独立声明式文件的 loader 空壳 + manifest 防御式读取 ----------
+
+// TODO(T-06 Group B): 绑定 RulesSchema.parse / AssetManifestSchema.parse（契约冻结后）
+function loadRules(versionDir: string): unknown {
+  return parse(readFileSync(path.join(versionDir, "rules.yaml"), "utf8")) as unknown;
+}
+
+// TODO(T-06 Group B): 绑定 RulesSchema.parse / AssetManifestSchema.parse（契约冻结后）
+function loadAssetManifest(versionDir: string): unknown {
+  return parse(readFileSync(path.join(versionDir, "assets/manifest.yaml"), "utf8")) as unknown;
+}
+
+/** manifest 内部条目：含 path 供资产端点按 id 定位；path 绝不下发给客户端。 */
+export interface AssetTableEntry {
+  assetId: string;
+  path: string;
+  kind: string;
+  characterRef?: string;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * 从 assetManifest（契约冻结前为 `unknown`）防御式读取 assets 表，供摘要投影与资产端点共用。
+ * // TODO(T-06 Group B): 契约冻结后改用 AssetManifestSchema.parse 收窄，删除此防御式读取。
+ */
+export function readAssetEntries(assetManifest: unknown): AssetTableEntry[] {
+  const list = asRecord(assetManifest)?.assets;
+  if (!Array.isArray(list)) return [];
+  const out: AssetTableEntry[] = [];
+  for (const item of list) {
+    const rec = asRecord(item);
+    if (!rec) continue;
+    const { assetId, path: rel, kind, characterRef } = rec;
+    if (typeof assetId !== "string" || typeof rel !== "string" || typeof kind !== "string") continue;
+    out.push({
+      assetId,
+      path: rel,
+      kind,
+      ...(typeof characterRef === "string" ? { characterRef } : {}),
+    });
+  }
+  return out;
 }
 
 type VersionScan = { ok: true; entry: ReadyTemplateEntry } | { ok: false; reason: string; mtime: number };
@@ -435,6 +509,13 @@ function scanVersion(
     }
   }
 
+  // T-06 path-aware 补读：白名单里带 `/` 的嵌套条目（assets/manifest.yaml）在顶层 Dirent
+  // 中不可见，顶层循环后按相对路径定向补读；不改上面 assets/ 目录的 `continue` 语义
+  // （assets/ 仍不作为声明式目录整体扫描），只做定向补读。
+  for (const rel of NESTED_DECLARATIVE) {
+    if (existsSync(path.join(versionDir, rel))) declarative.push(rel);
+  }
+
   if (declarative.length === 0) return null; // 空版本目录：占位，不是模板（B-4 第 3 条）
 
   // 变更检测基准与 Entry.mtime 同源（顶层全部文件 + assets/**），不是目录 mtime。
@@ -459,6 +540,17 @@ function scanVersion(
       present,
       EvaluationConfigSchema,
     );
+    // T-06 中间态：两个新声明式文件只被 readFileSync + yaml.parse 读取（不 .parse() 校验、
+    // 不 fail-fast），结果以 unknown 暂存；坏文件仅 warn，绝不阻断启动 / 加载。
+    // Group B 在契约冻结后补 RulesSchema.parse / AssetManifestSchema.parse 绑定与加载期 fail-fast。
+    let rules: unknown;
+    let assetManifest: unknown;
+    try {
+      if (present.has("rules.yaml")) rules = loadRules(versionDir);
+      if (present.has("assets/manifest.yaml")) assetManifest = loadAssetManifest(versionDir);
+    } catch (error) {
+      logger.warn({ templateId: id, version, reason: firstIssue(error) }, "template_optional_yaml_ignored");
+    }
     const semanticFingerprint = hashPairs(
       [...declarative]
         .sort()
@@ -472,6 +564,8 @@ function scanVersion(
       openings,
       ...(endingConfig !== undefined ? { endingConfig } : {}),
       ...(evaluationConfig !== undefined ? { evaluationConfig } : {}),
+      ...(rules !== undefined ? { rules } : {}),
+      ...(assetManifest !== undefined ? { assetManifest } : {}),
       pipeline: { endingConfig, evaluationConfig },
       semanticFingerprint,
       assetFingerprint: asset.fingerprint,
@@ -753,6 +847,12 @@ function createRegistry(dir: string, result: ScanResult, logger: TemplateScanLog
               })),
               assetCount: entry.assetCount,
               assetFingerprint: entry.assetFingerprint,
+              // T-06：assetId 列表 + kind + characterRef；不下发 path / 二进制。
+              assets: readAssetEntries(entry.assetManifest).map((a) => ({
+                assetId: a.assetId,
+                kind: a.kind,
+                ...(a.characterRef !== undefined ? { characterRef: a.characterRef } : {}),
+              })),
               loadable: true,
             }
           : { id, version: entry.ref.version, loadable: false, reason: entry.reason },

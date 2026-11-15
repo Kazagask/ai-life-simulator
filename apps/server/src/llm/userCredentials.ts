@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import type { UserCredentials } from "./credentials.js";
 
 /**
  * R2.8 · R-LLM-07：用户在登录页配置的自定义 LLM 凭证（apiKey + model + 可选 baseUrl）。
@@ -7,15 +8,12 @@ import { z } from "zod";
  * 🔴 硬约束（AGENTS §5 / R2.7 CLOUD_DEV §7）：
  * 服务端**仅内存持有**，绝不落盘、绝不写日志含字面量、绝不进玩家端 API 投影、绝不写仓库。
  * 进程退出 / clear 即清。风险用户自担（key 是否足额、是否本人服务端不做合法性兜底）。
+ *
+ * 凭证形状 / 默认端点常量已下沉到 `./credentials.js`（可随 provider 整体迁往 agent-runtime）；
+ * 此处仅再导出以兼容既有导入点，本文件保留「会话内存存储」职责。
  */
-export interface UserCredentials {
-  apiKey: string;
-  model: string;
-  baseUrl?: string;
-}
-
-/** OpenAI 兼容默认端点；用户未填 baseUrl 时回落到此处。 */
-export const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
+export type { UserCredentials } from "./credentials.js";
+export { DEFAULT_OPENAI_BASE_URL } from "./credentials.js";
 
 // 先 trim 再校验：空白串（仅空格）视为空，按 R-LLM-07「非空」校验拒绝。
 const nonEmptyTrimmed = z.string().trim().min(1, "必填且不可仅为空白");

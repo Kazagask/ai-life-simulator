@@ -28,8 +28,8 @@ import {
 } from "@life-sim/game-core";
 import { BattleCommandSchema, EndingNarrativeOutputSchema, EvaluationSummaryOutputSchema } from "@life-sim/shared";
 import type { EndingConfig, EndingRecord, V2Snapshot, WorldStateV2 } from "@life-sim/shared";
-import { compareVersions, loadTemplates, type ReadyTemplateEntry } from "./templates.js";
-import { dataDir, hydrate, loadPersistedWorlds, worldStore } from "./store.js";
+import { compareVersions, loadTemplates, readAssetEntries, type ReadyTemplateEntry } from "./templates.js";
+import { dataDir, hydrate, loadPersistedWorlds, traceFile, worldStore } from "./store.js";
 import { createLLMProvider, readLLMConfig, resolveProviderForRequest, type LLMProvider } from "./llm/provider.js";
 import { userCredentials } from "./llm/userCredentials.js";
 import {
@@ -343,6 +343,60 @@ app.post("/api/llm-credentials", async (request, reply) => {
  * 只读、无写入端点（R-TG-17）；不含 hidden / NPC 私有数据。
  */
 app.get("/api/templates", async () => ({ templates: registry.listTemplates() }));
+
+/** T-06 · 静态资源下发允许的扩展名（`.svg/.html` 等可脚本化格式一律拒绝）。 */
+const ASSET_CONTENT_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+};
+
+/**
+ * T-06 · 静态资源下发（分叉③ A）：**只按 assetId 查 manifest 表定位路径，绝不接受客户端路径**。
+ * 本波 manifest 仍是 `unknown`，用 `readAssetEntries` 防御式读取（Group B 契约定稿后改用
+ * `AssetManifestSchema.parse` 收窄）。越界路径 / 非白名单扩展名一律 403。
+ */
+app.get("/api/templates/:id/:version/assets/:assetId", async (request, reply) => {
+  const { id, version, assetId } = request.params as {
+    id: string;
+    version: string;
+    assetId: string;
+  };
+  const entry = registry.resolve({ id, version });
+  if (!entry) {
+    return reply.code(404).send({ error: "template_version_missing", templateId: id, version });
+  }
+  // TODO(T-06 Group B): manifest 由 AssetManifestSchema.parse 收窄后无需此防御式读取。
+  const found = readAssetEntries(entry.assetManifest).find((a) => a.assetId === assetId);
+  if (!found) {
+    return reply.code(404).send({ error: "asset_not_found", assetId });
+  }
+  // 扩展名白名单以 manifest 内的 path 为准（assetId 是不透明标识，不是文件名）。
+  const ext = path.extname(found.path).toLowerCase();
+  if (!(ext in ASSET_CONTENT_TYPES)) {
+    return reply.code(403).send({ error: "asset_type_forbidden", assetId });
+  }
+  // 路径安全：客户端只给 assetId，路径来自服务端 manifest；仍强制落在 assets/ 根内。
+  if (path.isAbsolute(found.path) || found.path.split(/[\\/]/).includes("..")) {
+    return reply.code(403).send({ error: "asset_path_forbidden", assetId });
+  }
+  const assetsRoot = path.resolve(registry.dir, id, version, "assets");
+  const target = path.resolve(assetsRoot, found.path);
+  if (target !== assetsRoot && !target.startsWith(assetsRoot + path.sep)) {
+    return reply.code(403).send({ error: "asset_path_forbidden", assetId });
+  }
+  if (path.extname(target).toLowerCase() !== ext) {
+    return reply.code(403).send({ error: "asset_type_forbidden", assetId });
+  }
+  if (!existsSync(target) || !statSync(target).isFile()) {
+    return reply.code(404).send({ error: "asset_not_found", assetId });
+  }
+  return reply
+    .type(ASSET_CONTENT_TYPES[ext]!)
+    .header("Cache-Control", "public, max-age=3600")
+    .send(readFileSync(target));
+});
 
 app.post("/api/worlds", async (request, reply) => {
   const parsed = createWorldSchema.safeParse(request.body);
@@ -676,6 +730,46 @@ app.get("/api/worlds/:id/history", async (request, reply) => {
   if (!record) return reply.code(404).send({ error: "world_not_found" });
   // 玩家端出口只下发 public 条目（R-VS-02 / 协议 §21.1）
   return { history: playerVisibleEntries(record.state.history) };
+});
+
+/**
+ * T-07 / F3：叙事正文读回端点。正文只存于 append-only `<worldId>.trace.jsonl`（不进
+ * `WorldStateV2`）；本波从 trace 读回内容块并按 `fromTurn` 过滤后**原样返回**（服务端内部
+ * 端点，尚未接玩家投影）。
+ */
+app.get("/api/worlds/:id/narrative", async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const record = worldStore.get(id);
+  if (!record) return reply.code(404).send({ error: "world_not_found" });
+  const q = request.query as { fromTurn?: string };
+  const fromTurn = q.fromTurn !== undefined ? Number.parseInt(q.fromTurn, 10) : undefined;
+  const file = traceFile(id);
+  const blocks: unknown[] = [];
+  if (existsSync(file)) {
+    for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
+      const text = line.trim();
+      if (text === "") continue;
+      try {
+        blocks.push(JSON.parse(text) as unknown);
+      } catch {
+        // 跳过损坏行，不影响其余内容块读回
+      }
+    }
+  }
+  // TODO(T-05a Group B): 读回时经 game-core buildFacts(player) 掩码
+  const filtered =
+    fromTurn === undefined || Number.isNaN(fromTurn)
+      ? blocks
+      : blocks.filter((b) => {
+          const rec =
+            typeof b === "object" && b !== null && !Array.isArray(b)
+              ? (b as Record<string, unknown>)
+              : null;
+          const t = rec?.turnIndex;
+          // 无 turnIndex 的内容块本波不丢弃（trace 形状由 T-04 定稿后收窄）
+          return typeof t === "number" ? t >= fromTurn : true;
+        });
+  return { worldId: id, blocks: filtered };
 });
 
 /**

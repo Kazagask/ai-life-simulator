@@ -133,7 +133,7 @@ function makeSnapshot(ending: EndingView | null): V2Snapshot {
 }
 
 async function main(): Promise<void> {
-  await check("① createLLMProvider 三层路由 / API_KEY 缺失自动 Mock 不抛", () => {
+  await check("① createLLMProvider 双通道路由 / API_KEY 缺失自动 Mock 不抛", () => {
     assert.equal(createLLMProvider({}).id, "mock");
     assert.equal(
       createLLMProvider({ baseUrl: "http://127.0.0.1:9", model: "m", apiKey: ROUTING_PLACEHOLDER }).id,
@@ -144,12 +144,7 @@ async function main(): Promise<void> {
     );
     assert.equal(missingKey.id, "mock");
     assert.doesNotThrow(() => readLLMConfig({}));
-    assert.equal(
-      createLLMProvider(
-        readLLMConfig({ LIFE_SIM_WORKBUDDY_SESSION: "s", LIFE_SIM_WORKBUDDY_CLOUD_URL: "http://x" }),
-      ).id,
-      "workbuddy-cloud",
-    );
+    // workbuddy-cloud 通道已取消：OpenAI 兼容（env / 用户 key）为唯一主通道，其余一律 mock。
   });
 
   await check("② generateNarrative 三类反例(非法 schema / 虚构证据 / 超时)回退且 diagnostic 可区分", async () => {

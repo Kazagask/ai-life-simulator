@@ -38,16 +38,17 @@ import type { ReadyTemplateEntry, TemplateRegistry } from "./templates.js";
  */
 
 /**
- * 信封版本（ADR-0034 §5）：**2 → 3**。
+ * 信封版本（F3 / T-07）：**3 → 4**。
  *
- * 3 的破坏面：`pendingEvents` 删除（被标量状态字段 `slot` 取代）、`scheduledEvents`
- * 改名 `delayQueue`、`chains[]` 删除。三者都无法从 v2 档机械推导（"下一个要处理哪个事件"
- * 在 v2 里是运行时队列语义、在 v3 里是一条状态事实），因此 **v2 档一律拒载**
- * （用户 2026-11-13 已明确接受"旧档全部拒载"这个代价）。
+ * 4 的破坏面：`WorldStateV2` 改状态模型（锚点 / `traceRef` 进存档、LLM 叙事正文只进
+ * append-only `*.trace.jsonl`、不进 state）。本次**不做迁移 / 不推断版本 / 不回填**：
+ * schemaVersion !== 4 的旧档（含全部 v3 档）一律走封闭拒载码
+ * `envelope_schema_version_unsupported`，世界列表仍可见 + 可删（用户 2026-11-15
+ * 已明确接受「旧档再次拒载」这个代价）。
  *
- * 历史：R2.5 升 1 → 2；R2.8（ADR-0029 C-1）当时刻意不升 3。
+ * 历史：R2.5 升 1 → 2；ADR-0034 §5 升 2 → 3；F3 升 3 → 4。
  */
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 /** 内存保存时间（savedAt），列表接口按其倒序。 */
 const savedAtById = new Map<string, string>();
@@ -60,6 +61,12 @@ interface StoreEnvelope {
   templateVersion?: string;
   /** 语义指纹（H-8：字段名保持不变；语义 ≙ `semanticFingerprint`）。 */
   templateFingerprint: string;
+  /** F3：叙事 trace 引用（不承载正文，正文只在 append-only `*.trace.jsonl`）。 */
+  traceRef?: string;
+  /** F3：trace 内叙事段定位锚（不承载正文）。 */
+  contentRef?: string;
+  /** 分叉③ A：展示完整性锚，写入信封但**不参与拒载**（缺失 / 变化 ⇒ 立绘降级，世界仍可载）。 */
+  assetFingerprint?: string;
   state: WorldStateV2;
 }
 
@@ -115,6 +122,19 @@ function worldFile(id: string): string {
     throw new Error(`invalid_world_id: ${id}`);
   }
   return path.join(dataDir(), `${id}.json`);
+}
+
+/**
+ * F3 / T-07：叙事正文 append-only trace 文件路径（`data/worlds/<worldId>.trace.jsonl`），
+ * 与存档同目录；随 `worldStore.delete` 一并清理。本波只落路径函数，正文写入由 Group B 的
+ * agentic 循环（T-04）负责。
+ */
+export function traceFile(worldId: string): string {
+  // 与 worldFile 同一口径的防御性校验，避免 worldId 里夹路径分隔符读到目录外
+  if (worldId.includes("/") || worldId.includes("\\") || worldId.includes("..")) {
+    throw new Error(`invalid_world_id: ${worldId}`);
+  }
+  return path.join(dataDir(), `${worldId}.trace.jsonl`);
 }
 
 /** 信封原子写（R-PS-03）：tmp → rename；失败删 tmp 并把错误抛给调用方。 */
@@ -424,6 +444,13 @@ export const worldStore = {
     savedAtById.delete(id);
     unloadableById.delete(id);
     if (hasFile) unlinkSync(file);
+    // F3：一并清理 append-only trace 文件（找不到 / 读不了都忽略，不影响删除结果）。
+    try {
+      const trace = traceFile(id);
+      if (existsSync(trace)) unlinkSync(trace);
+    } catch {
+      // 清理失败不掩盖删除结果
+    }
   },
 };
 

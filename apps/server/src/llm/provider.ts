@@ -1,8 +1,7 @@
 import type { NarrativeInput, NarrativeOutputSchemaLike } from "@life-sim/game-core";
 import { MockProvider } from "./mock.js";
 import { OpenAICompatibleProvider } from "./openaiCompatible.js";
-import { WorkBuddyCloudProvider } from "./workbuddyCloud.js";
-import { DEFAULT_OPENAI_BASE_URL, type UserCredentials } from "./userCredentials.js";
+import { DEFAULT_OPENAI_BASE_URL, type UserCredentials } from "./credentials.js";
 
 /**
  * R2.7 · LLMProvider 统一接口（R-LLM-01 / ADR-0027 决策 1）。
@@ -14,7 +13,7 @@ import { DEFAULT_OPENAI_BASE_URL, type UserCredentials } from "./userCredentials
  */
 export interface LLMProvider {
   /** 运行时真实选中的实现，供编排层短路（mock ⇒ 不调 complete、零回归）。 */
-  readonly id: "mock" | "workbuddy-cloud" | "openai-compatible";
+  readonly id: "mock" | "openai-compatible";
   complete(
     request: NarrativeInput,
     schema: NarrativeOutputSchemaLike,
@@ -27,8 +26,6 @@ export interface LLMConfig {
   baseUrl?: string;
   model?: string;
   apiKey?: string;
-  cloudSession?: string;
-  cloudUrl?: string;
   /** 单次生成超时（毫秒），可由测试/调用方注入；provider 内部用 `AbortSignal.timeout`。 */
   timeoutMs?: number;
 }
@@ -40,37 +37,27 @@ function nonEmpty(value: string | undefined): string | undefined {
 }
 
 /**
- * 只读 env（R-LLM-06）：
- * - `LIFE_SIM_LLM_BASE_URL` / `LIFE_SIM_LLM_MODEL` / `LIFE_SIM_LLM_API_KEY` **三项缺任一即整组不可用**；
- * - `LIFE_SIM_WORKBUDDY_SESSION` / `LIFE_SIM_WORKBUDDY_CLOUD_URL` 为云端会话降级形态（见 OPEN_QUESTIONS #49）。
- * 密钥只在服务端 env 读取，返回对象之外的任何位置都不出现其字面量。
+ * 只读 env（R-LLM-06；用户 2026-11-15 裁决：**取消 workbuddy-cloud 通道**）：
+ * `LIFE_SIM_LLM_BASE_URL` / `LIFE_SIM_LLM_MODEL` / `LIFE_SIM_LLM_API_KEY` **三项缺任一即整组不可用**，
+ * 回退 mock。密钥只在服务端 env 读取，返回对象之外的任何位置都不出现其字面量。
  */
 export function readLLMConfig(env: Record<string, string | undefined> = process.env): LLMConfig {
   const baseUrl = nonEmpty(env.LIFE_SIM_LLM_BASE_URL);
   const model = nonEmpty(env.LIFE_SIM_LLM_MODEL);
   const apiKey = nonEmpty(env.LIFE_SIM_LLM_API_KEY);
-  const cloudSession = nonEmpty(env.LIFE_SIM_WORKBUDDY_SESSION);
-  const cloudUrl = nonEmpty(env.LIFE_SIM_WORKBUDDY_CLOUD_URL);
   const openaiReady = baseUrl !== undefined && model !== undefined && apiKey !== undefined;
   return {
     ...(openaiReady ? { baseUrl, model, apiKey } : {}),
-    ...(cloudSession !== undefined ? { cloudSession } : {}),
-    ...(cloudUrl !== undefined ? { cloudUrl } : {}),
   };
 }
 
 /**
- * 三层凭证路由工厂（R-LLM-02 / ADR-0027 决策 2）：
- * ① cloudSession + cloudUrl ⇒ workbuddy-cloud；② 三项 `LIFE_SIM_LLM_*` 齐备 ⇒ openai-compatible；
- * ③ 否则 ⇒ mock（无 env 无登录态的零回归默认）。
- * 返回的 `id` 是运行时真实选中的那个；加载期不得抛错，密钥绝不出现在任何日志 / 仓库文件。
+ * 凭证路由工厂（用户 2026-11-15 裁决：**取消 workbuddy-cloud 通道**）：
+ * ① 三项 `LIFE_SIM_LLM_*` 齐备 ⇒ openai-compatible；② 否则 ⇒ mock（零回归默认）。
+ * OpenAI 兼容（env / 用户自带 key）为唯一主通道。返回的 `id` 是运行时真实选中的那个；
+ * 加载期不得抛错，密钥绝不出现在任何日志 / 仓库文件。
  */
 export function createLLMProvider(config: LLMConfig): LLMProvider {
-  const cloudSession = config.cloudSession?.trim();
-  const cloudUrl = config.cloudUrl?.trim();
-  if (cloudSession && cloudUrl) {
-    return new WorkBuddyCloudProvider({ cloudSession, cloudUrl, timeoutMs: config.timeoutMs });
-  }
   const baseUrl = config.baseUrl?.trim();
   const model = config.model?.trim();
   const apiKey = config.apiKey?.trim();

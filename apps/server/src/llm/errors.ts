@@ -1,6 +1,6 @@
 /**
  * R2.7 · provider 侧可诊断错误（R-LLM-04）。
- * 错误对象与 message 中**绝不出现** apiKey / cloudSession / token 字面量；
+ * 错误对象与 message 中**绝不出现** apiKey / token 字面量；
  * 编排层据此把「超时」与「不可用」区分为两种 diagnostic 文案。
  */
 

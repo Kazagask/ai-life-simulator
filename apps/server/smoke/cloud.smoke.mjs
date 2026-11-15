@@ -128,10 +128,10 @@ await check("⑤ GET /api/worlds/:id 含 eventFlavors", async () => {
 
 // ⑥ 默认 Mock 基线（信息项，不构成对服务端的强断言）
 const llmEnv = Object.keys(process.env)
-  .filter((k) => k.startsWith("LIFE_SIM_LLM_") || k.startsWith("LIFE_SIM_WORKBUDDY_"))
+  .filter((k) => k.startsWith("LIFE_SIM_LLM_"))
   .sort();
 if (llmEnv.length === 0) {
-  pass("⑥ 零回归基线", "无 LIFE_SIM_LLM_* / LIFE_SIM_WORKBUDDY_* ⇒ 预期 provider=mock、叙事恒 template、不调 complete()");
+  pass("⑥ 零回归基线", "无 LIFE_SIM_LLM_* ⇒ 预期 provider=mock、叙事恒 template、不调 complete()");
 } else {
   pass("⑥ 零回归基线", `检测到 ${llmEnv.join(", ")} —— 叙事可能走真实 provider，请确认这是有意的`);
 }
