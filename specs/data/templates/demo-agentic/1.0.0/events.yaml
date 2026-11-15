@@ -7,19 +7,19 @@
 #   3. evt:awaken → evt:trial；evt:trial 的第三个选项直通 evt:ambush（kind: combat）；
 #   4. 战斗三路结局 → evt:closing；收掉后回到自由行动，最终由 endings.yaml 的 30 天收束。
 #
-# 重要：`evt:trial` / `evt:chance` 两个 id 被 rules.yaml 的 contextHints 逐字引用
-# （`evt:trial` / `evt:chance`），**不得改名或删除**，否则 mock 的 DAG 分支轮会静默失效。
+# `evt:trial` 仍被 rules.yaml 的 `fallbackDag.templateRefs` 与 `knowledgeGrants`
+# （`eventResolved`）引用，改名会同时打空两处；`contextHints` 已不再提及任何事件 id。
 #
-# ⚠ 这两个 id 也因此有被 **LLM 侧复活**的风险（2026-11-16 实测）：
-# 旧的 mock 会把 contextHints 里裸 `evt:` 开头的字符串解释成「本轮要上桌的事件」，
-# 每次 `task.completed` 就发一次 `fact.enqueueEvent` ⇒ 一条 `evt:chance` 会被反复入队，
+# ⚠ 任何事件都可能被 **LLM 侧复活**（2026-11-16 实测）：
+# 旧实现把 contextHints 里裸 `evt:` 开头的字符串解释成「本轮要上桌的事件」，
+# 每次 `task.completed` 就发一次 `fact.enqueueEvent` ⇒ 一条 `evt:chance` 被反复入队，
 # 与 `evt:closing` 交替上桌、最后 409 `pending_event_required`（真实服务可复现）。
 # 关键事实：**`once` 挡不住它**——`fact.enqueueEvent` 的实现是直接 `enqueueScheduled`
 # （`engine-api.ts:243-290`），根本不经过 `enqueueCandidate` 的 once 门控；出队终判
 # （`missWhen`）才是唯一能挡住"已被引擎记过一次的事件重新上桌"的地方。
 # ⇒ 故给 trial / chance 各加一道 `missWhen: <自己>Done`，由各自的结算写这个 flag。
-# 这是**兜底**不是根治：根治在 agent-runtime 侧（只认显式 `branch:evt:x` 提示），
-# 模板这层只保证"就算 LLM 硬塞，也不会无限循环"。
+# 这是**兜底**不是根治：根治在协议侧（`invoke.branchEventIds` 结构化字段，ADR-0038）
+# 加 runtime 不消费裸标签；模板这层只保证"就算 LLM 硬塞，也不会无限循环"。
 #
 # ⚠ 本模板**没有 `source: pool` 事件**，这是刻意的，不是漏写：
 # 池子只在「槽为空」的那一瞬抽取，而本图从第一轮到 `evt:closing` 结束，槽位由
