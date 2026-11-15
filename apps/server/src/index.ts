@@ -32,6 +32,8 @@ import {
   BattleCommandSchema,
   EndingNarrativeOutputSchema,
   EvaluationSummaryOutputSchema,
+  TURN_ACTION_DESCRIPTION_MAX,
+  TURN_ACTION_TYPE_MAX,
 } from "@life-sim/shared";
 import type {
   EndingConfig,
@@ -416,8 +418,8 @@ const createWorldSchema = z.object({
 
 const turnSchema = z.object({
   action: z.object({
-    type: z.string().min(1).max(40),
-    description: z.string().max(200).default(""),
+    type: z.string().min(1).max(TURN_ACTION_TYPE_MAX),
+    description: z.string().max(TURN_ACTION_DESCRIPTION_MAX).default(""),
   }),
   mode: z.enum(["single", "fast"]).default("single"),
   /** 主动结束这一生（playerRequested 终止信号），仍走同一轮次管线与结局决胜 */

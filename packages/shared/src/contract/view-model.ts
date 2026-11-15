@@ -179,3 +179,16 @@ export const ViewModelSchema = z
   })
   .strict();
 export type ViewModel = z.infer<typeof ViewModelSchema>;
+
+/**
+ * 玩家一次「行动提交」的文本上限（单一真源）。
+ *
+ * 服务端 `turnSchema.action.description` 与前端 `MAX_ACT_TEXT` 必须同源：此前服务端写 200、
+ * dock 输入写 100、选项块不设限 ⇒ LLM 写出的长选项被点击后整轮 400（`invalid_body`）。
+ * 前端只能 import `@life-sim/shared`（rpg-ui 源码守卫），所以常量必须住在这里 ——
+ * 放在 `apps/server` 会逼前端复制一份，复制就必然漂移。
+ */
+export const TURN_ACTION_DESCRIPTION_MAX = 200;
+
+/** 行动 id（`action.type`）长度上限，同为单一真源。 */
+export const TURN_ACTION_TYPE_MAX = 40;
