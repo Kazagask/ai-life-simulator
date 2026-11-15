@@ -104,9 +104,13 @@ endings:
       title: 主位
       summary: 盟主的位子你一直坐到散席。有没有下过那道军令，后来谁也说不清；史书只写「盟主召集了十八路诸侯」。正月初九，天意把这件事抹平得干干净净。你松了口气，又觉得那口气比这一整章都长。
 
-  # 「胜利目标说」：把每条支线都浪一遍、且侵蚀度攒够，才够格摆脱天意。
-  # 阈值说明：冒烟实测第一章（41 天）侵蚀度可到 49，故单看 tianyi 会过松，
-  # 用「五条支线 flag 全齐 + tianyi ≥ 60」共同约束，避免隐藏结局变成必得结局。
+  # 「胜利目标说」：把每条支线都浪一遍、在第 59 天明确拒绝再被抄一遍，
+  # 且侵蚀度攒够，才够格摆脱天意。
+  # 第九轮实测校准：209 局存档 tianyi 分布 -3..16（普通玩法），
+  # 刻意逐项挑天意选项的上限也只有 25 ⇒ 旧阈值 gte:60 使本结局**永不可达**。
+  # 改为 gte:12（普通玩法约 4% 能自然达到，刻意堆可稳定达到）+ 显式
+  # escapeAttempt（ev-ch3-gate 新选项，五条 fork 全齐才可见），
+  # 既保留「不是必得」，又让隐藏结局真的能被玩家解锁。
   - endingId: end-escape-tianyi
     name: 摆脱天意的制裁
     description: 隐藏结局。天意干涉得太频繁，反而露出了破绽。
@@ -119,7 +123,8 @@ endings:
       - { flag: forkShark, eq: true }
       - { flag: forkBlameEra, eq: true }
       - { flag: forkSuicide, eq: true }
-      - { attribute: tianyi, gte: 60 }
+      - { flag: escapeAttempt, eq: true }
+      - { attribute: tianyi, gte: 12 }
     narrativeConfig:
       source: template
       masked:
@@ -352,6 +357,47 @@ endings:
       source: template
       title: 祥瑞
       summary: 护城河里的那头鱼被记成祥瑞，义状上还留着一块谁也认不出的湿印。天意没解释第七个名字，也没把它擦掉。名册被划到最后一格时，河面照旧很平——反正这一章里，最离谱的一笔从一开始就没被追究过。
+
+  # 第九轮补：新开局 7 格里原先只有 4 格有专属结局，王子服 / 小黄门 / 门客
+  # 一律落到通用结局（巡检 35 局中 15 局如此）。三条各补一篇按身份收束。
+  - endingId: end-ydz-wangzifu
+    name: 义状上第三个名字
+    description: 王子服线收束。签过的那笔没被擦掉，也没人替他认。
+    triggerConditions:
+      - { flag: saga, eq: 200 }
+      - { flag: origin, eq: 王子服 }
+    priority: 60
+    endingType: tragic
+    narrativeConfig:
+      source: template
+      title: 义状上第三个名字
+      summary: 白绢被搜出来那天，七个名字按落笔的先后抄了一遍，第三个是你的。你没辩，也没把那支笔藏起来——藏了也没用，天意连笔搁在哪一格都记得。抄册的人照旧没问是谁，只把「先不拆」的那一夜并进了同一行。官渡还在前面，名册上这一笔却再没人翻回去看。
+
+  - endingId: end-ydz-huangmen
+    name: 托盘先收走了
+    description: 送膳的小黄门线收束。看见了夹层，也看见了药，最后谁也没问他。
+    triggerConditions:
+      - { flag: saga, eq: 200 }
+      - { flag: origin, eq: 送膳的小黄门 }
+    priority: 60
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 托盘先收走了
+      summary: 玉带夹层里的那一角、太医手里那罐没端完的药，你都从门缝里看过一遍。事发之后没人来问你看见了什么，天意也没替你补一句证词——它只把托盘先收走了，像这一章里所有该被记住的小东西一样。历书那一格仍旧是初平元年，宫道上的更漏却已经报到建安五年，两份都不肯让。
+
+  - endingId: end-ydz-menke
+    name: 落款空着一格
+    description: 相府门客线收束。七个名字是他抄的，落款那一格一直没填。
+    triggerConditions:
+      - { flag: saga, eq: 200 }
+      - { flag: origin, eq: 相府门客 }
+    priority: 60
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 落款空着一格
+      summary: 义状上七个名字是你替相府抄的，抄到落款时笔停了一下，那一格就一直空着。白绢、血字、那笼没派上用场的馒头后来都归了档，只有这一格没人补。天意照旧把三本年号不同的账册抄成一行，你要的也只是别再有人回头问那一格该写谁。
 
   - endingId: end-ydz-normal
     name: 建安五年，衣带诏

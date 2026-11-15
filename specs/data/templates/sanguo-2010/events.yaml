@@ -1594,45 +1594,62 @@ events:
               - { type: log, text: 「吃什么！」帐里有人应了一声，然后所有人都点头。天意没有解释。, visibility: public }
 
   # ── 博弈 4：歇息 → 移营。 ──
+  # 第九轮：原来一个 ev-war-rest 用 warPhase 切选项，玩家歇息两次就弹两次
+  # 同标题同叙事的窗口（85 局巡检里 36 局重复）。拆成「第一夜移营」与
+  # 「第二夜阵前」两个不同事件：phase1 由 action-hook 触发，两个选项都链进
+  # chain 事件 ev-war-rest-2；后者带 timeCost 1 天，正好顶掉原本第二次歇息
+  # 消耗的那一天 ⇒ 主线时间账与第八轮逐分钟一致。phase2 之后只歇息不再弹窗，
+  # 相持到第 45 天仍由 ev-war-timeout 兜底收兵。
   - id: ev-war-rest
-    title: 更鼓 · 移营与阵前
-    narrative: 更鼓敲过三通，每通报一个不同的年份。营盘往前挪了十里，鞋底沾着不属于这里的土；对面也挪了十里，或者根本没挪——账册上两种写法都有，天意两种都收。
+    title: 更鼓 · 第一夜移营
+    narrative: 第一通更鼓敲过，帐外报的年份和账册上对不上。营盘往前挪了十里，鞋底沾着不属于这里的土；对面也挪了十里，或者根本没挪——账册上两种写法都有，天意两种都收。今晚先决定要不要再往前一站。
     trigger:
       source: action-hook
       onActionId: rest
       conditions:
         - { flag: warActive, eq: true }
+        - { flag: warPhase, eq: 1 }
     kind: normal
     settle:
       normal:
         options:
           - id: opt-war-night-move
             text: 趁夜再移十里
-            visibleWhen:
-              - { flag: warPhase, eq: 1 }
             effects:
               - { type: adjustFlag, id: warEdge, value: 2 }
               - { type: adjustResource, resource: mp, value: 6 }
               - { type: setFlag, id: warPhase, value: 2 }
               - { type: log, text: 天亮时两军之间只剩一片谁也没扫过的空地。更鼓还在报着第三个年份。, visibility: public }
+            nextEventId: ev-war-rest-2
+          - id: opt-war-rest-first-note
+            text: 把年号簿压在枕下，等第二通更鼓
+            effects:
+              - { type: setFlag, id: warPhase, value: 2 }
+              - { type: log, text: 你枕着三本互不承认的账册躺下，第一夜谁也没动。天意把这一页留着，等下一通更鼓再抄。, visibility: hidden }
+            nextEventId: ev-war-rest-2
+
+  - id: ev-war-rest-2
+    title: 更鼓 · 第二夜阵前
+    narrative: 第二通更鼓敲过，两军之间那片空地还在，风却换了方向。旗后面的人已经站到了空地那一头，叫不叫阵、收不收兵，今晚得给天意一个说法；也可以谁都不理，就这么相持下去。
+    trigger:
+      source: chain
+      timeCost: { value: 1, unit: day }
+    kind: normal
+    settle:
+      normal:
+        options:
           - id: opt-war-challenge-rest
             text: 睡前留一句话给对面主将
-            visibleWhen:
-              - { flag: warPhase, eq: 2 }
             effects:
               - { type: log, text: 话传到对面时变成了另一句，但意思没变：明天阵前见。, visibility: public }
             nextEventId: ev-war-duel
           - id: opt-war-rest-second
             text: 不叫阵，只把更鼓数完
-            visibleWhen:
-              - { flag: warPhase, eq: 2 }
             effects:
               - { type: adjustResource, resource: hp, value: 6 }
               - { type: log, text: 三通更鼓报完，两军谁也没往前。天意把这一夜记成「相持」，没写成「退」。, visibility: public }
           - id: opt-war-rest-withdraw
             text: 就此收兵，把战报交给天意
-            visibleWhen:
-              - { flag: warPhase, eq: 2 }
             effects:
               - { type: log, text: 三本账册还没合上，你已经不想再翻了。天意接过去，照旧抄成一行。, visibility: public }
             nextEventId: ev-war-close
@@ -2481,8 +2498,11 @@ events:
             nextEventId: ev-ch2-5
           - id: opt-ch2-4-yuanshu
             text: 让袁术先签
+            # 第九轮修正：原条件读「袁术→袁绍 elder-brother ≥32」，但 characters.yaml
+            # 只声明了反向的「袁绍→袁术 younger-brother = 34」，两个剧情选项各加 4/5
+            # 也到不了 32 ⇒ 该选项实测 95 局从未可见（死条件）。改读已有的那条边。
             visibleWhen:
-              - { relation: npc-yuan-shu, kind: elder-brother, to: npc-yuan-shao, gte: 32 }
+              - { relation: npc-yuan-shao, kind: younger-brother, to: npc-yuan-shu, gte: 32 }
             effects:
               - { type: addRelationEdge, fromId: npc-yuan-shu, toId: player, kind: friend, visibility: known, value: 16 }
               - { type: adjustAttribute, attribute: reputation, value: 1 }
@@ -2635,6 +2655,20 @@ events:
             text: 往前走
             effects:
               - { type: log, text: 第二章到此为止。后续章节在此接续，主线仍是天意说了算。, visibility: public }
+          # 第九轮：隐藏结局的显式入口。五条支线都浪过才看得见，
+          # 玩家必须主动拒绝「再被抄一遍」，天意簿子上才会留下一道裂。
+          - id: opt-ch3-refuse
+            text: 这一回不跟着天意抄了，把自己那一页留着
+            visibleWhen:
+              - { flag: forkMeal, eq: true }
+              - { flag: forkEmperor, eq: true }
+              - { flag: forkShark, eq: true }
+              - { flag: forkBlameEra, eq: true }
+              - { flag: forkSuicide, eq: true }
+            effects:
+              - { type: setFlag, id: escapeAttempt, value: true }
+              - { type: adjustAttribute, attribute: tianyi, value: 2 }
+              - { type: log, text: 你把账册合上，没有递过去。抄册的人等了一会儿，自己另起了一行——那一行后来一直空着。天意第一次没能把认知抹平，像是簿子上裂了一道。, visibility: public }
           - id: opt-ch3-fold
             text: 让天意把十年折成一步，翻到建安五年
             effects:
@@ -3374,6 +3408,30 @@ events:
               - { type: log, text: 簿子上只多了两个字。夹层那一页写的是「殄灭奸党」，奸党是谁，天意没提前给你看；这府里的簿子本来就是你批的。, visibility: public }
             nextEventId: ev-ydz-roster
 
+          - id: opt-ydz-edict-wang
+            text: 隔着帘子先看那件袍子，记住带子的宽度
+            visibleWhen:
+              - { flag: origin, eq: 王子服 }
+            effects:
+              - { type: log, text: 你后来对人说过那带子比寻常宽一寸。当时谁也没往夹层上想，天意也没提醒。, visibility: public }
+            nextEventId: ev-ydz-roster
+
+          - id: opt-ydz-edict-menke
+            text: 把「赐带」照例抄进相府档，落款先空着
+            visibleWhen:
+              - { flag: origin, eq: 相府门客 }
+            effects:
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: log, text: 相府的档里多了一行「赐带」，落款那一格你照旧没填。后来抄检的人翻到这一页，也没问该写谁。, visibility: public }
+            nextEventId: ev-ydz-roster
+
+          - id: opt-ydz-edict-shark
+            text: 从护城河里看宫墙，水面把锦袍折成两半
+            visibleWhen:
+              - { flag: origin, eq: 一头乌角鲨 }
+            effects:
+              - { type: log, text: 水面把那件锦袍折成两半，宫里记成祥瑞。天意没解释，反正这一章里最离谱的一笔从一开始就没被追究过。, visibility: public }
+            nextEventId: ev-ydz-roster
   # ── 公共剧情 2/7 · 义状签名（严格按演义里谁先谁后） ──
 
   - id: ev-ydz-roster
@@ -3439,6 +3497,21 @@ events:
               - { type: log, text: 匣子还没被打开，你已经知道里面是一块绢，也知道绢上七个名字合起来要对付谁。天意把「知道」的时辰记晚了一天，没让它提前改动任何一行。, visibility: public }
             nextEventId: ev-ydz-wine
 
+          - id: opt-ydz-roster-huangmen
+            text: 把茶盏放轻，别让笔尖抖了
+            visibleWhen:
+              - { flag: origin, eq: 送膳的小黄门 }
+            effects:
+              - { type: log, text: 七个名字落笔的时候，屋里只有你把茶盏放得最轻。天意连这一声没响都记了，没人问你为什么。, visibility: public }
+            nextEventId: ev-ydz-wine
+
+          - id: opt-ydz-roster-menke
+            text: 替他们数格子：七个名字，落款还空着
+            visibleWhen:
+              - { flag: origin, eq: 相府门客 }
+            effects:
+              - { type: log, text: 你替他们数了格子，七个名字一个不多。落款那一格照旧空着，天意后来也没替谁补上。, visibility: public }
+            nextEventId: ev-ydz-wine
   # ── 公共剧情 3/7 · 青梅煮酒 ──
 
   - id: ev-ydz-wine
@@ -3495,6 +3568,37 @@ events:
               - { type: log, text: 派去的人回来只说了「雷很大」。天意把没听见的那句留在了酒温里。, visibility: public }
             nextEventId: ev-ydz-leave
 
+          - id: opt-ydz-wine-wang
+            text: 在隔壁席上把「英雄」两个字听成了别的
+            visibleWhen:
+              - { flag: origin, eq: 王子服 }
+            effects:
+              - { type: log, text: 雷响的时候隔壁席上有人把杯子放重了。你听成了别的两个字，后来一直没敢写进义状。, visibility: public }
+            nextEventId: ev-ydz-leave
+
+          - id: opt-ydz-wine-menke
+            text: 把那句「惟使君与操耳」记进闲话档
+            visibleWhen:
+              - { flag: origin, eq: 相府门客 }
+            effects:
+              - { type: log, text: 相府闲话档里多了半句「惟使君与操耳」。你抄得很工整，天意照旧留档，没改一个字。, visibility: public }
+            nextEventId: ev-ydz-leave
+
+          - id: opt-ydz-wine-huangmen
+            text: 端着梅子进去，雷响时把盘子端稳
+            visibleWhen:
+              - { flag: origin, eq: 送膳的小黄门 }
+            effects:
+              - { type: log, text: 雷响得正好，盘子一粒没洒。你把这件事记了一辈子，谁也没问过，天意也没把它抄走。, visibility: public }
+            nextEventId: ev-ydz-leave
+
+          - id: opt-ydz-wine-shark
+            text: 在苑里池子翻个身，把那声雷压下去
+            visibleWhen:
+              - { flag: origin, eq: 一头乌角鲨 }
+            effects:
+              - { type: log, text: 池子翻了个身，那声雷听着就闷了半拍。天意把这一拍算在自己头上，没算在水里那头鱼身上。, visibility: public }
+            nextEventId: ev-ydz-leave
   # ── 公共剧情 4/7 · 两个人先走 ──
 
   - id: ev-ydz-leave
@@ -3551,6 +3655,29 @@ events:
               - { type: log, text: 屋里空了两张椅子。天意没让人补座，也没让白绢少一个名字。, visibility: public }
             nextEventId: ev-ydz-jiping
 
+          - id: opt-ydz-leave-wang
+            text: 看着出城的名册，先数还留在城里的名字
+            visibleWhen:
+              - { flag: origin, eq: 王子服 }
+            effects:
+              - { type: log, text: 出城的两队人马各走各的。你没看他们去了哪儿，只把还留在城里的名字数了一遍，比昨天少两个。, visibility: public }
+            nextEventId: ev-ydz-jiping
+
+          - id: opt-ydz-leave-huangmen
+            text: 把出城那两队的膳牌收回来
+            visibleWhen:
+              - { flag: origin, eq: 送膳的小黄门 }
+            effects:
+              - { type: log, text: 膳牌收回来的时候还温着。你把它们摞好，没问这两队人什么时候回来，天意也没答。, visibility: public }
+            nextEventId: ev-ydz-jiping
+
+          - id: opt-ydz-leave-shark
+            text: 顺护城河跟到城门，看两队人各走各的
+            visibleWhen:
+              - { flag: origin, eq: 一头乌角鲨 }
+            effects:
+              - { type: log, text: 你跟到城门就停了，河到那儿拐弯。两队人马各走各的，谁也没往水里看一眼。, visibility: public }
+            nextEventId: ev-ydz-jiping
   # ── 公共剧情 5/7 · 元旦 · 咬指为誓 ──
 
   - id: ev-ydz-jiping
@@ -3608,6 +3735,29 @@ events:
               - { type: log, text: 头风照约定的日子发作，药也照约定的时辰端来。天意没提前打招呼：它只保证这一罐不会被喝下去，没保证端药的人手不抖。, visibility: public }
             nextEventId: ev-ydz-exposed
 
+          - id: opt-ydz-jiping-menke
+            text: 把「太医入府」记成寻常一行
+            visibleWhen:
+              - { flag: origin, eq: 相府门客 }
+            effects:
+              - { type: log, text: 「太医入府」被你记成寻常一行，跟前一天一模一样。后来抄检的人翻了三遍，也没从这一行里看出别的。, visibility: public }
+            nextEventId: ev-ydz-exposed
+
+          - id: opt-ydz-jiping-wang
+            text: 在门外等，没等到那罐药端进去
+            visibleWhen:
+              - { flag: origin, eq: 王子服 }
+            effects:
+              - { type: log, text: 你在门外站了很久，那罐药始终没端进去。天意把这段空着的时间抄成「无事」，谁也没反驳。, visibility: public }
+            nextEventId: ev-ydz-exposed
+
+          - id: opt-ydz-jiping-shark
+            text: 水面浮起一点不该有的味道，又散了
+            visibleWhen:
+              - { flag: origin, eq: 一头乌角鲨 }
+            effects:
+              - { type: log, text: 水面浮起一点不该有的味道，风一过就散了。天意没让任何人闻到，也没把它写进这一夜的账。, visibility: public }
+            nextEventId: ev-ydz-exposed
   # ── 公共剧情 6/7 · 事发（吉平殉死，义状与衣带诏被搜出） ──
 
   - id: ev-ydz-exposed
@@ -3680,6 +3830,21 @@ events:
               - { type: log, text: 第一行还是你写的。名册划到它的时候，天意没让墨淡一点。, visibility: public }
             nextEventId: ev-ydz-tianyi
 
+          - id: opt-ydz-exposed-menke
+            text: 把抄出来的名字再抄一遍，落款照旧空着
+            visibleWhen:
+              - { flag: origin, eq: 相府门客 }
+            effects:
+              - { type: log, text: 白绢和血字并排摆着，你照副本又抄了一遍。七个名字一个没少，落款那一格还是空的。, visibility: public }
+            nextEventId: ev-ydz-tianyi
+
+          - id: opt-ydz-exposed-shark
+            text: 河面很平，名册被划到最后一格
+            visibleWhen:
+              - { flag: origin, eq: 一头乌角鲨 }
+            effects:
+              - { type: log, text: 名册被划到最后一格时，河面照旧很平。旧簿子上多了一笔「祥瑞」，谁也没擦，也没人把它跟这一页连起来。, visibility: public }
+            nextEventId: ev-ydz-tianyi
   # ── 公共剧情 7/7 · 天意收束：主线回官渡，写 ydzDone ⇒ 终止 ──
 
   - id: ev-ydz-tianyi

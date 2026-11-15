@@ -72,6 +72,19 @@
 | 6 | `specs/data/templates/**/*.yaml`（模板指纹）、`specs/iterations/<新迭代>/`、`tasks/reports/` 新报告 | 指纹与旧机一致；新迭代四件套与验收报告不丢 |
 | 7 | `.workbuddy/memory/`（gitignore 的本机日志）、`data/worlds/` 存档、实验脚本 | 这些**不在 git 里**，只能靠第 2 步的目录快照保住 |
 
+### 4.1 旧机必找回的两段版本化模板代码（grep 清单）
+
+第 4 条「ADR-0028..~0032 正文、`schemaVersion` / 存档结构」与第 6 条「模板指纹」之下，旧机还有两段未提交代码；本地 R2.7 **完全没有**，迁移时务必逐 grep 找回，不要凭记忆重建：
+
+| # | 丢失片段 | 应当是什么 | 本地现状（R2.7，已核验） | 旧机 grep 令牌 |
+|---|---|---|---|---|
+| A | **模板按版本加载** | `loadTemplates()` 不再是「每目录一个模板、按 `meta.id` 平铺」，而是每个模板挂 `versions[]`，按 `id + version` 解析；`/api/templates` 返回 `startVersion` + `versions[]`（每项含 `version` / `assetFingerprint` / `assetCount` / `loadable`）；registry 解析 `templateId` 时落到「当前 / 选定版本」 | `templates.ts:114-136` 只建 `Map<id, WorldTemplateV2>` 及平行的 `fingerprints` / `openingTemplates` / `endingConfigs` / `evaluationConfigs`，**无任何 version 维度**；`WorldTemplateV2Schema`（`world.ts:140`）meta 只有 `startYear`，无 `version` / `startVersion` / `versions` | `versions`、`startVersion`、`assetFingerprint`、`loadable`、`loadTemplateVersion`、`resolveTemplate(id, version)` |
+| B | **世界实例化时引用模板信息** | 建局入参带 `version`（并据 `assetFingerprint` / `loadable` 校验）；存档信封在 `templateId` + `templateFingerprint` 之外**再存 `templateVersion`（如 `"1.0.0"` semver）**，使一局明确知道自己由哪个模板版本生成 | `store.ts:63-89` 信封只 `{schemaVersion, savedAt, templateId, templateFingerprint, state}`；`CreateWorldInputV2`（`store.ts:159-165`）= `{templateId, playerName, seed?, openingId?}`，**无 version**；`POST /api/worlds`（`index.ts:313-332`）也不透传版本 | `templateVersion`、`CreateWorldInputV2.version`、`envelope.templateVersion`、`getTemplateVersion` |
+
+⚠️ 与 `RECOVERY_MERGE.md §6.2`「线上 `/api/templates` 已是版本化 + 资产指纹结构」互为表里：§6.2 是**对外契约形态**证据，本表 A/B 是**对内实现位置**清单。找回时先按令牌 grep 旧机 `apps/server/src/{templates,store,index}.ts` 与 `packages/shared/src/schema/world.ts`，确认实现形态后按 §5.3「旧机契约面为权威」合并，不要反向把本地平铺结构回灌旧机。
+
+**借鉴提示（SillyTavern）**：重建时可直接参照其两套成熟范式 —— ① 角色卡显式 `spec_version` 字段（`chara_card_v2` / `v3`），加载器按版本号分派解析器，天然支持格式向前 / 向后兼容（对应片段 A 的「按版本加载」）；② `character_book` / World Info 把「世界设定」作为可独立引用、按关键词 / 递归激活注入的数据块，世界实例持有一份指向模板世界数据的引用而非仅记指纹（对应片段 B 的「实例化引用模板信息」）。
+
 ## 5. 正确的搬运姿势
 
 ### 5.1 在新副本侧导出增量（不推代码也能搬）

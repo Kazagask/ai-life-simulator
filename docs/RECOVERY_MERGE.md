@@ -161,7 +161,7 @@ CI（`.github/workflows/ci.yml`）L0 → L1 → L2 → L2b → L4 → L5 全绿�
 - **服务端契约差异的直接证据（2026-11-14 补查）**：线上 `GET /api/templates` 完整响应为
   `{id:"jjk-2006", name, startVersion:"1.0.0", versions:[{id, version:"1.0.0", name, description, startYear:2006, openings:[…], assetCount:0, assetFingerprint:"sha256:e3b0c44298fc…b855", loadable:true}]}`；
   本地 R2.7 的 handler（`apps/server/src/index.ts:299-310`）**只返回** `{id, name, description, startYear, openings}`。
-  ⇒ 缺失版本改过 `/api/templates` 的响应结构，新增**版本化模板（`startVersion` / `versions[]`）、资产指纹（`assetFingerprint`）、`loadable` 标志**；`assetCount:0` 且指纹为 `sha256("")`（空串哈希）说明该模板无额外资产文件。这是不依赖前端 bundle 的**服务端契约差异**，比 `llm-credentials` 更直接，也说明旧机的模板注册/校验机制很可能已不同于本地 R2.7。
+  ⇒ 缺失版本改过 `/api/templates` 的响应结构，新增**版本化模板（`startVersion` / `versions[]`）、资产指纹（`assetFingerprint`）、`loadable` 标志**；`assetCount:0` 且指纹为 `sha256("")`（空串哈希）说明该模板无额外资产文件。这是不依赖前端 bundle 的**服务端契约差异**，比 `llm-credentials` 更直接，也说明旧机的模板注册/校验机制很可能已不同于本地 R2.7。其对内实现位置（模板按版本加载 + 世界实例化引用模板版本信息）的 grep 找回清单见 `RECOVERY_OLD_MACHINE.md §4.1`。
 - 线上**仅注册 `jjk-2006` 一套模板**；`GET /api/templates/<id>` → 404 `not_found`（无模板详情端点）。线上 bundle 与本地路由清单均无上传 / 写文件端点，唯一写文件发生在 `store.ts`（写存档 JSON）。
 
 ### 6.3 结论与红线

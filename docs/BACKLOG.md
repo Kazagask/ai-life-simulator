@@ -68,6 +68,8 @@
 
 | B-25 | **战斗中无法使用的物品没有被隐藏，点击会报错**：战斗进行中，行动 / 个人面板的「物品」区仍列出 `usableOutsideBattle` 的物品且按钮可点，点击后引擎抛 `battle_in_progress`。链路：`web/main.tsx:1607`（只按 `usableOutsideBattle` 过滤）→ `:1642-1653`（仅 `disabled={busy}`，未读 `battleActive`）→ `:412` `onUseItem` → `game-core/v2/turn.ts:1202` 抛错。**战斗面板自身是干净的**：投影 `projection.ts:402-404` 已按 `usableInBattle` 过滤，`battle.ts:589` 另有 `item_not_usable_in_battle` 防护 ⇒ 病在「战斗态下其它 tab 未收敛交互」，不是引擎缺判定；`interacting`（`main.tsx:521`）已存在但只喂浮标（`:596`） | `apps/web/src/main.tsx` | **延后 / 本轮只记录**（2026-11-14 用户点屏发现，要求「记录一下」）。修法：给行动 / 个人面板接 `battleActive`（或 `interacting`），战斗与待决时隐藏或禁用该物品区；或由投影统一下发「此刻能否轮外使用物品」控制位（沿用 D-08 同源判定）。未跑真机点屏（见 U-02），若实际位置在战斗面板内部需复核。归档见 `docs/ENGINE_GAPS.md §4` |
 
+| B-26 | **模板作者层 / 事件流 DAG 编排（设计笔记，未实施）**：两套模板实测为「多根 + 带标签边」的 DAG（0 环 / 0 断链），448 处 `nextEventId` 写法只有 188 条唯一边；建议保持 YAML 文件格式，加 `x-defaults` / `x-dag` / `x-activity` 作者区 + 加载期 `expand()` 纯函数，Zod 与引擎零改动。落地分 A 工具链（零契约）/ B 作者区 / C 指纹 canonical hash / D AI 通道四级；B/C/D 均属 T-2 须先 ADR。完整分析、实测数据与边界见 `docs/EVENT_GRAPH_AND_TEMPLATE_AUTHORING.md` | `apps/server/src/templates.ts`、`docs/EVENT_GRAPH_AND_TEMPLATE_AUTHORING.md` | **延后**（2026-11-15 会话讨论沉淀，用户要求「沉淀一下」）。先 A 后 B；不得直接开工 B/C/D。待决项见 OQ #50 / #51；注意作者区一旦进入 yaml，模板指纹必变 ⇒ 旧档全部拒载（ADR-0007 既定代价） |
+
 ## 4. 环境 / 工具链坑（不改产品代码也应知道）
 
 | # | 现象 | 原因与对策 |
