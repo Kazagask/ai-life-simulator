@@ -58,6 +58,11 @@ import { recordNarrative } from "./narrative/trace.js";
 import { readNarrativeBlocks } from "./narrative/read.js";
 import { registerNarrativeStreamRoute } from "./narrative/stream.js";
 import {
+  captureStructuralSavepoint,
+  restoreStructuralSavepoint,
+  withWorldLock,
+} from "./world-lock.js";
+import {
   getFlavors,
   getFlavorsForEvents,
   scheduleEventFlavors,
@@ -655,27 +660,45 @@ app.post("/api/worlds/:id/turns", async (request, reply) => {
   }
 
   try {
-    const res = advanceTurnV2(
-      found.world,
-      parsed.data,
-      found.entry.template,
-      found.entry.lookup,
-      undefined,
-      pipelineForTurn(found.world, found.entry, requestAgentConfig(request)),
-    );
-    worldStore.save(res.state);
-    // fire-and-forget：绝不 await LLM、不阻塞回合结算（R-LLM-05）
-    scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, "player", request.llmProvider);
-    return {
-      worldId: found.world.id,
-      turnIndex: res.snapshot.turnIndex,
-      elapsed: res.elapsed,
+    // ADR-0035：回合是一条事务 —— 结算 → 结构写入落账 → 重投影 → 存档，全在锁内。
+    return await withWorldLock(id, async () => {
+      const pipeline = {
+        ...pipelineForTurn(found.world, found.entry, requestAgentConfig(request)),
+        deferInvocation: true as const,
+      };
+      const res = advanceTurnV2(
+        found.world,
+        parsed.data,
+        found.entry.template,
+        found.entry.lookup,
+        undefined,
+        pipeline,
+      );
+
+      // 结构写入（fact.enqueueEvent / advanceDag / setKnowledge）必须在世界再推进之前落账；
+      // 非 committed 的收场整体回滚 —— 「宁可不发生，也不许晚到」（ADR-0035 §5）。
+      const inv = res.state.pendingInvocation;
+      if (inv !== undefined && pipeline.gateway !== undefined) {
+        const savepoint = captureStructuralSavepoint(res.state);
+        const outcome = await pipeline.gateway.invoke(inv);
+        if (outcome.outcome !== "committed") restoreStructuralSavepoint(res.state, savepoint);
+      }
+
+      // 重投影：res.snapshot 算在结构写入之前，直接返回会让玩家看不到刚被摆上桌的事件（IO-3）。
+      const fresh = projectWorld(res.state, found.entry);
+      worldStore.save(res.state);
+      scheduleFlavors(request, found.world.id, fresh, res.triggeredEvents);
+      const snapshot = await decorateSnapshot(fresh, res.state, found.entry, "player", request.llmProvider);
+      return {
+        worldId: found.world.id,
+        turnIndex: res.snapshot.turnIndex,
+        elapsed: res.elapsed,
       snapshot,
       triggeredEvents: res.triggeredEvents,
       wheelResult: res.wheelResult,
-      eventFlavors: responseEventFlavors(found.world.id, res.snapshot, res.triggeredEvents),
-    };
+      eventFlavors: responseEventFlavors(found.world.id, fresh, res.triggeredEvents),
+      };
+    });
   } catch (error) {
     return handleEngineError(request, reply, error);
   }
