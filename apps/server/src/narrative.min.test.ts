@@ -147,6 +147,36 @@ describe("player 窗口投影", () => {
     expect(readNarrativeBlocks(world.id, world).map((b) => b.blockId)).toEqual(["b1", "b2"]);
   });
 
+  it('kind:"asset" 块透传 assetId / slot（内联 CG 的锚点）', () => {
+    // 此前投影只发 blockId/kind/text ⇒ kind:"asset" 的块到前端只有 kind，
+    // CgStage 拿不到资源标识，内联 CG 永远休眠（ui-impl 实测）。
+    const world = newWorld("阿图");
+    appendTrace(
+      world.id,
+      traceWith({ invocationId: "art", turnIndex: 1 }, [
+        {
+          blockId: "b-asset",
+          kind: "asset" as const,
+          refs: [],
+          visibility: "public" as const,
+          targetPerspective: "player" as const,
+          assetId: "portrait.mentor.neutral",
+          slot: "cg:village",
+        },
+      ]),
+    );
+
+    const [vm] = readNarrativeBlocks(world.id, world);
+    expect(vm).toEqual({
+      blockId: "b-asset",
+      kind: "asset",
+      assetId: "portrait.mentor.neutral",
+      slot: "cg:village",
+    });
+    // 缺省字段不得投影成 `undefined` 键 —— ContentBlockVMSchema 是 .strict()
+    expect("text" in vm).toBe(false);
+  });
+
   it("损坏行被跳过，不影响其余行", () => {
     const traces = parseTraceLines('{"bad json\nnot json at all\n');
     expect(traces).toEqual([]);

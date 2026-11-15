@@ -78,6 +78,11 @@ export function projectNarrativeBlocks(
         blockId: block.blockId,
         kind: block.kind,
         ...(block.text !== undefined ? { text: block.text } : {}),
+        // 内联资源锚点：`kind:"asset"` 的块靠 assetId/slot 被前端委托给 CgStage。
+        // 此前只透传 blockId/kind/text ⇒ 内联 CG 永远休眠（ui-impl 2026-11-16 实测）。
+        // 两者都是「模板 manifest 已声明」的公开标识，不含隐秘原文，透传不扩大攻击面。
+        ...(block.assetId !== undefined ? { assetId: block.assetId } : {}),
+        ...(block.slot !== undefined ? { slot: block.slot } : {}),
       };
       byBlockId.delete(block.blockId); // 重新插入以保持「最后写入排在最后」
       byBlockId.set(block.blockId, vm);

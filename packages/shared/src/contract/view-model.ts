@@ -54,7 +54,8 @@ export const ContentBlockVMSchema = z
     text: z.string().optional(),
     /**
      * `kind === "asset"` 时的资源引用（追加字段）：展示层据此在叙事流里内联一张媒体资源。
-     * 服务端当前投影只发 blockId / kind / text，字段缺省时内联渲染为空（不回退猜图）。
+     * 服务端读投影已透传本字段与 `slot`（`apps/server/src/narrative/read.ts`）；缺省时
+     * 内联渲染为空，展示层不得回退猜图。
      */
     assetId: z.string().optional(),
     /** 资源槽位名（追加字段），与 `MediaVM.slot` 同一套命名。 */
