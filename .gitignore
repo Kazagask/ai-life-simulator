@@ -23,3 +23,8 @@ ck.txt
 # 转盘参考素材（B 站 meme-auto-wheel 导出），加载器只读 *.yaml，永不进引擎
 # R2.8 / T-TG-11：已移出 templates/<id>/ 层（否则每次启动一条 warn），归档到 references/
 specs/data/references/*.wheel.json
+
+# 各 worker 的本地探针产物（临时模板 / 日志 / 抓现场），一律不入库
+.tmp-*/
+.tmp-*.log
+.vitest-*.log

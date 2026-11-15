@@ -3649,3 +3649,368 @@ unlock
 
 - 结构/正文拆成两次调用（结构短、正文长）可把秒级延迟搬回异步 —— **DEFERRED**，需先有 D2 的锁作为安全网。
 - 本 ADR 不涉及 DAG 分支的**契约形状**（`DagNodeView` 是否暴露完整节点、`fact.advanceDag` 是否改增量语义）——那是独立议题，见 BACKLOG。
+
+---
+
+## ADR-0036 触发器求值改为边沿语义（level-triggered ⇒ edge-triggered）
+
+- **状态**：已裁（2026-11-16，主理人质疑「每轮都走 agentGateway？那明显不对吧」后自查发现）
+- **触发**：`evaluateTriggers`（`packages/game-core/src/v2/condition-evaluator.ts:212`）对每条 `llmTriggers[].when` 只做**当轮真值求值**，不记历史。而条件原语里 `flagSet` / `nodeCompleted` 这类是**单调持久**的：一旦为真就不再变回假。
+- **相关**：ADR-0035（LLM 结构写入同事务）、`specs/.../demo-agentic/rules.yaml` 的 `flagSet took-right` 触发器、R-LLM-05。
+
+### 1. 问题：设计口径是「LLM 稀疏参与」，实际是「一触发永远触发」
+
+设计口径（`turn.ts:825-828` 注释、T-05a）明确写：`rules.llmTriggers[].when` 一条都不命中 ⇒ `invocations` 为空 ⇒ **本轮零网关调用**，"不是每轮跑"。
+
+现行实现对 `random` 类条件成立（`derivedTriggerRng(seed, turnIndex)` 每轮独立），但对**持久条件**完全不成立：
+
+```
+turn N   ：玩家选 opt-right ⇒ setFlag took-right = true ⇒ 命中 task.completed ⇒ 调 LLM
+turn N+1 ：took-right 仍是 true ⇒ 再次命中 ⇒ 再调 LLM
+turn N+2 ：同上 …… worldState 直到结局都带着这个 flag
+```
+
+⇒ demo 模板一旦过了 `evt:trial`，**之后每一轮都调一次 LLM**，永不停。这和「稀疏参与」正好相反，且成本随轮数线性增长。`flagSet` 是模板作者最自然会用的一类条件，所以这不是 demo 特例，是**契约级**问题。
+
+### 2. 为什么不能靠模板绕开
+
+| 绕法 | 结果 |
+|---|---|
+| 模板里把 flag 删掉 | 触发器永远不命中，等于放弃"玩家做了某事 ⇒ AI 写后续"这个核心能力 |
+| 给 flag 加 `missWhen` / 反向重置 | flag 是**世界事实**（"玩家确实走过右边"），为了一次 LLM 调用把它改成脉冲信号，等于污染语义 |
+| 在 `runSettlementHooks` 里查 `pendingInvocation` 是否已有 | 只挡同一轮重复，跨轮照样每轮命中 |
+| 让 LLM 自己写 flag 清掉 | 违反「AI 不得写权威状态」，且幂等无法保证 |
+
+⇒ 必须由**求值层**区分"条件为真"与"条件刚刚变真"。
+
+### 3. 决策
+
+**D1 —— 默认边沿语义。** `llmTriggers[]` 新增可选 `fireMode: "edge" | "level"`，缺省 `edge`。
+- `edge`：仅当**上一轮求值为假、本轮为真**时发 invocation。
+- `level`：命中即发（旧行为），供作者显式选择（例如"每轮都要有 AI 旁白"的模板）。
+
+**D2 —— 历史落在 state 里，不从 replay 反推。** 新增可选字段：
+
+```ts
+triggerFireLedger?: Record<string, { turnIndex: number; hit: boolean }>
+```
+
+key = `` `${reason}#${index}` ``（`reason` 是语义身份，`index` 防同 reason 重复）。
+
+- **为什么进 state**：边沿判据是**跨轮的**，必须和它判定的世界同生共死 —— 读档后重新求值必须得到同样的结果（确定性硬约束）。放内存 = 重启后重复触发。
+- **为什么 optional + 无默认值**：旧档缺该字段 ⇒ 视作"无历史" ⇒ 首轮把当前真值当"刚刚变真"，最多多发一次，不会永久抑制。**不升 `schemaVersion`**（与 `spawnRules` / `lastWheels` 同一兼容策略）。
+- **为什么 key 含 index**：模板改规则后 index 位移 ⇒ key 变 ⇒ 被当作新触发器（多发一次）。这个失败方向安全：宁可多写一次，不可永久闭嘴。
+
+**D3 —— 每轮最多执行一条 invocation。** 现行 `runSettlementHooks` 的 `for (const inv of invocations) assignPendingInvocation(state, inv)` 是**后写覆盖前写**：三条触发器同轮命中 ⇒ 只有最后一条真的被执行，前两条静默消失。ADR-0035 引入 `deferInvocation` 后这个洞更明显（原来 fire-and-forget 三条都会发出去）。
+- 决策：取**声明序第一条**执行，其余本轮不执行；
+- **但所有求值为真的 key 都必须写进 ledger**（`hit: true`），否则它们会在下一轮被当成"刚刚变真"而延迟触发 —— 那正是 ADR-0035 §3 否掉的那类"错误错过"。
+- 被挤掉的触发器记入诊断（不静默）。
+
+**D4 —— `random` 条件在 edge 下退化为 ~9%。** `p=0.1` 独立抛硬币，边沿语义要求"上次假"⇒ 0.1×0.9。这是**期望行为**（避免连续两轮 flavor 轰炸），但要在 `rules.yaml` 注释里写明，别让作者按 10% 排预算。
+
+### 4. 实施拆分
+
+| 项 | 文件 | 内容 |
+|---|---|---|
+| T1 | `packages/shared/src/v2-state.ts` | 加 `triggerFireLedger`（optional，`.strict()` 子对象） |
+| T2 | `packages/shared/src/contract/rules.ts` | 加 `fireMode?: "edge" \| "level"`（default `edge`） |
+| T3 | `condition-evaluator.ts` | 保留 `evaluateTriggers`（无历史 ⇒ 纯 level，测试零回归）；新增 `evaluateTriggersEdge(…, previous)` 返回 `{ invocations, fireLedger, suppressed }` |
+| T4 | `turn.ts` `runSettlementHooks` | 改用 edge 版本；经 `assignTriggerFireLedger` 落账；只执行第一条 |
+| T5 | `api/engine-api.ts` | `assignTriggerFireLedger`（权威写入集中在本文件，与 `assignPendingInvocation` 同约束） |
+| T6 | 回归锁 | 见 §5 |
+
+### 5. 不变量与回归锁
+
+- **IO-4**：`flagSet` 类条件在 `fireMode: edge` 下，**连续 N 轮只发 1 次** invocation。
+- **IO-5**：条件由真转假再转真 ⇒ **再发一次**（不是"一辈子一次"）。
+- **IO-6**：同一轮多条命中 ⇒ 只执行声明序第一条，其余 key 的 ledger 仍写 `hit: true`。
+- **IO-7**：无 `triggerFireLedger` 的旧档加载后首次求值 ⇒ 至多多发一次，不得抛错、不得抑制。
+- 回归锁：`(a)` flag 置真后跑 5 轮只 1 次网关调用；`(b)` flag 清掉再置真 ⇒ 第 2 次；`(c)` 三轮条件同轮命中 ⇒ 1 次执行 + 3 条 ledger 记录；`(d)` 旧档（无字段）加载不抛；`(e)` `fireMode: level` 保持旧行为。
+
+### 6. 被否决的方案
+
+| 方案 | 否决理由 |
+|---|---|
+| 用 replay / `eventFires` 反推上一轮 | 反推要重跑管线，把"读"变成"算"，且和 trace 保留策略耦合 |
+| ledger 只放内存 | 读档后丢历史 ⇒ 重复触发，违反确定性 |
+| 条件原语层面加"变化"语义（`flagJustSet`） | 要么给每个原语都造一个 `*JustSet`（组合爆炸），要么原语变成有状态（污染纯函数） |
+| 默认 `level`、模板逐个开 `edge` | 默认值必须站在"省钱且符合设计口径"一侧；漏开 = 每轮烧钱且无人察觉 |
+| 把 `flagSet` 从条件原语里删掉 | 见 §2 |
+
+### 7. 后续（不在本 ADR）
+
+- 每轮执行多条的**预算内并发**（需要 `pendingInvocation` 变数组或队列）—— **DEFERRED**，D3 只保证"不静默丢失"。
+- `fireMode: "cooldown"`（N 轮内最多一次）—— **DEFERRED**，等有真实模板需要。
+- DAG 分支契约形状（`DagNodeView` 拆分 / `fact.upsertDagBranch`）—— 独立议题。
+
+---
+
+## ADR-0037 DAG 真正开工：种子 / 推进 / 增量写三处断链
+
+- **状态**：已裁（2026-11-16，主理人「DAG得开工」+ 自查发现三处独立断链）
+- **触发**：主理人要求「LLM 写事件是用 dag 直接一套完整的事件分支」。核查后发现 DAG 在**生产路径上根本没有运转**，不是"还没接完"，而是三处各自独立地断掉。
+- **相关**：ADR-0032/0034（槽 + 队列）、ADR-0035（结构写入同事务）、ADR-0036（触发器边沿）、F4（视角窗口）。
+
+### 1. 三处断链（均为静态可证，不依赖运行）
+
+**P1 —— 种子从未落进 state。**
+`createWorldV2`（`packages/game-core/src/v2/turn.ts:230`）把 `taskDag` 初始化成 `{ dagId: "initial", version: 0, issuedBy: "template", nodes: [], edges: [] }`。而 `rules.fallbackDag` 在全仓**只有一处读取**：`condition-evaluator.ts:290` 的诊断扫描。没有任何代码把 `fallbackDag` 写进 `state.taskDag`。
+⇒ 生产环境任何世界的 `taskDag.nodes` 恒为 `[]`。
+
+**P2 —— 引擎从不推进节点状态。**
+`guards` / `completion` 在非测试代码里**没有任何求值点**（`grep` 仅命中 `condition-evaluator.ts:290` 的诊断收集）。`taskDag.nodes[].status` 的唯一写入者是 `fact.advanceDag`（`engine-api.ts:226`，LLM 工具）。
+⇒ 节点状态只能靠 LLM 写，而 `nodeCompleted` 条件读的正是 `status === "completed"`（`condition-evaluator.ts:62`）⇒ `nodeCompleted` 恒假。
+
+**P3 —— LLM 也没法把 DAG 写进去。**
+`fact.advanceDag` 是**整份覆盖** `state.taskDag = parsed.data`，要求调用方给出完整 `TaskDag`。但 `world` 窗口的 `DagNodeView` 只暴露 `{ nodeId, status }`（`perspective.ts:78`），拿不到 `title` / `kind` / `guards` / `completion` / `templateRefs` / `visibility` / `edges`。LLM 若照此重建全量 DAG，只能丢掉这些字段（`TaskDagSchema` 是 `.strict()` + 必填 ⇒ 直接 `invalid_arguments`），或者编造（`templateRefs` 必吃 `unknown_reference`）。
+
+**合起来的后果**：`rules.yaml` 的第一条触发器 `nodeCompleted n1.awaken`（`reason: chapter.advance`，也就是挂 `branch:evt:trial` 的那条）**永久不命中**。demo 模板里真正能命中的只有 `random.flavor`（10%）与 `flagSet took-right`（试炼之后）。DAG 分支轮**在当前代码上不可达** —— 这解释了为什么分支链路"看起来接好了"却演示不出来。
+
+### 2. 决策
+
+**D1 种子：`fallbackDag` 在建世界时落进 `state.taskDag`。**
+- `createWorldV2` 增加可选 `rules`（沿用 `TurnPipelineConfig.rules` 来源），`rules.fallbackDag.nodes.length > 0` 时种入。
+- 无 `rules`（如 jjk-2006）⇒ 保持现状空 DAG，**零回归**（IO-10）。
+- 写入经 `assignTaskDagSeed(state, dag)`，权威写入仍在 `api/engine-api.ts`。
+- 种子幂等：同一 `fallbackDag` 重复种入结果字段一致（IO-8）。
+- `issuedBy` 保持 `fallbackDag.issuedBy`（`"template"`），`version` 用 `fallbackDag.version`。
+
+**D2 推进：结算 tail 新增第一段 `advanceDagProgress`，引擎权威，位于知识授予**之前**。**
+顺序固定为 **DAG 推进 → 知识授予 → 触发器求值**。理由：本轮刚刚 `completed` 的节点必须能被同轮的 `nodeCompleted` 看见，否则触发器永远晚一轮。
+
+迁移规则（确定性、单调、有界）：
+| 当前 status | 条件 | 迁移到 |
+|---|---|---|
+| `draft` | `guards` **全真** | `ready` |
+| `ready` / `active` / `in_progress` | `completion` **非空且全真** | `completed` |
+| `completed` / `expired` / `cancelled` | — | 不动（终态） |
+
+- **每轮每个节点至多前进一格**（一次扫描只做一次迁移），否则 `completion: [always]` 会让整条链在一轮内级联到底，故事节奏被吞掉。
+- **`completion` 为空数组 ⇒ 不可自动完成**。`[].every(...) === true`，不特判会让所有占位节点（如 `n3.hiddenSeed`）瞬间 `completed`。
+- 迁移为单调前进，**永不回退**（IO-9）。写入经 `assignDagNodeStatus`（`api/engine-api.ts`）。
+- 无 `rules` ⇒ 整段 no-op（IO-10）。
+
+**D3 视图分形：`DagNodeView` 按窗口两形。**
+- `world` 窗口：`{ nodeId, title, kind, status, visibility, templateRefs }`，另附 `edges`（顶层的 DAG 边集）。
+- `player` / `npc:<id>` 窗口：**保持 `{ nodeId, status }` 不变**，且 `PerspectiveFactViewSchema.superRefine` 新增护栏：非 world 窗口出现 world-only 字段 ⇒ `addIssue`（与既有 `ledger` 护栏同形）。
+- 为什么必须分形：不分形就只能在"LLM 盲写"与"玩家看见隐藏任务"之间二选一。F4 的既有投影已按 `visibility === "public"` 过滤玩家侧，本决策只是把 `world` 侧补全。
+
+**D4 增量写：新增 `fact.upsertDagBranch`。**
+入参 `{ nodes?: TaskNode[], edges?: TaskEdge[], version?: number }`，语义：
+1. `nodes` 按 `id` 合并：已存在的节点**只允许改** `status` / `guards` / `completion` / `due` / `visibility`；改 `kind` / `title` ⇒ `state_conflict`（防止语义被静默重定义）。新节点必须是完整 `TaskNode` 并通过 `TaskNodeSchema`。
+2. `edges` 追加，按 `(from, to, kind)` 三元组去重 ⇒ 幂等（IO-11）。
+3. 合并结果跑 `validateDag`（既有函数，`v2/task-dag.ts:51`：id 唯一 / 端点 / 自环 / 重复边 / 无环）⇒ 不过则**整体拒绝、不落账**（IO-12）。
+4. `version = max(state.taskDag.version + 1, 入参 version ?? 0)`。
+5. **永不删除节点**：删除只能由模板 / fallback 做。LLM 只能加与改。
+6. 新节点的 `templateRefs` 必须是 `env.lookupRefs` 子集（不许发明事件）；`visibility: "hidden"` 允许（F4 投影会挡住玩家侧）。
+
+**D5 `fact.advanceDag` 从 `toolProfile.narrative` 移除。**
+工具仍注册（template / fallback 用），但**任何 LLM 画像都不得包含它** —— 整份覆盖会静默丢掉 LLM 没看见的 `guards` / `completion` / `edges`，属于 P3 同类事故。`toolProfile.narrative` 改为包含 `fact.upsertDagBranch`。
+
+### 3. 不变量
+
+- **IO-8** 种子幂等：同 `fallbackDag` 重复种入，`state.taskDag` 逐字段一致。
+- **IO-9** 推进单调：`status` 只能沿 `draft → ready → completed` 前进，永不回退；一轮一节点至多一格。
+- **IO-10** 无 `rules` ⇒ 种子 / 推进 / 触发器全链 no-op，行为与改前逐字段一致（jjk-2006 零回归）。
+- **IO-11** `upsertDagBranch` 幂等：同一 `branch` 调两次，`nodes` 不翻倍、`edges` 不重复、`version` 只 +1。
+- **IO-12** `upsertDagBranch` 后 `validateDag` 必过，失败则 `state.taskDag` 逐字段不变。
+
+### 4. 回归锁
+
+- demo 模板建世界 ⇒ `state.taskDag.nodes` 含 `n1.awaken` / `n2.trial` / `n3.hiddenSeed`。
+- 建世界后跑一轮 ⇒ `n1.awaken` 变 `completed`（`ready` + `completion: [always]`）⇒ `nodeCompleted n1.awaken` 为真 ⇒ `chapter.advance` **恰好触发 1 次**，且 `contextHints` 含 `branch:evt:trial`。
+- `upsertDagBranch` 加 2 节点 1 边 ⇒ 再次相同调用后 `nodes.length` 不变、`edges.length` 不变、`version` 只 +1。
+- `upsertDagBranch` 造环 ⇒ `state_conflict` 拒绝，`state.taskDag` 逐字段不变。
+- `upsertDagBranch` 改已存在节点的 `title` ⇒ `state_conflict`。
+- jjk-2006（无 `rules.yaml`）⇒ `taskDag.nodes` 仍为 `[]`，全量测试零变化。
+- 玩家窗口投影 ⇒ 不含 `n3.hiddenSeed`，且不含任何 world-only 字段。
+
+### 5. 被否决的方案
+
+| 方案 | 否决理由 |
+|---|---|
+| 把 `fallbackDag` 直接塞进 `createWorldV2` 的默认 state（不经 `rules`） | 无 `rules` 的模板也会拿到 DAG，语义漂移，且破坏 IO-10 |
+| 让 LLM 求值 `guards` / `completion` 决定 status | 直接违反「AI 不写权威状态」；且评分/进度会随模型波动 |
+| 保留整份覆盖给 LLM，只补全 world 窗口视图 | 全量下发随节点数线性涨 token，且"漏抄一个字段就静默丢数据"的风险不可消除 |
+| 节点状态由 `eventResolved` 反推（事件跑完就打勾） | 一个节点可对应多个事件，反推会给出错误的 `completed` 时机 |
+| 一轮内迭代到不动点（级联到底） | `completion: [always]` 会让整条链一轮走完，故事失去节奏 |
+
+### 6. 后续（不在本 ADR）
+
+- 大 DAG 的 token 预算（全量下发 vs 增量 diff / 分页）—— **DEFERRED**。
+- DAG `edges` 是否进玩家窗口（当前只进 world）—— **DEFERRED**。
+- 节点 `due` 的到期语义（`expired` 迁移）—— **DEFERRED**，需与 R3 时间适配器一起裁。
+
+---
+
+## ADR-0038 `invoke.branchEventIds`：把「允许摆上桌的事件」做成结构化白名单
+
+- **状态**：已裁（2026-11-16，接 ADR-0037；三代方案均失败后的收敛）
+- **触发**：`contextHints` 里的裸 `evt:xxx` 被 runtime 当成"本轮要上桌"的指令，导致 `evt:chance` 被反复入队、与 `evt:closing` 无限交替、最终 409（真实服务可复现）。修法经历了三代，前两代都被否。
+- **相关**：ADR-0035（结构写入同事务）、ADR-0036（边沿触发）、ADR-0037（DAG 开工）。
+
+### 1. 三代方案与被否原因
+
+| 代 | 方案 | 结局 |
+|---|---|---|
+| 一 | runtime 扫描 `contextHints` 里的裸 `evt:` 前缀 ⇒ 发 `fact.enqueueEvent` | **事故源**：把"模板提到过某个事件"解释成"每次 invocation 都重新入队"，`closing↔chance` 无限交替 |
+| 二 | 改用显式 `branch:evt:xxx` 前缀，裸 `evt:` 不再触发 | **方向错**：runtime 的私有语法被写进模板数据。`contextHints` 是协议的通用标签通道，往里塞带语义的前缀，等于用字符串形状冒充契约 —— 和第一代是同一类病，只是方向相反 |
+| 三（本 ADR） | `invoke.branchEventIds: string[]` 结构化白名单 | 采纳 |
+
+### 2. 决策
+
+**D1 新增可选字段 `invoke.branchEventIds?: string[]`**（`packages/shared/src/contract/rules.ts` 的 trigger `invoke` 内）。
+语义：**本次 invocation 允许把其中任一事件实例化进 `delayQueue`**。不在列表内 ⇒ 越权拒绝。
+
+**D2 `contextHints` 内容零解释。** 引擎与 runtime **都不得**消费其字符串语义。它只是透传给模型的文本标签。任何"看字符串长什么样就推断意图"的代码都视为缺陷（源码守卫可加：`agent-runtime` 不得出现 `startsWith("evt:")` 类分支）。
+
+**D3 越权拒绝复用 `unknown_reference`。** `fact.enqueueEvent` 校验顺序：
+1. `eventId` ∉ `env.lookupRefs`（模板 ref 全集）⇒ `unknown_reference`（既有行为）
+2. 本次 invocation 声明了 `branchEventIds` 且 `eventId` ∉ 该列表 ⇒ `unknown_reference`，`allowedRefs` 填 `branchEventIds`
+3. 本次 invocation **未声明** `branchEventIds` ⇒ 不允许任何 enqueue（`unknown_reference`，`allowedRefs: []`）
+
+> 第 3 条是刻意的：**沉默 = 没有分支能力**。宁可让分支轮什么都不摆（玩家看到纯叙事），也不要让它摆出一个作者没打算摆的事件。
+
+**D4 runtime 侧读取顺序**：`invoke.branchEventIds`（首选）→ 兼容旧 `branch:evt:x` 前缀（**DEPRECATED**，只保留一个版本周期，新模板不得使用）。
+
+**D5 与 ADR-0037 的分工**：`branchEventIds` 表达"这次允许摆哪些**模板已有**事件"；`fact.upsertDagBranch` 表达"LLM 新写一段**分支结构**"。两者正交：前者管已被作者定义的事件上桌时机，后者管 LLM 新增节点/边。**不得**用后者绕过前者（`upsertDagBranch` 不触发任何入队）。
+
+### 3. 不变量
+
+- **IO-13**：`fact.enqueueEvent` 的 `eventId` 必须 ∈ 本次 invocation 的 `branchEventIds`；未声明 ⇒ 一律拒绝。
+- **IO-14**：`branchEventIds` 的每一项必须是 `env.lookupRefs` 成员（模板加载期即校验，不允许悬空引用）。
+- **IO-15**：`contextHints` 的内容变化不得改变任何 `dispatch` 行为（可测：把 hints 换成任意字符串，世界状态逐字段不变）。
+
+### 4. 回归锁
+
+- `branchEventIds: ["evt:trial"]` ⇒ 恰好 1 次 `fact.enqueueEvent`，`eventId === "evt:trial"`。
+- 未声明 `branchEventIds`，但 `contextHints` 含 `evt:trial` ⇒ **0 次** enqueue（IO-15 / D2）。
+- `branchEventIds: ["evt:trial"]` 却 enqueue `evt:ambush` ⇒ `unknown_reference`，`delayQueue` 不变（IO-13）。
+- `branchEventIds: ["evt:nonexistent"]` ⇒ 模板加载期报错（IO-14）。
+
+### 5. 被否决的方案
+
+| 方案 | 否决理由 |
+|---|---|
+| 裸 `evt:` 前缀（第一代） | 事故源，见 §1 |
+| `branch:evt:` 前缀（第二代） | 私有语法进协议；形状推断语义 |
+| 从 `taskDag.nodes[].templateRefs` 自动实例化事件 | 会和事件自身的 `chain` / `pool` 调度**双写**（`evt:trial` 已经由 `evt:awaken.nextEventId` 摆上桌，自动实例化会再摆一次）。**DEFERRED**，若将来要做，必须先统一"谁负责摆放"这唯一权威 |
+| 让 LLM 自由 enqueue（不设白名单） | 模板作者失去节奏控制权；且 `unknown_reference` 只能挡住不存在的事件，挡不住"存在但此时不该出现"的事件 |
+
+### 6. 后续
+
+- 统一「事件摆放权威」（DAG 驱动 vs 事件 `nextEventId` 驱动）—— **DEFERRED**，见 §5。
+- 兼容用的 `branch:` 前缀解析在一个版本周期后移除 —— 需要一次清理任务。
+
+### 7. 补充裁定（2026-11-16，落地前 review 提出）
+
+**D6 白名单经 `LlmInvocation` → `DispatchContext` 传递，不进 `env`。**
+- `env` 是模板级**静态**环境（`lookupRefs` / `registry` 与具体哪次 invocation 无关）。把 invocation 级白名单塞进 `env`，会让同一次 dispatch 的语义随调用方拼 env 的方式分裂。
+- 链路：`rules.llmTriggers[].invoke.branchEventIds` → `evaluateTriggers` 拷进 `LlmInvocation.branchEventIds` → `agent-runtime` 的 loop 透传为 `DispatchContext.branchEventIds` → `enqueueEvent.run` 校验。
+- **权威性**：白名单只能来自 core 生成的 `LlmInvocation`（即规则求值结果），**不得**由模型输出、loop 拼接或 HTTP 请求体提供。`LlmInvocation` 是这次 invocation 的唯一权威描述，规则在 invocation 存续期间变化不影响它。
+
+**D7 mock 侧确定性取值：`branchEventIds[0]`，一次 invocation 最多一条 enqueue。**
+- mock 看不到 `lookupRefs`，结构上无法"先验证再上桌"，因此它只负责"从白名单第一条取"，越界由 loop / engine 侧拒绝。
+- 推论：**「白名单外 enqueue ⇒ `unknown_reference`」这条回归锁不能用 mock 构造**（mock 天然发不出越界调用）。必须用 `ScriptedProvider` 硬发一个白名单外 `eventId` 来锁。
+- 不做"按 `invocationId` 轮转"：多分支演示靠模板给多条触发器，不靠 mock 内部状态机——那会把不确定性塞进本该确定的地方。
+
+**D8 中间态声明**：`rules.yaml` 未声明 `branchEventIds` 期间，demo 的 DAG 分支轮**静默不触发**（不 409、不上桌）。这是 D3 第 3 条的期望行为，不是缺陷。
+
+### 7. 补充裁定（2026-11-16，落地前 review 提出）
+
+**D6 `advanceDagProgress` 必须拿到本轮 `resolvedEventIds`。**
+节点 `completion` 的自然写法是「这个任务对应的事件结算了」⇒ `[{ op: "eventResolved", args: { eventId: "evt:trial" } }]`。而 `eventResolved` 的判据是 `ConditionEvalContext.resolvedEventIds`（ADR 前置：`condition-evaluator.ts` 的 `eventResolved` 实现 `ctx.resolvedEventIds?.has(...)`）。若推进钩子不传这个集合，所有 `eventResolved` 型 `completion` **恒假**，节点永不完结 —— 这会把 P2 从"节点不动"变成"节点看起来能动但走到一半卡死"，比原缺陷更难查。
+⇒ `advanceDagProgress(state, rules, registry, opts.resolvedEventIds)`，与触发器求值**同一份**集合（`turn.ts` 的 `runSettlementHooks` 已经有这个入参，直接透传）。
+
+**D7 `completion: []` 的语义写进类型层注释，不只是实现层特判。**
+`[].every(...) === true` 会让所有占位节点瞬间 `completed`。实现上要特判，但这属于**容易被下一次重构"顺手简化掉"的陷阱**，所以 `TaskNodeSchema.completion` 的注释必须写明「空数组 ⇒ 不可自动完成」。
+
+**D8 顺序再确认**：`advanceDagProgress` → 知识授予 → 触发器求值。三条都在 `runSettlementHooks` 内，且都用**同一份** `resolvedEventIds`。DAG 推进放在最前，是为了让本轮刚 `completed` 的节点能被同轮 `nodeCompleted` 看见。
+
+**D9 template 侧连带义务**：demo 的 `fallbackDag` 现在的 `completion` 全是 `[{ op: "always" }]`，那表示"一被解锁就算完成"，与故事语义不符（`n2.trial` 应该在 `evt:trial` 结算后才完成）。DAG 种子落地后必须一并改成 `eventResolved` 型条件，否则 `nodeCompleted` 会在错误的时点变真。
+
+### 8. 修订（2026-11-16，落地前 review 提出，**supersede D6**）
+
+**D6′ `branchEventIds` 落在 `LlmContext` 内，不在 `LlmInvocation` 顶层。**
+
+原 D6 把字段放 invocation 顶层，只解决了「怎么传到 engine」。两个问题被漏掉：
+
+1. **`contextHash` 覆盖不到**。`loop.ts:126` 的 `contextHash = sha256(stableStringify(inv.context))`。字段若在 `inv.context` 之外，两次只有白名单不同的 invocation 会得到**同一个 hash**，却在 engine 侧一个放行、一个 `allowedRefs: []` 全拒 —— trace 的唯一身份就是 `contextHash + callsHash`，回放归因立刻失效。
+2. **模型看不见自己的权限**。`contextHints` 清空事件 id 之后（D2），真实 LLM **没有任何信号**知道"本轮可以摆 `evt:trial`"。白名单若只做 engine 闸门、不进 prompt，等于把能力锁起来又不给钥匙 —— 分支轮对真实模型永久不可用，只有 mock 能演。
+
+两者指向同一结论：`branchEventIds` **既是能力也是提示内容**，因此属于 `LlmContext`。
+
+链路（取代 D6 的五段式）：
+```
+rules.llmTriggers[].invoke.branchEventIds        // shared/contract/rules.ts
+  → LlmContext.branchEventIds                     // shared/contract/llm-invocation.ts（进 prompt、进 contextHash）
+  → evaluateTriggers 拷贝                          // game-core/v2/condition-evaluator.ts
+  → buildInitialMessages 渲染进 prompt             // agent-runtime（必须显式挑这个字段，见下）
+  → DispatchContext.branchEventIds = inv.context.branchEventIds   // loop.ts 唯一构造点
+  → enqueueEvent.run 校验                          // game-core/api/engine-api.ts
+```
+- `LlmInvocation` **不再**新增顶层字段，避免两处真值。
+- `contextHash` 自动覆盖，无需改哈希算法。
+- **`buildInitialMessages` 必须显式渲染该字段**（它只挑固定几个字段，漏了就是"engine 有闸门、模型没钥匙"）。提示文案要说清楚是**白名单**：「本轮你最多可以把下列事件之一摆上桌：…；不在列表内的一律会被拒绝」。
+
+**D9 白名单是「能力」，不是「一次性」。**
+声明 `branchEventIds` **不等于**只摆一次。频率由三处共同保证，缺一不可：
+1. ADR-0036 边沿语义（触发器不再每轮命中）；
+2. `fact.enqueueEvent` 的 `waiting` 幂等（同一事件已有 waiting 实例时不重复入队）+ ADR-0035 IO-1 跨回合守卫；
+3. 模板 `missWhen`（内容层：该事件不该再出现时清场）。
+
+⇒ `rules.ts` 的字段注释必须写明「声明 ≠ 只摆一次」。否则下一位模板作者会把「允许清单」理解成「允许了就摆」，把 409 那个坑原样复制到新模板。
+
+**D10 D2 的源码守卫需要豁免区间。**
+D2「runtime 不得消费 `contextHints` 的字符串语义」与 D4「legacy `branch:` 保留一个版本周期」直接冲突：现存 `mock.ts` 有三处形状判断（`startsWith("evt:")` / `startsWith("{")` / 前缀循环）。若守卫按字面写，落地即撞线。
+⇒ 裁决：legacy 解析**收敛到单点 `@deprecated` 函数**（`parseLegacyBranchHint`），源码守卫对该函数体**豁免**，并在守卫里同时登记「清理该函数时必须同步删除豁免规则」。
+这样"临时兼容"有了到期机制：删不掉函数就删不掉豁免，守卫会一直提醒。
+
+### 9. 实现细则裁定（2026-11-16，动工前 review 收敛）
+
+以下五条在实现时才发现，但都会改变"改对不对"的判定，故入 ADR 而非只留在提交信息里。
+
+**R1 `LlmContext` 有第二个构造点：`packages/agent-runtime/src/context.ts:110`。**
+它逐字段重建 context（不 spread）。只改 `loop.ts:146` ⇒ gateway 算的 `contextHash` 仍是旧形状，与 loop 自己算的不一致 —— **同一个缺陷的第二个出口**。两处必须同步，且这一条本身值得一条锁（两处 hash 相等）。
+
+**R2 legacy shim 单独成文件：`packages/agent-runtime/src/providers/legacy-hint.ts`。**
+D10 的守卫用「文件路径白名单」而不是行号区间 —— 行号会随手改漂移，文件边界稳定。守卫规则写成：「除 `legacy-hint.ts` 外，`agent-runtime/src/**` 不得出现 `startsWith` 后接 `"evt:"` 的字面量」。
+
+**R3 D10 的禁用清单**只针对 `evt:` 形状推断。`normalizeBranchTarget` 的 `startsWith("evt:")` 是**校验 id 形状**、`hint.startsWith("asset:")`（`mock.ts:465`）是**另一条未替换的 shape 推断**，两者都不在禁用清单内。后者已登记为 `docs/BACKLOG.md` **B-40**（协议变更类，需 ADR）。
+
+**R4 `[]` 与 `undefined` 在回执上不可区分 —— 「三态」应改述为「两拒一放」。**
+`unknown_reference` 的回执 shape 对所有分支一致（同一码 `allowedRefs` 变量），所以"显式空数组"与"未声明"**无法**用回执区分，锁 4 只能断言统一行为（都拒 + `allowedRefs: []`），不能断言"能区分二者"。措辞随之收紧：**不存在"三态严格区分"，只有三个拒绝分支共享同一码、一条放行分支**；唯一必须防的退化是 `[]` 被当成"不限制"。
+⇒ 措辞统一为「**两拒一放**」，避免后来者以为回执里能看出是哪种拒绝而写出依赖它的测试。
+
+**R5 prompt 渲染（6b）的锁必须锚定具体措辞。**
+不能断言「messages 不含任何 `evt:`」—— `facts` 段本身就承载 `evt:` 形态的 ref。锁应为：给了 `branchEventIds` ⇒ messages 含白名单那段的**固定引导语**且含 `evt:trial`；未声明 ⇒ messages **不含**该引导语。
+
+### 10. 落地顺序是硬约束（2026-11-16，实测发现）
+
+**ADR-0037 的 D1（种 fallbackDag）+ D2（推进节点）不得先于 ADR-0036（边沿触发）单独上线。**
+
+道理在两条修复的交叉点上：现在 `nodeCompleted n1.awaken` 恒假（`taskDag.nodes` 为空），所以第 1 条触发器**从不命中** —— 这是个"死链"，但也因此**不产生任何副作用**。一旦按 D1/D2 种入并推进 DAG，`n1.awaken` 会在第一轮变 `completed` ⇒ 那条触发器**每轮命中**（`status === "completed"` 是持久条件）⇒ 每个回合都发一次 invocation、都摆一次 `evt:trial`。而 `evt:trial` 的 `missWhen: trialDone` 已为真 ⇒ 每次都被 `miss_when` 清场，且 `missedEvents.push` 是 **append-only、无上限、进存档**（`v2-state.ts:247`）。
+
+实测（agent-impl-2，fixture + 真引擎，`trialDone=true` 后连续 3 次 enqueue）：`missedEvents` 逐回合 0→1→2→3，`reason` 全为 `miss_when`。
+⇒ 只上 DAG、不上边沿，等于把"死链"换成"每回合烧一次 LLM + 存档线性膨胀 + 玩家看到『错过了 N 次初次试炼』"。**比现状更糟。**
+
+故：**ADR-0036 必须先落或同时落**。这条写在这里是因为两个 ADR 由不同 worker 实现，顺序不属于任何一方的实现细节，属于集成约束。
+
+（`missedEvents` 无上限本身另立 `docs/BACKLOG.md` **B-41**；本 ADR 不改变其语义，只要求不制造触发它增长的条件。）
+
+**R6 修订 R1：不锁「两处 hash 相等」，改锁「两处各自对字段敏感」。**
+R1 原话「两处算出的 hash 相等」是错的：`buildLlmContext(...)` 的 `contextHash` 算在**重建后**的 context 上（`stablePrefix` 由 `buildStablePrefix` 重生成、`facts` 由 `engineApi.buildFacts` 重投影），而 loop 的 `sha256(stableStringify(inv.context))` 算在 core 交来的原样 context 上。二者只在"重建恰好逐字段不变"时碰巧相等 —— 本仓库不是这个前提（fixture 里 core 给的 `stablePrefix` 通常是空串）。照原话写，锁一落地就红，且红得像 bug。
+⇒ 改为两条**同构**断言，各自锁自己那条路径的覆盖性：
+- 路径 A（`context.ts`）：同一 invocation，仅 `context.branchEventIds` 不同 ⇒ 两次 `buildLlmContext().contextHash` **不相等**；
+- 路径 B（`loop`）：同上 ⇒ 两次写入 trace 的 `contextHash` **不相等**。
+R1 真正要防的是「第二个构造点漏字段」，这个写法才钉得住。
+
+**R7 `legacy` 的「保留一个周期」= 保留解析形态，**不接发射路径**。**
+D2（hints 零解释）+ D3 第 3 条（未声明白名单一律拒）合起来只有一个自洽解，否则自相矛盾：
+老模板 hints 里仍写着 `branch:evt:x`、但没声明 `branchEventIds` ⇒ engine 必拒。mock 若照旧按 hints 发射，每轮产出一条 `unknown_reference` 回执 ⇒ 分支轮既没上桌，又平白添噪音。
+⇒ `parseLegacyBranchHint` 独立成文件、`@deprecated`、**导出但无调用方**，import 处注明「不要把这里的解析接回发射路径，接了必然被 D3 全拒」，一个版本周期后整文件删除。
+**并把它变成锁而不只是注释**：源码守卫增加一条 —— `parseLegacyBranchHint` 除自身文件外**不得有引用**。这样"临时兼容"无法悄悄复活。
+（另一条路是 D3 对 legacy 提示开例外，即 `ctx.branchEventIds === undefined` 时回落 hints —— 与 D2 正面冲突，**否决**。）
+
+**R8 `buildInitialMessages` 用 spread `LlmContext`，但显式挖掉 `stablePrefix`。**
+spread 让以后加字段自动进 prompt（避免"加了字段没进 prompt"这类静默失能）；`stablePrefix` 已作为 system 消息单独发送，spread 进去会重复一大段骨架、白烧 token。
