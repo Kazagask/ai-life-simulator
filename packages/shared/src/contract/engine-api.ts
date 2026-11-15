@@ -112,4 +112,15 @@ export interface EngineApiHandle {
   dispatch(calls: ApiCall[], ctx: DispatchContext): DispatchResult;
   snapshot(): V2Snapshot;
   buildFacts(perspective: Perspective): PerspectiveFactView;
+  /**
+   * 清掉「在飞 invocation」标记（投影的 `llmPending` 读它）。
+   *
+   * 可选：只有能承载异步回调的实现才需要提供。语义是**按 id 清**——
+   * 玩家可能在 LLM 回来之前已经推进过回合，`pendingInvocation` 已被新一轮覆盖；
+   * 这时清空会抹掉新一轮的标记，所以实现必须比对 `invocationId` 再决定是否清。
+   *
+   * 为什么需要它：invocation 是 fire-and-forget，失败（重试耗尽 / 超时 / provider 报错）
+   * 不会走 `content.submit`，若只在提交时清，`llmPending` 会永久为真、前端永远显示「AI 书写中」。
+   */
+  clearPending?(invocationId: string): void;
 }

@@ -106,6 +106,15 @@ export class AgentGateway implements LlmGateway {
         reason: err instanceof Error ? err.message : String(err),
         traceRef: traceRefFor(inv.invocationId),
       };
+    } finally {
+      /**
+       * 「在飞」标记的兜底清除（正常路径已由 `content.submit` 清）。
+       *
+       * 没有这一步，重试耗尽 / 超时 / provider 报错这类**不走 submit**的收场会让
+       * 投影的 `llmPending` 永久为真 —— 前端「AI 书写中…」再也不熄。
+       * 只清自己这一次：实现按 `invocationId` 比对，玩家已推进到下一轮时不会误清。
+       */
+      this.deps.engineApi.clearPending?.(inv.invocationId);
     }
   }
 

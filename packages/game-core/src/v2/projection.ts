@@ -117,6 +117,17 @@ export function projectSnapshotV2(
     lifeStageLabel: adapter.lifeStageLabel(lifeStage),
     startYear: template.meta.startYear,
     /**
+     * LLM 是否还有一次 invocation 在路上（异步 fire-and-forget，回合本身不 await）。
+     *
+     * 玩家侧语义：这是**软提示**，不是锁。口径是「点击为主」——`llmPending` 为真时前端只应
+     * 显示「AI 还在写」，**不得禁用点击**。玩家点得更快是合法输入，晚到的叙事会挂在它
+     * **自己那一轮**的 `traceRef` 下补上（`readNarrativeBlocks` 按 `trace.turnIndex` 过滤），
+     * 不会被错记成新一轮，也不会把事件弄丢（事件进 `delayQueue` 后不设窗口终点 ⇒ 不过期）。
+     *
+     * 只在为真时下发：字段缺省 = 没有在飞的调用，前端不必判 undefined 的三态。
+     */
+    ...(state.pendingInvocation !== undefined ? { llmPending: true } : {}),
+    /**
      * D-07：章节进度对玩家可见。读 `flags.chapter`（模板 opening.yaml 起 1、setFlag 推进），
      * **仅当它是 number 时**下发；否则字段缺省（不输出 0/null，前端不渲染章节指示）。
      * 引擎不提供章节中文名（模板无章节名表），前端只用数字。

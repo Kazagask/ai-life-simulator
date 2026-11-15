@@ -212,6 +212,19 @@ const enqueueEvent: ToolHandler = {
         allowedRefs: [...refs].filter((r) => r.startsWith("evt:")).slice(0, 50),
       });
     }
+    /**
+     * 幂等：同一事件已在队列里 waiting ⇒ 不重复入队。
+     *
+     * 这是「玩家点得快」的直接防线：invocation 是 fire-and-forget，连续几轮各自触发时，
+     * 模型可能对同一个 `eventId` 各入队一次，队列里会叠出多个同源实例（`once` 事件的
+     * 一次性语义随之失效）。已排队就当作成功返回（幂等语义，回灌 receipt 而非错误）。
+     */
+    const queued = state.delayQueue.find(
+      (i) => i.definitionId === eventId && i.status === "waiting",
+    );
+    if (queued !== undefined) {
+      return accepted([{ path: `delayQueue.${queued.instanceId}`, after: "waiting" }]);
+    }
     const instance = enqueueScheduled({
       state,
       definitionId: eventId,
@@ -264,11 +277,22 @@ const writeContent: ToolHandler = {
   },
 };
 
+/**
+ * `content.submit`：invocation 正常落地的终止点。
+ *
+ * F3：traceRef 是 trace 的引用锚；正文仍只在 sink，不进 state。
+ * 同时清掉本轮的在飞标记（只在 id 匹配时清 —— 见 `EngineApiHandle.clearPending`）。
+ */
 const submitContent: ToolHandler = {
   run(state, _args, ctx) {
-    // F3：traceRef 是 trace 的引用锚；正文仍只在 sink，不进 state。
     const traceRef = `trace:${ctx.invocationId ?? "local"}`;
     state.traceRef = traceRef;
+    if (
+      ctx.invocationId !== undefined &&
+      state.pendingInvocation?.invocationId === ctx.invocationId
+    ) {
+      state.pendingInvocation = undefined;
+    }
     return accepted([{ path: "traceRef", after: traceRef }]);
   },
 };
@@ -428,6 +452,16 @@ export class RpgEngineAPI implements EngineApiHandle {
 
   buildFacts(perspective: Perspective): PerspectiveFactView {
     return computeFacts(this.state, perspective);
+  }
+
+  /**
+   * 清「在飞 invocation」标记（见 `EngineApiHandle.clearPending`）。
+   * 只在 id 匹配时清：玩家可能在 LLM 回来之前推进了回合，此 `pendingInvocation`
+   * 已经是新一轮的，清空会让新一轮的 `llmPending` 凭空消失。
+   */
+  clearPending(invocationId: string): void {
+    if (this.state.pendingInvocation?.invocationId !== invocationId) return;
+    this.state.pendingInvocation = undefined;
   }
 
   /** 供回放 / 调用方取得当前权威状态（同一引用，dispatch 原地写）。 */
