@@ -5,13 +5,17 @@ import path from "node:path";
 import { parse } from "yaml";
 import { z } from "zod";
 import {
+  AssetManifestSchema,
   EndingConfigSchema,
   EvaluationConfigSchema,
   OpeningTemplateSchema,
+  RulesSchema,
   WorldTemplateV2Schema,
+  type AssetManifest,
   type EndingConfig,
   type EvaluationConfig,
   type OpeningTemplate,
+  type Rules,
   type WorldTemplateV2,
 } from "@life-sim/shared";
 import { createLookup, type TemplateLookup, type TurnPipelineConfig } from "@life-sim/game-core";
@@ -139,9 +143,9 @@ export interface ReadyTemplateEntry extends TemplateEntryBase {
   semanticFingerprint: string;
   assetFingerprint: string;
   assetCount: number;
-  /** T-06 中间态：独立 loader 读取结果，契约冻结前保持 `unknown`（Group B 收窄类型）。 */
-  rules?: unknown;
-  assetManifest?: unknown;
+  /** 独立声明式 loader 读取结果：`rules.yaml` / `assets/manifest.yaml`（T-06 Group B 已绑定 schema）。 */
+  rules?: Rules;
+  assetManifest?: AssetManifest;
 }
 
 /**
@@ -384,16 +388,32 @@ function loadOptionalConfig<T>(
   }
 }
 
-// ---------- T-06：两个独立声明式文件的 loader 空壳 + manifest 防御式读取 ----------
+// ---------- T-06：两个独立声明式文件的 loader（Group B：绑定 schema + 加载期 fail-fast） ----------
 
-// TODO(T-06 Group B): 绑定 RulesSchema.parse / AssetManifestSchema.parse（契约冻结后）
-function loadRules(versionDir: string): unknown {
-  return parse(readFileSync(path.join(versionDir, "rules.yaml"), "utf8")) as unknown;
+/**
+ * `rules.yaml` 独立加载器（**不并入** `TEMPLATE_MERGE_FILES`）。
+ *
+ * 契约 = `RulesSchema`（5 个顶层键、`.strict()`）。校验失败**直接抛错**，由 `scanVersion`
+ * 的 catch 收敛成 `{ ok: false, reason }`：启动期 ⇒ `template_invalid` 拒绝启动；
+ * 运行期 ⇒ 该版本标 `invalid`（有旧 Entry 则保留旧的）。绝不再「warn + 静默丢文件」。
+ */
+function loadRules(versionDir: string): Rules {
+  try {
+    return RulesSchema.parse(parse(readFileSync(path.join(versionDir, "rules.yaml"), "utf8")));
+  } catch (error) {
+    throw new Error(`rules.yaml: ${firstIssue(error)}`);
+  }
 }
 
-// TODO(T-06 Group B): 绑定 RulesSchema.parse / AssetManifestSchema.parse（契约冻结后）
-function loadAssetManifest(versionDir: string): unknown {
-  return parse(readFileSync(path.join(versionDir, "assets/manifest.yaml"), "utf8")) as unknown;
+/** `assets/manifest.yaml` 独立加载器：契约 = `AssetManifestSchema`，失败同样加载期即抛。 */
+function loadAssetManifest(versionDir: string): AssetManifest {
+  try {
+    return AssetManifestSchema.parse(
+      parse(readFileSync(path.join(versionDir, "assets/manifest.yaml"), "utf8")),
+    );
+  } catch (error) {
+    throw new Error(`assets/manifest.yaml: ${firstIssue(error)}`);
+  }
 }
 
 /** manifest 内部条目：含 path 供资产端点按 id 定位；path 绝不下发给客户端。 */
@@ -404,33 +424,18 @@ export interface AssetTableEntry {
   characterRef?: string;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
 /**
- * 从 assetManifest（契约冻结前为 `unknown`）防御式读取 assets 表，供摘要投影与资产端点共用。
- * // TODO(T-06 Group B): 契约冻结后改用 AssetManifestSchema.parse 收窄，删除此防御式读取。
+ * 从已校验的 `AssetManifest` 派生资产表，供摘要投影与资产端点共用。
+ * 入参类型即 `AssetManifestSchema` 的产物，无需再做防御式形状判断。
  */
-export function readAssetEntries(assetManifest: unknown): AssetTableEntry[] {
-  const list = asRecord(assetManifest)?.assets;
-  if (!Array.isArray(list)) return [];
-  const out: AssetTableEntry[] = [];
-  for (const item of list) {
-    const rec = asRecord(item);
-    if (!rec) continue;
-    const { assetId, path: rel, kind, characterRef } = rec;
-    if (typeof assetId !== "string" || typeof rel !== "string" || typeof kind !== "string") continue;
-    out.push({
-      assetId,
-      path: rel,
-      kind,
-      ...(typeof characterRef === "string" ? { characterRef } : {}),
-    });
-  }
-  return out;
+export function readAssetEntries(assetManifest: AssetManifest | undefined): AssetTableEntry[] {
+  if (assetManifest === undefined) return [];
+  return assetManifest.assets.map((asset) => ({
+    assetId: asset.assetId,
+    path: asset.path,
+    kind: asset.kind,
+    ...(asset.characterRef !== undefined ? { characterRef: asset.characterRef } : {}),
+  }));
 }
 
 type VersionScan = { ok: true; entry: ReadyTemplateEntry } | { ok: false; reason: string; mtime: number };
@@ -540,17 +545,13 @@ function scanVersion(
       present,
       EvaluationConfigSchema,
     );
-    // T-06 中间态：两个新声明式文件只被 readFileSync + yaml.parse 读取（不 .parse() 校验、
-    // 不 fail-fast），结果以 unknown 暂存；坏文件仅 warn，绝不阻断启动 / 加载。
-    // Group B 在契约冻结后补 RulesSchema.parse / AssetManifestSchema.parse 绑定与加载期 fail-fast。
-    let rules: unknown;
-    let assetManifest: unknown;
-    try {
-      if (present.has("rules.yaml")) rules = loadRules(versionDir);
-      if (present.has("assets/manifest.yaml")) assetManifest = loadAssetManifest(versionDir);
-    } catch (error) {
-      logger.warn({ templateId: id, version, reason: firstIssue(error) }, "template_optional_yaml_ignored");
-    }
+    // T-06：两个新声明式文件各有独立 loader，**加载期即 schema 校验并 fail-fast**——
+    // 坏 `rules.yaml` / `assets/manifest.yaml` 走与其它白名单文件同一条失败通道（catch → reason），
+    // 不再「warn + 静默丢文件」（否则 malformed rules 会退化成 undefined，运行时才炸）。
+    const rules = present.has("rules.yaml") ? loadRules(versionDir) : undefined;
+    const assetManifest = present.has("assets/manifest.yaml")
+      ? loadAssetManifest(versionDir)
+      : undefined;
     const semanticFingerprint = hashPairs(
       [...declarative]
         .sort()

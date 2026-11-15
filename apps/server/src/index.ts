@@ -23,13 +23,26 @@ import {
   resolveEnding,
   unequipV2,
   useItemV2,
+  visibleFactRefs,
   type ConditionContext,
   type TurnPipelineConfig,
 } from "@life-sim/game-core";
-import { BattleCommandSchema, EndingNarrativeOutputSchema, EvaluationSummaryOutputSchema } from "@life-sim/shared";
-import type { EndingConfig, EndingRecord, V2Snapshot, WorldStateV2 } from "@life-sim/shared";
+import { pipelineForTurn, resolveAgentConfig } from "./agent/pipeline.js";
+import {
+  BattleCommandSchema,
+  EndingNarrativeOutputSchema,
+  EvaluationSummaryOutputSchema,
+} from "@life-sim/shared";
+import type {
+  EndingConfig,
+  EndingRecord,
+  EndingView,
+  Perspective,
+  V2Snapshot,
+  WorldStateV2,
+} from "@life-sim/shared";
 import { compareVersions, loadTemplates, readAssetEntries, type ReadyTemplateEntry } from "./templates.js";
-import { dataDir, hydrate, loadPersistedWorlds, traceFile, worldStore } from "./store.js";
+import { dataDir, hydrate, loadPersistedWorlds, worldStore } from "./store.js";
 import { createLLMProvider, readLLMConfig, resolveProviderForRequest, type LLMProvider } from "./llm/provider.js";
 import { userCredentials } from "./llm/userCredentials.js";
 import {
@@ -38,6 +51,8 @@ import {
   generateNarrative,
   type NarrativeOutcome,
 } from "./narrative/generate.js";
+import { recordNarrative } from "./narrative/trace.js";
+import { readNarrativeBlocks } from "./narrative/read.js";
 import {
   getFlavors,
   getFlavorsForEvents,
@@ -146,11 +161,19 @@ function getWorld(id: string): { world: WorldStateV2; entry: ReadyTemplateEntry 
 // ---------- R2.7 · 叙事编排（结局 / 总结 / 事件 flavor 的服务端接入） ----------
 
 /**
- * 非权威装饰结果缓存（`worldId:turnIndex`）：避免同一终止轮次重复调 LLM。
+ * 非权威装饰结果缓存：避免同一终止轮次重复调 LLM。
  * 不进 `WorldStateV2`、不进 replay、不落盘；缓存只影响玩家可见展示字段。
+ *
+ * 🔴 F4：键**必须**含视角。旧键 `${worldId}:${turnIndex}` 会被跨请求共享，
+ * 一次 `world` 窗口取的 outcome 会被后续 `player` 请求命中（跨窗口串味，P0）。
  */
 const endingOutcomeCache = new Map<string, NarrativeOutcome>();
 const TEMPLATE_OUTCOME: NarrativeOutcome = { source: "template", data: null, diagnostic: null };
+
+/** 装饰缓存键：`worldId:turnIndex:perspective`（视角是第一等维度）。 */
+function narrativeCacheKey(worldId: string, turnIndex: number, perspective: Perspective): string {
+  return `${worldId}:${turnIndex}:${perspective}`;
+}
 
 /** diagnostic 只写服务端日志（可诊断、不静默）；绝不含 apiKey / token / session。 */
 function logNarrativeDiagnostic(diagnostic: string | null): void {
@@ -198,14 +221,19 @@ function isMaskedEnding(resolution: EndingResolution): boolean {
  * 结局叙事 outcome：未终止世界 / 隐藏结局快速短路为 template（零 LLM 调用）；
  * 其余走 `generateNarrative`（mock 亦短路为 template）。
  * 管线配置取该世界的内存快照 `entry.pipeline`（不查全局表）。
+ *
+ * F3：LLM 产出的结局正文（title + summary）经 `content.writeNarrative` 落 trace，
+ * 刷新后仍可通过 `GET /api/worlds/:id/narrative` 读回；存档只留 `traceRef`。
  */
 async function endingOutcomeFor(
   world: WorldStateV2,
   entry: ReadyTemplateEntry,
+  perspective: Perspective = "player",
   provider: LLMProvider = llmProvider,
 ): Promise<NarrativeOutcome> {
   if (world.termination === null) return TEMPLATE_OUTCOME;
   const resolution = resolveEndingBase(world, entry.lookup, entry.pipeline);
+  // Axis 1（F4 保留）：隐藏结局绝不把原文交给 LLM。判据由模板 masked 声明 + 决胜结果得出。
   if (isMaskedEnding(resolution)) return TEMPLATE_OUTCOME;
   const outcome = await generateNarrative(
     buildEndingNarrativeRequest({
@@ -217,25 +245,118 @@ async function endingOutcomeFor(
     provider,
   );
   logNarrativeDiagnostic(outcome.diagnostic);
+  recordEndingNarrative(world, entry, resolution, outcome);
   return outcome;
+}
+
+/** 从结局 outcome 中取出玩家可见正文（仅 `llm` 源有值；template / fallback 保留模板文案）。 */
+function narrativeTextOf(outcome: NarrativeOutcome): string | null {
+  if (outcome.source !== "llm") return null;
+  const data = outcome.data;
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return null;
+  const { title, summary } = data as Record<string, unknown>;
+  if (typeof title !== "string" || typeof summary !== "string") return null;
+  return `${title}\n\n${summary}`;
+}
+
+/**
+ * F3 写入侧①：结局正文 → trace。`perspective` 只用于日志 / 未来的窗口化写侧，
+ * 落账窗口固定为 player（HTTP 端点对外只有玩家视角）。
+ */
+function recordEndingNarrative(
+  world: WorldStateV2,
+  entry: ReadyTemplateEntry,
+  resolution: EndingResolution,
+  outcome: NarrativeOutcome,
+): void {
+  const text = narrativeTextOf(outcome);
+  if (text === null) return;
+  try {
+    recordNarrative(world, entry, {
+      reason: "ending.narrative",
+      blocks: [
+        {
+          blockId: `ending:${resolution.base.endingId}`,
+          kind: "narrative",
+          text,
+          // 证据 id 若不在 player 窗口可见集合内，写侧会被过滤掉（不回退、不报错）。
+          refs: resolution.base.evidenceIds,
+        },
+      ],
+    });
+  } catch (error) {
+    // 叙事落 trace 失败绝不阻断玩法响应（F3：正文是展示层，不是权威状态）。
+    app.log.warn({ error: error instanceof Error ? error.message : String(error) }, "narrative_trace_failed");
+  }
+}
+
+/** F3 写入侧②：人生总结正文 → trace（`memory` 类块，玩家窗口）。 */
+function recordEvaluationNarrative(
+  world: WorldStateV2,
+  entry: ReadyTemplateEntry,
+  outcome: NarrativeOutcome,
+): void {
+  if (outcome.source !== "llm") return;
+  const data = outcome.data;
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return;
+  const summary = (data as Record<string, unknown>).summary;
+  if (typeof summary !== "string" || summary.length === 0) return;
+  try {
+    recordNarrative(world, entry, {
+      reason: "evaluation.summary",
+      blocks: [
+        {
+          blockId: `evaluation:${world.turnIndex}`,
+          kind: "memory",
+          text: summary,
+          refs: [],
+        },
+      ],
+    });
+  } catch (error) {
+    app.log.warn({ error: error instanceof Error ? error.message : String(error) }, "narrative_trace_failed");
+  }
+}
+
+/**
+ * Axis 2（F4）：结局叙事能否进入该视角的输出投影。
+ * 判据只有两层，且都来自 game-core：
+ * ① 统一台账里显式授予了该结局事实（`ending:<id>`）⇒ 可见；
+ * ② 台账未声明结局事实（P0 模板均如此）⇒ 用 core 已算好的 `EndingView.visibility`
+ *    （`buildEndingView` 依据模板 `narrativeConfig.masked` 派生，含 hidden 掩码规则）。
+ * server 不新增自己的可见性字符串判断。
+ */
+function endingVisibleInWindow(
+  world: WorldStateV2,
+  ending: EndingView,
+  perspective: Perspective,
+): boolean {
+  if (perspective === "world") return true;
+  if (visibleFactRefs(world, perspective).has(`ending:${ending.endingId}`)) return true;
+  return ending.visibility === "public";
 }
 
 /**
  * 所有返回 `snapshot` 的路由统一走这里：**响应层装饰**，不改 `V2Snapshot` 类型、
- * 不改 `projectSnapshotV2`、不写权威状态。未终止 / hidden ⇒ 原样返回（零额外开销）。
+ * 不改 `projectSnapshotV2`、不写权威状态。
+ *
+ * `perspective` 是必填的第一等维度（F4 1+1+N）：装饰缓存按视角分键，
+ * 是否允许装饰由 core 窗口层（`endingVisibleInWindow`）判定。
  */
 async function decorateSnapshot(
   snapshot: V2Snapshot,
   world: WorldStateV2,
   entry: ReadyTemplateEntry,
+  perspective: Perspective,
   provider: LLMProvider = llmProvider,
 ): Promise<V2Snapshot> {
   const ending = snapshot.ending;
-  if (!ending || ending.visibility === "hidden") return snapshot;
-  const key = `${world.id}:${snapshot.turnIndex}`;
+  if (!ending) return snapshot;
+  if (!endingVisibleInWindow(world, ending, perspective)) return snapshot;
+  const key = narrativeCacheKey(world.id, snapshot.turnIndex, perspective);
   let outcome = endingOutcomeCache.get(key);
   if (outcome === undefined) {
-    outcome = await endingOutcomeFor(world, entry, provider);
+    outcome = await endingOutcomeFor(world, entry, perspective, provider);
     endingOutcomeCache.set(key, outcome);
   }
   return decorateEndingView(snapshot, outcome);
@@ -354,8 +475,8 @@ const ASSET_CONTENT_TYPES: Record<string, string> = {
 
 /**
  * T-06 · 静态资源下发（分叉③ A）：**只按 assetId 查 manifest 表定位路径，绝不接受客户端路径**。
- * 本波 manifest 仍是 `unknown`，用 `readAssetEntries` 防御式读取（Group B 契约定稿后改用
- * `AssetManifestSchema.parse` 收窄）。越界路径 / 非白名单扩展名一律 403。
+ * manifest 已在加载期过 `AssetManifestSchema`（T-06 Group B），此处直接读类型化条目。
+ * 越界路径 / 非白名单扩展名一律 403。
  */
 app.get("/api/templates/:id/:version/assets/:assetId", async (request, reply) => {
   const { id, version, assetId } = request.params as {
@@ -367,7 +488,6 @@ app.get("/api/templates/:id/:version/assets/:assetId", async (request, reply) =>
   if (!entry) {
     return reply.code(404).send({ error: "template_version_missing", templateId: id, version });
   }
-  // TODO(T-06 Group B): manifest 由 AssetManifestSchema.parse 收窄后无需此防御式读取。
   const found = readAssetEntries(entry.assetManifest).find((a) => a.assetId === assetId);
   if (!found) {
     return reply.code(404).send({ error: "asset_not_found", assetId });
@@ -453,7 +573,7 @@ app.post("/api/worlds", async (request, reply) => {
     }
   }
   const world = worldStore.create(parsed.data, entry);
-  const snapshot = await decorateSnapshot(projectWorld(world, entry), world, entry, request.llmProvider);
+  const snapshot = await decorateSnapshot(projectWorld(world, entry), world, entry, "player", request.llmProvider);
   return reply.code(201).send({ worldId: world.id, snapshot });
 });
 
@@ -480,12 +600,23 @@ app.get("/api/worlds/:id", async (request, reply) => {
       projectWorld(found.world, found.entry),
       found.world,
       found.entry,
+      "player",
       request.llmProvider,
     ),
     // 可选新增字段：非权威缓存里的事件 flavor（缺省 {}）；缺省完全等同原行为
     eventFlavors: getFlavors(id),
   };
 });
+
+// ---------- T-11（部分）· LLM 网关注入 ----------
+// 注入策略与实现都在 `agent/pipeline.ts`（可单测）：无 provider ⇒ 原样返回 `entry.pipeline`。
+// 这里只负责把「本请求的会话凭证 / env」翻译成配置。
+
+function requestAgentConfig(request: import("fastify").FastifyRequest) {
+  const sid = request.headers["x-life-sim-llm-session"];
+  const creds = typeof sid === "string" ? userCredentials.lookup(sid) : undefined;
+  return resolveAgentConfig(creds, readLLMConfig());
+}
 
 /**
  * 推进轮次（自由行动）。
@@ -503,11 +634,18 @@ app.post("/api/worlds/:id/turns", async (request, reply) => {
   }
 
   try {
-    const res = advanceTurnV2(found.world, parsed.data, found.entry.template, found.entry.lookup, undefined, found.entry.pipeline);
+    const res = advanceTurnV2(
+      found.world,
+      parsed.data,
+      found.entry.template,
+      found.entry.lookup,
+      undefined,
+      pipelineForTurn(found.world, found.entry, requestAgentConfig(request)),
+    );
     worldStore.save(res.state);
     // fire-and-forget：绝不 await LLM、不阻塞回合结算（R-LLM-05）
     scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, request.llmProvider);
+    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, "player", request.llmProvider);
     return {
       worldId: found.world.id,
       turnIndex: res.snapshot.turnIndex,
@@ -536,7 +674,7 @@ app.post("/api/worlds/:id/events/choose", async (request, reply) => {
     const res = chooseOptionV2(found.world, parsed.data, found.entry.template, found.entry.lookup, found.entry.pipeline);
     worldStore.save(res.state);
     scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, request.llmProvider);
+    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, "player", request.llmProvider);
     return {
       worldId: found.world.id,
       snapshot,
@@ -563,7 +701,7 @@ app.post("/api/worlds/:id/battle", async (request, reply) => {
     const res = battleActionV2(found.world, parsed.data, found.entry.template, found.entry.lookup, found.entry.pipeline);
     worldStore.save(res.state);
     scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, request.llmProvider);
+    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, "player", request.llmProvider);
     return {
       worldId: found.world.id,
       snapshot,
@@ -590,7 +728,7 @@ app.post("/api/worlds/:id/items/use", async (request, reply) => {
     const res = useItemV2(found.world, parsed.data, found.entry.template, found.entry.lookup, found.entry.pipeline);
     worldStore.save(res.state);
     scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, request.llmProvider);
+    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, "player", request.llmProvider);
     return {
       worldId: found.world.id,
       snapshot,
@@ -630,7 +768,7 @@ app.post("/api/worlds/:id/equipment/equip", async (request, reply) => {
   try {
     const res = equipV2(found.world, parsed.data, found.entry.template, found.entry.lookup);
     worldStore.save(res.state);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, request.llmProvider);
+    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, "player", request.llmProvider);
     return { worldId: found.world.id, snapshot };
   } catch (error) {
     return handleEquipError(request, reply, error);
@@ -650,7 +788,7 @@ app.post("/api/worlds/:id/equipment/unequip", async (request, reply) => {
   try {
     const res = unequipV2(found.world, parsed.data, found.entry.template, found.entry.lookup);
     worldStore.save(res.state);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, request.llmProvider);
+    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, "player", request.llmProvider);
     return { worldId: found.world.id, snapshot };
   } catch (error) {
     return handleEquipError(request, reply, error);
@@ -733,43 +871,27 @@ app.get("/api/worlds/:id/history", async (request, reply) => {
 });
 
 /**
- * T-07 / F3：叙事正文读回端点。正文只存于 append-only `<worldId>.trace.jsonl`（不进
- * `WorldStateV2`）；本波从 trace 读回内容块并按 `fromTurn` 过滤后**原样返回**（服务端内部
- * 端点，尚未接玩家投影）。
+ * T-07 / F3 读回端点：叙事正文只存于 append-only `<worldId>.trace.jsonl`。
+ *
+ * 玩家窗口投影（F4）在**块级**做三件事，缺一不可：
+ * ① `targetPerspective !== "player"` ⇒ 整块丢弃（world 窗口块永不外泄）；
+ * ② `visibility === "hidden"` ⇒ 整块丢弃（T-05a 裁决：**不**替换成 maskText，maskText 也不下发）；
+ * ③ `refs[]` 任一不在 `visibleFactRefs(state,"player")` 内 ⇒ 整块丢弃
+ *    （防御「块本体是 player 的、却引用了 player 看不见的事实」这种越窗写法）。
+ *
+ * 响应只给 `ContentBlockVM`（blockId / kind / text）。**绝不**回传整条 `LlmTrace`
+ * （receipts / diagnostics / contextHash / callsHash / toolProfile / token 数都不出服务端）。
  */
 app.get("/api/worlds/:id/narrative", async (request, reply) => {
   const { id } = request.params as { id: string };
   const record = worldStore.get(id);
   if (!record) return reply.code(404).send({ error: "world_not_found" });
   const q = request.query as { fromTurn?: string };
-  const fromTurn = q.fromTurn !== undefined ? Number.parseInt(q.fromTurn, 10) : undefined;
-  const file = traceFile(id);
-  const blocks: unknown[] = [];
-  if (existsSync(file)) {
-    for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
-      const text = line.trim();
-      if (text === "") continue;
-      try {
-        blocks.push(JSON.parse(text) as unknown);
-      } catch {
-        // 跳过损坏行，不影响其余内容块读回
-      }
-    }
-  }
-  // TODO(T-05a Group B): 读回时经 game-core buildFacts(player) 掩码
-  const filtered =
-    fromTurn === undefined || Number.isNaN(fromTurn)
-      ? blocks
-      : blocks.filter((b) => {
-          const rec =
-            typeof b === "object" && b !== null && !Array.isArray(b)
-              ? (b as Record<string, unknown>)
-              : null;
-          const t = rec?.turnIndex;
-          // 无 turnIndex 的内容块本波不丢弃（trace 形状由 T-04 定稿后收窄）
-          return typeof t === "number" ? t >= fromTurn : true;
-        });
-  return { worldId: id, blocks: filtered };
+  const parsedFrom = q.fromTurn !== undefined ? Number.parseInt(q.fromTurn, 10) : undefined;
+  const fromTurn =
+    parsedFrom !== undefined && !Number.isNaN(parsedFrom) ? parsedFrom : undefined;
+  // 没有 trace 文件 ⇒ `blocks: []`（不是错误、不是 404），由 readNarrativeBlocks 承担。
+  return { worldId: id, blocks: readNarrativeBlocks(id, record.state, fromTurn) };
 });
 
 /**
@@ -802,15 +924,18 @@ app.post("/api/worlds/:id/archive", async (request, reply) => {
         request.llmProvider,
       );
   logNarrativeDiagnostic(summaryOutcome.diagnostic);
+  // F3 写入侧②：人生总结同样落 trace（刷新后归档页仍能看到 LLM 文案）。
+  recordEvaluationNarrative(found.world, found.entry, summaryOutcome);
   const finalEvaluation = masked
     ? evaluation
     : finalizeEvaluationSummary(evaluation, adapterFromOutcome(summaryOutcome));
 
   // R2.7 · T-S1：结局叙事接真实 LLM。outcome 同时用于响应层装饰
   // `snapshot.ending.narrativeSource`（主理人裁决 3：玩家可见准绳）。
+  // F3 写入侧③：结局正文在 `endingOutcomeFor` 内即落 trace（与装饰同源，不重复生成）。
   const endingOutcome = masked
     ? TEMPLATE_OUTCOME
-    : await endingOutcomeFor(found.world, found.entry, request.llmProvider);
+    : await endingOutcomeFor(found.world, found.entry, "player", request.llmProvider);
   const endingAdapter = masked ? undefined : adapterFromOutcome(endingOutcome);
   const ending = resolveEnding(
     found.world,

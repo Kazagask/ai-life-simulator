@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -10,8 +11,8 @@ import {
 } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import type { OpeningTemplate, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
-import { WorldStateV2Schema } from "@life-sim/shared";
+import type { ContentBlock, LlmTrace, OpeningTemplate, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
+import { LlmTraceSchema, WorldStateV2Schema } from "@life-sim/shared";
 import {
   createDefaultOpeningTemplate,
   createRunnerContext,
@@ -126,8 +127,7 @@ function worldFile(id: string): string {
 
 /**
  * F3 / T-07：叙事正文 append-only trace 文件路径（`data/worlds/<worldId>.trace.jsonl`），
- * 与存档同目录；随 `worldStore.delete` 一并清理。本波只落路径函数，正文写入由 Group B 的
- * agentic 循环（T-04）负责。
+ * 与存档同目录；随 `worldStore.delete` 一并清理。正文写入见 `appendTrace`（同一文件下方）。
  */
 export function traceFile(worldId: string): string {
   // 与 worldFile 同一口径的防御性校验，避免 worldId 里夹路径分隔符读到目录外
@@ -135,6 +135,68 @@ export function traceFile(worldId: string): string {
     throw new Error(`invalid_world_id: ${worldId}`);
   }
   return path.join(dataDir(), `${worldId}.trace.jsonl`);
+}
+
+/** 内容块只挑契约字段：`maskText` 可以留在 trace 元数据里，其余自由字段一律丢弃。 */
+function pickContentBlock(block: ContentBlock): ContentBlock {
+  return {
+    blockId: block.blockId,
+    kind: block.kind,
+    ...(block.text !== undefined ? { text: block.text } : {}),
+    refs: [...block.refs],
+    visibility: block.visibility,
+    targetPerspective: block.targetPerspective,
+    ...(block.maskText !== undefined ? { maskText: block.maskText } : {}),
+    ...(block.assetId !== undefined ? { assetId: block.assetId } : {}),
+    ...(block.slot !== undefined ? { slot: block.slot } : {}),
+  };
+}
+
+/**
+ * F3 / T-07 写入侧：把一条 `LlmTrace` **追加**到 `data/worlds/<worldId>.trace.jsonl`。
+ *
+ * - 只接受完整 `LlmTrace`（agent-runtime 产出的对象）；函数内部**逐字段重建**再
+ *   `LlmTraceSchema.parse`，因此调用方误挂的额外字段（apiKey / prompt / 原始响应）永远进不了磁盘。
+ * - append-only：只 `appendFileSync`，绝不重写 / 截断既有行；损坏行由读侧跳过。
+ * - 叙事正文只落这里，`WorldStateV2` 只保留 `traceRef`（F3 硬不变量）。
+ */
+export function appendTrace(worldId: string, trace: LlmTrace): void {
+  const sanitized: LlmTrace = {
+    invocationId: trace.invocationId,
+    turnIndex: trace.turnIndex,
+    worldTime: trace.worldTime,
+    reason: trace.reason,
+    contextHash: trace.contextHash,
+    toolProfile: trace.toolProfile,
+    callsHash: trace.callsHash,
+    receipts: trace.receipts.map((receipt) => ({
+      callId: receipt.callId,
+      outcome: receipt.outcome,
+      ...(receipt.code !== undefined ? { code: receipt.code } : {}),
+      ...(receipt.detail !== undefined ? { detail: receipt.detail } : {}),
+      ...(receipt.changes !== undefined ? { changes: receipt.changes.map((c) => ({ ...c })) } : {}),
+      ...(receipt.factsHint !== undefined ? { factsHint: { ...receipt.factsHint } } : {}),
+    })),
+    diagnostics: [...trace.diagnostics],
+    inputTokens: trace.inputTokens,
+    outputTokens: trace.outputTokens,
+    latencyMs: trace.latencyMs,
+    outcome: trace.outcome,
+    ...(trace.fallbackCode !== undefined ? { fallbackCode: trace.fallbackCode } : {}),
+    templateRef: trace.templateRef,
+    ...(trace.contentBlocks !== undefined
+      ? { contentBlocks: trace.contentBlocks.map(pickContentBlock) }
+      : {}),
+  };
+  const parsed = LlmTraceSchema.parse(sanitized);
+  const file = traceFile(worldId);
+  mkdirSync(path.dirname(file), { recursive: true });
+  appendFileSync(file, `${JSON.stringify(parsed)}\n`, "utf-8");
+}
+
+/** trace 文件是否存在（读侧用于区分「没有叙事」与「文件缺失」）。 */
+export function traceExists(worldId: string): boolean {
+  return existsSync(traceFile(worldId));
 }
 
 /** 信封原子写（R-PS-03）：tmp → rename；失败删 tmp 并把错误抛给调用方。 */
@@ -169,6 +231,14 @@ function persist(state: WorldStateV2): void {
     templateId: record.entry.ref.id,
     templateVersion: record.entry.ref.version,
     templateFingerprint: record.entry.semanticFingerprint,
+    // F3：只落引用锚，不落正文（正文在 append-only `<worldId>.trace.jsonl`）。
+    ...(state.traceRef !== undefined ? { traceRef: state.traceRef } : {}),
+    // `contentRef` 是该 trace 内叙事段的定位锚，与 `traceRef` 同源、不承载正文。
+    ...(state.traceRef !== undefined ? { contentRef: state.traceRef } : {}),
+    // 分叉③ A：展示完整性锚，写入信封但**不参与**载入期拒载判定。
+    ...(record.entry.assetFingerprint !== undefined
+      ? { assetFingerprint: record.entry.assetFingerprint }
+      : {}),
     state,
   };
   writeEnvelopeAtomic(worldFile(state.id), envelope);
@@ -322,6 +392,12 @@ export function loadPersistedWorlds(registry: TemplateRegistry): {
         templateId: envelope.templateId,
         templateVersion: version,
         templateFingerprint: envelope.templateFingerprint,
+        // 迁移只补 `templateVersion`：F3 引用锚 / 展示锚逐字段保留。
+        ...(envelope.traceRef !== undefined ? { traceRef: envelope.traceRef } : {}),
+        ...(envelope.contentRef !== undefined ? { contentRef: envelope.contentRef } : {}),
+        ...(envelope.assetFingerprint !== undefined
+          ? { assetFingerprint: envelope.assetFingerprint }
+          : {}),
         state: envelope.state,
       });
     }
