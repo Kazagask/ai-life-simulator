@@ -21,3 +21,10 @@ export * from "./v2/relations.js";
 
 // ---------- 确定性随机源（V2 引擎共用，非 V1 遗留） ----------
 export * from "./rng.js";
+
+// ---------- 阶段 B：引擎 API / 透视窗口 / 条件求值 / DAG / 知识授予（T-01/T-02/T-05a） ----------
+export * from "./api/engine-api.js";
+export * from "./api/perspective.js";
+export * from "./v2/condition-evaluator.js";
+export * from "./v2/task-dag.js";
+export * from "./v2/knowledge-grants.js";

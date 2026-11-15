@@ -1,8 +1,11 @@
 import {
+  ContentBlockSchema,
   EndingNarrativeOutputSchema,
   EvaluationSummaryOutputSchema,
+  type ContentBlock,
   type EvaluationRecord,
   type NarrativeSource,
+  type Perspective,
 } from "@life-sim/shared";
 
 /**
@@ -246,4 +249,81 @@ export function finalizeEvaluationSummary(
 ): EvaluationRecord {
   const organized = organizeEvaluationSummary(record, adapter);
   return { ...record, summary: organized.summary, summarySource: organized.summarySource };
+}
+
+// ---------- T-08a / F3：ContentSink（正文只写 trace，绝不写 WorldStateV2） ----------
+
+/**
+ * 结构校验器：`ContentBlock` 必须是 shared 契约的合法形状（strict）。
+ * game-core 在把正文交给任何落点前先过这里，失败即 `invalid_arguments`。
+ */
+export function validateContentBlock(candidate: unknown): ContentBlock | null {
+  const parsed = ContentBlockSchema.safeParse(candidate);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * 内容落点（F3 咬合点）：正文 append-only 写入本 sink（供 `LlmTrace` 持久化 / 读回端点消费），
+ * **从不写 `WorldStateV2`**。存的是完整 `ContentBlock`（正文 + 元数据一体），与
+ * `LlmTraceSchema.contentBlocks = z.array(ContentBlockSchema)` 对齐。`maskText?` 只作 trace
+ * 元数据保留（T-05a 口径）：`forWindow` 对非 world 窗口的 hidden 块**整块不下发**，
+ * 绝不把隐秘原文或掩码文案替换进正文。
+ */
+export interface ContentSink {
+  append(block: ContentBlock): boolean;
+  list(): ReadonlyArray<ContentBlock>;
+  forWindow(perspective: Perspective): ContentBlock[];
+  clear(): void;
+}
+
+export function createContentSink(): ContentSink {
+  const stored: ContentBlock[] = [];
+  const clone = (b: ContentBlock): ContentBlock => ({ ...b, refs: [...b.refs] });
+  return {
+    append(block: ContentBlock): boolean {
+      if (validateContentBlock(block) === null) return false;
+      stored.push(clone(block));
+      return true;
+    },
+    list: () => stored.map(clone),
+    forWindow(perspective: Perspective) {
+      return stored
+        .filter((b) => b.targetPerspective === perspective)
+        // 非 world 窗口：hidden 块整块不下发（F4 / T-05a），不泄漏原文、不替换掩码文案。
+        .filter((b) => perspective === "world" || b.visibility !== "hidden")
+        .map(clone);
+    },
+    clear: () => {
+      stored.length = 0;
+    },
+  };
+}
+
+/**
+ * 把 sink 中的内容块组装为一条 `LlmTrace` 形状（正文留在 trace，供回放 / 读回）。
+ * `contentBlocks` 为完整 ContentBlock[]，可直接过 `LlmTraceSchema.safeParse`。
+ */
+export function buildContentTrace(
+  sink: ContentSink,
+  base: {
+    invocationId: string;
+    turnIndex: number;
+    worldTime: number;
+    reason: string;
+    toolProfile: string;
+    templateRef: string;
+  },
+): Record<string, unknown> {
+  return {
+    ...base,
+    contextHash: "content",
+    callsHash: "content",
+    receipts: [],
+    diagnostics: [],
+    inputTokens: 0,
+    outputTokens: 0,
+    latencyMs: 0,
+    outcome: "committed",
+    contentBlocks: sink.list(),
+  };
 }

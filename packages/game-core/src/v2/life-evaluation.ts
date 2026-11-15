@@ -22,6 +22,16 @@ export const DEFAULT_DIMENSION_IDS = [
   "regrets",
 ] as const;
 
+/**
+ * 输出维度集合的**唯一来源**：`EvaluationConfig`（evaluation.yaml）。模板换成任意
+ * 自定义维度集（如 demo-agentic 只声明 `growth`）⇒ 输出维度集随之变化，引擎代码不改。
+ * 下列 `DEFAULT_DIMENSION_IDS` 仅是「未提供 evaluation.yaml 时」的默认配置常量，
+ * 不参与求值路径的维度裁剪。
+ */
+export function activeDimensionIds(cfg: EvaluationConfig): string[] {
+  return [...cfg.dimensions, ...cfg.worldSpecificDimensions].map((d) => d.id);
+}
+
 /** 模板未提供 evaluation.yaml 时引擎使用的最小默认配置。 */
 export function createDefaultEvaluationConfig(): EvaluationConfig {
   const dim = (id: string, label: string, weight: number): EvaluationDimension => ({
@@ -186,12 +196,14 @@ function saturatedScore(raw: number, lo: number, hi: number): number {
   return Math.round(Math.max(lo, Math.min(hi, score)) * 100) / 100;
 }
 
-/** 基于过程的确定性评分；输出维度集合严格等于模板声明集合。 */
+/** 基于过程的确定性评分；输出维度集合严格等于模板声明集合（EvaluationConfig 驱动）。 */
 export function evaluateLifeV2(
   state: WorldStateV2,
   cfg: EvaluationConfig = createDefaultEvaluationConfig(),
 ): EvaluationRecord {
   const signals = collectProcessSignals(state);
+  // 维度集合完全由 evaluation.yaml 的 EvaluationConfig 决定；自定义维度走 rawScore /
+  // dimensionEvidence 的 default 分支（无引擎硬编码 id 裁剪），不加世界模板专属分支。
   const all = [...cfg.dimensions, ...cfg.worldSpecificDimensions];
   const dimensions: EvaluationDimensionResult[] = all.map((d) => {
     const evidence = dimensionEvidence(d.id, signals);

@@ -1,5 +1,6 @@
 import type {
   BattleCommand,
+  CallLogEntry,
   ChooseOptionCommand,
   CombatSkill,
   EndingConfig,
@@ -8,6 +9,12 @@ import type {
   EventV2,
   HistoryEntryV2,
   HistoryVisibility,
+  LlmBudget,
+  LlmGateway,
+  LlmInvocation,
+  LlmTrace,
+  Perspective,
+  Rules,
   SlotEventView,
   TimeAmount,
   UseItemCommand,
@@ -17,6 +24,12 @@ import type {
   WorldStateV2,
   WorldTemplateV2,
 } from "@life-sim/shared";
+import { assignSlot, assignPendingInvocation, type ToolRegistry } from "../api/engine-api.js";
+import {
+  createConditionRegistry,
+  evaluateTriggers,
+  type ConditionRegistry,
+} from "./condition-evaluator.js";
 import { createRng, deriveTurnSeed, pickWeighted, type Rng } from "../rng.js";
 import type { RunnerContext } from "./runner-context.js";
 import { evaluateLifeV2 } from "./life-evaluation.js";
@@ -305,7 +318,7 @@ export function revalidateSlot(state: WorldStateV2, lookup: TemplateLookup): { d
     });
   }
   const dropped = [def.id];
-  state.slot = null;
+  assignSlot(state, null);
   return { dropped };
 }
 
@@ -344,14 +357,14 @@ function enqueueSuccessor(state: WorldStateV2, lookup: TemplateLookup, nextEvent
 /** 结算后的「占槽判定」（ADR-0034 §2 步 4）：**唯一**能写 `slot` 的后继路径。 */
 function applySuccessor(state: WorldStateV2, lookup: TemplateLookup, settledId: string, nextEventId?: string): void {
   if (nextEventId === undefined) {
-    state.slot = null;
+    assignSlot(state, null);
     return;
   }
   if (enqueueSuccessor(state, lookup, nextEventId)) {
-    state.slot = null; // 有延迟 ⇒ 进队列，不占槽（ADR §10-4）
+    assignSlot(state, null); // 有延迟 ⇒ 进队列，不占槽（ADR §10-4）
     return;
   }
-  state.slot = { eventId: nextEventId, from: "successor", fromEventId: settledId };
+  assignSlot(state, { eventId: nextEventId, from: "successor", fromEventId: settledId });
 }
 
 /** 链条起点（`startChain` 效果 / NPC 自主行动）⇒ 只入队，绝不直接写 `slot`（ADR-0034 §4 R3）。 */
@@ -643,7 +656,7 @@ function resolveHooksV2(
         preGated: true,
       });
     } else if (state.slot === null) {
-      state.slot = { eventId: event.id, from: "hook" };
+      assignSlot(state, { eventId: event.id, from: "hook" });
     } else {
       // 槽已被同轮其它钩子占用 ⇒ 入队等下一轮（不覆盖、不丢弃）
       enqueueScheduled({
@@ -694,7 +707,7 @@ function nextTurn(
     if (state.slot !== null) {
       const def = lookup.event(state.slot.eventId);
       if (!def) {
-        state.slot = null; // 加载期完整性错误：清槽，不臆造错失
+        assignSlot(state, null); // 加载期完整性错误：清槽，不臆造错失
         continue;
       }
       // 呈现前前提复核（§3-4）：失效即静默清槽，然后继续判定（可能还有排队事件）
@@ -712,7 +725,7 @@ function nextTurn(
           if (resolveCombatRefs(def.settle.combat, state, lookup).enemiesExhausted) {
             // ADR-0021 决策 1.2：敌人全部确知非在世 ⇒ 战斗不成立，整条跳过（不记火、不写历史）
             result.skipped = SKIP_ALL_ENEMIES_INACTIVE;
-            state.slot = null;
+            assignSlot(state, null);
             continue;
           }
           state.battle = createBattle(def.id, def.settle.combat, state, lookup);
@@ -726,11 +739,11 @@ function nextTurn(
     const scanned = scanDelayQueue(state, lookup, scanStream(state), createTimeAdapter(template));
     if (scanned.kind === "taken") {
       // ADR-0034 §8-⑪：**只有**队列取出这条路带实例 id（其余四个来源没有队列实例，不得造 id）
-      state.slot = {
+      assignSlot(state, {
         eventId: scanned.definition.id,
         from: "queueTake",
         instanceId: scanned.instance.instanceId,
-      };
+      });
       continue;
     }
     return; // 空槽
@@ -757,6 +770,8 @@ function revalidateThenProject(
   result: TriggerResult,
 ): V2Snapshot {
   recordDroppedPending(result, revalidateSlot(state, lookup).dropped);
+  // 结算 tail 唯一 hook 位：无 gateway 时为空操作（零回归）。
+  runLlmHook(state, pipeline);
   return projectWithConfig(state, template, lookup, pipeline);
 }
 
@@ -768,6 +783,45 @@ function revalidateThenProject(
 export interface TurnPipelineConfig {
   endingConfig?: EndingConfig;
   evaluationConfig?: EvaluationConfig;
+  // ---- 阶段 B / LLM 稀疏参与注入位（不传 gateway ⇒ 行为与改前逐字段一致，零回归）----
+  /** LLM 网关：core → llm 回调；invoke 异步只在网关 / agent-runtime，内核不 await。 */
+  gateway?: LlmGateway;
+  /** 触发 / 授权规则（内联 fixture 注入；缺省则本轮不发 invocation）。 */
+  rules?: Rules;
+  conditionRegistry?: ConditionRegistry;
+  toolRegistry?: ToolRegistry;
+  trace?: LlmTrace[];
+  callLog?: CallLogEntry[];
+  budget?: LlmBudget;
+  perspective?: Perspective;
+  targetPerspective?: Perspective;
+}
+
+/**
+ * 结算 tail 的**唯一** LLM hook 位（阶段 B / T-05a）：产出 `LlmInvocation` 交
+ * `LlmGateway`，**不 await LLM**（core → llm 回调，回程一律走 dispatch 引擎 API）。
+ * 硬不变量：不传 `gateway` ⇒ 完全 no-op，state / 返回结果逐字段不变（零回归）。
+ */
+function runLlmHook(state: WorldStateV2, pipeline: TurnPipelineConfig | undefined): void {
+  if (!pipeline?.gateway) return;
+  const registry = pipeline.conditionRegistry ?? createConditionRegistry();
+  const invocations: LlmInvocation[] = pipeline.rules
+    ? evaluateTriggers(state, pipeline.rules, registry, {
+        seed: state.seed,
+        turnIndex: state.turnIndex,
+        ...(pipeline.budget !== undefined ? { budget: pipeline.budget } : {}),
+        ...(pipeline.perspective !== undefined ? { perspective: pipeline.perspective } : {}),
+        ...(pipeline.targetPerspective !== undefined
+          ? { targetPerspective: pipeline.targetPerspective }
+          : {}),
+      })
+    : [];
+  for (const inv of invocations) {
+    // 落账到 pendingInvocation（写入动作在 api/engine-api.ts，源码守卫据此断言）。
+    assignPendingInvocation(state, inv);
+    // fire-and-forget：invoke 返回 Promise，内核不 await；回程由 agent-runtime 经 dispatch 提交。
+    void pipeline.gateway!.invoke(inv).catch(() => undefined);
+  }
 }
 
 /**
@@ -829,7 +883,7 @@ function applyDeathRouteInPlace(
   state.eventFires = res.state.eventFires;
   state.missedEvents = res.state.missedEvents;
   state.history = res.state.history;
-  state.slot = res.state.slot;
+  assignSlot(state, res.state.slot);
   state.termination = res.state.termination;
 }
 
@@ -1130,7 +1184,7 @@ export function battleActionV2(
       // 定义缺失兜底：战斗会话照样结束，槽清空并推进一轮（否则玩家永久卡在战斗门禁上）
       finishBattle(state, lookup);
       state.battle = null;
-      state.slot = null;
+      assignSlot(state, null);
       state.turnIndex += 1;
     }
     // 战斗结果作为可展示事件返回，前端在结果区呈现胜负
