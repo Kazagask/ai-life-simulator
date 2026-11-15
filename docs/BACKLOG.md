@@ -139,3 +139,18 @@
 | # | 条目 | 现状 vs 目标 | 判定 |
 |---|---|---|---|
 | B-34 | **按规则生成随机事件 / 随机事件链**（用户原话：「按规则生成随机事件/随机事件链，像随机 NPC 那样」，2026-11-13 追加定形：**参数化文本 + AI 润色 + 随机数值**） | 现状：事件全部来自模板静态声明（`events.yaml` 109 条），`source: pool` 只做"从静态池里抽"，无任何生成能力；`npcSpawnRules`（ADR-0022）是仓库里**唯一**"按规则生成实例"的先例。**三要素与既有能力的关系**：①**参数化文本** ≈ 占位符化，但**只用于随机生成、不用于判活**（与 ADR-0034 §11.1 否决 B 不矛盾：否决的是"用占位符做判活"）；②**AI 润色** ≈ ADR-0027 的 LLM flavor（结构校验 + 模板回退，AI 不写权威状态）；③**随机数值** ≈ `deriveTurnSeed` 派生（确定性，禁 `Math.random`） | **本轮不设计、不实施**（ADR-0034 §11.4 仅登记形态）。开工前置：①生成物**运行时产生**（参照 `npcSpawnRules`）⇒ 不进模板指纹但**必须进存档**；②其 `nextEventId` 目标**无法加载期校验** ⇒ 需运行期引用校验 + fail-fast，并为生成事件建运行时定义层（`lookup` 要能查到非模板定义）；③确定性必须 `deriveTurnSeed`；④生成事件不宜进 `once` 静态索引（id 无界增长）；⑤生成事件也进队列 ⇒ 与池阈值（队列 ≥3 不摇）**分开计预算**。**开工前必须先写 ADR（T-2）** |
+
+## 9. 四层分工方向的代差盘点（2026-11-15）
+
+> 来源：用户 2026-11-15 定下现阶段方向——**模板给故事骨架（含静态资源）/ core 定通用 RPG 规则 / AI 补血肉 / 前端可定制（低优）**。本节只登记**现状与差距**，不是设计方案；LLM 与引擎的边界仍未裁决（见 `docs/OPEN_QUESTIONS.md #50`）。取用时按 §0 主线顺序挑条目升级为 `T-*`。
+> 注：§0 表格「AI 叙事层 未实现」是 R2.7 之前的旧口径，R2.7 已接出口层叙事（ADR-0027），勿据此重复立案；本轮未擅自改写历史表格。
+
+| 层 | 已具备（本轮实查） | 代差 | 等级 |
+|---|---|---|---|
+| 模板 | 11 个白名单 yaml（`apps/server/src/templates.ts:47-59`）；`world.yaml` 世界观/属性/历法/动作、`characters.yaml` 23 NPC + playerTemplate、`npcSpawnRules` 1 条；**用户 2026-11-15 已放入 3 张五条悟立绘 PNG**（`assets/characters/`，未跟踪），加载器扫描 `assets/` 并产出 `assetCount` / `assetFingerprint`（ADR-0029）；加载期 fail-fast + 请求驱动热加载 | ① `EventBase.narrative: z.string().min(1)` **必填**（`packages/shared/src/schema/event.ts:178-185`），109 事件正文 + 230 条选项文本全部内嵌、204 个 `nextEventId` 焊成链 ⇒ 是「完整剧本」而非「可填肉的骨架」；② schema 对 `image/portrait/sprite/cg/bgm/asset` 零命中，无立绘/差分字段；③ **无资源下发端点**（`design.md` H-7 明确 DEFERRED），`assetFingerprint` 仅诊断用、不进存档信封，前端零引用 ⇒ 已放入的 3 张立绘在 `GET /api/templates` 里只体现为 `assetCount=3`，**游戏里看不到**；④ 「生成规则」实际只有 `npcSpawnRules` 1 条 + trigger 六策略，无参数化事件模板（B-34 已登记形态） | 结构性 |
+| core | 非测试源码**零世界观硬编码**（仅 `flags.chapter` 约定读法、中文称谓词表、评分钟 jjk 标定注释）；世界/事件/人物/行动/评价五能力齐；已有 `RunnerContext` / `TurnPipelineConfig` / `NarrativeAdapter` / `CalendarAdapter` 等接缝；投影层完整过滤 hidden | ① 评价 `rawScore` 按 6 个维度 id 硬编码公式、证据靠 `history.id.includes("-c-")` 等字符串约定、等级文案写死，且「六通用维度」与「五维」注释不一致；② `source` 4 值封闭枚举 + 24 种 effect 封闭白名单 + 无自由表达式求值器 ⇒ 生成式内容缺落点；③ 无「外部提供事件候选 / 解析自由行动」的接口（`NarrativeAdapter` 只供文本，且只被 `apps/server` 在响应/归档层调用） | 局部 |
+| AI | `apps/server/src/llm/` 三层 provider（workbuddy-cloud 降级 / OpenAI 兼容 / Mock）+ Mock 短路；game-core 有 `NarrativeAdapter`、结构校验、模板回退；事件 flavor 异步非权威缓存 | ① LLM 调用只在**响应与归档出口**（`apps/server/src/index.ts`），`advanceTurnV2` 及其 `ctx` / `TurnPipelineConfig` 全程零 LLM；② `WorldStateV2` 无 `rngState` / `inputLog`，回放契约是「同初始状态 + 同指令序列 + 同 seed」且 `ReplaySpec.commands` 由外部传入 ⇒ 模型产出不在指令序列里，这不是「加一次调用」能补的；③ 无上下文分层 / 记忆索引 / token 预算；④ 自由文本 `type:"free"` 只写进历史摘要、引擎不解析（#26） | 结构性 |
+| 前端 | `main.tsx` 内已有约 40 个命名组件（`ActionPanel` / `EventPanel` / `PlayerCard` / `StatsPanel` / `EvaluationBreakdown` 等），props 直接吃 `V2Snapshot`；显示名一律走 `snapshot.labels`，无 `if (templateId === ...)` 硬编码分支 | ① `main.tsx` 零 `export`、无 `components/`、vite 为 app 模式、`tsconfig noEmit` ⇒ 不是可复用库，workspace 内无独立 UI / SDK 包；② 组件直接消费整个 `V2Snapshot`，无 view model / adapter，定制前端需理解全部字段；③ `style.css` 单文件全局暗色主题，无 CSS 变量主题切换或布局配置；④ 全仓无 `<img>`、无资源 URL 消费逻辑 ⇒ 静态资源即使下发也没有渲染位；⑤ 无 SSE 流式正文、无重写 / 分支 / 补选项 | 局部（低优） |
+
+**跨层既有事实（不是方案）**：`semanticFingerprint` 只由 11 个白名单 yaml 排序拼接决定（`templates.ts:462-466`），改图片不改指纹；`assetFingerprint` 不写进存档信封；`FORBIDDEN_ASSET_EXTS` 含 `.svg` / `.html`（`:83-102`，理由是无下发端点时无法消毒）。若静态资源要成为模板内容的一部分，这三条会被同时触及。
+
