@@ -11,6 +11,18 @@ import {
 /**
  * T-03：能力画像 → 工具描述（OpenAI `tools` 结构）+ 第 1 层参数校验 + ApiCall 翻译。
  *
+ * ---------- 已知契约缺口（不改契约，只在此存档；改动需走协议评审） ----------
+ * [缺口 3] `WriteNarrativeArgsSchema` / `WriteMemoryArgsSchema` 等 LLM 侧 args 没有 `kind` /
+ *          `visibility`，而 game-core 的 `writeContent` 直接 `ContentBlockSchema.parse(args)`。
+ *          本包在 `toApiCall` 里补齐 kind / visibility / 默认 targetPerspective 作为桥接；
+ *          若将来把 ContentBlock 形状搬到工具 schema，可删掉这层翻译。
+ * [缺口 4] `LlmInvocation` 不带 `turnIndex` / `worldTime`，loop 只能从
+ *          `engineApi.snapshot()` 读时钟。当 server 注入 `projectSnapshotV2` 时，trace 的
+ *          时钟字段就依赖投影路径；若要「trace 可脱离投影独立回放」，应把时钟放进 invocation。
+ * [缺口 5] `content.writeOption.optionId` 在 `ContentBlock` 上没有落点，引擎边界会丢弃它，
+ *          只剩 `blockId` 可做稳定 key。当前前端提交的是选项 `text`，故可接受；
+ *          若将来要「选项 → 事件分支」精确映射，需要在 ContentBlock 上补 optionId 字段。
+ *
  * 硬不变量：
  * - 工具调用走**结构化** `tools` / `tool_calls`，本文件绝不从自由文本里正则抠工具名。
  * - 工具名集合是封闭的（与 game-core 的 `RpgEngineAPI` 注册表逐字一致）；

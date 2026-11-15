@@ -11,12 +11,15 @@ import {
 /**
  * 零 API key 也能玩的**确定性**脚本 provider。
  *
- * 产品口径（裁决）：「点击为主，打字输入为辅」——只产出散文的一回合等于坏回合。
- * 因此决策点（章节 / 场景 / 任务推进）必须给出 2-3 个 `content.writeOption`，且顺序是
- * 叙事 → （可选）资源 → 选项 → （可选）flavor，前端按 contentBlocks 顺序渲染。
+ * 产品口径（用户裁决）：「点击为主，打字输入为辅」——**每一回合**都要给出可点动作；
+ * 只产出散文的一回合等于坏回合。回合内分三轮（与 loop 的 dispatch 轮次一致）：
+ *   ① 叙事（content.writeNarrative，必要时 content.referenceAsset）
+ *   ② 选项（2-3 条 content.writeOption，必要时 content.writeFlavor）
+ *   ③ 提交（content.submit）
+ * 因此 `contentBlocks` 顺序恒为 narrative → option → flavor，前端可直接按序渲染。
  *
- * 它不是常量文案生成器：叙事与选项都由 `inv.context` 的 facts / dagNodes / recentTurns
- * 与 invocationReason 合成；同一世界状态 ⇒ 同一段文本（无随机、无时钟）。
+ * 文本全部由 `inv.context` 的 facts / dagNodes / recentTurns 与 invocationReason 合成；
+ * 无随机、无时钟：同一 invocationId + 同一世界状态 ⇒ 逐字节相同的输出。
  */
 
 interface MockFactItem {
@@ -85,30 +88,11 @@ const REASON_OPENERS: Array<{ match: string; text: string }> = [
   { match: "opening", text: "你睁开眼，世界的轮廓一点点清晰起来。" },
 ];
 
-/** 决策点关键词（产品裁决：只在推进/抉择处给选项）。 */
-const DECISION_KEYWORDS = ["chapter", "scene", "task", "trial", "choice", "decision", "opening", "event"];
-
-/** 确定性判定：同一 reason ⇒ 同一结论，回放逐字段一致。 */
-function isDecisionPoint(view: MockContextView): boolean {
-  return DECISION_KEYWORDS.some((keyword) => view.reason.includes(keyword));
-}
-
 function openerFor(reason: string): string {
   for (const entry of REASON_OPENERS) {
     if (reason.includes(entry.match)) return entry.text;
   }
   return "此刻，世界安静地向前走了一步。";
-}
-
-function describeValue(value: unknown): string {
-  if (value === undefined) return "";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return "";
-  }
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -120,6 +104,11 @@ const STATUS_LABELS: Record<string, string> = {
   expired: "已错过",
   cancelled: "已取消",
 };
+
+/** 展示用：去掉 `fact:` / `dag:` 之类前缀，正文里不出现裸机器 id。 */
+function displayRef(ref: string): string {
+  return ref.replace(/^(fact|dag|secret|asset|flag):/, "");
+}
 
 /** 最近一轮的可读标题（历史条目形状由调用方决定，取第一个可用字段）。 */
 function recentTitle(turns: readonly unknown[]): string | null {
@@ -147,11 +136,6 @@ function readableValues(view: MockContextView): string[] {
   return [...new Set(out)];
 }
 
-/** 展示用：去掉 `fact:` / `dag:` 之类前缀，正文里不出现裸机器 id。 */
-function displayRef(ref: string): string {
-  return ref.replace(/^(fact|dag|secret|asset|flag):/, "");
-}
-
 function visibleFactRefs(view: MockContextView): string[] {
   return (view.facts.facts ?? [])
     .filter((fact) => fact.level === undefined || fact.level === "known" || fact.level === "inferred")
@@ -164,9 +148,23 @@ function activeNode(view: MockContextView): { nodeId: string; status: string } |
   );
 }
 
-/** 触发事件的标题：优先历史标题；无历史时从 reason 派生，避免空泛。 */
+const REASON_LABELS: Array<{ match: string; text: string }> = [
+  { match: "chapter", text: "新的篇章" },
+  { match: "task", text: "手头这件事" },
+  { match: "random", text: "街角的动静" },
+  { match: "flavor", text: "此刻的动静" },
+  { match: "opening", text: "醒来后的世界" },
+  { match: "trial", text: "这场试炼" },
+];
+
+/** 触发事件的标题：优先历史标题；无历史时从 reason 派生中文标签，避免出现英文 id。 */
 function eventTitle(view: MockContextView): string {
-  return recentTitle(view.recentTurns) ?? view.reason.split(".").slice(-1)[0] ?? "眼前的事";
+  const fromHistory = recentTitle(view.recentTurns);
+  if (fromHistory !== null) return fromHistory;
+  for (const entry of REASON_LABELS) {
+    if (view.reason.includes(entry.match)) return entry.text;
+  }
+  return "眼前的局面";
 }
 
 /** 从可见事实 / DAG / 历史合成正文（纯函数、无随机）。 */
@@ -213,29 +211,49 @@ function collectRefs(view: MockContextView): string[] {
   return [...new Set(refs)];
 }
 
+/** 稳定哈希（仅用于确定性地挑选选项顺序，不参与任何权威判定）。 */
+function stableHash(text: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash;
+}
+
 /**
  * 2-3 个「玩家可点击的动作」：第二人称、动词开头、具体到眼前的事实 / 人 / DAG 步。
- * 文本本身是按钮文案，不是「选项一」这种占位描述。
+ *
+ * 第一条恒为「情境主行动」（跟着事件标题走，保证与当前回合相关）；后两条从候选池里
+ * 按 `reason + invocationId + 首条事实` 的稳定哈希轮转取出 —— 连续回合不会逐字重复，
+ * 同一 invocationId 永远得到同一组。
  */
 function optionTexts(view: MockContextView): string[] {
-  const candidates: string[] = [];
   const names = readableValues(view);
-  const name = names[0];
   const node = activeNode(view);
+  const refs = visibleFactRefs(view);
+  const event = eventTitle(view);
 
-  if (name !== undefined) candidates.push(`向${name}开口，问清眼前的变故`);
-  if (node !== undefined) candidates.push(`按「${node.nodeId}」继续向前推进`);
-  if (names.length > 1) candidates.push(`先去找${names[1]}探探口风`);
-  candidates.push("先退半步，把四周看清楚");
-  candidates.push("径直走上前，不再犹豫");
-  candidates.push("转身回到来路，暂避锋芒");
+  const lead =
+    names[0] !== undefined
+      ? `向${names[0]}开口，问清眼前的变故`
+      : `走上前，把${event}看个清楚`;
 
-  const unique: string[] = [];
-  for (const candidate of candidates) {
-    if (!unique.includes(candidate)) unique.push(candidate);
-    if (unique.length === 3) break;
+  const rest: string[] = [];
+  if (refs[0] !== undefined) rest.push(`循着「${displayRef(refs[0])}」的线索追下去`);
+  if (node !== undefined) rest.push(`按「${node.nodeId}」继续向前推进`);
+  rest.push("先退半步，把四周看清楚");
+  rest.push("径直走上前，不再犹豫");
+  rest.push("转身回到来路，暂避锋芒");
+  rest.push("放慢脚步，等对方先动");
+
+  const picks = [lead];
+  const offset = stableHash(`${view.reason}|${view.invocationId}|${refs[0] ?? ""}`) % rest.length;
+  for (let i = 0; i < rest.length && picks.length < 3; i += 1) {
+    const candidate = rest[(offset + i) % rest.length]!;
+    if (!picks.includes(candidate)) picks.push(candidate);
   }
-  return unique;
+  return picks;
 }
 
 function assetIdFrom(view: MockContextView): string | null {
@@ -252,12 +270,14 @@ const toolNames = (tools: readonly ToolDescriptor[]): Set<string> => new Set(too
 
 const estimateTokens = (text: string): number => Math.max(1, Math.ceil(text.length / 2));
 
-/**
- * 轮次判定：以「assistant 已发出的 toolCalls 轮数」为状态，天然可在同一 invocation
- * 内多轮调用且不依赖任何内部可变状态。
- */
-function emittedRounds(messages: readonly AgentMessage[]): number {
-  return messages.filter((m) => m.role === "assistant" && (m.toolCalls?.length ?? 0) > 0).length;
+/** 已发出过的工具名集合：阶段判定只依赖消息历史，provider 自身无状态。 */
+function emittedToolNames(messages: readonly AgentMessage[]): Set<string> {
+  const names = new Set<string>();
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    for (const call of message.toolCalls ?? []) names.add(call.name);
+  }
+  return names;
 }
 
 function submitted(messages: readonly AgentMessage[]): boolean {
@@ -270,6 +290,7 @@ function submitted(messages: readonly AgentMessage[]): boolean {
 
 interface MockRejection {
   code?: string;
+  name?: string;
   factsHint?: Record<string, unknown>;
 }
 
@@ -287,18 +308,17 @@ function lastRejection(messages: readonly AgentMessage[]): MockRejection | null 
     if (!isRecord(parsed) || parsed.outcome !== "rejected") return null;
     return {
       ...(typeof parsed.code === "string" ? { code: parsed.code } : {}),
+      ...(typeof message.name === "string" ? { name: message.name } : {}),
       ...(isRecord(parsed.factsHint) ? { factsHint: parsed.factsHint } : {}),
     };
   }
   return null;
 }
 
-/** 第一轮：叙事 → 资源 → 选项 → flavor（顺序即 contentBlocks 顺序）。 */
-function firstRoundCalls(view: MockContextView, available: Set<string>): ToolCallRequest[] {
-  const refs = collectRefs(view);
-  const target = view.targetPerspective;
+/** ① 叙事轮：正文 + 至多一次媒体资源挂载。 */
+function narrativeCalls(view: MockContextView, available: Set<string>): ToolCallRequest[] {
   const calls: ToolCallRequest[] = [];
-
+  const refs = collectRefs(view);
   if (available.has("content.writeNarrative")) {
     calls.push({
       id: `${view.invocationId}:call:narrative`,
@@ -307,12 +327,10 @@ function firstRoundCalls(view: MockContextView, available: Set<string>): ToolCal
         blockId: `${view.invocationId}:narrative`,
         text: synthesizeNarrative(view),
         refs,
-        targetPerspective: target,
+        targetPerspective: view.targetPerspective,
       },
     });
   }
-
-  // 至多一次资源挂载，且必须来自可见事实（否则 refs 会越窗）。
   const assetId = assetIdFrom(view);
   if (assetId !== null && available.has("content.referenceAsset")) {
     calls.push({
@@ -326,35 +344,38 @@ function firstRoundCalls(view: MockContextView, available: Set<string>): ToolCal
       },
     });
   }
+  return calls;
+}
 
-  if (isDecisionPoint(view) && available.has("content.writeOption")) {
-    optionTexts(view).forEach((text, index) => {
-      calls.push({
-        id: `${view.invocationId}:call:opt${index}`,
-        name: "content.writeOption",
-        arguments: {
-          blockId: `${view.invocationId}:opt${index}`,
-          optionId: `${view.invocationId}:opt${index}`,
-          text,
-          refs,
-        },
-      });
+/** ② 选项轮：2-3 条可点动作（+ 可选 flavor）。必须排在叙事之后。 */
+function optionCalls(view: MockContextView, available: Set<string>): ToolCallRequest[] {
+  const calls: ToolCallRequest[] = [];
+  if (!available.has("content.writeOption")) return calls;
+  const refs = collectRefs(view);
+  optionTexts(view).forEach((text, index) => {
+    calls.push({
+      id: `${view.invocationId}:call:opt${index}`,
+      name: "content.writeOption",
+      arguments: {
+        blockId: `${view.invocationId}:opt${index}`,
+        optionId: `${view.invocationId}:opt${index}`,
+        text,
+        refs,
+      },
     });
-
-    const title = recentTitle(view.recentTurns);
-    if (title !== null && available.has("content.writeFlavor")) {
-      calls.push({
-        id: `${view.invocationId}:call:flavor`,
-        name: "content.writeFlavor",
-        arguments: {
-          blockId: `${view.invocationId}:flavor`,
-          text: `${title}的余韵还没散去，空气里有细微的变动。`,
-          refs,
-        },
-      });
-    }
+  });
+  const title = recentTitle(view.recentTurns);
+  if (title !== null && available.has("content.writeFlavor")) {
+    calls.push({
+      id: `${view.invocationId}:call:flavor`,
+      name: "content.writeFlavor",
+      arguments: {
+        blockId: `${view.invocationId}:flavor`,
+        text: `${title}的余韵还没散去，空气里有细微的变动。`,
+        refs,
+      },
+    });
   }
-
   return calls;
 }
 
@@ -376,29 +397,50 @@ export class MockAgentProvider implements AgentProvider {
       };
     }
 
-    const rounds = emittedRounds(req.messages);
     const toolCalls: ToolCallRequest[] = [];
     const rejection = lastRejection(req.messages);
+    const emitted = emittedToolNames(req.messages);
+    const done = submitted(req.messages);
 
-    if (rejection !== null && !submitted(req.messages) && available.has("content.writeNarrative")) {
-      // 分支①：上一轮被拒（如 visibility_violation），重生成时按 factsHint 收敛窗口并清空 refs。
+    if (done) {
+      // 已有 submit，不再产出（loop 正常情况下已在此前终止）。
+    } else if (rejection !== null) {
+      // 分支①：按被拒工具重生成；窗口类拒绝一律收敛为「不带 refs + 权威窗口」。
       const hintTarget =
         typeof rejection.factsHint?.targetPerspective === "string"
           ? (rejection.factsHint.targetPerspective as Perspective)
           : view.targetPerspective;
-      toolCalls.push({
-        id: `${view.invocationId}:call:retry`,
-        name: "content.writeNarrative",
-        arguments: {
-          blockId: `${view.invocationId}:narrative`,
-          text: synthesizeNarrative(view),
-          refs: [],
-          targetPerspective: hintTarget,
-        },
-      });
-    } else if (!submitted(req.messages) && rounds === 0) {
-      toolCalls.push(...firstRoundCalls(view, available));
-    } else if (!submitted(req.messages) && available.has("content.submit")) {
+      if (rejection.name === "content.writeOption" && available.has("content.writeOption")) {
+        optionTexts(view).forEach((text, index) => {
+          toolCalls.push({
+            id: `${view.invocationId}:call:opt-retry${index}`,
+            name: "content.writeOption",
+            arguments: {
+              blockId: `${view.invocationId}:opt${index}`,
+              optionId: `${view.invocationId}:opt${index}`,
+              text,
+              refs: [],
+            },
+          });
+        });
+      } else if (available.has("content.writeNarrative")) {
+        toolCalls.push({
+          id: `${view.invocationId}:call:retry`,
+          name: "content.writeNarrative",
+          arguments: {
+            blockId: `${view.invocationId}:narrative`,
+            text: synthesizeNarrative(view),
+            refs: [],
+            targetPerspective: hintTarget,
+          },
+        });
+      }
+    } else if (!emitted.has("content.writeNarrative") && !emitted.has("content.writeOption")) {
+      toolCalls.push(...narrativeCalls(view, available));
+    } else if (!emitted.has("content.writeOption")) {
+      // 有叙事但还没有点击面 ⇒ 本回合继续产出选项（每条回合都必须可点）。
+      toolCalls.push(...optionCalls(view, available));
+    } else if (available.has("content.submit")) {
       const produced = req.messages
         .filter((m) => m.role === "assistant")
         .flatMap((m) => m.toolCalls ?? [])
@@ -408,7 +450,10 @@ export class MockAgentProvider implements AgentProvider {
       toolCalls.push({
         id: `${view.invocationId}:call:submit`,
         name: "content.submit",
-        arguments: { blockIds: produced.length > 0 ? produced : [`${view.invocationId}:narrative`] },
+        arguments: {
+          blockIds:
+            produced.length > 0 ? [...new Set(produced)] : [`${view.invocationId}:narrative`],
+        },
       });
     }
 

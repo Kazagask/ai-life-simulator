@@ -52,7 +52,7 @@ describe("零 key 端到端：真引擎 + mock provider", () => {
       expect((option.text ?? "").length).toBeGreaterThan(3);
       expect(CJK.test(option.text ?? "")).toBe(true);
       // 第二人称、动词开头的动作短语，而不是「选项 A」这类描述。
-      expect(option.text ?? "").toMatch(/^(向|按|先|径直|转身)/);
+      expect(option.text ?? "").toMatch(/^(向|按|先|径直|转身|走上前|走近|循着|放慢)/);
       expect(option.refs.length).toBeGreaterThan(0);
     }
 
@@ -66,7 +66,7 @@ describe("零 key 端到端：真引擎 + mock provider", () => {
     expect(fixture.engine.buildFacts("player").facts.length).toBe(factsBefore);
   });
 
-  it("非决策点（random.flavor）只出散文，不硬塞选项", async () => {
+  it("每一回合都有点击面：叙事之后必有 ≥2 个可点选项（含 random.flavor）", async () => {
     const fixture = loadDemoFixture();
     const traces: LlmTrace[] = [];
     const gateway = new AgentGateway({
@@ -82,9 +82,61 @@ describe("零 key 端到端：真引擎 + mock provider", () => {
       makeInvocation(fixture, { invocationId: "inv-flavor", reason: "random.flavor" }),
     );
     expect(outcome.outcome).toBe("committed");
+
     const blocks = traces[0]!.contentBlocks ?? [];
-    expect(blocks.some((block) => block.kind === "narrative")).toBe(true);
-    expect(blocks.some((block) => block.kind === "option")).toBe(false);
+    const narrativeIndex = blocks.findIndex((block) => block.kind === "narrative");
+    expect(narrativeIndex).toBe(0);
+
+    const options = blocks.filter((block) => block.kind === "option");
+    expect(options.length).toBeGreaterThanOrEqual(2);
+    expect(options.length).toBeLessThanOrEqual(3);
+    // 每个选项都必须排在第一段叙事之后，且文案非空、可点击。
+    const firstOptionIndex = blocks.findIndex((block) => block.kind === "option");
+    expect(firstOptionIndex).toBeGreaterThan(narrativeIndex);
+    for (const option of options) {
+      expect((option.text ?? "").trim().length).toBeGreaterThan(3);
+      expect(CJK.test(option.text ?? "")).toBe(true);
+      expect(blocks.indexOf(option)).toBeGreaterThan(narrativeIndex);
+    }
+
+    // 正文仍只活在 trace：权威状态里没有任何叙事文本。
+    const narrativeText = blocks[narrativeIndex]!.text ?? "";
+    expect(narrativeText.length).toBeGreaterThan(0);
+    expect(JSON.stringify(fixture.state)).not.toContain(narrativeText);
+    for (const forbidden of NARRATIVE_KEYS) expect(stateKeys(fixture.state)).not.toContain(forbidden);
+  });
+
+  it("选项确定性：同一 invocationId 逐字复现，不同 invocationId 不逐字重复", async () => {
+    const run = async (invocationId: string): Promise<string[]> => {
+      const fixture = loadDemoFixture();
+      const traces: LlmTrace[] = [];
+      const gateway = new AgentGateway({
+        provider: new MockAgentProvider(),
+        engineApi: fixture.engine,
+        templateRef: "demo-agentic@1.0.0",
+        rules: fixture.rules,
+        toolProfile: "narrative",
+        history: [{ title: "苏醒" }],
+        onTrace: (trace) => traces.push(trace),
+      });
+      const outcome = await gateway.invoke(makeInvocation(fixture, { invocationId }));
+      expect(outcome.outcome).toBe("committed");
+      return (traces[0]!.contentBlocks ?? [])
+        .filter((block) => block.kind === "option")
+        .map((block) => block.text ?? "");
+    };
+
+    const a1 = await run("inv-opt-same");
+    const a2 = await run("inv-opt-same");
+    expect(a1).toHaveLength(3);
+    expect(a2).toEqual(a1);
+
+    // 连续回合不应逐字重复：扫若干 id，至少出现两种不同的选项组合。
+    const variants = new Set<string>();
+    for (const id of ["inv-opt-a", "inv-opt-b", "inv-opt-c", "inv-opt-d", "inv-opt-e"]) {
+      variants.add((await run(id)).join("|"));
+    }
+    expect(variants.size).toBeGreaterThan(1);
   });
 
   it("同一 seed / 同一上下文 ⇒ 同一段叙事（确定性）", async () => {
