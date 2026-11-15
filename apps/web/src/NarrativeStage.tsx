@@ -1,0 +1,46 @@
+import { CgStage, NarrativeStream, Portrait } from "@life-sim/rpg-ui";
+import type { MediaVM, ViewModel } from "@life-sim/rpg-ui";
+
+/** 立绘槽命名约定与 `CgStage` 的 `cg` 前缀对称：`portrait` / `portrait.xxx` / `portrait-xxx`。 */
+const PORTRAIT_SLOT = /^portrait(?![a-z0-9])/i;
+
+function portraitsOf(media: MediaVM[]): MediaVM[] {
+  const seen = new Set<string>();
+  const out: MediaVM[] = [];
+  for (const item of media) {
+    if (!PORTRAIT_SLOT.test(item.slot)) continue;
+    if (seen.has(item.assetId)) continue;
+    seen.add(item.assetId);
+    out.push(item);
+  }
+  return out;
+}
+
+/**
+ * 默认前端的叙事区：只吃 `ViewModel`（不碰引擎快照），组件全部来自 `@life-sim/rpg-ui`。
+ *
+ * 布局顺序即阅读顺序：全屏 CG → 立绘一排 → 叙事流。
+ * 叙事正文来自服务端 trace 读回（刷新后仍在），媒体来自快照的媒体投影。
+ */
+export function NarrativeStage({ view }: { view: ViewModel }) {
+  const portraits = portraitsOf(view.media);
+  return (
+    <section className="card narrative-card">
+      <header className="narrative-card__head">
+        <span className="slot-label">叙事</span>
+        {view.llmPending === true && <span className="tag ai-narrative-tag">AI 书写中…</span>}
+      </header>
+      <div className="narrative-card__body">
+        <CgStage media={view.media} />
+        {portraits.length > 0 && (
+          <div className="ls-portrait-row">
+            {portraits.map((media) => (
+              <Portrait key={media.assetId} media={media} />
+            ))}
+          </div>
+        )}
+        <NarrativeStream content={view.content} />
+      </div>
+    </section>
+  );
+}

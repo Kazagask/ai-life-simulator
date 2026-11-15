@@ -1578,3 +1578,30 @@ details.llm-config .llm-saved {
 .npc-life-inactive {
   color: #b4544f;
 }
+
+/* ---------- AI 叙事区（T-09a）：@life-sim/rpg-ui 组件的外框 ---------- */
+
+.narrative-card {
+  /* 去掉卡片内边距，让叙事区自己控制版心（CG 需要出血到卡片边缘） */
+  padding: 0;
+  overflow: hidden;
+  /* 与 rpg-ui 的 --ls-gutter 对齐，保证 CG 负边距正好贴齐卡片内沿 */
+  --ls-gutter: 16px;
+}
+
+.narrative-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--gold, #c9a227) 7%, transparent);
+}
+
+.narrative-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px 14px;
+}

@@ -7,6 +7,7 @@ import {
   api,
   clearLlmSession,
   defaultVersionOf,
+  fetchNarrative,
   getLlmSession,
   isLoadableVersion,
   loadableVersionOf,
@@ -30,6 +31,9 @@ import { cloud } from "./cloud";
 import { platformEndingNarrative, platformEventFlavor, platformEvaluationSummary } from "./platformLlm";
 import { deleteLifeRecord, listLifeRecords, saveLifeRecord, shouldAutoArchive } from "./records";
 import type { LifeRecordRow } from "./records";
+import { toViewModel } from "@life-sim/rpg-ui";
+import type { ContentBlockVM, ViewModel } from "@life-sim/rpg-ui";
+import { NarrativeStage } from "./NarrativeStage";
 
 // ---------- 工具 ----------
 
@@ -199,6 +203,13 @@ function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<LastResult | null>(null);
   /**
+   * F3 / T-07：AI 叙事正文（从服务端 append-only trace 读回）。
+   *
+   * 正文**不进存档**，所以刷新后必须重新拉取；每轮结算（`snapshot.turnIndex` 变化）后再拉一次，
+   * 让新写的叙事接在流末尾。只读展示数据：不参与任何游戏判定，失败时保持空数组。
+   */
+  const [narrative, setNarrative] = useState<ContentBlockVM[]>([]);
+  /**
    * R2.7 / T-S2：归档响应里的人生总结来源（llm / template / fallback）。
    * 只在 `archiveWorld` 成功时写入，按 worldId 派生 —— 切到别的世界自动失效，无需额外重置。
    * 纯瞬态展示元数据：不写 localStorage、不进 records.ts 人生档案、不参与评分。
@@ -295,6 +306,29 @@ function App() {
         setNotice("这一局已不存在（可能已被删除），已回到列表。");
       });
   }, [worldId]);
+
+  /**
+   * F3 / T-07：拉取叙事正文。
+   *
+   * 依赖轮次 `turnIndex`：挂载（刷新 / 打开旧局）+ 每次回合结算后都重新读一次 trace，
+   * 因此 AI 叙事在刷新后依然存在（正文存服务端，不进存档）。
+   * 等首个快照到位再拉，避免挂载期发两次相同请求；切换世界 / 重开时清空，避免叙事串局。
+   */
+  const turnIndex = snapshot?.turnIndex;
+  useEffect(() => {
+    if (!worldId) {
+      setNarrative([]);
+      return;
+    }
+    if (turnIndex === undefined) return;
+    let alive = true;
+    void fetchNarrative(worldId).then((blocks) => {
+      if (alive) setNarrative(blocks);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [worldId, turnIndex]);
 
   useEffect(() => {
     if (worldId) return;
@@ -530,6 +564,12 @@ function App() {
   const summarySource =
     archiveSummarySource?.worldId === worldId ? archiveSummarySource.summarySource : undefined;
 
+  /**
+   * 展示层唯一输入：引擎快照 + trace 叙事 → ViewModel（`@life-sim/rpg-ui` 的适配器）。
+   * 页面组件从此只吃 ViewModel 派生的数据，不再把 V2Snapshot 传进叙事 / 立绘组件。
+   */
+  const view: ViewModel = toViewModel({ snapshot, content: narrative });
+
   return (
     <div className="shell">
       <header className="topbar">
@@ -550,6 +590,7 @@ function App() {
         {tab === "life" && (
           <LifeTab
             snapshot={snapshot}
+            view={view}
             busy={busy}
             lastResult={lastResult}
             wheelsFresh={wheelsFresh}
@@ -1249,6 +1290,7 @@ function ResourceBar({ label, value, max, cls }: { label: string; value: number;
 
 function LifeTab({
   snapshot,
+  view,
   busy,
   lastResult,
   wheelsFresh,
@@ -1263,6 +1305,8 @@ function LifeTab({
   onConfirmWheel,
 }: {
   snapshot: V2Snapshot;
+  /** 展示层视图模型（叙事 / 立绘只从这里取数据，不从快照现读）。 */
+  view: ViewModel;
   busy: boolean;
   lastResult: LastResult | null;
   /** 槽内这枚转盘是刚掷出的（true，播动画）还是从存档恢复的（false，直接落定） */
@@ -1332,6 +1376,13 @@ function LifeTab({
   return (
     <div className="stack">
       <PlayerCard snapshot={snapshot} summarySource={summarySource} />
+
+      {/*
+        AI 叙事区（T-09a）：紧贴角色卡下方，是默认前端的**主文本面**。
+        正文来自服务端 trace 读回（刷新后仍在），立绘 / CG 来自快照媒体投影；
+        组件只吃 ViewModel，交互区（事件 / 战斗 / 自由行动）保持在其下方不受影响。
+      */}
+      <NarrativeStage view={view} />
 
       {ended && snapshot.ending && (
         <EndingPanel

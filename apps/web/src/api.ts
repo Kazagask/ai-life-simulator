@@ -1,5 +1,6 @@
 import type {
   BattleCommand,
+  ContentBlockVM,
   EndingView,
   HistoryEntryV2,
   SlotEventView,
@@ -423,6 +424,58 @@ export function mergeEventFlavors(
   const valid = Object.entries(next).filter(([, text]) => text !== "");
   if (valid.length === 0) return prev;
   return { ...(prev ?? {}), ...Object.fromEntries(valid) };
+}
+
+/**
+ * 叙事正文读回（T-07 / F3）：正文只存于服务端 append-only `<worldId>.trace.jsonl`，
+ * **不进存档**，所以刷新页面后必须重新拉一次才能继续显示 AI 叙事。
+ *
+ * 端点：`GET /api/worlds/:id/narrative?fromTurn=<n>`。响应形状按 `{ blocks }` 收敛中，
+ * 这里做三层防御，任何意外都退化成「没有叙事」而**不打断游戏主链路**：
+ *  ① 裸数组也接受（过渡期的服务端实现）；
+ *  ② 只保留 `narrative / option / flavor` 三类玩家可见块，hidden 块一律丢弃
+ *    （服务端已按窗口过滤，前端再兜一层，绝不把隐藏文案上屏）；
+ *  ③ 缺 `blockId` / `kind` 的脏行跳过，重复 blockId 去重（trace 可能被重复追加）。
+ */
+const NARRATIVE_KINDS: ReadonlySet<string> = new Set(["narrative", "option", "flavor"]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toNarrativeBlock(item: unknown): ContentBlockVM | null {
+  if (!isRecord(item)) return null;
+  if (item.visibility === "hidden") return null;
+  const blockId = item.blockId;
+  const kind = item.kind;
+  if (typeof blockId !== "string" || blockId === "") return null;
+  if (typeof kind !== "string" || !NARRATIVE_KINDS.has(kind)) return null;
+  const text = typeof item.text === "string" ? item.text : undefined;
+  return text === undefined ? { blockId, kind } : { blockId, kind, text };
+}
+
+export async function fetchNarrative(worldId: string, fromTurn = 0): Promise<ContentBlockVM[]> {
+  let res: unknown;
+  try {
+    res = await request<unknown>(`/api/worlds/${worldId}/narrative?fromTurn=${fromTurn}`);
+  } catch {
+    // 旧服务端没有该端点 / 网络抖动：叙事区空着即可，不影响回合推进与存档。
+    return [];
+  }
+  const raw: unknown[] = Array.isArray(res)
+    ? res
+    : isRecord(res) && Array.isArray(res.blocks)
+      ? res.blocks
+      : [];
+  const blocks: ContentBlockVM[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    const block = toNarrativeBlock(item);
+    if (block === null || seen.has(block.blockId)) continue;
+    seen.add(block.blockId);
+    blocks.push(block);
+  }
+  return blocks;
 }
 
 export type { V2Snapshot, BattleCommand, WheelResultView, SlotEventView, EndingView };
