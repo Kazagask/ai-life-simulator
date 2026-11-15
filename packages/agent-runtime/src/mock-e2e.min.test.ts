@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { LlmTrace, WorldStateV2 } from "@life-sim/shared";
 import { AgentGateway } from "./gateway.js";
+import type { AgentMessage } from "./tool-registry.js";
+import { buildToolDescriptors } from "./tool-registry.js";
 import { createAgentProvider, MockAgentProvider } from "./providers/index.js";
 import { loadDemoFixture, makeInvocation } from "./testing/fixtures.js";
 
@@ -106,6 +108,73 @@ describe("零 key 端到端：真引擎 + mock provider", () => {
     for (const forbidden of NARRATIVE_KEYS) expect(stateKeys(fixture.state)).not.toContain(forbidden);
   });
 
+  /**
+   * 直接喂 mock 一份 facts 视图（绕过引擎窗口），精确控制「脏数据」的形状：
+   * 第一轮取叙事，第二轮取选项，返回全部玩家可见文本。
+   */
+  async function mockTextsFromFacts(
+    facts: Array<{ factRef: string; value?: unknown; level?: string }>,
+  ): Promise<string[]> {
+    const provider = new MockAgentProvider();
+    const tools = buildToolDescriptors(loadDemoFixture().rules, "narrative");
+    const view = {
+      invocationId: "inv-direct",
+      reason: "chapter.advance",
+      perspective: "player",
+      targetPerspective: "player",
+      facts: { perspective: "player", facts, dagNodes: [] },
+      recentTurns: [],
+    };
+    const messages: AgentMessage[] = [{ role: "user", content: JSON.stringify(view) }];
+    const first = await provider.chat({ messages, tools, timeoutMs: 1000 });
+    const withRound: AgentMessage[] = [
+      ...messages,
+      { role: "assistant", toolCalls: first.toolCalls },
+    ];
+    const second = await provider.chat({ messages: withRound, tools, timeoutMs: 1000 });
+    const texts: string[] = [];
+    for (const call of [...first.toolCalls, ...second.toolCalls]) {
+      const text = call.arguments.text;
+      if (typeof text === "string") texts.push(text);
+    }
+    return texts;
+  }
+
+  it("事实值为 unknown 哨兵时，任何输出字符串都不含 unknown", async () => {
+    const texts = await mockTextsFromFacts([
+      { factRef: "fact:gate-location", value: "unknown", level: "known" },
+      { factRef: "flag:took-right", value: true, level: "known" },
+    ]);
+    expect(texts.length).toBeGreaterThan(0);
+    for (const text of texts) {
+      expect(text.toLowerCase()).not.toContain("unknown");
+      expect(CJK.test(text)).toBe(true);
+    }
+  });
+
+  it("factRef / value 是机器 id 时，正文与选项都不含机器 id 前缀", async () => {
+    const texts = await mockTextsFromFacts([
+      { factRef: "infoVisibility:npc-mentor", value: "infoVisibility:npc-mentor", level: "known" },
+      { factRef: "flag:took-right", value: true, level: "known" },
+      { factRef: "dag:n1.awaken", value: "n1.awaken", level: "known" },
+    ]);
+    expect(texts.length).toBeGreaterThan(0);
+    for (const text of texts) {
+      expect(text).not.toContain("infoVisibility");
+      expect(text).not.toContain("npc-");
+      expect(text).not.toMatch(/(fact|dag|secret|flag|asset|inv|node):/);
+      expect(text).not.toContain("unknown");
+      expect(CJK.test(text)).toBe(true);
+    }
+  });
+
+  it("有真实可读值时优先使用它（不退回 reason 兜底句）", async () => {
+    const texts = await mockTextsFromFacts([
+      { factRef: "fact:mentor-name", value: "引路人", level: "known" },
+    ]);
+    expect(texts.some((text) => text.includes("引路人"))).toBe(true);
+  });
+
   it("叙事与选项不泄漏机器 id / 哨兵值（unknown 旗标不进正文）", async () => {
     const fixture = loadDemoFixture();
     // 复刻真实存档里的噪声：world.yaml 把初始旗标写成字符串 "unknown"，键是机器 id。
@@ -199,7 +268,7 @@ describe("零 key 端到端：真引擎 + mock provider", () => {
       });
       const outcome = await gateway.invoke(makeInvocation(fixture, { invocationId: "inv-determinism" }));
       expect(outcome.outcome).toBe("committed");
-      return traces[0]!.contentBlocks?.[0]?.text ?? "";
+      return (traces[0]!.contentBlocks ?? []).map((block) => `${block.kind}:${block.text ?? ""}`).join("|");
     };
 
     const first = await run();

@@ -116,31 +116,89 @@ function recentTitle(turns: readonly unknown[]): string | null {
   return null;
 }
 
-/** 占位 / 哨兵值：world.yaml 会把初始旗标写成 "unknown"，这类值不能进正文。 */
-const SENTINEL_VALUES = new Set(["", "unknown", "undefined", "null", "none", "n/a", "hidden"]);
+// ---------- 单一净化闸门（mock 发出的每一个字符串都必须过这里） ----------
 
-/** 纯 ASCII 的标识符形状（`infoVisibility:npc-mentor` / `gate-location`）当作机器 id，不进正文。 */
-const looksMachiney = (value: string): boolean => /^[A-Za-z0-9_.:\-]+$/.test(value);
+/** 哨兵值：world.yaml 会把初始旗标写成 "unknown"，这类值等价于「没有信息」。 */
+const SENTINEL_VALUES = new Set([
+  "",
+  "unknown",
+  "hidden",
+  "inferred",
+  "known",
+  "undefined",
+  "null",
+  "n/a",
+]);
 
-const isHumanText = (value: string): boolean =>
-  !SENTINEL_VALUES.has(value.trim().toLowerCase()) && !looksMachiney(value);
+/** 哨兵词：即使作为子串出现在候选值里，也不该出现在玩家文本中。 */
+const SENTINEL_WORDS = /\b(unknown|undefined|null|n\/a)\b/i;
+
+/** 机器 id 形态：`fact:x` / `flag:y` / `inv:3` / `node:n1` / `infoVisibility:z` / `npc-x` 等。 */
+const MACHINE_TOKEN_PATTERNS: readonly RegExp[] = [
+  /\b(?:fact|dag|secret|flag|asset|inv|node):[A-Za-z0-9_.:\-]+/gi,
+  /\b[A-Za-z][A-Za-z0-9_]*:npc-[A-Za-z0-9_.\-]+/gi,
+  /\binfoVisibility:[A-Za-z0-9_.\-]+/gi,
+  /\bvisibility:[A-Za-z0-9_.\-]+/gi,
+];
+
+/** 残留的冒号分隔机器 id（净化后仍出现 ⇒ 整个候选不可用）。 */
+const RESIDUAL_MACHINE_ID = /[A-Za-z][A-Za-z0-9_]*:[A-Za-z0-9_.\-]+/;
+
+function stripMachineIds(text: string): string {
+  let out = text;
+  for (const pattern of MACHINE_TOKEN_PATTERNS) out = out.replace(pattern, "");
+  // 剥掉 token 后可能留下空引号 / 连续标点，收尾成可读文案。
+  return out
+    .replace(/「\s*」/g, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/，\s*，/g, "，")
+    .trim();
+}
+
+/**
+ * 净化闸门：返回 null 表示该候选**不可用**，调用方必须回退到下一个候选；
+ * 返回字符串则是可直接展示的中文文案（已去机器 id、去哨兵）。
+ *
+ * 判定顺序：① 整串命中哨兵清单 ⇒ null；② 含哨兵词（unknown/null…）⇒ null；
+ * ③ 剥离机器 id；④ 剥离后为空或仍有冒号 id ⇒ null。
+ */
+export function sanitizeProse(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+  if (SENTINEL_VALUES.has(trimmed.toLowerCase())) return null;
+  if (SENTINEL_WORDS.test(trimmed)) return null;
+  const stripped = stripMachineIds(trimmed);
+  if (stripped.length === 0) return null;
+  if (RESIDUAL_MACHINE_ID.test(stripped)) return null;
+  return stripped;
+}
+
+/** 从事实值取出一个可用的人话片段；不可用（哨兵 / 机器 id / 与 ref 同值）则返回 null。 */
+function readableFactValue(fact: MockFactItem): string | null {
+  if (fact.level !== undefined && fact.level !== "known" && fact.level !== "inferred") return null;
+  const candidate =
+    typeof fact.value === "string"
+      ? fact.value
+      : isRecord(fact.value)
+        ? fact.value.name ?? fact.value.title ?? fact.value.location ?? fact.value.label
+        : undefined;
+  const cleaned = sanitizeProse(candidate);
+  if (cleaned === null) return null;
+  if (cleaned === fact.factRef) return null;
+  return cleaned;
+}
 
 /**
  * 事实值里的人名 / 地名等**可读**片段。
- * 过滤三类噪声：① 与 factRef 同值的占位；② "unknown" 之类哨兵；③ 机器 id 形状的标识符。
- * 这样玩家只会看到「引路人」这种名字，而不会看到 `infoVisibility:npc-mentor`。
+ * 全部经 `sanitizeProse`：`unknown` 这类哨兵、`infoVisibility:npc-mentor` 这类机器 id
+ * 一律视为「没有信息」，回退到 reason 派生的自成一体的句子。
  */
 function readableValues(view: MockContextView): string[] {
   const out: string[] = [];
   for (const fact of view.facts.facts ?? []) {
-    if (fact.level !== undefined && fact.level !== "known" && fact.level !== "inferred") continue;
-    const value = fact.value;
-    if (typeof value === "string") {
-      if (value !== fact.factRef && isHumanText(value)) out.push(value.trim());
-    } else if (isRecord(value)) {
-      const name = value.name ?? value.title ?? value.location ?? value.label;
-      if (typeof name === "string" && name !== fact.factRef && isHumanText(name)) out.push(name.trim());
-    }
+    const cleaned = readableFactValue(fact);
+    if (cleaned !== null) out.push(cleaned);
   }
   return [...new Set(out)];
 }
@@ -166,9 +224,29 @@ const REASON_LABELS: Array<{ match: string; text: string }> = [
   { match: "trial", text: "这场试炼" },
 ];
 
+/**
+ * 自成一体的 reason 句子：当没有任何可用事实值时用它兜底，
+ * 绝不把 `unknown` 之类占位拼进模板（`chapter.advance` → 「局势向前推进了一步。」）。
+ */
+const REASON_SENTENCES: Array<{ match: string; text: string }> = [
+  { match: "chapter", text: "局势向前推进了一步。" },
+  { match: "task", text: "这件事又往前走了一步。" },
+  { match: "random", text: "街上的动静比刚才更近了。" },
+  { match: "flavor", text: "此刻的空气里有一点细微的变化。" },
+  { match: "opening", text: "新的处境已经在你面前展开。" },
+  { match: "trial", text: "试炼的下一段就在眼前。" },
+];
+
+function reasonSentence(reason: string): string {
+  for (const entry of REASON_SENTENCES) {
+    if (reason.includes(entry.match)) return entry.text;
+  }
+  return "局面又向前挪动了一点。";
+}
+
 /** 触发事件的标题：优先历史标题；无历史时从 reason 派生中文标签，避免出现英文 id。 */
 function eventTitle(view: MockContextView): string {
-  const fromHistory = recentTitle(view.recentTurns);
+  const fromHistory = sanitizeProse(recentTitle(view.recentTurns) ?? undefined);
   if (fromHistory !== null) return fromHistory;
   for (const entry of REASON_LABELS) {
     if (view.reason.includes(entry.match)) return entry.text;
@@ -176,26 +254,30 @@ function eventTitle(view: MockContextView): string {
   return "眼前的局面";
 }
 
-/** 从可见事实 / DAG / 历史合成正文（纯函数、无随机）。 */
+/**
+ * 从可见事实 / DAG / 历史合成正文（纯函数、无随机）。
+ * 整段在返回前过 `sanitizeProse`；若整段不可用（理论上不会发生），退回 reason 句子。
+ */
 function synthesizeNarrative(view: MockContextView): string {
   const nodes = view.facts.dagNodes ?? [];
-  const sentences: string[] = [openerFor(view.reason)];
-
   const refs = visibleFactRefs(view);
   const readable = readableValues(view);
   const event = eventTitle(view);
-  if (refs.length === 0) {
-    // 没有可见事实时用事件标题兜底，避免「什么都没有发生」的空话。
-    sentences.push(`「${event}」就在眼前，你得决定怎么应对。`);
-  } else {
+  const sentences: string[] = [openerFor(view.reason)];
+
+  if (readable.length > 0) {
     readable.slice(0, 2).forEach((value) => sentences.push(`你看见了${value}。`));
-    // 正文只给「有几条线索」这种可读信息；引用 id 只留在 refs[] 里，不泄漏给玩家。
-    sentences.push(
-      readable.length > 0
-        ? `围绕「${event}」，你手里还攥着 ${refs.length} 条线索。`
-        : `有些细节还没理清，「${event}」已经摆在你面前。`,
-    );
+  } else {
+    // 没有任何可用事实值（全是 unknown / 机器 id）⇒ 用 reason 的自成一体句子，
+    // 绝不把占位拼进模板凑字数。
+    sentences.push(reasonSentence(view.reason));
   }
+
+  sentences.push(
+    refs.length > 0
+      ? `围绕「${event}」，你手里还攥着 ${refs.length} 条线索。`
+      : `「${event}」就在眼前，你得决定怎么应对。`,
+  );
 
   const node = activeNode(view);
   if (node !== undefined) {
@@ -204,7 +286,7 @@ function synthesizeNarrative(view: MockContextView): string {
     sentences.push("前面的路已经铺开，只差你选一个方向。");
   }
 
-  const title = recentTitle(view.recentTurns);
+  const title = sanitizeProse(recentTitle(view.recentTurns) ?? undefined);
   if (title !== null) sentences.push(`刚才的事还留着余温：${title}。`);
 
   sentences.push(
@@ -212,7 +294,7 @@ function synthesizeNarrative(view: MockContextView): string {
       ? "众生各怀心事，棋盘上的每一步都已被记录。"
       : "你把这一切收进心里，等着下一步动作。",
   );
-  return sentences.join("");
+  return sanitizeProse(sentences.join("")) ?? reasonSentence(view.reason);
 }
 
 /** 引用只取窗口内出现过的 factRef / 公有 DAG 节点，避免自造 visibility_violation。 */
@@ -240,6 +322,13 @@ function stableHash(text: string): number {
  * 按 `reason + invocationId + 首条事实` 的稳定哈希轮转取出 —— 连续回合不会逐字重复，
  * 同一 invocationId 永远得到同一组。
  */
+/** 到最后仍凑不满两个选项时使用的绝对安全动作（不含任何插值，必过净化门）。 */
+const SAFE_OPTIONS = [
+  "先退半步，把四周看清楚",
+  "径直走上前，不再犹豫",
+  "放慢脚步，等对方先动",
+];
+
 function optionTexts(view: MockContextView): string[] {
   const names = readableValues(view);
   const node = activeNode(view);
@@ -259,13 +348,24 @@ function optionTexts(view: MockContextView): string[] {
   rest.push("转身回到来路，暂避锋芒");
   rest.push("放慢脚步，等对方先动");
 
-  const picks = [lead];
+  const picks: string[] = [];
+  const push = (candidate: string): void => {
+    // 每个候选都必须过同一个净化门；不可用就静默丢弃，由下一个候选补位。
+    const cleaned = sanitizeProse(candidate);
+    if (cleaned === null || picks.includes(cleaned)) return;
+    picks.push(cleaned);
+  };
+
+  push(lead);
   const offset = stableHash(`${view.reason}|${view.invocationId}|${refs[0] ?? ""}`) % rest.length;
   for (let i = 0; i < rest.length && picks.length < 3; i += 1) {
-    const candidate = rest[(offset + i) % rest.length]!;
-    if (!picks.includes(candidate)) picks.push(candidate);
+    push(rest[(offset + i) % rest.length]!);
   }
-  return picks;
+  for (const safe of SAFE_OPTIONS) {
+    if (picks.length >= 2) break;
+    push(safe);
+  }
+  return picks.slice(0, 3);
 }
 
 function assetIdFrom(view: MockContextView): string | null {
@@ -376,14 +476,15 @@ function optionCalls(view: MockContextView, available: Set<string>): ToolCallReq
       },
     });
   });
-  const title = recentTitle(view.recentTurns);
-  if (title !== null && available.has("content.writeFlavor")) {
+  const title = sanitizeProse(recentTitle(view.recentTurns) ?? undefined);
+  const flavor = title === null ? null : sanitizeProse(`${title}的余韵还没散去，空气里有细微的变动。`);
+  if (flavor !== null && available.has("content.writeFlavor")) {
     calls.push({
       id: `${view.invocationId}:call:flavor`,
       name: "content.writeFlavor",
       arguments: {
         blockId: `${view.invocationId}:flavor`,
-        text: `${title}的余韵还没散去，空气里有细微的变动。`,
+        text: flavor,
         refs,
       },
     });
