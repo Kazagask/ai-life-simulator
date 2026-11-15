@@ -152,4 +152,37 @@ describe("信封版本封闭拒载", () => {
     const rejected = unloadable.find((u) => u.id === bogusId);
     expect(rejected?.reason).toBe("envelope_schema_version_unsupported");
   });
+
+  /**
+   * 模板随时会被改（demo-agentic 本轮就补了开局 / 转盘 / 战斗三段）⇒ 以旧语义指纹落盘的存档
+   * 必须走 `template_content_drift` 封闭拒载，且 detail 同时给出两个指纹便于诊断。
+   */
+  it("语义指纹不符 ⇒ template_content_drift（detail 含两侧指纹）", () => {
+    const registry = loadTemplates(silentLogger);
+    const world = worldStore.create({ templateId: "demo-agentic", playerName: "阿漂" }, entry);
+    const file = path.join(dataDir(), `${world.id}.json`);
+    const envelope = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    envelope.templateFingerprint = "sha256:stale-fingerprint-from-an-older-template";
+    writeFileSync(file, JSON.stringify(envelope), "utf8");
+
+    const { unloadable } = loadPersistedWorlds(registry);
+    const rejected = unloadable.find((u) => u.id === world.id);
+    expect(rejected?.reason).toBe("template_content_drift");
+    expect(rejected?.detail).toContain("sha256:stale-fingerprint-from-an-older-template");
+    expect(rejected?.detail).toContain(entry.semanticFingerprint);
+  });
+
+  /** `assetFingerprint` 只是展示完整性锚：变了 / 缺了都**不得**拒载（分叉③ A）。 */
+  it("assetFingerprint 变化不参与拒载", () => {
+    const registry = loadTemplates(silentLogger);
+    const world = worldStore.create({ templateId: "demo-agentic", playerName: "阿立" }, entry);
+    const file = path.join(dataDir(), `${world.id}.json`);
+    const envelope = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    envelope.assetFingerprint = "sha256:completely-different-assets";
+    writeFileSync(file, JSON.stringify(envelope), "utf8");
+
+    const { unloadable, loaded } = loadPersistedWorlds(registry);
+    expect(unloadable.find((u) => u.id === world.id)).toBeUndefined();
+    expect(loaded.some((record) => record.state.id === world.id)).toBe(true);
+  });
 });
