@@ -68,24 +68,17 @@ export function isRetryable(code: DiagnosticCode): boolean {
 }
 
 /**
- * 不可重试的拒绝（覆盖码表默认值）。
+ * 不可重试码的选择（ADR-0035 IO-1）。
  *
- * 只有一种用途：**跨回合的结构写入**（ADR-0035 IO-1）。`state_conflict` 在码表里是
- * `retryable: true`（因为"同一字段被并发改"通常重试一次就过），但"你要写的这一轮已经过去了"
- * 是重试一万次也不会变的事实 —— 让它可重试只会白烧 `retryLimit` 并拖长事务窗口。
- * 所以这里在**回执层**覆盖，不去改 13 码封闭集合的语义。
+ * 踩过的坑，记在这里：原本用 `state_conflict` + 在回执上覆盖 `retryable: false`，
+ * 但 `CallReceiptSchema` **没有 `retryable` 字段**，而 `loop.ts` 判可重试读的是
+ * `isRetryable(receipt.code)` —— 也就是**只看码表，不看回执**。所以那个覆盖是死代码：
+ * `state_conflict` 在码表里 `retryable: true`，循环照样会重试，白烧 `retryLimit`。
+ *
+ * 因此跨回合只能选一个**码表里本就不可重试**的码。`idempotency_conflict`
+ * （"这次写入不该再发生"）是 13 码里唯一语义贴合的：重试一万次，那一轮也已经过去了。
  */
-const rejectedFinal = (
-  code: DiagnosticCode,
-  detail: string,
-  factsHint?: Record<string, unknown>,
-): ToolRunResult => ({
-  ok: false,
-  code,
-  detail,
-  retryable: false,
-  ...(factsHint !== undefined ? { factsHint } : {}),
-});
+export const CROSS_TURN_CODE = "idempotency_conflict" as const;
 
 /**
  * ADR-0035 IO-1：结构写入不得跨回合。
@@ -100,9 +93,9 @@ const rejectedFinal = (
  */
 function crossTurnViolation(state: WorldStateV2, ctx: { turnIndex: number }): ToolRunResult | null {
   if (state.turnIndex === ctx.turnIndex) return null;
-  return rejectedFinal(
-    "state_conflict",
-    `结构写入跨回合：写入时 state.turnIndex=${state.turnIndex}，创作轮 ctx.turnIndex=${ctx.turnIndex}（ADR-0035 IO-1）`,
+  return rejected(
+    CROSS_TURN_CODE,
+    `结构写入跨回合（ADR-0035 IO-1）：写入时 state.turnIndex=${state.turnIndex}，创作轮 ctx.turnIndex=${ctx.turnIndex}`,
     { stateTurnIndex: state.turnIndex, ctxTurnIndex: ctx.turnIndex },
   );
 }
