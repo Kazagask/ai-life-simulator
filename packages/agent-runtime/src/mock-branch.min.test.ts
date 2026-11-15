@@ -1,17 +1,10 @@
 import { describe, expect, it } from "vitest";
-import {
-  LlmBudgetSchema,
-  LlmInvocationSchema,
-  type LlmInvocation,
-  type ToolDescriptor,
-} from "@life-sim/shared";
-import { createConditionRegistry, evaluateTriggers } from "@life-sim/game-core";
-import { AgentGateway } from "./gateway.js";
+import { LlmBudgetSchema, LlmInvocationSchema, type ToolDescriptor } from "@life-sim/shared";
 import { runAgentLoop } from "./loop.js";
 import { MockAgentProvider } from "./providers/index.js";
 import type { AgentMessage, ToolCallRequest } from "./tool-registry.js";
 import { buildToolDescriptors } from "./tool-registry.js";
-import { StubEngine, loadDemoFixture } from "./testing/fixtures.js";
+import { StubEngine } from "./testing/fixtures.js";
 
 /**
  * 分支轮验收（设计 §3.4 (b)）：mock 不只写散文 + 选项，还要**把 DAG 分支上的事件上桌**。
@@ -263,59 +256,5 @@ describe("分支轮契约（不依赖模板拼写）", () => {
       (receipt) => receipt.callId === "inv-loop-branch:1:0",
     );
     expect(branchReceipt).toMatchObject({ outcome: "accepted" });
-  });
-
-  it("零 key 真引擎：显式分支提示 ⇒ evt:trial 真的进 delayQueue 且 committed", async () => {
-    const fixture = loadDemoFixture();
-    // 把 n1.awaken 结掉，让 rules.yaml 的 nodeCompleted 触发器真的命中。
-    fixture.state.taskDag = {
-      ...fixture.rules.fallbackDag,
-      nodes: fixture.rules.fallbackDag.nodes.map((node) =>
-        node.id === "n1.awaken" ? { ...node, status: "completed" as const } : node,
-      ),
-    };
-
-    const invocations = evaluateTriggers(
-      fixture.state,
-      fixture.rules,
-      createConditionRegistry(),
-      { seed: fixture.state.seed, turnIndex: 1 },
-    );
-    const invocation: LlmInvocation | undefined = invocations.find(
-      (inv) => inv.reason === "chapter.advance",
-    );
-    expect(invocation).toBeDefined();
-
-    /**
-     * 就地覆写 contextHints：rules.yaml 目前仍写裸 `evt:trial`（模板侧待改），
-     * 而 mock 只认显式指令。用例自己声明「本轮该上桌什么」，模板怎么拼都不影响这条端到端。
-     */
-    invocation!.context.contextHints = ["chapter.tone", "branch:evt:trial"];
-
-    const queueBefore = fixture.state.delayQueue.length;
-    const traces: Array<{ contentBlocks?: Array<{ kind: string }> }> = [];
-    const gateway = new AgentGateway({
-      provider: new MockAgentProvider(),
-      engineApi: fixture.engine,
-      templateRef: "demo-agentic@1.0.0",
-      rules: fixture.rules,
-      toolProfile: "narrative",
-      onTrace: (trace) => traces.push(trace),
-    });
-
-    const outcome = await gateway.invoke(invocation!);
-
-    expect(outcome.outcome).toBe("committed");
-    // 分支事件真的入队了（只入队、不占槽）：origin.kind === "effect"。
-    const enqueued = fixture.state.delayQueue.filter((inst) => inst.definitionId === "evt:trial");
-    expect(enqueued.length).toBe(1);
-    expect(enqueued[0]!.origin).toMatchObject({ kind: "effect", id: "evt:trial" });
-    expect(fixture.state.delayQueue.length).toBe(queueBefore + 1);
-
-    // 一次 invocation 内三件事都发生了：叙事 / 分支上桌 / 可点选项。
-    const blocks = traces[0]?.contentBlocks ?? [];
-    const kinds = blocks.map((block) => block.kind);
-    expect(kinds).toContain("narrative");
-    expect(kinds.filter((kind) => kind === "option").length).toBeGreaterThanOrEqual(2);
   });
 });
