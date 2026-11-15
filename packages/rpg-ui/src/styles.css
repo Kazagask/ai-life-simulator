@@ -171,6 +171,11 @@
   background: color-mix(in srgb, var(--ls-gold) 12%, transparent);
 }
 
+.ls-choice:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .ls-choice--static {
   cursor: default;
   border-style: dashed;

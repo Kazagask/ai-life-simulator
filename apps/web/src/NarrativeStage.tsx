@@ -25,7 +25,16 @@ function portraitsOf(media: MediaVM[]): MediaVM[] {
  * 同一幕不重复上屏：若本轮叙事流里有内联 `asset` 块引用了一张 CG，顶部横幅让位给它，
  * 由叙事流在对应位置渲染（内容块是这一轮更精确的场景信号）。
  */
-export function NarrativeStage({ view, onAct }: { view: ViewModel; onAct?: ActHandler }) {
+export function NarrativeStage({
+  view,
+  onAct,
+  busy = false,
+}: {
+  view: ViewModel;
+  onAct?: ActHandler;
+  /** 回合结算中：叙事流里的选项按钮同步置灰（引擎侧 busy 锁兜底，视觉也要一致）。 */
+  busy?: boolean;
+}) {
   const portraits = portraitsOf(view.media);
   const hasInlineCg = view.content.some(
     (block) =>
@@ -50,7 +59,7 @@ export function NarrativeStage({ view, onAct }: { view: ViewModel; onAct?: ActHa
             ))}
           </div>
         )}
-        <NarrativeStream content={view.content} media={view.media} onAct={onAct} />
+        <NarrativeStream content={view.content} media={view.media} onAct={onAct} disabled={busy} />
       </div>
     </section>
   );

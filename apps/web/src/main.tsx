@@ -31,7 +31,7 @@ import { cloud } from "./cloud";
 import { platformEndingNarrative, platformEventFlavor, platformEvaluationSummary } from "./platformLlm";
 import { deleteLifeRecord, listLifeRecords, saveLifeRecord, shouldAutoArchive } from "./records";
 import type { LifeRecordRow } from "./records";
-import { toViewModel } from "@life-sim/rpg-ui";
+import { MAX_ACT_TEXT, toViewModel } from "@life-sim/rpg-ui";
 import type { ActHandler, ContentBlockVM, ViewModel } from "@life-sim/rpg-ui";
 import { ActionDock } from "./ActionDock";
 import { NarrativeStage } from "./NarrativeStage";
@@ -430,8 +430,13 @@ function App() {
    */
   const act = useCallback<ActHandler>(
     (choice) => {
-      if (choice.id !== undefined) advance({ type: choice.id, description: "" });
-      else advance({ type: "free", description: choice.text });
+      if (choice.id !== undefined) {
+        advance({ type: choice.id, description: "" });
+        return;
+      }
+      // 选项块 / 手打文本都走 `description`，服务端上限 200 字（`z.string().max(200)`)：
+      // LLM 写超长的选项时截断，避免整轮 400（长度常量由 rpg-ui 单点定义）。
+      advance({ type: "free", description: choice.text.slice(0, MAX_ACT_TEXT) });
     },
     [advance],
   );
@@ -1413,7 +1418,7 @@ function LifeTab({
           正文来自服务端 trace 读回（刷新后仍在），立绘 / CG 来自快照媒体投影；
           组件只吃 ViewModel，点击面由底部行动坞 + 叙事流选项共同承担。
         */}
-        <NarrativeStage view={view} onAct={narrativeAct} />
+        <NarrativeStage view={view} onAct={narrativeAct} busy={busy} />
 
         {ended && snapshot.ending && (
           <EndingPanel

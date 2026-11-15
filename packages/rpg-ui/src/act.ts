@@ -19,3 +19,12 @@ export interface Act {
 }
 
 export type ActHandler = (act: Act) => void;
+
+/**
+ * 点击提交文案的长度上限（与 `POST /turns` 的 `description: z.string().max(200)` 对齐）。
+ *
+ * 上限是**服务端契约**，不是某个组件的排版偏好，所以只在这里定义一次：
+ * 宿主在把 `Act.text` 转成请求体时按它截断；组件不做长度判断、也不各自定长。
+ * LLM 写出的选项块理论上可能超长，不截断会让整轮 400。
+ */
+export const MAX_ACT_TEXT = 200;

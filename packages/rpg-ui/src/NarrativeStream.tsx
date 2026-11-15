@@ -22,6 +22,11 @@ export interface NarrativeStreamProps {
    * 未注册的 kind 一律按正文渲染 —— 服务端新增内容块类型时不需要改本组件。
    */
   renderers?: Partial<Record<string, BlockRenderer>>;
+  /**
+   * 请求进行中：选项按钮置灰并带 `aria-disabled`。
+   * 引擎侧有 busy 锁兜底（不会双发），但玩家连点无反馈会以为卡死，所以视觉也要同步。
+   */
+  disabled?: boolean;
 }
 
 /**
@@ -35,7 +40,7 @@ export interface NarrativeStreamProps {
  *
  * 状态条 / 战斗面板**不在这里**：它们是常驻 HUD，绝不插进叙事流中间。
  */
-export function NarrativeStream({ content, onAct, media = [], renderers }: NarrativeStreamProps) {
+export function NarrativeStream({ content, onAct, media = [], renderers, disabled = false }: NarrativeStreamProps) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const lastBlockId = content.length > 0 ? content[content.length - 1]?.blockId : undefined;
 
@@ -50,8 +55,19 @@ export function NarrativeStream({ content, onAct, media = [], renderers }: Narra
     return <p className="ls-narrative__empty">故事尚未开始。</p>;
   }
 
-  // 每轮至多内联一张资源：只认第一个 asset 块，其余不占位（避免同一幕刷多张图）。
-  const firstAssetIndex = content.findIndex((block) => block.kind === "asset");
+  /**
+   * 每轮至多内联一张资源。
+   *
+   * 判据必须与 `NarrativeStage` 抑制顶部横幅的判据一致：取**第一个能解析到媒体**的
+   * asset 块。若只看「第一个 asset 块」，而它的 assetId 在本轮 media 里缺失、
+   * 后面某块又能解析 —— 横幅已被抑制、流里又被整体跳过，这一幕就成黑场。
+   */
+  const firstAssetIndex = content.findIndex(
+    (block) =>
+      block.kind === "asset" &&
+      block.assetId !== undefined &&
+      media.some((item) => item.assetId === block.assetId),
+  );
 
   const defaults: Record<string, BlockRenderer> = {
     narrative: (block) => (
@@ -78,6 +94,8 @@ export function NarrativeStream({ content, onAct, media = [], renderers }: Narra
           type="button"
           className="ls-choice"
           data-kind={block.kind}
+          disabled={disabled}
+          aria-disabled={disabled}
           onClick={() => onAct({ text, source: "option" })}
         >
           {text}

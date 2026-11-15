@@ -46,6 +46,8 @@ export function ActionDock({
   }, []);
 
   const submit = () => {
+    // 与「执行」按钮同一套准入：结算中不允许回车提交（wrap 的 busy 锁会兜住，但视觉要一致）。
+    if (busy) return;
     const text = freeText.trim();
     if (text === "") return;
     onAct({ text, source: "free" });

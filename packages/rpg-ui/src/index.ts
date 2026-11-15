@@ -23,6 +23,7 @@ export type { WorldClockProps } from "./WorldClock.js";
 export { NarrativeStream } from "./NarrativeStream.js";
 export type { NarrativeStreamProps, BlockRenderer } from "./NarrativeStream.js";
 
+export { MAX_ACT_TEXT } from "./act.js";
 export type { Act, ActHandler } from "./act.js";
 
 export { Portrait } from "./Portrait.js";

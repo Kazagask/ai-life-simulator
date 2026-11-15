@@ -8,6 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { V2Snapshot, ViewModel } from "@life-sim/shared";
 import { ViewModelSchema } from "@life-sim/shared";
 import { toViewModel } from "./adapter.js";
+import { MAX_ACT_TEXT } from "./act.js";
 import { ActionBar } from "./ActionBar.js";
 import { CgStage, isCgSlot } from "./CgStage.js";
 import { EventStage } from "./EventStage.js";
@@ -18,6 +19,10 @@ import { WorldClock } from "./WorldClock.js";
 
 const h = createElement;
 const render = (node: ReactElement) => renderToStaticMarkup(node);
+
+it("MAX_ACT_TEXT 与服务端 description 上限（200）对齐", () => {
+  expect(MAX_ACT_TEXT).toBe(200);
+});
 
 // ---------- 真实形状快照夹具（含可选字段缺省的一组） ----------
 
@@ -294,6 +299,32 @@ describe("NarrativeStream", () => {
       h(NarrativeStream, { media, content: [{ blockId: "b1", kind: "asset", assetId: "nope" }] }),
     );
     expect(unresolved).not.toContain("<img");
+  });
+
+  it("首个 asset 块解析不到时，仍渲染后面能解析的那张（不黑场）", () => {
+    // 判据必须与 NarrativeStage 抑制横幅的判据一致，否则会产生「横幅没了、流里也跳过」的黑场
+    const html = render(
+      h(NarrativeStream, {
+        media: [{ slot: "scene", assetId: "cg2", url: "/cg2.png", alt: "炉火" }],
+        content: [
+          { blockId: "b1", kind: "asset", assetId: "missing" },
+          { blockId: "b2", kind: "asset", assetId: "cg2" },
+        ],
+      }),
+    );
+    expect(html).toContain('src="/cg2.png"');
+  });
+
+  it("disabled 时选项按钮置灰且带 aria-disabled", () => {
+    const html = render(
+      h(NarrativeStream, {
+        content: [{ blockId: "o1", kind: "option", text: "先退半步" }],
+        onAct: () => {},
+        disabled: true,
+      }),
+    );
+    expect(html).toMatch(/<button[^>]*disabled/);
+    expect(html).toContain('aria-disabled="true"');
   });
 
   it("空列表给空态文案而不是空容器", () => {
