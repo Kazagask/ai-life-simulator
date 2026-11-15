@@ -3,15 +3,16 @@
 # 当前 DECLARATIVE_FILES 未含本文件，加载期由 templates.ts:422 warn + 忽略；
 # 运行时加载验证依赖 T-06 补白名单 11→13 与独立 RulesSchema loader（预期的中间态）。
 # when / guards / completion 统一 { op, args } 开放形（v2 §3.5 口径）。
-# contextHints 里的 `evt:xxx` 是**本轮分支可上桌的事件引用**（模板已有事件，逐字对应
-# events.yaml 的 id）：LLM 只能从这类引用里挑，不许自造 —— 自造 id 必然 unknown_reference。
+# 只有 `branch:evt:xxx` 才是「把该事件摆上桌」的显式指令；裸 `evt:xxx` 只是给模型的
+# 上下文标签，引擎侧不产生任何副作用 —— 从提示字符串的形状推断语义是 409 无限交替事故的根因。
 llmTriggers:
   - when: [{ op: "nodeCompleted", args: { nodeId: "n1.awaken" } }]
     invoke:
       reason: "chapter.advance"
       perspective: "player"
       targetPerspective: "player"
-      contextHints: ["chapter.tone", "evt:trial"]
+      # `branch:` 前缀 = 显式「上桌」指令（mock-branch 端到端用例依赖 evt:trial 被这样引用）。
+      contextHints: ["chapter.tone", "branch:evt:trial"]
       toolProfile: "narrative"
   - when: [{ op: "random", args: { probability: 0.1 } }]
     invoke:
@@ -25,7 +26,9 @@ llmTriggers:
       reason: "task.completed"
       perspective: "world"
       targetPerspective: "player"
-      contextHints: ["facts", "secrets", "evt:chance"]
+      # 本条职责是**写叙事**，不摆事件：`evt:chance` 已由 evt:trial 的确定性边进入，
+      # 再挂一个「可上桌」提示只会给模型多一条重复入队它的路径（closing↔chance 交替的根因）。
+      contextHints: ["facts", "secrets"]
       toolProfile: "narrative"
 toolProfile:
   # 能力画像 = 本次 invocation 允许的工具面。三项硬约束：
