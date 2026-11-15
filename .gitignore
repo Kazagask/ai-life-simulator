@@ -28,3 +28,4 @@ specs/data/references/*.wheel.json
 .tmp-*/
 .tmp-*.log
 .vitest-*.log
+.tmp-*

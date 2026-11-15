@@ -4014,3 +4014,41 @@ D2（hints 零解释）+ D3 第 3 条（未声明白名单一律拒）合起来�
 
 **R8 `buildInitialMessages` 用 spread `LlmContext`，但显式挖掉 `stablePrefix`。**
 spread 让以后加字段自动进 prompt（避免"加了字段没进 prompt"这类静默失能）；`stablePrefix` 已作为 system 消息单独发送，spread 进去会重复一大段骨架、白烧 token。
+
+**R9 修订 IO-15 的观测面：必须锁 trace，不能锁 state。**
+原 IO-15 写「把 `contextHints` 换成任意字符串，**世界状态**逐字段不变」。实测（gateway 真跑，其余条件全同）这条会**假绿**：
+
+| hints | receipts | contentBlocks | delayQueue |
+|---|---|---|---|
+| 无 | `[accepted × 5]` | 4 | 0 |
+| `["asset:whatever"]` | `[accepted, rejected:visibility_violation, …]` | 5（**同 blockId 重复**） | 0 |
+| `["evt:trial"]` | `[accepted × 5]` | 4 | 0 |
+
+原因：`content.*` 在 refs 越窗时**先 reject、不写 sink**，所以 `state` 逐字段确实没变 —— 但 dispatch 行为变了（多一条拒绝、多一块重复正文）。"hints 是惰性的"这个命题必须用**行为**证明，而不是用"没崩"证明。
+⇒ IO-15 改为：同一 invocation，仅 `contextHints` 换成任意字符串 ⇒ ① `receipts` 的 `(code, 顺序)` 序列逐项相同；② `contentBlocks` 的 `blockId` 序列相同且无重复；③ `state` 逐字段相同。三条同时成立才算通过。
+（`["evt:trial"]` 一栏已与"无 hints"完全一致 ⇒ D2 在 `evt:` 这条上是真落住了，不是靠断言放宽。）
+
+**R10 `mock` 重试分支的作用域缺陷（本轮修，不再挂账）。**
+`mock.ts` 的重试分支是 `else if (available.has("content.writeNarrative"))` —— 它兜住了**所有**非 `writeOption` 的拒绝。于是 `content.referenceAsset` / `writeFlavor` / `writeMemory` 被打回时，也会重发一段 narrative（**同一 blockId**），而 trait 仍是 `outcome: committed`。
+后果：玩家看到同一段话出现两次，**没有任何错误提示**；真模型接入后（窗口越界、写错 ref 远比 mock 频繁）会显著放大。
+⇒ 决策：重发**只对 `content.writeNarrative` 自身的拒绝**生效（此时收窄 refs 再发是对的）；其余 content 工具被拒 ⇒ 跳过该调用、继续推进，与 `isFactRejection` 同一处置逻辑。
+回归锁：让 `referenceAsset` 被拒 ⇒ `outcome` 仍 `committed`、`contentBlocks` 中该 narrative 的 `blockId` **只出现一次**、`receipts` 有那条 `visibility_violation`（不吞掉诊断，只是不复制正文）。
+
+**D2-a 「形状推断」的可复用判据（D2 的子规则，适用于任何"能不能从字符串里读点东西"的分歧）。**
+
+> 形状推断若**改变世界节奏**（入队 / 推进 DAG / 授知识 / 任何结构写入）⇒ **禁止**，必须走结构化字段。
+> 形状推断若只**选取内容参数**（这张图用哪个 `assetId`、用什么文案键）⇒ **允许**，但必须由**命名空间约定**支撑，且不得反过来影响节奏。
+
+两栏对照：
+| 形态 | 判据 | 结论 |
+|---|---|---|
+| `contextHints` 里的 `evt:` / `asset:` | hints 是自由文本标签通道，无命名空间约束 | 禁止（已删） |
+| `facts[].factRef` 的 `asset:` | `factRef` 是 ref 命名空间，`asset:<id>` 与 `fact:` / `secret:` 同级，只选内容参数 | 保留 |
+| `facts[].factRef` 的 `evt:` | 曾被当成入队指令 | 禁止（已删，见 ADR-0038 §1） |
+
+为什么必须写成**判据**而不只是删代码：删掉 `hints` 那支、留下 `factRef` 那支，后来者看到的是"标准不一致"，然后按最省事的方式加回来。有了判据，他会先问"这改的是节奏还是内容"，再决定。
+代码侧对应：`assetIdFrom()` 的 factRef 分支上方标注 `// 判据（ADR-0038 D2-a）：factRef 是 ref 命名空间，解引用只选内容参数，不改节奏`。
+
+**R11 IO-15 再补一条（比"无 rejected 回执"更硬）：hints 任意取值下，trace 里不得**存在**`content.referenceAsset` 调用。**
+不是"发了被拒"，而是"根本没发过"。它同时锁两件事：B-40 不复活、以及将来有人想加回"从 hints 猜资源"会被立刻挡下。比断言回执形态稳 —— 不依赖 engine 的越窗判定逻辑是否正确。
+⇒ IO-15 最终四条：① `receipts` 的 `(code, 顺序)` 序列相同；② `contentBlocks` 的 `blockId` 序列相同且无重复；③ `state` 逐字段相同；④ trace 中**不存在** `content.referenceAsset` 调用。
