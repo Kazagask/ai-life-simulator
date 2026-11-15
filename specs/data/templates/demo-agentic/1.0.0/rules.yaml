@@ -1,0 +1,50 @@
+# 独立声明式文件：触发 / 工具画像 / 知识授权 / 推断 / fallbackDag。
+# 不并入 TEMPLATE_MERGE_FILES、不是 world.yaml 顶层键（WorldTemplateV2Schema 为 .strict()）。
+# 当前 DECLARATIVE_FILES 未含本文件，加载期由 templates.ts:422 warn + 忽略；
+# 运行时加载验证依赖 T-06 补白名单 11→13 与独立 RulesSchema loader（预期的中间态）。
+# when / guards / completion 统一 { op, args } 开放形（v2 §3.5 口径）。
+llmTriggers:
+  - when: [{ op: "nodeCompleted", args: { nodeId: "n1.awaken" } }]
+    invoke:
+      reason: "chapter.advance"
+      perspective: "player"
+      targetPerspective: "player"
+      contextHints: ["chapter.tone"]
+      toolProfile: "narrative"
+  - when: [{ op: "random", args: { probability: 0.1 } }]
+    invoke:
+      reason: "random.flavor"
+      perspective: "player"
+      targetPerspective: "player"
+      contextHints: ["facts"]
+      toolProfile: "narrative"
+  - when: [{ op: "flagSet", args: { flag: "took-right" } }]
+    invoke:
+      reason: "task.completed"
+      perspective: "world"
+      targetPerspective: "player"
+      contextHints: ["facts", "secrets"]
+      toolProfile: "narrative"
+toolProfile:
+  narrative: ["content.writeNarrative", "content.referenceAsset", "fact.enqueueEvent"]
+knowledgeGrants:
+  - when: [{ op: "eventResolved", args: { eventId: "evt:trial" } }]
+    grant: { observers: ["player"], factRefs: ["fact:trial-result"], level: "known", source: "witness" }
+  - when: [{ op: "always", args: {} }]
+    grant: { observers: ["npc:npc-mentor"], factRefs: ["secret:mentor-plan", "fact:gate-location"], level: "known", source: "rule" }
+  - when: [{ op: "always", args: {} }]
+    grant: { observers: ["player", "npc:npc-rival"], factRefs: ["fact:gate-location"], level: "known", source: "rule" }
+inferenceRules:
+  - when: [{ op: "flagSet", args: { flag: "suspicion" } }]
+    grant: { observers: ["npc:npc-rival"], factRefs: ["fact:hidden-motive"], level: "inferred", source: "inferred" }
+fallbackDag:
+  dagId: "demo-agentic.fallback.v1"
+  version: 1
+  issuedBy: "template"
+  nodes:
+    - { id: "n1.awaken", kind: "opening", title: "苏醒", status: "ready", guards: [], completion: [{ op: "always", args: {} }], templateRefs: ["evt:awaken"], visibility: "public" }
+    - { id: "n2.trial", kind: "trial", title: "初次试炼", status: "draft", guards: [{ op: "nodeCompleted", args: { nodeId: "n1.awaken" } }], completion: [{ op: "always", args: {} }], templateRefs: ["evt:trial"], visibility: "public" }
+    - { id: "n3.hiddenSeed", kind: "secret", title: "未公开的线索", status: "draft", guards: [{ op: "nodeCompleted", args: { nodeId: "n2.trial" } }], completion: [], templateRefs: [], visibility: "hidden" }
+  edges:
+    - { from: "n1.awaken", to: "n2.trial", kind: "unlocks" }
+    - { from: "n2.trial", to: "n3.hiddenSeed", kind: "unlocks" }

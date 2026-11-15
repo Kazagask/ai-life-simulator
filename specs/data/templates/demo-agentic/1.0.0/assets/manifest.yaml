@@ -1,0 +1,13 @@
+# 资产清单（独立声明式文件）：LLM 选图工具只接 assetId，不接路径 / URL。
+# 当前由 scanAssets 当作普通 asset 计入指纹；运行时按 §7.1 独立 AssetManifestSchema 解析
+# 依赖 T-06 补白名单 11→13 与独立 loader（预期的中间态）。
+# 立绘为 IP 素材仅作 demo 占位，正式发布前需用户单独确认授权（分叉③已裁决 A）。
+assets:
+  - assetId: portrait.mentor.neutral
+    path: portraits/mentor-neutral.png
+    kind: portrait
+    tags: [mentor, neutral]
+    characterRef: npc-mentor
+    visibility: public
+    license: demo-placeholder
+    credit: demo

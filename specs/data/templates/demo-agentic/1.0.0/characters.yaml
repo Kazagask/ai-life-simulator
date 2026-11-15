@@ -1,0 +1,27 @@
+# 2 个 NPC + 玩家模板。secret:mentor-plan 为 F4 三窗口测试保留的隐秘事实。
+characters:
+  - id: npc-mentor
+    isEnemy: false
+    identity: { name: 引路人, age: 40, gender: unknown }
+    visibility: public
+    mood: { value: 50 }
+    attributes: { body: 5, mind: 8, luck: 5 }
+    public: { personality: 沉默寡言, knownGoals: [带主角入门] }
+    private:
+      secrets: ["secret:mentor-plan"]
+      knowledge: ["fact:gate-location"]
+      goals: [observe-player]
+      traits: [cautious]
+    relationship: 0
+  - id: npc-rival
+    isEnemy: false
+    identity: { name: 同路人, age: 20, gender: unknown }
+    visibility: public
+    mood: { value: 50 }
+    attributes: { body: 6, mind: 5, luck: 6 }
+    public: {}
+    private: {}
+    relationship: 0
+playerTemplate:
+  identity: { gender: unknown, age: 18 }
+  attributes: { body: 5, mind: 5, luck: 5 }

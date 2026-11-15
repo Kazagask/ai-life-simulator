@@ -1,0 +1,43 @@
+# 4 个事件，narrative 全部省略（?? title 回退）。事件 id 与 rules.yaml fallbackDag.templateRefs 逐字一致。
+events:
+  - id: "evt:awaken"
+    title: 苏醒
+    kind: normal
+    trigger: { source: pool, weight: 1, once: true }
+    settle:
+      normal:
+        options:
+          - { id: opt-begin, text: 出发, nextEventId: "evt:trial" }
+  - id: "evt:trial"
+    title: 初次试炼
+    kind: normal
+    trigger: { source: pool, weight: 1 }
+    settle:
+      normal:
+        options:
+          - id: opt-left
+            text: 走左边
+            effects: [{ type: adjustAttribute, attribute: body, value: 1 }]
+            nextEventId: "evt:chance"
+          - id: opt-right
+            text: 走右边
+            effects: [{ type: setFlag, id: took-right, value: true }]
+            nextEventId: "evt:chance"
+  - id: "evt:chance"
+    title: 偶遇
+    kind: random
+    trigger: { source: pool, probability: 0.3 }
+    settle:
+      random:
+        wheel:
+          segments:
+            - { weight: 1, label: 相谈甚欢, nextEventId: "evt:closing" }
+            - { weight: 1, label: 擦肩而过, nextEventId: "evt:closing" }
+  - id: "evt:closing"
+    title: 落幕
+    kind: normal
+    trigger: { source: pool, weight: 1 }
+    settle:
+      normal:
+        options:
+          - { id: opt-finish, text: 结束这一局 }

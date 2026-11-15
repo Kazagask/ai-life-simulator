@@ -1,0 +1,8 @@
+# 自定义维度集：验证「换维度不改引擎代码」。
+dimensions:
+  - id: growth
+    label: 成长
+    weight: 1
+    ranges: [0, 100]
+    explainRules: ["按属性增长给出评价"]
+worldSpecificDimensions: []
