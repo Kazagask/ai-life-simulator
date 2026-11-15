@@ -75,10 +75,8 @@ function traceWith(
 describe("player 窗口投影", () => {
   it("hidden 块、world 窗口块、越窗 ref 块都整块消失", () => {
     const world = newWorld("阿读");
-    // 玩家台账里只授予一个事实；另一条事实只存在于世界侧，player 看不见。
-    world.observationLedger.player = [
-      { factRef: "flag:known", level: "known", source: "rule", sinceTurn: 0 },
-    ];
+    // 模板角色自带 `secret:mentor-plan`：npc 隐秘只在 world 窗口可引用。
+    expect(world.npcs.some((n) => n.secrets.includes("secret:mentor-plan"))).toBe(true);
 
     appendTrace(
       world.id,
@@ -87,7 +85,7 @@ describe("player 窗口投影", () => {
           blockId: "ok",
           kind: "narrative",
           text: "可见正文",
-          refs: ["flag:known"],
+          refs: ["flag:infoVisibility:npc-mentor"],
           visibility: "public",
           targetPerspective: "player",
         },
@@ -111,8 +109,8 @@ describe("player 窗口投影", () => {
         {
           blockId: "leaky-ref",
           kind: "narrative",
-          text: "引用了玩家看不见的事实",
-          refs: ["flag:secret"],
+          text: "引用了玩家看不见的隐秘",
+          refs: ["secret:mentor-plan"],
           visibility: "public",
           targetPerspective: "player",
         },

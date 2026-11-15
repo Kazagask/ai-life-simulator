@@ -1,11 +1,12 @@
-import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { advanceTurnV2 } from "@life-sim/game-core";
+import { advanceTurnV2, createConditionRegistry, evaluateTriggers } from "@life-sim/game-core";
 import { loadTemplates, type ReadyTemplateEntry, type TemplateScanLogger } from "../templates.js";
-import { worldStore } from "../store.js";
+import { traceFile, worldStore } from "../store.js";
+import { readNarrativeBlocks } from "../narrative/read.js";
 import { pipelineForTurn, resolveAgentConfig } from "./pipeline.js";
 
 /**
@@ -69,9 +70,24 @@ describe("resolveAgentConfig", () => {
 });
 
 describe("pipelineForTurn", () => {
-  it("无 provider ⇒ 返回 entry.pipeline 本身（零回归）", () => {
+  /** 模拟「模板没有 rules.yaml」的 Entry（`jjk-2006` 就是这种形状）。 */
+  function withoutRules(template: ReadyTemplateEntry): ReadyTemplateEntry {
+    const clone = { ...template } as ReadyTemplateEntry;
+    delete (clone as { rules?: unknown }).rules;
+    return clone;
+  }
+
+  it("无 provider 且模板无 rules.yaml ⇒ 返回 entry.pipeline 本身（真零回归）", () => {
     const world = worldStore.create({ templateId: "demo-agentic", playerName: "阿零" }, entry);
-    expect(pipelineForTurn(world, entry, undefined)).toBe(entry.pipeline);
+    const noRules = withoutRules(entry);
+    expect(pipelineForTurn(world, noRules, undefined)).toBe(noRules.pipeline);
+  });
+
+  it("无 key 但模板有 rules.yaml ⇒ 注入 mock 网关（无 key 可跑）", () => {
+    const world = worldStore.create({ templateId: "demo-agentic", playerName: "阿默" }, entry);
+    const pipeline = pipelineForTurn(world, entry, undefined);
+    expect(pipeline.gateway).toBeDefined();
+    expect(pipeline.rules).toBe(entry.rules);
   });
 
   it("有 provider ⇒ 注入 gateway + rules + 双视角", () => {
@@ -90,8 +106,37 @@ describe("pipelineForTurn", () => {
     expect(pipeline.evaluationConfig).toBe(entry.pipeline.evaluationConfig);
   });
 
+  it("mock 网关：flagSet 触发产出 invocation，正文/选项落 trace 且被 narrative 端点读回", async () => {
+    const world = worldStore.create({ templateId: "demo-agentic", playerName: "阿触", seed: 11 }, entry);
+    // 模板 task.completed 触发条件：flag "took-right"（rules.yaml 第 3 条）。
+    world.flags["took-right"] = true;
+    const pipeline = pipelineForTurn(world, entry, undefined);
+    expect(pipeline.gateway).toBeDefined();
+
+    const invocations = evaluateTriggers(
+      world,
+      entry.rules!,
+      createConditionRegistry(),
+      { seed: world.seed, turnIndex: world.turnIndex },
+    );
+    const completed = invocations.find((inv) => inv.reason === "task.completed");
+    expect(completed).toBeDefined();
+    // 触发链没有 unknown_reference 静默失败：三个内置 op 都已注册。
+    expect(completed?.context.facts.perspective).toBe("world");
+
+    await pipeline.gateway!.invoke(completed!);
+
+    expect(existsSync(traceFile(world.id))).toBe(true);
+    const blocks = readNarrativeBlocks(world.id, world);
+    expect(blocks.length).toBeGreaterThan(0);
+    expect(blocks.some((b) => b.kind === "narrative")).toBe(true);
+    expect(blocks.some((b) => b.kind === "option")).toBe(true);
+  });
+
   it("同种子两局：无 gateway 的结算结果与基线逐字段相等", () => {
     const command = { action: { type: "rest", description: "" }, mode: "single" as const };
+    // 无 rules.yaml 的模板（如 jjk-2006）⇒ 不注入网关，管线配置与基线同源。
+    const noRules = withoutRules(entry);
     const baseline = worldStore.create(
       { templateId: "demo-agentic", playerName: "阿基", seed: 7 },
       entry,
@@ -114,7 +159,7 @@ describe("pipelineForTurn", () => {
       entry.template,
       entry.lookup,
       undefined,
-      pipelineForTurn(candidate, entry, undefined),
+      pipelineForTurn(candidate, noRules, undefined),
     );
     const strip = (snapshot: typeof resA.snapshot) => ({ ...snapshot, worldId: "" });
     expect(strip(resB.snapshot)).toEqual(strip(resA.snapshot));

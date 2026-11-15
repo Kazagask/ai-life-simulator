@@ -8,13 +8,22 @@ import type { ReadyTemplateEntry } from "../templates.js";
 import { appendTrace } from "../store.js";
 
 /**
- * T-11（部分）· 回合结算尾的 LLM 网关注入（与 HTTP 层解耦以便单测）。
+ * T-11 · 回合结算尾的 LLM 网关注入（与 HTTP 层解耦以便单测）。
  *
- * 硬不变量：**没有可解析 provider ⇒ 原样返回 `entry.pipeline`（同一引用）**。
- * `runLlmHook` 在 `pipeline.gateway` 缺失时完全 no-op，故「无 key」路径与改前逐字段一致。
+ * 注入判据（两条，任一成立即注入）：
+ * ① 有**真实** provider（用户凭证 / env 三要素）；
+ * ② **模板声明了 `rules.yaml`**（`entry.rules !== undefined`）——此时用 `createAgentProvider({})`
+ *    得到的**确定性 mock** provider。
+ *
+ * ②不是装饰性兜底，而是 F1 验收「无 key 可跑」的产品路径：点击式 demo 必须在没有 API key 时
+ * 也能产出叙事 + 可点选项。mock provider 无网络、同一 invocation + 同一状态 ⇒ 逐字节相同输出。
+ *
+ * 硬不变量：**既没有 provider、模板也没有 rules.yaml ⇒ 原样返回 `entry.pipeline`（同一引用）**。
+ * `runLlmHook` 在 `pipeline.gateway` 缺失时完全 no-op，故这类模板（如 `jjk-2006`）的回合结算
+ * 与改前逐字段一致（零回归）。
  */
 
-/** 真实 provider 的三要素；缺任一 ⇒ 不注入网关。 */
+/** 真实 provider 的三要素；缺任一 ⇒ 用 mock（若模板声明了 rules.yaml）。 */
 export interface AgentProviderConfig {
   baseUrl: string;
   model: string;
@@ -46,7 +55,8 @@ export function resolveAgentConfig(
  * - 引擎 API 建在世界的**活状态**上：`advanceTurnV2` 原地改 `state`，网关在结算尾 dispatch
  *   时看到的就是本轮最新状态；
  * - `onTrace` 同步追加到 append-only `<worldId>.trace.jsonl`（agent-runtime 不落盘）；
- * - 规则（`rules.yaml`）同时作为触发器与工具画像来源传入。
+ * - 规则（`rules.yaml`）同时作为触发器与工具画像来源传入；
+ * - `config` 缺省 ⇒ `createAgentProvider({})` 返回 mock（零 key demo 路径：无网络、确定性）。
  */
 export function pipelineForTurn(
   world: WorldStateV2,
@@ -54,7 +64,8 @@ export function pipelineForTurn(
   config: AgentProviderConfig | undefined,
 ): TurnPipelineConfig {
   const base = entry.pipeline;
-  if (config === undefined) return base;
+  // 真·零回归分支：没有 provider **且**模板没有 rules.yaml ⇒ 没有触发源，注入毫无意义。
+  if (config === undefined && entry.rules === undefined) return base;
   const engineApi = new RpgEngineAPI({
     state: world,
     projectSnapshot: (s) => projectSnapshotV2(s, entry.template, entry.lookup),
@@ -62,7 +73,8 @@ export function pipelineForTurn(
     targetPerspective: "player",
   });
   const gateway = new AgentGateway({
-    provider: createAgentProvider(config),
+    // 无 key ⇒ mock：这是「无 key 可跑」的正式路径，不是缺省占位。
+    provider: createAgentProvider(config ?? {}),
     engineApi,
     templateRef: `${entry.ref.id}@${entry.ref.version}`,
     onTrace: (trace) => appendTrace(world.id, trace),
