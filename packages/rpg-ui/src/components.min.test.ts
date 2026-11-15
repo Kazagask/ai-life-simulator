@@ -566,6 +566,40 @@ describe("ActionBar（主点击面）", () => {
     expect(empty).toMatch(/<button[^>]*class="ls-actionbar__free"/);
   });
 
+  it("默认收起：4 个动作只露前 2 个 + 「更多动作（2）」，展开后全露", () => {
+    const many = Array.from({ length: 4 }, (_, i) => ({ id: `a${i}`, label: `动作${i}`, description: "" }));
+
+    const collapsed = render(h(ActionBar, { actions: many, onAct: () => {} }));
+    expect(collapsed).toContain('data-expanded="false"');
+    expect(collapsed.match(/class="ls-action"/g)?.length).toBe(2);
+    expect(collapsed).toContain("更多动作（2）");
+    // 收起态也要留着自由输入入口（不能因为折叠把打字的路断了）
+    expect(collapsed).toContain("自由行动…");
+
+    const open = render(h(ActionBar, { actions: many, onAct: () => {}, initialExpanded: true }));
+    expect(open).toContain('data-expanded="true"');
+    expect(open.match(/class="ls-action"/g)?.length).toBe(4);
+    expect(open).toContain("收起动作");
+  });
+
+  it("≤2 个动作时不出现「更多动作」开关", () => {
+    const html = render(h(ActionBar, { actions, onAct: () => {} }));
+    expect(html).not.toContain("ls-actionbar__more");
+    expect(html).not.toContain("data-expanded");
+  });
+
+  it("动作列表有高度上限、可内部滚动，且用 dvh（移动端地址栏收起时不跳）", () => {
+    const cssPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "styles.css");
+    const css = readFileSync(cssPath, "utf8");
+    const start = css.indexOf(".ls-actionbar__list {");
+    expect(start).toBeGreaterThan(-1);
+    const rule = css.slice(start, css.indexOf("}", start));
+    // 40dvh 是上限主体，38vh 是给老 WebView 的兜底（同一条规则里前后两行）
+    expect(rule).toContain("max-height: 40dvh");
+    expect(rule).toContain("max-height: 38vh");
+    expect(rule).toContain("overflow-y: auto");
+  });
+
   it("无战斗时动作可点", () => {
     const html = render(h(ActionBar, { actions, onAct: () => {} }));
     expect(html).not.toMatch(/<button[^>]*\sdisabled/);

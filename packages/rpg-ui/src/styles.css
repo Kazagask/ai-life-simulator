@@ -412,11 +412,45 @@
   gap: 8px;
 }
 
-/* 动作多时列表内部滚动，绝不让行动坞吃掉整屏 */
+/* 动作多时列表内部滚动，绝不让行动坞吃掉整屏。
+ * 用 `dvh` 而不是 `vh`：移动端地址栏收起/展开时 `vh` 不变，`dvh` 跟着可视区走。
+ * 上一行是给不支持 `dvh` 的老 WebView 的兜底值。 */
 .ls-actionbar__list {
   max-height: 38vh;
+  max-height: 40dvh;
   overflow-y: auto;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
+}
+
+/* 「更多动作」与「自由行动…」并排一行：两枚 40px 按钮各占一半，比上下叠少 48px ——
+ * 这 48px 直接决定叙事流里的第一个选项块能不能露在固定坞上方（412×890 实测）。 */
+.ls-actionbar__row {
+  display: flex;
+  gap: 8px;
+}
+
+.ls-actionbar__row > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* 「更多动作」：收起/展开前 2 个之后的部分。虚线 + 小字，与「自由行动…」同层级但更弱 */
+.ls-actionbar__more {
+  min-height: 40px;
+  padding: 6px 12px;
+  border: 1px dashed var(--ls-border);
+  border-radius: var(--ls-radius);
+  background: transparent;
+  color: var(--ls-text-dim);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ls-actionbar__more:hover {
+  color: var(--ls-text);
+  border-color: var(--ls-gold);
 }
 
 .ls-action {

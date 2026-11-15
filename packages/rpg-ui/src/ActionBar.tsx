@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ActionVM } from "@life-sim/shared";
 import type { ActHandler, InteractionMode } from "./act.js";
 
@@ -20,6 +21,8 @@ export interface ActionBarProps {
   onFreeAction?: () => void;
   /** 自由行动入口的文案，缺省「自由行动…」。 */
   freeActionLabel?: string;
+  /** 初始是否展开全部动作（默认收起，只露前 2 个）。仅供宿主预展开 / 测试使用。 */
+  initialExpanded?: boolean;
 }
 
 /** 非自由行动阶段，动作卡上的一句解释（只挂在第一张，避免刷屏）。 */
@@ -29,9 +32,20 @@ const MODE_HINT: Record<Exclude<InteractionMode, "free">, string> = {
 };
 
 /**
+ * 收起态露出的动作数。
+ *
+ * 为什么是 2：首个动作是「情境主行动」，必须一直在首屏；第二个让玩家看到"还有选择"。
+ * 再往上堆，行动坞就会吃掉半个屏幕，把叙事流里的选项块（第二点击面）挤到折叠线以下 ——
+ * 412×890 实测 4 个动作约 400px，叙事区只剩 ~300px。
+ */
+const COLLAPSED_COUNT = 2;
+
+/**
  * 行动栏：默认前端的**主点击面**（点击为主，打字为辅）。
  *
  * 版式规则：
+ *  - 收起态只露前 `COLLAPSED_COUNT` 个动作，其余收进「更多动作」；
+ *  - 展开后列表**自身**滚动且限高（`40dvh`），行动坞永远不超过半屏；
  *  - ≤ 4 个动作 ⇒ 单列卡片（label + 一行说明），拇指区更容易点中；
  *  - 更多动作 ⇒ 两列网格（仍保证单卡 ≥ 48px 高）；
  *  - `availableActions` 为空 ⇒ 只渲染「自由行动…」入口，而不是一块空白或禁用容器。
@@ -46,15 +60,26 @@ export function ActionBar({
   busy = false,
   onFreeAction,
   freeActionLabel = "自由行动…",
+  initialExpanded = false,
 }: ActionBarProps) {
+  const [expanded, setExpanded] = useState(initialExpanded);
   const disabled = busy || mode !== "free";
   const layout = actions.length <= 4 ? "stack" : "grid";
+  const collapsible = actions.length > COLLAPSED_COUNT;
+  const visible = expanded || !collapsible ? actions : actions.slice(0, COLLAPSED_COUNT);
+  const hiddenCount = actions.length - visible.length;
 
   return (
-    <div className="ls-actionbar" role="group" aria-label="可选行动" data-mode={mode}>
+    <div
+      className="ls-actionbar"
+      role="group"
+      aria-label="可选行动"
+      data-mode={mode}
+      data-expanded={collapsible ? String(expanded) : undefined}
+    >
       {actions.length > 0 && (
         <div className="ls-actionbar__list" data-layout={layout}>
-          {actions.map((action, index) => (
+          {visible.map((action, index) => (
             <button
               key={action.id}
               type="button"
@@ -75,14 +100,36 @@ export function ActionBar({
           ))}
         </div>
       )}
-      <button
-        type="button"
-        className="ls-actionbar__free"
-        disabled={disabled}
-        onClick={() => onFreeAction?.()}
-      >
-        {mode === "free" ? freeActionLabel : "当前只能处理眼前的事"}
-      </button>
+      {collapsible && (
+        <div className="ls-actionbar__row">
+          <button
+            type="button"
+            className="ls-actionbar__more"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((open) => !open)}
+          >
+            {expanded ? "收起动作" : `更多动作（${hiddenCount}）`}
+          </button>
+          <button
+            type="button"
+            className="ls-actionbar__free"
+            disabled={disabled}
+            onClick={() => onFreeAction?.()}
+          >
+            {mode === "free" ? freeActionLabel : "当前只能处理眼前的事"}
+          </button>
+        </div>
+      )}
+      {!collapsible && (
+        <button
+          type="button"
+          className="ls-actionbar__free"
+          disabled={disabled}
+          onClick={() => onFreeAction?.()}
+        >
+          {mode === "free" ? freeActionLabel : "当前只能处理眼前的事"}
+        </button>
+      )}
     </div>
   );
 }
