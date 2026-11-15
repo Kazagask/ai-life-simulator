@@ -208,6 +208,9 @@ export interface TriggerOptions {
  * 触发点求值（turn.ts 结算 tail 的唯一 hook 会调用它）：纯函数，返回本轮应发出的
  * `LlmInvocation[]`。非触发回合返回空数组（invocations.length === 0）。
  * 同 (seed, turnIndex, rules) 两次调用结果一致（派生流确定性）。
+ *
+ * ⚠ 本函数做的是**当轮真值求值**（纯 level 语义，无历史）；生产路径请用
+ * `evaluateTriggersEdge`（ADR-0036）。保留本函数是为了既有调用点 / 测试零回归。
  */
 export function evaluateTriggers(
   state: WorldStateV2,
@@ -215,40 +218,59 @@ export function evaluateTriggers(
   registry: ConditionRegistry,
   opts: TriggerOptions,
 ): LlmInvocation[] {
-  const ctx: ConditionEvalContext = {
+  const ctx = createTriggerContext(state, opts);
+  const out: LlmInvocation[] = [];
+  rules.llmTriggers.forEach((trigger, i) => {
+    if (!evaluateAll(trigger.when, ctx, registry)) return;
+    out.push(buildTriggerInvocation(state, rules, trigger, i, opts));
+  });
+  return out;
+}
+
+/** 触发器求值的公共上下文（派生流按 seed+37 / turnIndex 隔离，不扰动主轮 RNG）。 */
+function createTriggerContext(
+  state: WorldStateV2,
+  opts: TriggerOptions,
+): ConditionEvalContext {
+  return {
     state,
     rng: derivedTriggerRng(opts.seed, opts.turnIndex),
     turnIndex: opts.turnIndex,
     ...(opts.resolvedEventIds !== undefined ? { resolvedEventIds: opts.resolvedEventIds } : {}),
   };
-  const out: LlmInvocation[] = [];
-  rules.llmTriggers.forEach((trigger, i) => {
-    if (!evaluateAll(trigger.when, ctx, registry)) return;
-    const tools = (rules.toolProfile[trigger.invoke.toolProfile] ?? []).map((name) => ({ name }));
-    const perspective = opts.perspective ?? trigger.invoke.perspective;
-    const targetPerspective = opts.targetPerspective ?? trigger.invoke.targetPerspective;
-    // LlmContext（v2 §6.1 分层）：facts 段由 core 的 buildFacts(inv.perspective) 投影，
-    // 编排层不得裁剪。此处在 core 构造 LlmInvocation 时即投影完毕。
-    out.push({
-      invocationId: `inv-${opts.turnIndex}-${i}`,
-      reason: trigger.invoke.reason,
-      context: {
-        stablePrefix: "",
-        facts: buildFacts(state, perspective),
-        recentTurns: [],
-        invocationReason: trigger.invoke.reason,
-        ...(trigger.invoke.contextHints !== undefined
-          ? { contextHints: trigger.invoke.contextHints }
-          : {}),
-      },
-      tools,
-      budget: opts.budget ?? DEFAULT_LLM_BUDGET,
-      replyTo: "dispatch",
-      perspective,
-      targetPerspective,
-    });
-  });
-  return out;
+}
+
+/** 把一条命中的触发器规格构造为 `LlmInvocation`（invocationId 格式 = `inv-${turn}-${index}`）。 */
+function buildTriggerInvocation(
+  state: WorldStateV2,
+  rules: Rules,
+  trigger: Rules["llmTriggers"][number],
+  index: number,
+  opts: TriggerOptions,
+): LlmInvocation {
+  const tools = (rules.toolProfile[trigger.invoke.toolProfile] ?? []).map((name) => ({ name }));
+  const perspective = opts.perspective ?? trigger.invoke.perspective;
+  const targetPerspective = opts.targetPerspective ?? trigger.invoke.targetPerspective;
+  // LlmContext（v2 §6.1 分层）：facts 段由 core 的 buildFacts(inv.perspective) 投影，
+  // 编排层不得裁剪。此处在 core 构造 LlmInvocation 时即投影完毕。
+  return {
+    invocationId: `inv-${opts.turnIndex}-${index}`,
+    reason: trigger.invoke.reason,
+    context: {
+      stablePrefix: "",
+      facts: buildFacts(state, perspective),
+      recentTurns: [],
+      invocationReason: trigger.invoke.reason,
+      ...(trigger.invoke.contextHints !== undefined
+        ? { contextHints: trigger.invoke.contextHints }
+        : {}),
+    },
+    tools,
+    budget: opts.budget ?? DEFAULT_LLM_BUDGET,
+    replyTo: "dispatch",
+    perspective,
+    targetPerspective,
+  };
 }
 
 /** 带诊断的触发求值结果（追加 R11）。 */
@@ -292,4 +314,58 @@ export function evaluateTriggersDetailed(
     collect(n.completion);
   }
   return { invocations: evaluateTriggers(state, rules, registry, opts), diagnostics };
+}
+
+/** ADR-0036：边沿求值结果。 */
+export interface TriggerEdgeEvaluation {
+  /** 本轮按边沿判据**应当发出**的 invocation（声明序）。执行哪几条由调用方按 D3 决定。 */
+  invocations: LlmInvocation[];
+  /** 本轮所有触发器的求值快照（**含假值**：假值必须落账，否则下次真值会被当成"刚刚变真"）。 */
+  fireLedger: Record<string, { turnIndex: number; hit: boolean }>;
+  /** 求值为真但被**边沿判据**抑制的 key（`${reason}#${index}`），供诊断。 */
+  suppressed: string[];
+}
+
+/**
+ * ADR-0036：触发器**边沿语义**求值（生产路径）。
+ *
+ * 判据：`fireMode: edge`（缺省）仅当「上一轮为假、本轮为真」时发 invocation；
+ * `fireMode: level` 命中即发（旧行为）。`previous` 缺省 = 无历史 ⇒ 本轮真值一律视为
+ * **刚刚变真**（至多多发一次，绝不永久抑制 —— 旧档兼容）。
+ *
+ * ⚠ `random`（p=0.1）在 edge 下退化为 ~9%：边沿要求「上次假」⇒ 0.1 × 0.9。这是**期望行为**
+ * （避免连续两轮 flavor 轰炸），但排预算时别按 10% 算。
+ *
+ * 纯函数：不写 state；ledger 由调用方经 `assignTriggerFireLedger` 落账（权威写入集中在
+ * api/engine-api.ts）。同 (state, rules, previous, opts) 两次调用结果一致。
+ */
+export function evaluateTriggersEdge(
+  state: WorldStateV2,
+  rules: Rules,
+  registry: ConditionRegistry,
+  opts: TriggerOptions,
+  previous?: WorldStateV2["triggerFireLedger"],
+): TriggerEdgeEvaluation {
+  const ctx = createTriggerContext(state, opts);
+  const invocations: LlmInvocation[] = [];
+  const fireLedger: Record<string, { turnIndex: number; hit: boolean }> = {};
+  const suppressed: string[] = [];
+  rules.llmTriggers.forEach((trigger, i) => {
+    const hit = evaluateAll(trigger.when, ctx, registry);
+    const key = `${trigger.invoke.reason}#${i}`;
+    // 假值也落账：否则「真 → 假 → 真」的第二次真永远不会被认成边沿。
+    fireLedger[key] = { turnIndex: opts.turnIndex, hit };
+    if (!hit) return;
+    if ((trigger.fireMode ?? "edge") === "level") {
+      invocations.push(buildTriggerInvocation(state, rules, trigger, i, opts));
+      return;
+    }
+    // edge：上一轮已为真 ⇒ 不是边沿，抑制（不执行、也不重复落账之外的任何动作）。
+    if (previous?.[key]?.hit === true) {
+      suppressed.push(key);
+      return;
+    }
+    invocations.push(buildTriggerInvocation(state, rules, trigger, i, opts));
+  });
+  return { invocations, fireLedger, suppressed };
 }

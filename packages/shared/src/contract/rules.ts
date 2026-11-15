@@ -34,6 +34,14 @@ export const LlmTriggerSchema = z
   .object({
     id: z.string().min(1).optional(),
     when: z.array(TaskConditionSchema),
+    /**
+     * ADR-0036 求值策略（与 `when` / `invoke` 并列，不是 invocation 的属性）：
+     * - `edge`（缺省）：仅当**上一轮为假、本轮为真**时发 invocation；
+     * - `level`：命中即发（旧行为），供「每轮都要有 AI 旁白」的模板显式选择。
+     *
+     * 缺省值站在「省钱且符合设计口径」一侧：漏写不是每轮烧钱。
+     */
+    fireMode: z.enum(["edge", "level"]).optional(),
     invoke: InvokeSchema,
   })
   .strict();

@@ -375,6 +375,22 @@ export interface WorldStateV2 {
   media?: Array<{ slot: string; assetId: string }>;
   /** append-only *.trace.jsonl 的引用；叙事正文只进 trace（F3）。 */
   traceRef?: string;
+  /**
+   * ADR-0036：触发器**边沿判定**的跨轮历史（key = `${reason}#${llmTriggers 下标}`）。
+   *
+   * 为什么进 state：边沿判据是跨轮的，必须和它判定的世界同生共死 —— 读档后重新求值要得到
+   * 同样的结果（确定性硬约束）。放内存 = 重启后重复触发。
+   *
+   * 为什么 optional 且不升 schemaVersion：旧档缺该字段 ⇒ 视作"无历史" ⇒ 首轮把当前真值
+   * 当"刚刚变真"（至多多发一次，不会永久抑制），与 `spawnRules` / `lastWheels` 同一兼容策略。
+   */
+  triggerFireLedger?: Record<string, TriggerFireLedgerEntry>;
+}
+
+/** ADR-0036：单条触发器的最近一次求值结果。 */
+export interface TriggerFireLedgerEntry {
+  turnIndex: number;
+  hit: boolean;
 }
 
 // ---------- 投影与命令 ----------

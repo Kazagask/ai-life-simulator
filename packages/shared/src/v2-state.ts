@@ -268,6 +268,22 @@ export const WorldStateV2Schema = z
       .array(z.object({ slot: z.string().min(1), assetId: z.string().min(1) }).strict())
       .optional(),
     traceRef: z.string().min(1).optional(),
+    /**
+     * ADR-0036：触发器边沿历史（key = `${reason}#${llmTriggers 下标}`）。
+     * 可选 ⇒ 旧档缺该字段时视作"无历史"（首轮把当前真值当刚刚变真，至多多发一次）。
+     * **不升 schemaVersion**：与 `spawnRules` / `lastWheels` 同一兼容策略。
+     */
+    triggerFireLedger: z
+      .record(
+        z.string(),
+        z
+          .object({
+            turnIndex: z.number().int().nonnegative(),
+            hit: z.boolean(),
+          })
+          .strict(),
+      )
+      .optional(),
   })
   .strict();
 

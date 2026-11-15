@@ -11,7 +11,6 @@ import type {
   HistoryVisibility,
   LlmBudget,
   LlmGateway,
-  LlmInvocation,
   LlmTrace,
   Perspective,
   Rules,
@@ -28,11 +27,12 @@ import {
   assignSlot,
   assignPendingInvocation,
   assignKnowledgeGrants,
+  assignTriggerFireLedger,
   type ToolRegistry,
 } from "../api/engine-api.js";
 import {
   createConditionRegistry,
-  evaluateTriggers,
+  evaluateTriggersEdge,
   type ConditionRegistry,
 } from "./condition-evaluator.js";
 import { computeKnowledgeGrants } from "./knowledge-grants.js";
@@ -826,6 +826,9 @@ export interface TurnPipelineConfig {
  *    （core → llm 回调，回程一律走 dispatch 引擎 API）。`rules.llmTriggers[].when` 一条都不
  *    命中 ⇒ `invocations` 为空 ⇒ **本轮零网关调用**（LLM 稀疏参与的落点，不是每轮跑）。
  *
+ *    ADR-0036 起求值改为**边沿语义**（`fireMode` 缺省 edge：上一轮假、本轮真才发），
+ *    跨轮历史落 `state.triggerFireLedger`；同轮多条命中只执行声明序第一条（D3）。
+ *
  * 硬不变量：不传 `gateway` 且不传 `rules` ⇒ 完全 no-op，state / 返回结果逐字段不变（零回归）。
  */
 function runSettlementHooks(
@@ -840,31 +843,66 @@ function runSettlementHooks(
     computeKnowledgeGrants(state, pipeline.rules, registry, state.turnIndex),
   );
   if (!pipeline.gateway) return;
-  const invocations: LlmInvocation[] = evaluateTriggers(state, pipeline.rules, registry, {
-    seed: state.seed,
-    turnIndex: state.turnIndex,
-    resolvedEventIds,
-    ...(pipeline.budget !== undefined ? { budget: pipeline.budget } : {}),
-    ...(pipeline.perspective !== undefined ? { perspective: pipeline.perspective } : {}),
-    ...(pipeline.targetPerspective !== undefined
-      ? { targetPerspective: pipeline.targetPerspective }
-      : {}),
-  });
-  for (const inv of invocations) {
-    // 落账到 pendingInvocation（写入动作在 api/engine-api.ts，源码守卫据此断言）。
-    assignPendingInvocation(state, inv);
-    /**
-     * `deferInvocation`：交给编排层在**本回合事务内**执行（ADR-0035 D2）。
-     *
-     * 为什么不能在这里 fire-and-forget：`fact.enqueueEvent` / `fact.advanceDag` 是
-     * 基于「创作这一轮」的状态算出来的**结构写入**。异步 = 落账时世界已经不是那个世界，
-     * 于是要么让已死 npc 诈尸，要么（加 missWhen 后）变成静默的"错误错过"。
-     * 二者在触发时刻的状态上完全一样，任何基于触发时刻的判据都分不开 —— 只能靠事务边界。
-     */
-    if (pipeline.deferInvocation === true) continue;
-    // fire-and-forget：invoke 返回 Promise，内核不 await；回程由 agent-runtime 经 dispatch 提交。
-    void pipeline.gateway.invoke(inv).catch(() => undefined);
+  /**
+   * ADR-0036：改用**边沿语义**求值（`fireMode` 缺省 edge）。
+   *
+   * 旧实现用 `evaluateTriggers`（纯当轮真值）+ `for (inv) assignPendingInvocation`：
+   * ① 持久条件（`flagSet` / `nodeCompleted`）一旦为真就**每轮**调用 LLM，与「稀疏参与」相反；
+   * ② 同轮多条命中时后写覆盖前写，前几条静默消失。
+   *
+   * 现在：ledger 落账所有求值结果（含假值），执行权按 D3 只给**声明序第一条**。
+   */
+  const { invocations, fireLedger } = evaluateTriggersEdge(
+    state,
+    pipeline.rules,
+    registry,
+    {
+      seed: state.seed,
+      turnIndex: state.turnIndex,
+      resolvedEventIds,
+      ...(pipeline.budget !== undefined ? { budget: pipeline.budget } : {}),
+      ...(pipeline.perspective !== undefined ? { perspective: pipeline.perspective } : {}),
+      ...(pipeline.targetPerspective !== undefined
+        ? { targetPerspective: pipeline.targetPerspective }
+        : {}),
+    },
+    state.triggerFireLedger,
+  );
+  // 全部求值为真的 key 都必须落账（含被 D3 挤掉的），否则它们下一轮会被当成"刚刚变真"。
+  assignTriggerFireLedger(state, fireLedger);
+  if (invocations.length === 0) return;
+
+  /**
+   * D3：每轮最多执行一条 —— 取声明序第一条，其余本轮不执行。
+   *
+   * **不静默**：被挤掉的每条都写一条 `pipeline.callLog`（`outcome: "deferred"` +
+   * `code: "budget_exceeded"`）。为什么不丢弃而是记账：ADR-0035 §3 的「错误错过」正是
+   * 静默丢失，这里是同一类风险；callLog 是该管线既有的诊断/取证通道（不伪造 LlmTrace：
+   * 被挤掉的调用没有 contextHash / templateRef，编一个只会污染 trace 的取证价值）。
+   */
+  const [chosen, ...displaced] = invocations;
+  for (const inv of displaced) {
+    pipeline.callLog?.push({
+      callId: inv.invocationId,
+      tool: "llm.invoke",
+      argsHash: `suppressed:${inv.invocationId}`,
+      outcome: "deferred",
+      code: "budget_exceeded",
+    });
   }
+  // 落账到 pendingInvocation（写入动作在 api/engine-api.ts，源码守卫据此断言）。
+  assignPendingInvocation(state, chosen);
+  /**
+   * `deferInvocation`：交给编排层在**本回合事务内**执行（ADR-0035 D2）。
+   *
+   * 为什么不能在这里 fire-and-forget：`fact.enqueueEvent` / `fact.advanceDag` 是
+   * 基于「创作这一轮」的状态算出来的**结构写入**。异步 = 落账时世界已经不是那个世界，
+   * 于是要么让已死 npc 诈尸，要么（加 missWhen 后）变成静默的"错误错过"。
+   * 二者在触发时刻的状态上完全一样，任何基于触发时刻的判据都分不开 —— 只能靠事务边界。
+   */
+  if (pipeline.deferInvocation === true) return;
+  // fire-and-forget：invoke 返回 Promise，内核不 await；回程由 agent-runtime 经 dispatch 提交。
+  void pipeline.gateway.invoke(chosen).catch(() => undefined);
 }
 
 /**

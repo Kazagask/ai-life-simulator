@@ -542,6 +542,21 @@ export function assignPendingInvocation(
   state.pendingInvocation = invocation;
 }
 
+/**
+ * ADR-0036：触发器边沿历史（`triggerFireLedger`）的唯一写入点。
+ *
+ * 与 `assignSlot` / `assignPendingInvocation` 同一条「权威字段写入集中在
+ * api/engine-api.ts」约束 —— turn.ts 只能调用本函数，不得直接给 state 字段赋值。
+ * 整份替换（而非 merge）：ledger 是「本轮全部触发器的求值快照」，merge 会把已删除 /
+ * 改名的触发器残留成幽灵历史。
+ */
+export function assignTriggerFireLedger(
+  state: WorldStateV2,
+  ledger: WorldStateV2["triggerFireLedger"],
+): void {
+  state.triggerFireLedger = ledger;
+}
+
 /** 诊断码封闭集合（转出，便于源码守卫 / 测试断言 13 码）。 */
 export const ENGINE_DIAGNOSTIC_CODES = DIAGNOSTIC_CODES;
 
