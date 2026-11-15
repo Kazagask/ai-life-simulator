@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
-import type { LlmInvocation, ToolDescriptor } from "@life-sim/shared";
+import {
+  LlmBudgetSchema,
+  LlmInvocationSchema,
+  type LlmInvocation,
+  type ToolDescriptor,
+} from "@life-sim/shared";
 import { createConditionRegistry, evaluateTriggers } from "@life-sim/game-core";
 import { AgentGateway } from "./gateway.js";
+import { runAgentLoop } from "./loop.js";
 import { MockAgentProvider } from "./providers/index.js";
 import type { AgentMessage, ToolCallRequest } from "./tool-registry.js";
 import { buildToolDescriptors } from "./tool-registry.js";
-import { loadDemoFixture } from "./testing/fixtures.js";
+import { StubEngine, loadDemoFixture } from "./testing/fixtures.js";
 
 /**
  * 分支轮验收（设计 §3.4 (b)）：mock 不只写散文 + 选项，还要**把 DAG 分支上的事件上桌**。
@@ -71,9 +77,14 @@ const names = (calls: readonly ToolCallRequest[]): string[] => calls.map((call) 
 const branchCalls = (rounds: readonly ToolCallRequest[][]): ToolCallRequest[] =>
   rounds.flatMap((calls) => calls.filter((call) => call.name === "fact.enqueueEvent"));
 
+/**
+ * 全量工具面：本文件只验 mock ↔ loop 的契约，**不依赖模板**。
+ * 「画像是否列全 fact.enqueueEvent」「画像 ∩ 未注册工具 == ∅」由 template-contract 负责，
+ * 这样模板在并行改动（hint 前缀 / events.yaml）时，本文件不会跟着红。
+ */
+const tools: ToolDescriptor[] = buildToolDescriptors(undefined, undefined);
+
 describe("mock 分支轮：只有显式 `branch:` 指令才把事件上桌", () => {
-  const fixture = loadDemoFixture();
-  const tools = buildToolDescriptors(fixture.rules, "narrative");
 
   it("`branch:evt:trial` ⇒ 叙事之后、选项之前发出一次 fact.enqueueEvent", async () => {
     const rounds = await runRounds(makeView({ contextHints: ["chapter.tone", "branch:evt:trial"] }), tools);
@@ -200,8 +211,62 @@ describe("mock 分支轮：只有显式 `branch:` 指令才把事件上桌", () 
   });
 });
 
-describe("零 key 端到端：真触发器 + 真引擎 + mock 分支轮", () => {
-  it("显式分支提示 ⇒ evt:trial 真的进了 delayQueue 且 committed", async () => {
+describe("分支轮契约（不依赖模板拼写）", () => {
+
+  it("两条显式分支提示 ⇒ 只摆第一条（一次 invocation 只上桌一个事件）", async () => {
+    const rounds = await runRounds(
+      makeView({ contextHints: ["branch:evt:trial", "branch:evt:ambush"] }),
+      tools,
+    );
+    const calls = rounds.flatMap((list) => list.filter((c) => c.name === "fact.enqueueEvent"));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.arguments.eventId).toBe("evt:trial");
+  });
+
+  it("经 runAgentLoop：恰好一条 fact.enqueueEvent 被 dispatch 且回执 accepted", async () => {
+    const dispatched: string[] = [];
+    const engine = new StubEngine((calls) => {
+      for (const call of calls) dispatched.push(call.tool);
+      return calls.map((call) => ({ callId: call.callId, outcome: "accepted" as const }));
+    });
+    const invocation = LlmInvocationSchema.parse({
+      invocationId: "inv-loop-branch",
+      reason: "chapter.advance",
+      context: {
+        stablePrefix: "",
+        facts: { perspective: "player", facts: [], dagNodes: [] },
+        recentTurns: [],
+        invocationReason: "chapter.advance",
+        contextHints: ["branch:evt:trial"],
+      },
+      tools,
+      budget: LlmBudgetSchema.parse({}),
+      replyTo: "dispatch",
+      perspective: "player",
+      targetPerspective: "player",
+    });
+
+    const { outcome, trace } = await runAgentLoop(invocation, {
+      provider: new MockAgentProvider(),
+      engineApi: engine,
+    });
+
+    expect(outcome.outcome).toBe("committed");
+    // 分支调用只发生一次，且排在叙事之后、选项之前。
+    expect(dispatched.filter((tool) => tool === "fact.enqueueEvent")).toHaveLength(1);
+    expect(dispatched.indexOf("fact.enqueueEvent")).toBeGreaterThan(
+      dispatched.indexOf("content.writeNarrative"),
+    );
+    expect(dispatched.indexOf("fact.enqueueEvent")).toBeLessThan(
+      dispatched.indexOf("content.writeOption"),
+    );
+    const branchReceipt = trace.receipts.find(
+      (receipt) => receipt.callId === "inv-loop-branch:1:0",
+    );
+    expect(branchReceipt).toMatchObject({ outcome: "accepted" });
+  });
+
+  it("零 key 真引擎：显式分支提示 ⇒ evt:trial 真的进 delayQueue 且 committed", async () => {
     const fixture = loadDemoFixture();
     // 把 n1.awaken 结掉，让 rules.yaml 的 nodeCompleted 触发器真的命中。
     fixture.state.taskDag = {
@@ -224,8 +289,7 @@ describe("零 key 端到端：真触发器 + 真引擎 + mock 分支轮", () => 
 
     /**
      * 就地覆写 contextHints：rules.yaml 目前仍写裸 `evt:trial`（模板侧待改），
-     * 而 mock 只认显式指令。测试不依赖模板拼写 —— 用例自己声明「本轮该上桌什么」，
-     * 模板怎么改都不影响这条端到端。
+     * 而 mock 只认显式指令。用例自己声明「本轮该上桌什么」，模板怎么拼都不影响这条端到端。
      */
     invocation!.context.contextHints = ["chapter.tone", "branch:evt:trial"];
 
