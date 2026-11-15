@@ -1,4 +1,5 @@
 import type { ViewModel } from "@life-sim/shared";
+import { TURN_ACTION_DESCRIPTION_MAX, TURN_ACTION_TYPE_MAX } from "@life-sim/shared";
 
 /**
  * 点击为主的**统一提交类型**。
@@ -25,15 +26,15 @@ export type ActHandler = (act: Act) => void;
 // ---------- 提交边界（与服务端 zod 契约对齐） ----------
 
 /**
- * `POST /api/worlds/:id/turns` 的 `description: z.string().max(200)`。
+ * `/turns` 的 `description` 上限。
  *
- * 上限是**服务端契约**，不是某个组件的排版偏好，所以只在这里定义一次：
- * 所有点击面在构造请求体时统一按它截断。LLM 写出的选项块可能超长，不截断会让整轮 400。
+ * 数值来自 `@life-sim/shared`（`TURN_ACTION_DESCRIPTION_MAX`）——服务端 zod schema
+ * 读的是同一个常量，两端不会再各自漂移。这里保留 `MAX_ACT_TEXT` 这个名字给展示层用。
  */
-export const MAX_ACT_TEXT = 200;
+export const MAX_ACT_TEXT = TURN_ACTION_DESCRIPTION_MAX;
 
-/** 同一 schema 里 `type: z.string().min(1).max(40)`。 */
-export const MAX_ACTION_TYPE = 40;
+/** 同一 schema 里 `type` 的上限（共享常量 `TURN_ACTION_TYPE_MAX`）。 */
+export const MAX_ACT_TYPE = TURN_ACTION_TYPE_MAX;
 
 /** 自由行动的固定 type 值（与 `apps/web` 侧 `advanceTurn({ type: "free" })` 一致）。 */
 export const FREE_ACTION_TYPE = "free";
@@ -56,7 +57,7 @@ export interface ActRequest {
 /**
  * `Act` → `/turns` 请求体的**唯一**转换点（ActionBar / 选项块 / 自由输入三条路径共用）。
  *
- * - 动作 id 合法（非空且 ≤40）⇒ `{ type: id, description: "" }`；
+ * - 动作 id 合法（非空且 ≤`MAX_ACT_TYPE`）⇒ `{ type: id, description: "" }`；
  * - id 超长 / 为空 ⇒ 退回自由行动：把文案当 description 发出去。
  *   截断超长 id 会变成引擎不认识的另一个动作，只会换来另一种 400，不如按自由行动受理；
  * - 非动作来源 ⇒ `{ type: "free", description: clampActText(text) }`。
@@ -64,7 +65,7 @@ export interface ActRequest {
 export function toActPayload(act: Act): ActRequest {
   if (act.id !== undefined) {
     const id = act.id.trim();
-    if (id !== "" && id.length <= MAX_ACTION_TYPE) return { type: id, description: "" };
+    if (id !== "" && id.length <= MAX_ACT_TYPE) return { type: id, description: "" };
   }
   return { type: FREE_ACTION_TYPE, description: clampActText(act.text) };
 }

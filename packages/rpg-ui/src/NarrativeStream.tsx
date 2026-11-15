@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import type { ContentBlockVM, MediaVM } from "@life-sim/shared";
 import type { ActHandler } from "./act.js";
-import { firstInlineAsset } from "./adapter.js";
+import { firstInlineCgBlock } from "./adapter.js";
 import { CgStage } from "./CgStage.js";
 
 /** 单个内容块的渲染函数：返回 `null` 表示这一块不占位。 */
@@ -96,11 +96,11 @@ export function NarrativeStream({ content, onAct, media = [], renderers, disable
   }
 
   /**
-   * 每轮至多内联一张资源：以「第一条能解析到媒体的 asset 块」为准，
-   * 与宿主抑制顶部横幅用的是同一个解析器（`firstInlineAsset`）。
-   * 其余 asset 块不占位，避免同一幕刷多张图。
+   * 每轮至多内联一张资源，且只有画面槽（`cg*` / `scene*`）允许内联
+   * （立绘归立绘排、图标归别处）。判据与宿主抑制顶部横幅完全同源
+   * （`firstInlineCgBlock`），不允许这里再写一套。
    */
-  const inlineAsset = firstInlineAsset(content, media);
+  const inlineCg = firstInlineCgBlock({ content, media });
 
   const defaults: Record<string, BlockRenderer> = {
     narrative: (block) => (
@@ -125,7 +125,7 @@ export function NarrativeStream({ content, onAct, media = [], renderers, disable
   return (
     <div className="ls-narrative" ref={scrollerRef} role="log" aria-label="叙事">
       {content.map((block) => {
-        if (block.kind === "asset" && block !== inlineAsset) return null;
+        if (block.kind === "asset" && block !== inlineCg) return null;
         const render = renderers?.[block.kind] ?? defaults[block.kind] ?? defaults.narrative;
         // `blockId` 是内容块在 trace 里的稳定标识（agent-runtime 契约：optionId 不落块）。
         return <Fragment key={block.blockId}>{render?.(block)}</Fragment>;

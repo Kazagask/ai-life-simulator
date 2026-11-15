@@ -6,6 +6,7 @@ import type {
   V2Snapshot,
   ViewModel,
 } from "@life-sim/shared";
+import { isVisualSlot } from "./slots.js";
 
 /**
  * 快照 → 视图模型的**纯适配器**（本包唯一允许接触引擎快照的模块）。
@@ -93,31 +94,26 @@ function toActions(snapshot: V2Snapshot): ActionVM[] {
 }
 
 /**
- * 内联资源解析：返回**第一条真正能上屏**的 asset 内容块。
+ * 内联 CG 解析：返回**唯一一条允许在叙事流里内联上屏**的 asset 块。
  *
- * 判据必须是「`assetId` 非空 + 能在本轮 media 里找到 `url` 非空的资源」——
- * 而不是"第一条 asset 块"。两者不一致会出黑场：宿主据此抑制顶部横幅，
- * 展示层却按 index 跳过不可解析的那条，结果这一幕一张图都没有。
+ * 判据三件套，缺一不可，且**只在这里实现一次**（叙事流与宿主抑制横幅都调它，
+ * 两套判据曾经不一致，先后出过两次「横幅没了、流里也跳过」的黑场）：
+ *  ① `kind === "asset"` 且 `assetId` 非空；
+ *  ② 能在本轮 media 里找到该资源，且 `url` 非空（空 url 的条目渲染不出图）；
+ *  ③ 该资源的槽位是**画面槽**（`cg*` / `scene*`）—— 立绘归立绘排、道具图标归别处，
+ *     只有画面槽允许内联，否则「第一个能解析的 asset 块」可能是立绘，把真正的 CG 块挤掉。
+ *     判定见 `./slots.ts` `isVisualSlot`（`scene` 不能漏：引擎内联块就用这个槽）。
  *
- * 注意这里**不**校验槽名前缀：叙事流用 `CgStage inline` 渲染显式引用，
- * 资源已被内容块指名，槽名只是命名习惯（agent 侧给 `slot: "scene"`）。
+ * `url` 为空的内联块一律不渲染：宁可少一张图，也不留一条破图色带。
  */
-export function firstInlineAsset(
-  content: readonly ContentBlockVM[],
-  media: readonly MediaVM[],
+export function firstInlineCgBlock(
+  view: Pick<ViewModel, "content" | "media">,
 ): ContentBlockVM | undefined {
-  return content.find(
-    (block) =>
-      block.kind === "asset" &&
-      block.assetId !== undefined &&
-      block.assetId !== "" &&
-      media.some((item) => item.assetId === block.assetId && item.url !== ""),
-  );
-}
-
-/** `firstInlineAsset` 的视图模型入口（宿主用这个，别自己再写一遍判据）。 */
-export function resolvableInlineAsset(view: ViewModel): ContentBlockVM | undefined {
-  return firstInlineAsset(view.content, view.media);
+  return view.content.find((block) => {
+    if (block.kind !== "asset" || block.assetId === undefined || block.assetId === "") return false;
+    const hit = view.media.find((item) => item.assetId === block.assetId);
+    return hit !== undefined && hit.url !== "" && isVisualSlot(hit.slot);
+  });
 }
 
 export function toViewModel({ snapshot, content, media }: ToViewModelInput): ViewModel {

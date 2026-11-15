@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { MediaVM } from "@life-sim/shared";
+import { isCgSlot } from "./slots.js";
 
 export interface CgStageProps {
   media: MediaVM[];
@@ -10,16 +11,8 @@ export interface CgStageProps {
   inline?: boolean;
 }
 
-/**
- * 全屏 CG 槽位命名约定：`slot` 以 `cg` 起头（`cg` / `cg.opening` / `cg-battle` …）。
- *
- * 为什么要约定：`MediaVM` 不带 `kind`（资源清单的 kind 不下发到展示层），
- * 前端只有 `slot` 这一个稳定信号；模板侧把全屏插画槽统一冠以 `cg` 前缀即可自动上屏。
- * 由内容块显式引用的情况走 `inline` 模式，不受本约定限制。
- */
-export function isCgSlot(slot: string): boolean {
-  return /^cg(?![a-z0-9])/i.test(slot);
-}
+/** 槽位判定在 `./slots.js`（纯函数，适配器也要用），此处仅保持既有导出路径可用。 */
+export { isCgSlot } from "./slots.js";
 
 /**
  * 全屏 CG 舞台：媒体列表里**第一个** CG 槽存在时全出血呈现，否则整块不渲染。

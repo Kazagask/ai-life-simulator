@@ -25,7 +25,7 @@ export type { NarrativeStreamProps, BlockRenderer } from "./NarrativeStream.js";
 
 export {
   MAX_ACT_TEXT,
-  MAX_ACTION_TYPE,
+  MAX_ACT_TYPE,
   FREE_ACTION_TYPE,
   clampActText,
   toActPayload,
@@ -39,10 +39,12 @@ export type { PortraitProps } from "./Portrait.js";
 export { CgStage, isCgSlot } from "./CgStage.js";
 export type { CgStageProps } from "./CgStage.js";
 
+export { isPortraitSlot } from "./slots.js";
+
 export { StatusBars } from "./StatusBars.js";
 export type { StatusBarsProps } from "./StatusBars.js";
 
-export { toViewModel, toBattleVM, DANGER_RATIO, firstInlineAsset, resolvableInlineAsset } from "./adapter.js";
+export { toViewModel, toBattleVM, DANGER_RATIO, firstInlineCgBlock } from "./adapter.js";
 export type { ToViewModelInput } from "./adapter.js";
 
 export type {
