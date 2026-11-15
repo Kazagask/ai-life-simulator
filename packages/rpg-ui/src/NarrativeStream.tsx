@@ -21,6 +21,9 @@ export interface NarrativeStreamProps {
   /**
    * 按 `kind` 覆盖渲染器。默认覆盖 narrative / option / flavor / asset，
    * 未注册的 kind 一律按正文渲染 —— 服务端新增内容块类型时不需要改本组件。
+   *
+   * 覆盖 `asset` 时**不受**「每轮至多一张」限制（那条规则只在默认渲染器里），
+   * 自定义前端可以自己决定把哪些资源内联进来。
    */
   renderers?: Partial<Record<string, BlockRenderer>>;
   /**
@@ -115,6 +118,10 @@ export function NarrativeStream({ content, onAct, media = [], renderers, disable
     ),
     option: (block) => renderOptionBlock(block, { onAct, disabled }),
     asset: (block) => {
+      // 每轮至多内联一张：只有解析器选中的那块出图。放在**默认渲染器内部**，
+      // 是为了让 `renderers.asset` 覆盖仍然能收到全部 asset 块（自定义前端可能
+      // 想把道具图标内联进正文，那是它的自由，不该被默认规则吞掉）。
+      if (block.blockId !== inlineCg?.blockId) return null;
       if (block.assetId === undefined) return null;
       const found = media.find((item) => item.assetId === block.assetId && item.url !== "");
       if (found === undefined) return null;
@@ -125,7 +132,6 @@ export function NarrativeStream({ content, onAct, media = [], renderers, disable
   return (
     <div className="ls-narrative" ref={scrollerRef} role="log" aria-label="叙事">
       {content.map((block) => {
-        if (block.kind === "asset" && block !== inlineCg) return null;
         const render = renderers?.[block.kind] ?? defaults[block.kind] ?? defaults.narrative;
         // `blockId` 是内容块在 trace 里的稳定标识（agent-runtime 契约：optionId 不落块）。
         return <Fragment key={block.blockId}>{render?.(block)}</Fragment>;

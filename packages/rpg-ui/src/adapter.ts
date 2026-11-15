@@ -103,6 +103,7 @@ function toActions(snapshot: V2Snapshot): ActionVM[] {
  *  ③ 该资源的槽位是**画面槽**（`cg*` / `scene*`）—— 立绘归立绘排、道具图标归别处，
  *     只有画面槽允许内联，否则「第一个能解析的 asset 块」可能是立绘，把真正的 CG 块挤掉。
  *     判定见 `./slots.ts` `isVisualSlot`（`scene` 不能漏：引擎内联块就用这个槽）。
+ *     横幅口径更窄（只认 `cg*`，见 `CgStage`）：`scene*` 只由块指名后内联。
  *
  * `url` 为空的内联块一律不渲染：宁可少一张图，也不留一条破图色带。
  */

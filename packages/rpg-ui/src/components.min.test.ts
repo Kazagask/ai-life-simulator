@@ -341,6 +341,34 @@ describe("NarrativeStream", () => {
     expect(html).toContain("提示");
   });
 
+  it("覆盖 renderers.asset 时不吞掉非内联的 asset 块（仅在默认渲染器里限一张）", () => {
+    const media = [
+      { slot: "item.sword", assetId: "i.sword", url: "/sword.png", alt: "剑" },
+      { slot: "scene", assetId: "s.rain", url: "/rain.png", alt: "雨" },
+    ];
+    const content: ContentBlockVM[] = [
+      { blockId: "b1", kind: "asset", assetId: "i.sword" },
+      { blockId: "b2", kind: "asset", assetId: "s.rain" },
+    ];
+
+    const custom = render(
+      h(NarrativeStream, {
+        content,
+        media,
+        renderers: {
+          asset: (block) => h("span", { className: "custom-asset" }, block.assetId ?? ""),
+        },
+      }),
+    );
+    // 自定义渲染器能收到全部 asset 块（含道具槽），不会被默认的「至多一张」提前拦掉
+    expect(custom.match(/class="custom-asset"/g)?.length).toBe(2);
+
+    // 默认路径行为不变：只内联画面槽的那一张，道具槽不占位
+    const fallback = render(h(NarrativeStream, { content, media }));
+    expect(fallback.match(/<img /g)?.length).toBe(1);
+    expect(fallback).toContain('src="/rain.png"');
+  });
+
   it("asset 块按 assetId 内联到流里，且每轮至多一张", () => {
     const media = [
       { slot: "scene", assetId: "cg1", url: "/cg1.png", alt: "雨夜" },

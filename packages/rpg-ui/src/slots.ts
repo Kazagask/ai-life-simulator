@@ -21,13 +21,17 @@ export function isPortraitSlot(slot: string): boolean {
 }
 
 /**
- * 可全出血上屏的「画面」槽位。
+ * 可**内联**上屏的画面槽位（叙事流里那一张图）。
  *
- * 两类都算：
+ * 注意与横幅口径的区别：顶部横幅（`CgStage`）只认 `cg*`，因为横幅是**模板声明**的
+ * 展示位；`scene*` 只能由内容块指名后内联，不参与横幅。两者不共用这个判定。
+ *
+ * 两类算画面槽：
  *  - `cg*` —— 模板声明的全屏插画槽（设计约定）；
  *  - `scene*` —— 引擎内联块实际使用的槽位。`content.referenceAsset` 落库时
- *    `state.media` 直接抄块的 `slot`（`packages/game-core/src/api/engine-api.ts:260`），
- *    而 provider 下发的内联块就是 `slot: "scene"`（`agent-runtime/src/providers/mock.ts:454`），
+ *    `state.media` 直接抄块的 `slot`（`packages/game-core/src/api/engine-api.ts`
+ *    的 `content.referenceAsset` 分支），而 provider 下发的内联块就是 `slot: "scene"`
+ *    （`agent-runtime/src/providers/mock.ts` 的 `narrativeCalls`），
  *    只认 `cg` 会让真实场景图永远上不了屏。
  *
  * 立绘与道具图标一律排除：它们各有自己的排面（立绘排 / 物品格），
