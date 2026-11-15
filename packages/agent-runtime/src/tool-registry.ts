@@ -73,11 +73,15 @@ export const CONTENT_TOOL_NAMES_ALL = [
 ] as const;
 
 /**
- * 控制通道：`content.submit` 是唯一的「提交」终止信号。
- * 它**永远**出现在描述符里，即使模板画像漏写 —— 否则一次 invocation 无法进入 committed
- * （见 REPORT：demo-agentic 的 `narrative` 画像只列 writeNarrative/referenceAsset/fact.enqueueEvent）。
+ * 常驻工具（不受能力画像收窄影响）：
+ * - `content.submit`：唯一的「提交」终止信号，缺了它一次 invocation 永远进不了 committed；
+ * - `content.writeOption`：产品口径「点击为主、打字输入为辅」，决策点必须给出可点击选项。
+ *   现有 demo 模板的 `toolProfile.narrative` 只列
+ *   `[content.writeNarrative, content.referenceAsset, fact.enqueueEvent]`（且最后一个引擎未注册），
+ *   漏了 writeOption —— 模板冻结不归本包改，先按常驻处理并通过 REPORT 反馈；
+ *   画像补齐后可把本项移出常驻集合。
  */
-export const CONTROL_TOOL_NAMES = ["content.submit"] as const;
+export const CONTROL_TOOL_NAMES = ["content.submit", "content.writeOption"] as const;
 
 export const ALL_TOOL_NAMES: readonly string[] = [
   ...FACT_TOOL_NAMES,
@@ -130,7 +134,10 @@ const CONTENT_DESCRIPTORS: Record<string, ToolDescriptor> = {
   },
   "content.writeOption": {
     name: "content.writeOption",
-    description: "写入一个可选项文案。",
+    description:
+      "写入一个玩家可点击的行动选项（本游戏以点击选项推进，打字输入只是兜底）。" +
+      "在决策点（章节 / 场景 / 任务推进）应给出 2-3 个选项，顺序排在叙事之后；" +
+      "text 必须是第二人称、动词开头的具体动作（例：「撬开后门的电子锁」），不要写成对选项的描述。",
     parameters: schemaOf(
       {
         blockId: { type: "string", minLength: 1 },

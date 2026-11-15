@@ -32,12 +32,29 @@ describe("零 key 端到端：真引擎 + mock provider", () => {
     expect(outcome.outcome).toBe("committed");
     expect(traces).toHaveLength(1);
     const trace = traces[0]!;
-    const narrative = (trace.contentBlocks ?? []).filter((block) => block.kind === "narrative");
+    const blocks = trace.contentBlocks ?? [];
+    const narrative = blocks.filter((block) => block.kind === "narrative");
     expect(narrative.length).toBeGreaterThan(0);
     const text = narrative[0]!.text ?? "";
     expect(text.length).toBeGreaterThan(10);
     expect(CJK.test(text)).toBe(true);
     expect(narrative[0]!.targetPerspective).toBe("player");
+
+    // 产品裁决「点击为主」：决策点必须给出 2-3 个可点击选项，且排在叙事之后。
+    const kinds = blocks.map((block) => block.kind);
+    expect(kinds[0]).toBe("narrative");
+    const optionIndex = kinds.indexOf("option");
+    expect(optionIndex).toBeGreaterThan(0);
+    const options = blocks.filter((block) => block.kind === "option");
+    expect(options.length).toBeGreaterThanOrEqual(2);
+    expect(options.length).toBeLessThanOrEqual(3);
+    for (const option of options) {
+      expect((option.text ?? "").length).toBeGreaterThan(3);
+      expect(CJK.test(option.text ?? "")).toBe(true);
+      // 第二人称、动词开头的动作短语，而不是「选项 A」这类描述。
+      expect(option.text ?? "").toMatch(/^(向|按|先|径直|转身)/);
+      expect(option.refs.length).toBeGreaterThan(0);
+    }
 
     // F3：正文唯一落点是 trace；存档只留 traceRef。
     expect(fixture.state.traceRef).toBe("trace:inv-mock-e2e");
@@ -47,6 +64,27 @@ describe("零 key 端到端：真引擎 + mock provider", () => {
 
     // content.* 不改事实：player 窗口条目数不变。
     expect(fixture.engine.buildFacts("player").facts.length).toBe(factsBefore);
+  });
+
+  it("非决策点（random.flavor）只出散文，不硬塞选项", async () => {
+    const fixture = loadDemoFixture();
+    const traces: LlmTrace[] = [];
+    const gateway = new AgentGateway({
+      provider: new MockAgentProvider(),
+      engineApi: fixture.engine,
+      templateRef: "demo-agentic@1.0.0",
+      rules: fixture.rules,
+      toolProfile: "narrative",
+      onTrace: (trace) => traces.push(trace),
+    });
+
+    const outcome = await gateway.invoke(
+      makeInvocation(fixture, { invocationId: "inv-flavor", reason: "random.flavor" }),
+    );
+    expect(outcome.outcome).toBe("committed");
+    const blocks = traces[0]!.contentBlocks ?? [];
+    expect(blocks.some((block) => block.kind === "narrative")).toBe(true);
+    expect(blocks.some((block) => block.kind === "option")).toBe(false);
   });
 
   it("同一 seed / 同一上下文 ⇒ 同一段叙事（确定性）", async () => {
