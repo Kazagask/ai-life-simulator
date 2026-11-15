@@ -68,6 +68,46 @@ export function isRetryable(code: DiagnosticCode): boolean {
 }
 
 /**
+ * 不可重试的拒绝（覆盖码表默认值）。
+ *
+ * 只有一种用途：**跨回合的结构写入**（ADR-0035 IO-1）。`state_conflict` 在码表里是
+ * `retryable: true`（因为"同一字段被并发改"通常重试一次就过），但"你要写的这一轮已经过去了"
+ * 是重试一万次也不会变的事实 —— 让它可重试只会白烧 `retryLimit` 并拖长事务窗口。
+ * 所以这里在**回执层**覆盖，不去改 13 码封闭集合的语义。
+ */
+const rejectedFinal = (
+  code: DiagnosticCode,
+  detail: string,
+  factsHint?: Record<string, unknown>,
+): ToolRunResult => ({
+  ok: false,
+  code,
+  detail,
+  retryable: false,
+  ...(factsHint !== undefined ? { factsHint } : {}),
+});
+
+/**
+ * ADR-0035 IO-1：结构写入不得跨回合。
+ *
+ * 判据是「写入时刻的世界轮次」与「创作这一轮的上下文轮次」是否相等。二者不等只有一种成因：
+ * invocation 晚到（异步 LLM），于是它基于 A 轮状态算出来的事件/DAG 被写进了 A+n 轮的世界
+ * —— 那就是"已死 npc 诈尸"，或（加 missWhen 后）静默的"错误错过"。两种都不可接受。
+ *
+ * `ctx.turnIndex` 在 agent loop 起始处固定（`loop.ts` 的 `dispatchCtx`），早于任何 await，
+ * 所以它恒等于"创作轮"。编排层的事务边界（per-world 锁）保证这条守卫永远不该被触发；
+ * 它被触发就说明有人绕过了事务 ⇒ 必须拒绝，不能降级放行。
+ */
+function crossTurnViolation(state: WorldStateV2, ctx: { turnIndex: number }): ToolRunResult | null {
+  if (state.turnIndex === ctx.turnIndex) return null;
+  return rejectedFinal(
+    "state_conflict",
+    `结构写入跨回合：写入时 state.turnIndex=${state.turnIndex}，创作轮 ctx.turnIndex=${ctx.turnIndex}（ADR-0035 IO-1）`,
+    { stateTurnIndex: state.turnIndex, ctxTurnIndex: ctx.turnIndex },
+  );
+}
+
+/**
  * 回灌信息结构化（v2 §2.3）：changes = { path, before?, after? }[]，
  * factsHint = Record<string, unknown>（当前正确事实片段）。均不再是 string[]。
  */
@@ -142,7 +182,10 @@ function parseSetKnowledgeArgs(args: unknown): SetKnowledgeArgs[] | null {
 // ---------- 内置工具处理器（注册为数据，非分支） ----------
 
 const setKnowledge: ToolHandler = {
-  run(state, args) {
+  run(state, args, ctx) {
+    // ADR-0035 IO-1：知识授予同样是结构写入，跨回合落账会让观察者窗口与事实时间错位。
+    const violation = crossTurnViolation(state, ctx);
+    if (violation !== null) return violation;
     const grants = parseSetKnowledgeArgs(args);
     if (grants === null) return rejected("invalid_arguments", "fact.setKnowledge 参数不合法");
     const result = applyKnowledgeBatch(state.observationLedger, grants);
@@ -165,7 +208,11 @@ const setKnowledge: ToolHandler = {
 };
 
 const advanceDag: ToolHandler = {
-  run(state, args, _ctx, env) {
+  run(state, args, ctx, env) {
+    // ADR-0035 IO-1：DAG 是整份覆盖写（`state.taskDag = parsed.data`），
+    // 跨回合落账会把 A 轮的分支形态盖到 A+n 轮的世界上 —— 结构性破坏比事件更严重。
+    const violation = crossTurnViolation(state, ctx);
+    if (violation !== null) return violation;
     if (!isRecord(args) || !("dag" in args)) {
       return rejected("invalid_arguments", "fact.advanceDag 需要 { dag }");
     }
@@ -202,6 +249,9 @@ const advanceDag: ToolHandler = {
  */
 const enqueueEvent: ToolHandler = {
   run(state, args, ctx, env) {
+    // ADR-0035 IO-1：事件入队是「诈尸」的直接成因，必须先过跨回合守卫，再谈幂等。
+    const violation = crossTurnViolation(state, ctx);
+    if (violation !== null) return violation;
     if (!isRecord(args) || typeof args.eventId !== "string" || args.eventId.length === 0) {
       return rejected("invalid_arguments", "fact.enqueueEvent 需要 { eventId }");
     }
