@@ -51,7 +51,10 @@ export const TaskNodeSchema = z
     status: TaskStatusSchema,
     guards: z.array(TaskConditionSchema),
     completion: z.array(TaskConditionSchema),
-    /** 截止（世界分钟 / 轮次，视模板约定）；可选。 */
+    /**
+     * 截止（绝对世界分钟 / 轮次，视模板约定）；可选。
+     * §8.4 R3 seam：由 TimeAdapter 解释，不用墙钟 / 单调时间戳，保证回放确定性。
+     */
     due: z.number().int().optional(),
     templateRefs: z.array(z.string()),
     visibility: z.enum(["public", "hidden"]),

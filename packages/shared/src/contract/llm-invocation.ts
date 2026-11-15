@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { CallReceiptSchema, DiagnosticCodeSchema } from "./engine-api.js";
-import { PerspectiveSchema } from "./perspective.js";
+import { PerspectiveSchema, PerspectiveFactViewSchema } from "./perspective.js";
 
 /**
  * LLM 调用契约（F3 / 稀疏参与）：core -> llm 回调，回程一律走引擎 API。
@@ -33,11 +33,32 @@ export const ToolDescriptorSchema = z
   .strict();
 export type ToolDescriptor = z.infer<typeof ToolDescriptorSchema>;
 
+/**
+ * LlmContext（v2 §6.1 分层上下文）：让 LlmInvocation.context 不是 loose record，
+ * 编排层「不得裁剪 / 补齐 facts 段」才有类型依据——facts 由 core 的 buildFacts() 投影。
+ * [1] stablePrefix  字节稳定（世界观骨架 + 能力画像 + 工具 schema + 输出契约）；
+ * [2] facts         core buildFacts(inv.perspective) 产出的 PerspectiveFactView；
+ * [3] secrets       仅 world 窗口的隐秘段（结构化引用 id，不给原文）；
+ * [4] recentTurns   最近 6 轮滚动窗口；
+ * [5] invocationReason / contextHints 本次触发原因 / 开放标签。
+ */
+export const LlmContextSchema = z
+  .object({
+    stablePrefix: z.string(),
+    facts: PerspectiveFactViewSchema,
+    secrets: z.array(z.string()).optional(),
+    recentTurns: z.array(z.unknown()),
+    invocationReason: z.string().min(1),
+    contextHints: z.array(z.string()).optional(),
+  })
+  .strict();
+export type LlmContext = z.infer<typeof LlmContextSchema>;
+
 export const LlmInvocationSchema = z
   .object({
     invocationId: z.string().min(1),
     reason: z.string().min(1),
-    context: z.record(z.string(), z.unknown()),
+    context: LlmContextSchema,
     tools: z.array(ToolDescriptorSchema),
     budget: LlmBudgetSchema.default({}),
     replyTo: z.literal("dispatch"),
@@ -47,12 +68,17 @@ export const LlmInvocationSchema = z
   .strict();
 export type LlmInvocation = z.infer<typeof LlmInvocationSchema>;
 
+/**
+ * LlmOutcome 三态：committed / fallback 两支必须带 traceRef（F3），
+ * 使存档能定位叙事正文唯一落点（trace 记录），否则刷新后 AI 叙事不消失落空。
+ */
 export const LlmOutcomeSchema = z.union([
   z
     .object({
       outcome: z.literal("committed"),
       invocationId: z.string().min(1),
       receipts: z.array(CallReceiptSchema),
+      traceRef: z.string().min(1),
     })
     .strict(),
   z
@@ -61,6 +87,7 @@ export const LlmOutcomeSchema = z.union([
       invocationId: z.string().min(1),
       code: DiagnosticCodeSchema.optional(),
       reason: z.string().optional(),
+      traceRef: z.string().min(1),
     })
     .strict(),
   z
@@ -73,7 +100,7 @@ export const LlmOutcomeSchema = z.union([
 ]);
 export type LlmOutcome = z.infer<typeof LlmOutcomeSchema>;
 
-/** LLM 网关：invoke 返回结构化结果，绝不直接写 WorldStateV2。 */
+/** LLM 网关：invoke 返回结构化结果，绝不直接写 WorldStateV2。异步只留在网关 / agent-runtime。 */
 export interface LlmGateway {
   invoke(inv: LlmInvocation): Promise<LlmOutcome>;
 }

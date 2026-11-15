@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ObserverIdSchema } from "./perspective.js";
+import { ObserverIdSchema, PerspectiveSchema } from "./perspective.js";
 import type { Perspective, PerspectiveFactView } from "./perspective.js";
 import type { V2Snapshot, WorldStateV2 } from "../v2.js";
 
@@ -58,14 +58,26 @@ export type DiagnosticCode = z.infer<typeof DiagnosticCodeSchema>;
 export const CallOutcomeSchema = z.enum(["accepted", "rejected", "deferred"]);
 export type CallOutcome = z.infer<typeof CallOutcomeSchema>;
 
+/** 权威字段变更摘要（v2 §2.3）：结构化 { path, before?, after? }。 */
+export const FactChangeSchema = z
+  .object({
+    path: z.string().min(1),
+    before: z.unknown().optional(),
+    after: z.unknown().optional(),
+  })
+  .strict();
+export type FactChange = z.infer<typeof FactChangeSchema>;
+
 export const CallReceiptSchema = z
   .object({
     callId: z.string().min(1),
     outcome: CallOutcomeSchema,
     code: DiagnosticCodeSchema.optional(),
     detail: z.string().optional(),
-    changes: z.array(z.string()).optional(),
-    factsHint: z.array(z.string()).optional(),
+    /** 权威字段变更摘要（结构化，trace / 档 1 取证用）。 */
+    changes: z.array(FactChangeSchema).optional(),
+    /** v2 §2.3：当前正确事实片段（结构化），供分支①带事实重生成。 */
+    factsHint: z.record(z.string(), z.unknown()).optional(),
   })
   .strict();
 export type CallReceipt = z.infer<typeof CallReceiptSchema>;
@@ -77,6 +89,13 @@ export const DispatchContextSchema = z
     actor: ObserverIdSchema.optional(),
     invocationId: z.string().min(1).optional(),
     dryRun: z.boolean().optional(),
+    /** v2 §2.3：本次 invocation 的观察窗口（可选，缺省 = targetPerspective）。 */
+    perspective: PerspectiveSchema.optional(),
+    /**
+     * F4 权威验收窗口（必填）：dispatch 第 2 层只以它校验 content.* 的 refs[]，
+     * 绝不采信 args 自带的窗口；args 若带 targetPerspective 且 !== 本值 ⇒ visibility_violation。
+     */
+    targetPerspective: PerspectiveSchema,
   })
   .strict();
 export type DispatchContext = z.infer<typeof DispatchContextSchema>;
@@ -89,7 +108,8 @@ export interface DispatchResult {
 
 /** 引擎 API 句柄：窗口计算（buildFacts）归 game-core 所有。 */
 export interface EngineApiHandle {
-  dispatch(calls: ApiCall[], ctx: DispatchContext): Promise<DispatchResult> | DispatchResult;
+  /** v2 §2.3：同步纯函数。异步只留在 LlmGateway.invoke / agent-runtime。 */
+  dispatch(calls: ApiCall[], ctx: DispatchContext): DispatchResult;
   snapshot(): V2Snapshot;
   buildFacts(perspective: Perspective): PerspectiveFactView;
 }

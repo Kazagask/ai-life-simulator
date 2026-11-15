@@ -24,7 +24,7 @@ export const InvokeSchema = z
     reason: z.string().min(1),
     perspective: PerspectiveSchema,
     targetPerspective: PerspectiveSchema,
-    contextHints: z.array(z.string()),
+    contextHints: z.array(z.string()).optional(),
     toolProfile: z.string().min(1),
   })
   .strict();

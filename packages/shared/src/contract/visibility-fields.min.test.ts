@@ -4,6 +4,7 @@ import {
   ObserverIdSchema,
   KnowledgeLevelSchema,
   PerspectiveFactViewSchema,
+  ObservationLedgerSchema,
 } from "./perspective.js";
 
 describe("F4 Perspective string-literal union", () => {
@@ -32,6 +33,18 @@ describe("F4 level enum (known / inferred)", () => {
   });
   it("rejects hidden", () => {
     expect(KnowledgeLevelSchema.safeParse("hidden").success).toBe(false);
+  });
+});
+
+describe("F4 ObservationLedger key validation (save-deserialization leak guard)", () => {
+  it("accepts player / npc:<id> keys", () => {
+    expect(
+      ObservationLedgerSchema.safeParse({ player: [], "npc:npc-rival": [] }).success,
+    ).toBe(true);
+  });
+  it("rejects illegal observer keys (e.g. world / arbitrary)", () => {
+    expect(ObservationLedgerSchema.safeParse({ world: [] }).success).toBe(false);
+    expect(ObservationLedgerSchema.safeParse({ bogus: [] }).success).toBe(false);
   });
 });
 

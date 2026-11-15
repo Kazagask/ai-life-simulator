@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { CallReceiptSchema, DiagnosticCodeSchema } from "./engine-api.js";
 import { PerspectiveSchema } from "./perspective.js";
-import { ContentVisibilitySchema } from "./content-ref.js";
+import { ContentVisibilitySchema, ContentBlockSchema } from "./content-ref.js";
 
 /**
  * trace 契约（F3）。
@@ -25,8 +25,9 @@ export type CallLogEntry = z.infer<typeof CallLogEntrySchema>;
 
 /**
  * 内容块元数据（v2 §5.4 :468 / §6.3.5-3）：每块强制带
- * { blockId, targetPerspective, refs[], visibility, maskText? }，
- * 使「投影期确定性掩码」在不把正文写进 state 的前提下仍可实现。
+ * { blockId, targetPerspective, refs[], visibility, maskText? }。
+ * 该「仅元数据」形保留作结构说明 / 兼容引用；LlmTrace.contentBlocks 改带
+ * 完整 ContentBlockSchema（正文 + 元数据一体，见下方），使叙事正文可持久化读回。
  */
 export const ContentBlockMetaSchema = z
   .object({
@@ -56,8 +57,12 @@ export const LlmTraceSchema = z
     outcome: z.enum(["committed", "fallback", "deferred"]),
     fallbackCode: DiagnosticCodeSchema.optional(),
     templateRef: z.string().min(1),
-    /** 本条 trace 产出的内容块元数据（正文存于 trace 内容段，不进存档状态）。 */
-    contentBlocks: z.array(ContentBlockMetaSchema).optional(),
+    /**
+     * F3：本条 trace 产出的内容块（正文 + 元数据一体，完整 ContentBlockSchema）。
+     * 叙事正文由此成为唯一持久落点；读回端点按请求者窗口过滤 / 掩码后下发。
+     * 绝不把正文写进 WorldStateV2。
+     */
+    contentBlocks: z.array(ContentBlockSchema).optional(),
   })
   .strict();
 export type LlmTrace = z.infer<typeof LlmTraceSchema>;

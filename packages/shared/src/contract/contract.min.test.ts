@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ZodTypeAny } from "zod";
-import { FactCallSchema, DIAGNOSTIC_CODES } from "./engine-api.js";
+import { FactCallSchema, DIAGNOSTIC_CODES, DispatchContextSchema } from "./engine-api.js";
+import type { EngineApiHandle } from "./engine-api.js";
 import { KnowledgeEntrySchema } from "./perspective.js";
 import { TaskNodeSchema } from "./task-dag.js";
-import { LlmBudgetSchema } from "./llm-invocation.js";
+import { LlmBudgetSchema, LlmOutcomeSchema } from "./llm-invocation.js";
 import { LlmTraceSchema } from "./trace.js";
 import { ContentBlockSchema } from "./content-ref.js";
 import { AssetDescriptorSchema } from "./asset-manifest.js";
@@ -191,5 +192,94 @@ describe("RulesSchema v2 §3.5 shape regression", () => {
         fallbackDag: { dagId: "d", version: 0, issuedBy: "template", nodes: [], edges: [] },
       }).success,
     ).toBe(false);
+  });
+});
+
+// ---------- 阶段 A 追加门禁（F3 / F4 / 同步 dispatch）----------
+
+describe("F3: LlmTrace.contentBlocks carries full narrative body", () => {
+  it("parses a trace with contentBlocks[0].text (read-back source)", () => {
+    const trace = {
+      invocationId: "inv1",
+      turnIndex: 0,
+      worldTime: 0,
+      reason: "test",
+      contextHash: "h",
+      toolProfile: "p",
+      callsHash: "h",
+      receipts: [],
+      diagnostics: [],
+      inputTokens: 0,
+      outputTokens: 0,
+      latencyMs: 0,
+      outcome: "committed",
+      templateRef: "tpl",
+      contentBlocks: [
+        {
+          blockId: "b1",
+          kind: "narrative",
+          text: "刷新后仍可读回的叙事正文",
+          refs: [],
+          visibility: "public",
+          targetPerspective: "player",
+          maskText: "某未公开的计划",
+        },
+      ],
+    };
+    const parsed = LlmTraceSchema.safeParse(trace);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.contentBlocks?.[0].text).toBe("刷新后仍可读回的叙事正文");
+      expect(parsed.data.contentBlocks?.[0].maskText).toBe("某未公开的计划");
+    }
+  });
+});
+
+describe("F3: LlmOutcome committed/fallback carry traceRef", () => {
+  it("committed / fallback parse with traceRef; missing traceRef rejected", () => {
+    expect(
+      LlmOutcomeSchema.safeParse({
+        outcome: "committed",
+        invocationId: "i",
+        receipts: [],
+        traceRef: "trace:1",
+      }).success,
+    ).toBe(true);
+    expect(
+      LlmOutcomeSchema.safeParse({
+        outcome: "fallback",
+        invocationId: "i",
+        traceRef: "trace:1",
+      }).success,
+    ).toBe(true);
+    // 缺 traceRef ⇒ 存档拿不到引用 ⇒ 必失败
+    expect(
+      LlmOutcomeSchema.safeParse({ outcome: "committed", invocationId: "i", receipts: [] })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe("F4: DispatchContext.targetPerspective is authoritative & required", () => {
+  it("missing targetPerspective rejected; present parses", () => {
+    expect(DispatchContextSchema.safeParse({ turnIndex: 0, worldTime: 0 }).success).toBe(false);
+    expect(
+      DispatchContextSchema.safeParse({
+        turnIndex: 0,
+        worldTime: 0,
+        targetPerspective: "player",
+      }).success,
+    ).toBe(true);
+  });
+});
+
+describe("v2 §2.3: EngineApiHandle.dispatch is synchronous (compile-time)", () => {
+  it("dispatch return type contains no Promise member", () => {
+    type DispatchReturn = ReturnType<EngineApiHandle["dispatch"]>;
+    // 元组包裹避免分布式条件类型；Extract 出任何 Promise 成员都使 IsSync=false。
+    type IsNever<T> = [T] extends [never] ? true : false;
+    type IsSync = IsNever<Extract<DispatchReturn, Promise<unknown>>>;
+    const _syncProof: IsSync = true; // 若 dispatch 返回 Promise 联合 ⇒ IsSync=false ⇒ 编译失败
+    expect(_syncProof).toBe(true);
   });
 });

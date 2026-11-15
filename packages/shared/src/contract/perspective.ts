@@ -57,12 +57,13 @@ export type KnowledgeEntry = z.infer<typeof KnowledgeEntrySchema>;
 export type ObservationLedger = Record<ObserverId, KnowledgeEntry[]>;
 
 /**
- * zod 3 的 z.record 无法从模板字面量键推断出精确的键类型，这里显式把输出类型桥接为
- * ObservationLedger（保证 WorldStateV2 接口与 WorldStateV2Schema 的 z.infer 完全一致）。
- * 键的合法性在 SetKnowledgeArgsSchema.observer 处按 ObserverIdSchema 校验。
+ * 键合法性在运行时按 ObserverIdSchema 校验（z.record 会对每个 key 跑 keyType._parse），
+ * 覆盖「存档反序列化」这条不经过 SetKnowledgeArgsSchema.observer 的路径，堵住非法
+ * observer 键混进 world 全量台账的泄露缝。zod 3 的 z.record 无法从模板字面量键推断出
+ * 精确的键类型，故仍显式把输出类型桥接为 ObservationLedger（保证接口与 z.infer 一致）。
  */
 export const ObservationLedgerSchema = z.record(
-  z.string(),
+  ObserverIdSchema,
   z.array(KnowledgeEntrySchema),
 ) as unknown as z.ZodType<ObservationLedger>;
 
@@ -96,14 +97,27 @@ export const PerspectiveFactViewSchema = z
   })
   .strict()
   .superRefine((v, ctx) => {
-    // F4：仅 world 窗口可携带全部观察者台账；player / npc 窗口只给 known / inferred。
-    if (v.perspective !== "world" && v.ledger !== undefined) {
+    // F4：字符串联合下以 v.perspective !== "world" 判定受限窗口。
+    if (v.perspective === "world") return;
+    // 仅 world 窗口可携带全部观察者台账；player / npc 窗口只给 known / inferred。
+    if (v.ledger !== undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["ledger"],
         message: "仅 world 窗口可携带全部观察者台账（F4）",
       });
     }
+    // 显式护栏：player / npc 窗口的 facts 只允许 known / inferred，不得出现 hidden / unknown。
+    // PerspectiveFactItemSchema.level 已由 KnowledgeLevelSchema 约束，此处防止放宽枚举时 F4 静默失效。
+    v.facts.forEach((f, i) => {
+      if (f.level !== undefined && f.level !== "known" && f.level !== "inferred") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["facts", i, "level"],
+          message: "player / npc 窗口的 fact 只允许 known / inferred（F4）",
+        });
+      }
+    });
   });
 export type PerspectiveFactView = z.infer<typeof PerspectiveFactViewSchema>;
 
