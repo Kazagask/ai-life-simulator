@@ -47,6 +47,7 @@ import { compareVersions, loadTemplates, readAssetEntries, type ReadyTemplateEnt
 import { dataDir, hydrate, loadPersistedWorlds, worldStore } from "./store.js";
 import { createLLMProvider, readLLMConfig, resolveProviderForRequest, type LLMProvider } from "./llm/provider.js";
 import { userCredentials } from "./llm/userCredentials.js";
+import { probeLlmConnectivity } from "./llm/probe.js";
 import {
   adapterFromOutcome,
   decorateEndingView,
@@ -459,6 +460,23 @@ app.post("/api/llm-credentials", async (request, reply) => {
   } catch {
     return reply.code(400).send({ error: "invalid_credentials" });
   }
+});
+
+/**
+ * R2.8 · R-LLM-07：提交前的**连通性探测**（不 mint 会话、不入内存、不产生任何副作用）。
+ *
+ * 语义分层（前端要能稳定区分「我填错了」与「服务端炸了」）：
+ * - 通 ⇒ 200 `{ ok: true, model, latencyMs }`；
+ * - 探测失败（鉴权 / 网络 / 超时 / 响应形状）⇒ **仍然 200** `{ ok: false, reason, detail }`；
+ * - 请求体不合法 ⇒ 400 `{ error: "invalid_credentials", detail }`。
+ * `detail` 已在 probe 内部脱敏截断，绝不回显 apiKey。
+ */
+app.post("/api/llm-credentials/test", async (request, reply) => {
+  const parsed = llmCredentialsSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.code(400).send({ error: "invalid_credentials", detail: parsed.error.flatten() });
+  }
+  return probeLlmConnectivity(parsed.data);
 });
 
 /**
