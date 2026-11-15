@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { CallReceiptSchema, DiagnosticCodeSchema } from "./engine-api.js";
+import { PerspectiveSchema } from "./perspective.js";
+import { ContentVisibilitySchema } from "./content-ref.js";
 
 /**
  * trace 契约（F3）。
@@ -21,6 +23,22 @@ export const CallLogEntrySchema = z
   .strict();
 export type CallLogEntry = z.infer<typeof CallLogEntrySchema>;
 
+/**
+ * 内容块元数据（v2 §5.4 :468 / §6.3.5-3）：每块强制带
+ * { blockId, targetPerspective, refs[], visibility, maskText? }，
+ * 使「投影期确定性掩码」在不把正文写进 state 的前提下仍可实现。
+ */
+export const ContentBlockMetaSchema = z
+  .object({
+    blockId: z.string().min(1),
+    targetPerspective: PerspectiveSchema,
+    refs: z.array(z.string()),
+    visibility: ContentVisibilitySchema,
+    maskText: z.string().optional(),
+  })
+  .strict();
+export type ContentBlockMeta = z.infer<typeof ContentBlockMetaSchema>;
+
 export const LlmTraceSchema = z
   .object({
     invocationId: z.string().min(1),
@@ -38,8 +56,8 @@ export const LlmTraceSchema = z
     outcome: z.enum(["committed", "fallback", "deferred"]),
     fallbackCode: DiagnosticCodeSchema.optional(),
     templateRef: z.string().min(1),
-    /** 本条 trace 产出的内容块 id（正文存于 trace 记录的内容段，不进存档状态）。 */
-    contentBlocks: z.array(z.string()).optional(),
+    /** 本条 trace 产出的内容块元数据（正文存于 trace 内容段，不进存档状态）。 */
+    contentBlocks: z.array(ContentBlockMetaSchema).optional(),
   })
   .strict();
 export type LlmTrace = z.infer<typeof LlmTraceSchema>;

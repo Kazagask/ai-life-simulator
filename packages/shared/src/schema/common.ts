@@ -289,6 +289,19 @@ export const EffectSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("log"), text: z.string().min(1), visibility: z.enum(["public", "hidden"]) }).strict(),
 ]);
 
+/**
+ * T-00 开放注册位（前向 seam）：仅预留 Effect 类型扩展点，
+ * 不改现有 24 个判别联合分支的语义、不为它重构。
+ * 后续若要扩展 Effect 类型，把新分支的 `type` / 解析器登记进此表即可；
+ * 当前引擎仍只消费 EffectSchema 的 z.discriminatedUnion（P0 零回归）。
+ */
+export interface EffectRegistration {
+  readonly type: string;
+  readonly parse: (raw: unknown) => unknown;
+}
+/** 可追加的 Effect 扩展注册表（P0 保持为空，供后续波次登记新分支）。 */
+export const EFFECT_REGISTRY: EffectRegistration[] = [];
+
 export type Condition = z.infer<typeof ConditionSchema>;
 export type Effect = z.infer<typeof EffectSchema>;
 export type Formula = z.infer<typeof FormulaSchema>;

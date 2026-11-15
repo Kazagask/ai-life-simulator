@@ -1,10 +1,12 @@
 import { z } from "zod";
 
 /**
- * F4 统一观察者知识台账 / 可见窗口契约。
+ * F4 统一观察者知识台账 / 可见窗口契约（v2 §6.3.2）。
  *
  * 硬规则（REFACTOR-DESIGN.md F4）：
  * - 玩家与每个 NPC 共用同一套「观察者知识台账」：ObserverId = "player" | `npc:${string}`。
+ * - 视角是字符串字面量联合：Perspective = "world" | "player" | `npc:${string}`
+ *   （buildFacts("world") / buildFacts("player") / buildFacts("npc:npc-rival")）。
  * - 未出现在某观察者台账中的 fact 即为该观察者的 hidden；
  *   `unknown` / `hidden` 层级的事实一律不进 player / npc 可见窗口（world 窗口是唯一全量视图）。
  * - 窗口计算归 game-core 的引擎 API 所有（EngineApiHandle.buildFacts），
@@ -20,23 +22,31 @@ export const ObserverIdSchema = z
     message: "ObserverId 必须是 'player' 或 'npc:<id>'",
   });
 
-/** 视角（F4）：world 全量；player / npc 只给 known + inferred。 */
-export const PerspectiveSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("world") }).strict(),
-  z.object({ kind: z.literal("player") }).strict(),
-  z.object({ kind: z.literal("npc"), npcId: z.string().min(1) }).strict(),
-]);
-export type Perspective = z.infer<typeof PerspectiveSchema>;
+/**
+ * 视角（F4）：world 全量；player / npc 只给 known + inferred。
+ * 字符串字面量联合（v2 §6.3.2 :524-525），运行时拒绝非法值，TS 类型即上述联合。
+ */
+export type Perspective = "world" | "player" | `npc:${string}`;
+
+export const PerspectiveSchema = z
+  .string()
+  .refine((v): v is Perspective => v === "world" || v === "player" || v.startsWith("npc:"), {
+    message: "Perspective 必须是 'world' | 'player' | 'npc:<id>'",
+  });
 
 /** 台账条目的层级：只记 known / inferred（hidden 是「不在台账」的缺省态，不落库）。 */
 export const KnowledgeLevelSchema = z.enum(["known", "inferred"]);
 export type KnowledgeLevel = z.infer<typeof KnowledgeLevelSchema>;
 
+/** 知识来源封闭枚举（KnowledgeEntry / fact.setKnowledge / rules.yaml grant 共用）。 */
+export const KnowledgeSourceSchema = z.enum(["witness", "told", "inferred", "llm", "rule"]);
+export type KnowledgeSource = z.infer<typeof KnowledgeSourceSchema>;
+
 export const KnowledgeEntrySchema = z
   .object({
     factRef: z.string().min(1),
     level: KnowledgeLevelSchema,
-    source: z.enum(["witness", "told", "inferred", "llm", "rule"]),
+    source: KnowledgeSourceSchema,
     sinceTurn: z.number().int().nonnegative(),
     confidence: z.number().min(0).max(1).optional(),
   })
@@ -56,33 +66,42 @@ export const ObservationLedgerSchema = z.record(
   z.array(KnowledgeEntrySchema),
 ) as unknown as z.ZodType<ObservationLedger>;
 
-/** 窗口内事实的层级：hidden / unknown 仅在 world 窗口允许，player / npc 窗口显式拒收。 */
-export const WindowFactLevelSchema = z.enum(["known", "inferred", "hidden", "unknown"]);
-export type WindowFactLevel = z.infer<typeof WindowFactLevelSchema>;
-
-export const PerspectiveFactSchema = z
-  .object({ factRef: z.string().min(1), level: WindowFactLevelSchema })
+/** 窗口内事实条目（v2 §6.3.2 :538-542）：level 仅 known / inferred，world 窗口无 level 约束。 */
+export const PerspectiveFactItemSchema = z
+  .object({
+    factRef: z.string().min(1),
+    value: z.unknown(),
+    level: KnowledgeLevelSchema.optional(),
+  })
   .strict();
-export type PerspectiveFact = z.infer<typeof PerspectiveFactSchema>;
+export type PerspectiveFactItem = z.infer<typeof PerspectiveFactItemSchema>;
+
+/** 按窗口过滤后的 DAG 节点视图。 */
+export const DagNodeViewSchema = z
+  .object({ nodeId: z.string().min(1), status: z.string() })
+  .strict();
+export type DagNodeView = z.infer<typeof DagNodeViewSchema>;
 
 /**
- * 视角事实窗口：world 全量；player / npc 只给 known + inferred。
- * 若某 player / npc 窗口声明了 hidden / unknown 层级事实，strict 校验直接拒绝。
+ * 视角事实窗口（v2 §6.3.2 :536-545）：
+ * world 全量（含全部观察者台账 ledger）；player / npc 只给 known + inferred。
+ * 隐秘作为 world 窗口 facts 的一部分，靠 ledger 区分观察者；不再另设独立隐秘字段。
  */
 export const PerspectiveFactViewSchema = z
   .object({
     perspective: PerspectiveSchema,
-    facts: z.array(PerspectiveFactSchema),
-    secrets: z.array(z.string()).optional(),
-    inferenceMarkers: z.array(z.string()),
+    facts: z.array(PerspectiveFactItemSchema),
+    dagNodes: z.array(DagNodeViewSchema).optional(),
+    ledger: ObservationLedgerSchema.optional(),
   })
   .strict()
   .superRefine((v, ctx) => {
-    if (v.perspective.kind !== "world" && v.facts.some((f) => f.level === "hidden" || f.level === "unknown")) {
+    // F4：仅 world 窗口可携带全部观察者台账；player / npc 窗口只给 known / inferred。
+    if (v.perspective !== "world" && v.ledger !== undefined) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["facts"],
-        message: "unknown / hidden 不得进入 player / npc 可见窗口（F4）",
+        path: ["ledger"],
+        message: "仅 world 窗口可携带全部观察者台账（F4）",
       });
     }
   });
@@ -94,21 +113,17 @@ export const SetKnowledgeArgsSchema = z
     observer: ObserverIdSchema,
     factRef: z.string().min(1),
     level: KnowledgeLevelSchema,
-    source: z.enum(["witness", "told", "inferred", "llm", "rule"]),
+    source: KnowledgeSourceSchema,
     sinceTurn: z.number().int().nonnegative(),
     confidence: z.number().min(0).max(1).optional(),
   })
   .strict();
 export type SetKnowledgeArgs = z.infer<typeof SetKnowledgeArgsSchema>;
 
-/** 规则模板里的主体（rules.ts 复用）。 */
-export type Subject = "world" | "player" | `npc:${string}`;
-export const SubjectSchema = z
-  .string()
-  .refine((v): v is Subject => v === "world" || v === "player" || v.startsWith("npc:"), {
-    message: "subject 必须是 world | player | npc:<id>",
-  });
+/** 兼容别名：主体集合与 Perspective 相同（既有引用点继续使用）。 */
+export type Subject = Perspective;
+export const SubjectSchema = PerspectiveSchema;
 
-/** 知识层级 tier（rules.ts knowledgeGrants / inferenceRules 复用）。 */
-export const KnowledgeTierSchema = z.enum(["known", "inferred"]);
-export type KnowledgeTier = z.infer<typeof KnowledgeTierSchema>;
+/** 兼容别名：知识层级与 KnowledgeLevel 相同。 */
+export type KnowledgeTier = KnowledgeLevel;
+export const KnowledgeTierSchema = KnowledgeLevelSchema;

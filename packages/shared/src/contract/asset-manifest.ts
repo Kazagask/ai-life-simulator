@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ContentVisibilitySchema } from "./content-layer.js";
+import { ContentVisibilitySchema } from "./content-ref.js";
 
 /** 资源清单契约：资产元数据与可见性，供 referenceAsset / MediaVM 引用。 */
 

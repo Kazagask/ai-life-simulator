@@ -5,7 +5,7 @@ import { EquipmentInstanceSchema } from "./schema/equipment.js";
 import { ScheduledEventInstanceSchema } from "./schema/event-instance.js";
 import { TerminationRecordSchema } from "./schema/ending.js";
 import { RelationEdgeSchema } from "./schema/relation.js";
-import { ObservationLedgerSchema } from "./contract/visibility.js";
+import { ObservationLedgerSchema } from "./contract/perspective.js";
 import { TaskDagSchema } from "./contract/task-dag.js";
 import { LlmInvocationSchema } from "./contract/llm-invocation.js";
 import type { BattleState, HistoryEntryV2, WorldStateV2 } from "./v2.js";

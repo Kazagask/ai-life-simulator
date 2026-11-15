@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { ObserverIdSchema } from "./visibility.js";
-import type { Perspective, PerspectiveFactView } from "./visibility.js";
+import { ObserverIdSchema } from "./perspective.js";
+import type { Perspective, PerspectiveFactView } from "./perspective.js";
 import type { V2Snapshot, WorldStateV2 } from "../v2.js";
 
 /**

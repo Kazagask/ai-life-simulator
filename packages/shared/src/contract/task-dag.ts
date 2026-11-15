@@ -15,9 +15,22 @@ export const OpenConditionSchema = z
   .strict();
 export type OpenCondition = z.infer<typeof OpenConditionSchema>;
 
-/** 任务条件：声明式 DSL（P0）+ 开放形（前向兼容）。 */
+/**
+ * 任务条件：z.union 兼容两形（v2 §3.5 / §11.2⑥）——
+ * 形 A 现行声明式扁平 DSL（common.ts:181-192）；形 B 开放形 { op, args }。
+ * when / guards / completion / rules.yaml 共用同一份 TaskConditionSchema，不另立第三套语法。
+ */
 export const TaskConditionSchema = z.union([ConditionSchema, OpenConditionSchema]);
 export type TaskCondition = z.infer<typeof TaskConditionSchema>;
+
+/**
+ * 条件求值注册表（P0 仅作前向 seam）：求值由 game-core 的 ConditionEvaluator 解释，
+ * 引擎不 switch on op；开放形仅做结构校验，新 op 注册在此扩展点上，不改本契约语法。
+ */
+export type ConditionEvaluator = (condition: TaskCondition, context: unknown) => boolean;
+export interface ConditionRegistry {
+  evaluate: ConditionEvaluator;
+}
 
 export const TaskStatusSchema = z.enum([
   "draft",

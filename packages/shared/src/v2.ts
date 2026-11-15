@@ -16,7 +16,7 @@ import type {
   WorldTemplateV2,
   TerminationRecord,
 } from "./schema/index.js";
-import type { ObservationLedger } from "./contract/visibility.js";
+import type { ObservationLedger } from "./contract/perspective.js";
 import type { TaskDag } from "./contract/task-dag.js";
 import type { LlmInvocation } from "./contract/llm-invocation.js";
 

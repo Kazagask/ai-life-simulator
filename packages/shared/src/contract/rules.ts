@@ -1,68 +1,86 @@
 import { z } from "zod";
-import { ConditionSchema } from "../schema/common.js";
-import { KnowledgeTierSchema, SubjectSchema } from "./visibility.js";
-import { TaskDagSchema } from "./task-dag.js";
+import { TaskConditionSchema, TaskDagSchema } from "./task-dag.js";
+import {
+  ObserverIdSchema,
+  PerspectiveSchema,
+  KnowledgeLevelSchema,
+  KnowledgeSourceSchema,
+} from "./perspective.js";
 
 /**
- * rules.yaml 专用 schema。
+ * rules.yaml 专用 schema（v2 §3.5 :260-310）。
  *
  * ⚠ 不并入 apps/server/src/templates.ts 的 TEMPLATE_MERGE_FILES：
  * rules.yaml 走独立加载通道，不与世界模板 yaml 合并，
  * 否则 llmTriggers / inferenceRules / fallbackDag 会污染模板指纹与合并语义。
+ *
+ * when / guards / completion 统一复用 TaskConditionSchema（现行扁平 DSL ∪ { op, args } 开放形），
+ * 不另立第三套语法、引擎不 switch on op（ConditionRegistry 仅作前向 seam）。
  */
+
+/** 触发时构造的 LLM invocation 规格（v2 §3.5 :264-269）。 */
+export const InvokeSchema = z
+  .object({
+    reason: z.string().min(1),
+    perspective: PerspectiveSchema,
+    targetPerspective: PerspectiveSchema,
+    contextHints: z.array(z.string()),
+    toolProfile: z.string().min(1),
+  })
+  .strict();
+export type Invoke = z.infer<typeof InvokeSchema>;
 
 export const LlmTriggerSchema = z
   .object({
-    id: z.string().min(1),
-    when: z.array(ConditionSchema),
-    invoke: z
-      .object({
-        reason: z.string().min(1),
-        contextHints: z.array(z.string()).optional(),
-        toolProfile: z.string().min(1),
-      })
-      .strict(),
+    id: z.string().min(1).optional(),
+    when: z.array(TaskConditionSchema),
+    invoke: InvokeSchema,
   })
   .strict();
 export type LlmTrigger = z.infer<typeof LlmTriggerSchema>;
 
-export const ToolProfileSchema = z
-  .object({
-    id: z.string().min(1),
-    tools: z.array(z.string().min(1)),
-    budgetRef: z.string().min(1).optional(),
-  })
-  .strict();
+/** 工具画像：profile 名 → 允许的工具名列表（Record<string, string[]>）。 */
+export const ToolProfileSchema = z.record(z.string().min(1), z.array(z.string().min(1)));
 export type ToolProfile = z.infer<typeof ToolProfileSchema>;
 
-export const KnowledgeGrantSchema = z
+/** 知识授予 / 推断规则的 grant 载荷（v2 §3.5 :274-277）。 */
+export const KnowledgeGrantPayloadSchema = z
   .object({
-    subject: SubjectSchema,
-    refs: z.array(z.string()),
-    tier: KnowledgeTierSchema,
+    observers: z.array(ObserverIdSchema),
+    factRefs: z.array(z.string()),
+    level: KnowledgeLevelSchema,
+    source: KnowledgeSourceSchema,
   })
   .strict();
-export type KnowledgeGrant = z.infer<typeof KnowledgeGrantSchema>;
+export type KnowledgeGrantPayload = z.infer<typeof KnowledgeGrantPayloadSchema>;
 
-export const InferenceRuleSchema = z
+/** knowledgeGrants[] / inferenceRules[] 同构条目：when 命中时按 grant 落账。 */
+export const KnowledgeGrantRuleSchema = z
   .object({
-    id: z.string().min(1),
-    subject: SubjectSchema,
-    when: z.array(ConditionSchema),
-    infer: z.string().min(1),
-    tier: KnowledgeTierSchema,
-    from: z.array(z.string()),
+    when: z.array(TaskConditionSchema),
+    grant: KnowledgeGrantPayloadSchema,
   })
   .strict();
-export type InferenceRule = z.infer<typeof InferenceRuleSchema>;
+export type KnowledgeGrantRule = z.infer<typeof KnowledgeGrantRuleSchema>;
 
-export const RulesTemplateSchema = z
+/** 兼容具名导出（语义与 KnowledgeGrantRuleSchema 相同）。 */
+export const KnowledgeGrantSchema = KnowledgeGrantRuleSchema;
+export type KnowledgeGrant = KnowledgeGrantRule;
+export const InferenceRuleSchema = KnowledgeGrantRuleSchema;
+export type InferenceRule = KnowledgeGrantRule;
+
+/** v2 §3.5 形状：顶层恰为 5 个键；fallbackDag 与 TaskDag 同构。 */
+export const RulesSchema = z
   .object({
     llmTriggers: z.array(LlmTriggerSchema),
-    toolProfiles: z.array(ToolProfileSchema),
-    knowledgeGrants: z.array(KnowledgeGrantSchema),
-    inferenceRules: z.array(InferenceRuleSchema),
+    toolProfile: ToolProfileSchema,
+    knowledgeGrants: z.array(KnowledgeGrantRuleSchema),
+    inferenceRules: z.array(KnowledgeGrantRuleSchema),
     fallbackDag: TaskDagSchema,
   })
   .strict();
-export type RulesTemplate = z.infer<typeof RulesTemplateSchema>;
+export type Rules = z.infer<typeof RulesSchema>;
+
+/** 兼容别名：既有 RulesTemplateSchema / RulesTemplate 引用点继续可用。 */
+export const RulesTemplateSchema = RulesSchema;
+export type RulesTemplate = Rules;

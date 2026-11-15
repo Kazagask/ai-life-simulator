@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { CallReceiptSchema, DiagnosticCodeSchema } from "./engine-api.js";
-import { PerspectiveSchema } from "./visibility.js";
-import type { Perspective } from "./visibility.js";
+import { PerspectiveSchema } from "./perspective.js";
 
 /**
  * LLM 调用契约（F3 / 稀疏参与）：core -> llm 回调，回程一律走引擎 API。
@@ -48,7 +47,7 @@ export const LlmInvocationSchema = z
   .strict();
 export type LlmInvocation = z.infer<typeof LlmInvocationSchema>;
 
-export const LlmOutcomeSchema = z.discriminatedUnion("outcome", [
+export const LlmOutcomeSchema = z.union([
   z
     .object({
       outcome: z.literal("committed"),

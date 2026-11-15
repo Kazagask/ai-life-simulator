@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { ZodTypeAny } from "zod";
 import { FactCallSchema, DIAGNOSTIC_CODES } from "./engine-api.js";
-import { KnowledgeEntrySchema } from "./visibility.js";
+import { KnowledgeEntrySchema } from "./perspective.js";
 import { TaskNodeSchema } from "./task-dag.js";
 import { LlmBudgetSchema } from "./llm-invocation.js";
 import { LlmTraceSchema } from "./trace.js";
-import { ContentBlockSchema } from "./content-layer.js";
+import { ContentBlockSchema } from "./content-ref.js";
 import { AssetDescriptorSchema } from "./asset-manifest.js";
-import { RulesTemplateSchema } from "./rules.js";
+import { RulesSchema } from "./rules.js";
 import { ViewModelSchema } from "./view-model.js";
 
 /** 9 个契约：各 1 个合法样例 parse 成功 + 1 个「多一个未知键必失败」反例。 */
@@ -18,7 +18,7 @@ const cases: Array<{ name: string; schema: ZodTypeAny; valid: unknown }> = [
     valid: { callId: "c1", tool: "fact.setKnowledge", args: {} },
   },
   {
-    name: "visibility",
+    name: "perspective",
     schema: KnowledgeEntrySchema,
     valid: { factRef: "f1", level: "known", source: "witness", sinceTurn: 0 },
   },
@@ -62,7 +62,7 @@ const cases: Array<{ name: string; schema: ZodTypeAny; valid: unknown }> = [
     },
   },
   {
-    name: "content-layer",
+    name: "content-ref",
     schema: ContentBlockSchema,
     valid: {
       blockId: "b1",
@@ -70,7 +70,8 @@ const cases: Array<{ name: string; schema: ZodTypeAny; valid: unknown }> = [
       text: "一段叙事",
       refs: [],
       visibility: "public",
-      targetPerspective: { kind: "world" },
+      targetPerspective: "world",
+      maskText: "某未公开的计划",
     },
   },
   {
@@ -80,10 +81,10 @@ const cases: Array<{ name: string; schema: ZodTypeAny; valid: unknown }> = [
   },
   {
     name: "rules",
-    schema: RulesTemplateSchema,
+    schema: RulesSchema,
     valid: {
       llmTriggers: [],
-      toolProfiles: [],
+      toolProfile: {},
       knowledgeGrants: [],
       inferenceRules: [],
       fallbackDag: { dagId: "d", version: 0, issuedBy: "template", nodes: [], edges: [] },
@@ -118,5 +119,77 @@ describe("DiagnosticCode closed set", () => {
   it("has exactly 13 unique members", () => {
     expect(DIAGNOSTIC_CODES.length).toBe(13);
     expect(new Set(DIAGNOSTIC_CODES).size).toBe(13);
+  });
+});
+
+/** v2 §3.5 :260-310 片段（ criterion 6 回归断言）。 */
+const V2_RULES_SNIPPET = {
+  llmTriggers: [
+    {
+      when: [{ op: "nodeCompleted", args: { nodeId: "n1.awaken" } }],
+      invoke: {
+        reason: "chapter.advance",
+        perspective: "world",
+        targetPerspective: "player",
+        contextHints: ["facts"],
+        toolProfile: "narrative",
+      },
+    },
+  ],
+  toolProfile: { narrative: ["content.writeNarrative"] },
+  knowledgeGrants: [
+    {
+      when: [{ op: "always", args: {} }],
+      grant: {
+        observers: ["player"],
+        factRefs: ["fact:trial-result"],
+        level: "known",
+        source: "witness",
+      },
+    },
+  ],
+  inferenceRules: [],
+  fallbackDag: {
+    dagId: "demo-agentic.fallback.v1",
+    version: 1,
+    issuedBy: "template",
+    nodes: [
+      {
+        id: "n1.awaken",
+        kind: "opening",
+        title: "苏醒",
+        status: "ready",
+        guards: [],
+        completion: [{ op: "always", args: {} }],
+        templateRefs: ["evt:awaken"],
+        visibility: "public",
+      },
+    ],
+    edges: [],
+  },
+};
+
+describe("RulesSchema v2 §3.5 shape regression", () => {
+  it("parses the v2 §3.5 snippet", () => {
+    expect(RulesSchema.safeParse(V2_RULES_SNIPPET).success).toBe(true);
+  });
+  it("unknown top-level key rejected (strict)", () => {
+    expect(RulesSchema.safeParse({ ...V2_RULES_SNIPPET, __unknown: 1 }).success).toBe(false);
+  });
+  it("rejects legacy toolProfiles / grant shape", () => {
+    const legacyGrant = {
+      subject: "player",
+      refs: [] as string[],
+      tier: "known",
+    };
+    expect(
+      RulesSchema.safeParse({
+        llmTriggers: [],
+        toolProfiles: [],
+        knowledgeGrants: [legacyGrant],
+        inferenceRules: [],
+        fallbackDag: { dagId: "d", version: 0, issuedBy: "template", nodes: [], edges: [] },
+      }).success,
+    ).toBe(false);
   });
 });
