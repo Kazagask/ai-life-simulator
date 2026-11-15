@@ -10,6 +10,17 @@
 # 重要：`evt:trial` / `evt:chance` 两个 id 被 rules.yaml 的 contextHints 逐字引用
 # （`evt:trial` / `evt:chance`），**不得改名或删除**，否则 mock 的 DAG 分支轮会静默失效。
 #
+# ⚠ 这两个 id 也因此有被 **LLM 侧复活**的风险（2026-11-16 实测）：
+# 旧的 mock 会把 contextHints 里裸 `evt:` 开头的字符串解释成「本轮要上桌的事件」，
+# 每次 `task.completed` 就发一次 `fact.enqueueEvent` ⇒ 一条 `evt:chance` 会被反复入队，
+# 与 `evt:closing` 交替上桌、最后 409 `pending_event_required`（真实服务可复现）。
+# 关键事实：**`once` 挡不住它**——`fact.enqueueEvent` 的实现是直接 `enqueueScheduled`
+# （`engine-api.ts:243-290`），根本不经过 `enqueueCandidate` 的 once 门控；出队终判
+# （`missWhen`）才是唯一能挡住"已被引擎记过一次的事件重新上桌"的地方。
+# ⇒ 故给 trial / chance 各加一道 `missWhen: <自己>Done`，由各自的结算写这个 flag。
+# 这是**兜底**不是根治：根治在 agent-runtime 侧（只认显式 `branch:evt:x` 提示），
+# 模板这层只保证"就算 LLM 硬塞，也不会无限循环"。
+#
 # ⚠ 本模板**没有 `source: pool` 事件**，这是刻意的，不是漏写：
 # 池子只在「槽为空」的那一瞬抽取，而本图从第一轮到 `evt:closing` 结束，槽位由
 # successor / queueTake 连续占着；唯一空槽时刻是收场轮——池子会在那一轮摇出事件并**立刻**
@@ -59,23 +70,35 @@ events:
   - id: "evt:trial"
     title: 初次试炼
     kind: normal
-    trigger: { source: chain }
+    trigger:
+      source: chain
+      # 兜底：被 LLM 重新塞回队列时不二次上桌（`once` 不管这条路径，见文件头）。
+      # 三条选项各自写 trialDone —— 新增选项时**必须**一并写，否则这道门就漏了。
+      missWhen: [{ flag: trialDone, eq: true }]
+      missLabel: 试炼已经过去了
     settle:
       normal:
         options:
           - id: opt-left
             text: 走左边
-            effects: [{ type: adjustAttribute, attribute: body, value: 1 }]
+            effects:
+              - { type: adjustAttribute, attribute: body, value: 1 }
+              - { type: setFlag, id: trialDone, value: true }
             nextEventId: "evt:chance"
           - id: opt-right
             text: 走右边
-            effects: [{ type: setFlag, id: took-right, value: true }]
+            effects:
+              - { type: setFlag, id: took-right, value: true }
+              - { type: setFlag, id: trialDone, value: true }
             nextEventId: "evt:chance"
           # 战斗演示入口：第三条路确定性直通 kind: combat（前两条保持原样，DAG 分支不受影响）。
           - id: opt-face
             text: 迎上去
-            effects: [{ type: setFlag, id: choseFight, value: true }]
+            effects:
+              - { type: setFlag, id: choseFight, value: true }
+              - { type: setFlag, id: trialDone, value: true }
             nextEventId: "evt:ambush"
+
   - id: "evt:ambush"
     title: 墙里的影子
     narrative: 墙皮鼓了一下，像有什么东西在里面换了个姿势。它顺着裂缝渗出来，慢慢站直。
@@ -107,13 +130,25 @@ events:
     kind: random
     # 由 `evt:trial` 的「走左边 / 走右边」进入（原先还是 0.3 概率的池事件）。
     # 不做池事件的原因见文件头：池子只会在收场那一瞬抽到它，然后立刻打断自由行动。
-    trigger: { source: chain }
+    trigger:
+      source: chain
+      # 兜底：被 LLM 重新塞回队列时不二次上桌（`once` 不管这条路径，见文件头）。
+      # 两段扇区都要写 chanceDone，否则停在哪一格都可能漏。
+      missWhen: [{ flag: chanceDone, eq: true }]
+      missLabel: 偶遇已经过去了
     settle:
       random:
         wheel:
           segments:
-            - { weight: 1, label: 相谈甚欢, nextEventId: "evt:closing" }
-            - { weight: 1, label: 擦肩而过, nextEventId: "evt:closing" }
+            - weight: 1
+              label: 相谈甚欢
+              effects: [{ type: setFlag, id: chanceDone, value: true }]
+              nextEventId: "evt:closing"
+            - weight: 1
+              label: 擦肩而过
+              effects: [{ type: setFlag, id: chanceDone, value: true }]
+              nextEventId: "evt:closing"
+
   - id: "evt:closing"
     title: 落幕
     kind: normal
