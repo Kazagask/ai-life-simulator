@@ -31,7 +31,7 @@ import { cloud } from "./cloud";
 import { platformEndingNarrative, platformEventFlavor, platformEvaluationSummary } from "./platformLlm";
 import { deleteLifeRecord, listLifeRecords, saveLifeRecord, shouldAutoArchive } from "./records";
 import type { LifeRecordRow } from "./records";
-import { MAX_ACT_TEXT, toViewModel } from "@life-sim/rpg-ui";
+import { interactionMode, toActPayload, toViewModel } from "@life-sim/rpg-ui";
 import type { ActHandler, ContentBlockVM, ViewModel } from "@life-sim/rpg-ui";
 import { ActionDock } from "./ActionDock";
 import { NarrativeStage } from "./NarrativeStage";
@@ -423,20 +423,13 @@ function App() {
   /**
    * 点击面上的**唯一提交入口**（产品裁决：点击为主、打字为辅）。
    *
-   * `ActionBar` 的动作、叙事流里的选项块、折叠后的自由输入三者都走这里：
-   *  - 有 `id` ⇒ 模板动作，按动作 id 走 `/turns`；
-   *  - 只有文案 ⇒ 选项块 / 手打文本，一律按自由行动语义（`type: "free"` + 描述）。
-   * 叙事流选项不带 optionId（`ContentBlock` 没这个字段），所以不能走 `/events/choose`。
+   * `ActionBar` 的动作、叙事流里的选项块、折叠后的自由输入三者都走这里；
+   * 请求体一律由 `toActPayload` 生成（动作 id ≤40、文案 ≤200，与服务端 zod 同源），
+   * 组件不各自定长，也不需要知道服务端上限。
    */
   const act = useCallback<ActHandler>(
     (choice) => {
-      if (choice.id !== undefined) {
-        advance({ type: choice.id, description: "" });
-        return;
-      }
-      // 选项块 / 手打文本都走 `description`，服务端上限 200 字（`z.string().max(200)`)：
-      // LLM 写超长的选项时截断，避免整轮 400（长度常量由 rpg-ui 单点定义）。
-      advance({ type: "free", description: choice.text.slice(0, MAX_ACT_TEXT) });
+      advance(toActPayload(choice));
     },
     [advance],
   );
@@ -1403,9 +1396,11 @@ function LifeTab({
     }
   }, [lastResult]);
 
-  // 自由行动回合：底部行动坞常驻；此时叙事流里的选项块也可点（同一条 onAct 路径）。
-  // 事件 / 转盘 / 战斗回合各有自己的点击面，叙事流选项只作只读展示（避免撞 409）。
-  const docked = !ended && slot === null;
+  // 交互模式：同一时刻只有一个点击面（引擎在槽非空时拒绝一切 `/turns` 提交）。
+  // 槽内有待决事件 ⇒ 只有事件面板的 optionId 合法；战斗中 ⇒ 只有战斗指令合法。
+  const mode = interactionMode(view);
+  const docked = !ended && mode === "free";
+  // 非自由行动阶段：叙事流里的选项降级成「引述」，不可点（点了必 400）
   const narrativeAct: ActHandler | undefined = docked ? onAct : undefined;
 
   return (

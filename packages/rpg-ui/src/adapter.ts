@@ -92,6 +92,34 @@ function toActions(snapshot: V2Snapshot): ActionVM[] {
   }));
 }
 
+/**
+ * 内联资源解析：返回**第一条真正能上屏**的 asset 内容块。
+ *
+ * 判据必须是「`assetId` 非空 + 能在本轮 media 里找到 `url` 非空的资源」——
+ * 而不是"第一条 asset 块"。两者不一致会出黑场：宿主据此抑制顶部横幅，
+ * 展示层却按 index 跳过不可解析的那条，结果这一幕一张图都没有。
+ *
+ * 注意这里**不**校验槽名前缀：叙事流用 `CgStage inline` 渲染显式引用，
+ * 资源已被内容块指名，槽名只是命名习惯（agent 侧给 `slot: "scene"`）。
+ */
+export function firstInlineAsset(
+  content: readonly ContentBlockVM[],
+  media: readonly MediaVM[],
+): ContentBlockVM | undefined {
+  return content.find(
+    (block) =>
+      block.kind === "asset" &&
+      block.assetId !== undefined &&
+      block.assetId !== "" &&
+      media.some((item) => item.assetId === block.assetId && item.url !== ""),
+  );
+}
+
+/** `firstInlineAsset` 的视图模型入口（宿主用这个，别自己再写一遍判据）。 */
+export function resolvableInlineAsset(view: ViewModel): ContentBlockVM | undefined {
+  return firstInlineAsset(view.content, view.media);
+}
+
 export function toViewModel({ snapshot, content, media }: ToViewModelInput): ViewModel {
   const slot = snapshot.slotEvent;
   return {

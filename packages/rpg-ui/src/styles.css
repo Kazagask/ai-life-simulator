@@ -443,8 +443,16 @@
 }
 
 .ls-action:disabled {
-  opacity: 0.45;
+  opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* 非自由行动阶段：动作卡置灰 + 首卡给一句原因，避免玩家以为按钮坏了 */
+.ls-action__hint {
+  margin-top: 2px;
+  color: var(--ls-gold);
+  font-size: 11px;
+  letter-spacing: 0.06em;
 }
 
 .ls-action__label {

@@ -23,8 +23,15 @@ export type { WorldClockProps } from "./WorldClock.js";
 export { NarrativeStream } from "./NarrativeStream.js";
 export type { NarrativeStreamProps, BlockRenderer } from "./NarrativeStream.js";
 
-export { MAX_ACT_TEXT } from "./act.js";
-export type { Act, ActHandler } from "./act.js";
+export {
+  MAX_ACT_TEXT,
+  MAX_ACTION_TYPE,
+  FREE_ACTION_TYPE,
+  clampActText,
+  toActPayload,
+  interactionMode,
+} from "./act.js";
+export type { Act, ActHandler, ActRequest, InteractionMode } from "./act.js";
 
 export { Portrait } from "./Portrait.js";
 export type { PortraitProps } from "./Portrait.js";
@@ -35,7 +42,7 @@ export type { CgStageProps } from "./CgStage.js";
 export { StatusBars } from "./StatusBars.js";
 export type { StatusBarsProps } from "./StatusBars.js";
 
-export { toViewModel, toBattleVM, DANGER_RATIO } from "./adapter.js";
+export { toViewModel, toBattleVM, DANGER_RATIO, firstInlineAsset, resolvableInlineAsset } from "./adapter.js";
 export type { ToViewModelInput } from "./adapter.js";
 
 export type {

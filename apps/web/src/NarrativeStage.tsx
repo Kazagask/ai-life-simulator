@@ -1,4 +1,4 @@
-import { CgStage, NarrativeStream, Portrait, isCgSlot } from "@life-sim/rpg-ui";
+import { CgStage, NarrativeStream, Portrait, resolvableInlineAsset } from "@life-sim/rpg-ui";
 import type { ActHandler, MediaVM, ViewModel } from "@life-sim/rpg-ui";
 
 /** 立绘槽命名约定与 `CgStage` 的 `cg` 前缀对称：`portrait` / `portrait.xxx` / `portrait-xxx`。 */
@@ -22,8 +22,9 @@ function portraitsOf(media: MediaVM[]): MediaVM[] {
  * 布局顺序即阅读顺序：全屏 CG → 立绘一排 → 叙事流（含可点的选项块）。
  * 叙事正文来自服务端 trace 读回（刷新后仍在），媒体来自快照的媒体投影。
  *
- * 同一幕不重复上屏：若本轮叙事流里有内联 `asset` 块引用了一张 CG，顶部横幅让位给它，
- * 由叙事流在对应位置渲染（内容块是这一轮更精确的场景信号）。
+ * **同一幕只出一张图**：本轮只要存在能内联上屏的 asset 块，顶部横幅就让位，
+ * 由叙事流在对应位置渲染。判据与流内一致 —— 都用 `resolvableInlineAsset`，
+ * 不允许这里再写一套「有没有内联资源」的判断（曾因两套判据不一致出过黑场）。
  */
 export function NarrativeStage({
   view,
@@ -32,17 +33,12 @@ export function NarrativeStage({
 }: {
   view: ViewModel;
   onAct?: ActHandler;
-  /** 回合结算中：叙事流里的选项按钮同步置灰（引擎侧 busy 锁兜底，视觉也要一致）。 */
+  /** 回结算中：叙事流选项同步置灰（引擎侧 busy 锁兜底，视觉也要一致）。 */
   busy?: boolean;
 }) {
   const portraits = portraitsOf(view.media);
-  const hasInlineCg = view.content.some(
-    (block) =>
-      block.kind === "asset" &&
-      block.assetId !== undefined &&
-      view.media.some((item) => item.assetId === block.assetId && isCgSlot(item.slot)),
-  );
-  const bannerMedia = hasInlineCg ? view.media.filter((item) => !isCgSlot(item.slot)) : view.media;
+  const inlineAsset = resolvableInlineAsset(view);
+  const bannerMedia = inlineAsset === undefined ? view.media : [];
 
   return (
     <section className="card narrative-card">

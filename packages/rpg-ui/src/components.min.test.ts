@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,12 +7,12 @@ import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { V2Snapshot, ViewModel } from "@life-sim/shared";
 import { ViewModelSchema } from "@life-sim/shared";
-import { toViewModel } from "./adapter.js";
-import { MAX_ACT_TEXT } from "./act.js";
+import { firstInlineAsset, toViewModel } from "./adapter.js";
+import { MAX_ACT_TEXT, MAX_ACTION_TYPE, clampActText, interactionMode, toActPayload } from "./act.js";
 import { ActionBar } from "./ActionBar.js";
 import { CgStage, isCgSlot } from "./CgStage.js";
 import { EventStage } from "./EventStage.js";
-import { NarrativeStream } from "./NarrativeStream.js";
+import { NarrativeStream, renderOptionBlock } from "./NarrativeStream.js";
 import { Portrait } from "./Portrait.js";
 import { StatusBars } from "./StatusBars.js";
 import { WorldClock } from "./WorldClock.js";
@@ -20,8 +20,9 @@ import { WorldClock } from "./WorldClock.js";
 const h = createElement;
 const render = (node: ReactElement) => renderToStaticMarkup(node);
 
-it("MAX_ACT_TEXT 与服务端 description 上限（200）对齐", () => {
+it("MAX_ACT_TEXT / MAX_ACTION_TYPE 与服务端 zod 上限（200 / 40）对齐", () => {
   expect(MAX_ACT_TEXT).toBe(200);
+  expect(MAX_ACTION_TYPE).toBe(40);
 });
 
 // ---------- 真实形状快照夹具（含可选字段缺省的一组） ----------
@@ -197,6 +198,62 @@ describe("toViewModel: 快照 → 视图模型", () => {
   });
 });
 
+// ---------- 提交边界 / 交互模式 ----------
+
+describe("act.ts: 提交边界", () => {
+  it("clampActText：trim 后硬截断，不加省略号", () => {
+    expect(clampActText("  你好  ")).toBe("你好");
+    const long = "往".repeat(300);
+    const out = clampActText(long);
+    expect(out.length).toBe(MAX_ACT_TEXT);
+    expect(out.endsWith("…")).toBe(false);
+  });
+
+  it("toActPayload：合法动作 id 原样下发", () => {
+    expect(toActPayload({ id: "explore", text: "四处走走", source: "action" })).toEqual({
+      type: "explore",
+      description: "",
+    });
+  });
+
+  it("toActPayload：300 字选项 → description 恰好 200 字", () => {
+    const payload = toActPayload({ text: "往".repeat(300), source: "option" });
+    expect(payload.type).toBe("free");
+    expect(payload.description.length).toBe(200);
+  });
+
+  it("toActPayload：60 字动作 id 退回自由行动，type 不超过 40", () => {
+    const id = "a".repeat(60);
+    const payload = toActPayload({ id, text: "某个长 id 的动作", source: "action" });
+    expect(payload.type.length).toBeLessThanOrEqual(MAX_ACTION_TYPE);
+    expect(payload.type).toBe("free");
+    expect(payload.description).toBe("某个长 id 的动作");
+  });
+
+  it("toActPayload：纯空白文案不产生空 description（服务端 min(1)）", () => {
+    expect(toActPayload({ text: "   ", source: "free" }).description).toBe("");
+  });
+});
+
+describe("interactionMode: 同一时刻只有一个点击面", () => {
+  const battle: ViewModel["battle"] = {
+    round: 1,
+    over: null,
+    player: { hp: 1, maxHp: 1, mp: 0, maxMp: 1 },
+    enemies: [],
+    allies: [],
+    log: [],
+  };
+
+  it("空槽 ⇒ free；槽内有事件 ⇒ event；战斗 ⇒ battle（先判 battle）", () => {
+    expect(interactionMode({ slot: null, battle: null })).toBe("free");
+    expect(interactionMode({ slot: { eventId: "e1", title: "雨夜" }, battle: null })).toBe("event");
+    expect(interactionMode({ slot: null, battle })).toBe("battle");
+    // 战斗时快照同时带 slotEvent(kind: combat) 与 battle：必须判成 battle
+    expect(interactionMode({ slot: { eventId: "e2", title: "交手" }, battle })).toBe("battle");
+  });
+});
+
 // ---------- 组件（renderToStaticMarkup，不引入 @testing-library） ----------
 
 describe("EventStage", () => {
@@ -301,17 +358,19 @@ describe("NarrativeStream", () => {
     expect(unresolved).not.toContain("<img");
   });
 
-  it("首个 asset 块解析不到时，仍渲染后面能解析的那张（不黑场）", () => {
-    // 判据必须与 NarrativeStage 抑制横幅的判据一致，否则会产生「横幅没了、流里也跳过」的黑场
-    const html = render(
-      h(NarrativeStream, {
-        media: [{ slot: "scene", assetId: "cg2", url: "/cg2.png", alt: "炉火" }],
-        content: [
-          { blockId: "b1", kind: "asset", assetId: "missing" },
-          { blockId: "b2", kind: "asset", assetId: "cg2" },
-        ],
-      }),
-    );
+  it("首条可解析的 asset 块胜出，且整段只渲染一张图（与横幅抑制同判据）", () => {
+    const content = [
+      { blockId: "b0", kind: "narrative", text: "推门。" },
+      { blockId: "b1", kind: "asset", assetId: "missing" },
+      { blockId: "b2", kind: "asset", assetId: "cg2" },
+    ];
+    const media = [{ slot: "scene", assetId: "cg2", url: "/cg2.png", alt: "炉火" }];
+
+    // 解析器不能按 index 取第一条 asset 块：否则横幅已被抑制、流里又跳过 ⇒ 黑场
+    expect(firstInlineAsset(content, media)?.blockId).toBe("b2");
+
+    const html = render(h(NarrativeStream, { content, media }));
+    expect(html.match(/<img /g)?.length).toBe(1);
     expect(html).toContain('src="/cg2.png"');
   });
 
@@ -325,6 +384,23 @@ describe("NarrativeStream", () => {
     );
     expect(html).toMatch(/<button[^>]*disabled/);
     expect(html).toContain('aria-disabled="true"');
+  });
+
+  it("disabled 时点击不会触发 onAct（不依赖浏览器 disabled 语义）", () => {
+    const spy = vi.fn();
+    const node = renderOptionBlock(
+      { blockId: "o1", kind: "option", text: "先退半步" },
+      { onAct: spy, disabled: true },
+    ) as ReactElement<{ onClick: () => void }>;
+    node.props.onClick();
+    expect(spy).not.toHaveBeenCalled();
+
+    const enabled = renderOptionBlock(
+      { blockId: "o2", kind: "option", text: "开门" },
+      { onAct: spy },
+    ) as ReactElement<{ onClick: () => void }>;
+    enabled.props.onClick();
+    expect(spy).toHaveBeenCalledWith({ text: "开门", source: "option" });
   });
 
   it("空列表给空态文案而不是空容器", () => {
@@ -353,23 +429,21 @@ describe("ActionBar（主点击面）", () => {
     expect(many).toContain('data-layout="grid"');
   });
 
-  it("战斗进行中整条禁用", () => {
-    const html = render(
-      h(ActionBar, {
-        actions,
-        onAct: () => {},
-        battle: {
-          round: 1,
-          over: null,
-          player: { hp: 1, maxHp: 1, mp: 0, maxMp: 1 },
-          enemies: [],
-          allies: [],
-          log: [],
-        },
-      }),
-    );
+  it("mode=\"battle\" 整条禁用", () => {
+    const html = render(h(ActionBar, { actions, onAct: () => {}, mode: "battle" }));
     expect(html.match(/<button[^>]*disabled/g)?.length).toBe(3); // 2 个动作 + 自由行动入口
     expect(html).toContain('aria-disabled="true"');
+    expect(html).toContain('data-mode="battle"');
+  });
+
+  it("mode=\"event\" 不可提交，且首卡给出原因（唯一合法输入是事件面板的 optionId）", () => {
+    const html = render(h(ActionBar, { actions, onAct: () => {}, mode: "event" }));
+    // 没有任何可交互按钮（每个 button 都带 disabled）
+    const buttons = html.match(/<button[^>]*>/g) ?? [];
+    expect(buttons.length).toBe(3);
+    for (const tag of buttons) expect(tag).toContain("disabled");
+    expect(html).toContain("先处理眼前的事");
+    expect(html).toContain("当前只能处理眼前的事");
   });
 
   it("无动作时不渲染空容器，只留「自由行动…」入口", () => {
