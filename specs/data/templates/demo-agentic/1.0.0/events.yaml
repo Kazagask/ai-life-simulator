@@ -2,7 +2,7 @@
 # 事件 id 与 rules.yaml fallbackDag.templateRefs 逐字一致。
 #
 # demo 流程（开局 → 转盘 → 叙事 → 战斗）：
-#   1. opening.yaml 把它排到 t=0 ⇒ 第一次推进轮次即**呈现**命数转盘（kind: random）；
+#   1. opening.yaml 把它排到 t=1 分钟 ⇒ 第一次推进轮次即**呈现**命数转盘（kind: random）；
 #   2. 确认转盘 ⇒ 写 fateDealt 并 nextEventId → evt:awaken；
 #   3. evt:awaken → evt:trial；evt:trial 的第三个选项直通 evt:ambush（kind: combat）。
 #
