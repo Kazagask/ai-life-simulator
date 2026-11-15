@@ -31,6 +31,7 @@ export type {
   AgentCompletion,
   AgentMessage,
   AgentProvider,
+  AgentStreamDelta,
   ArgValidation,
   ToolCallRequest,
 } from "./tool-registry.js";

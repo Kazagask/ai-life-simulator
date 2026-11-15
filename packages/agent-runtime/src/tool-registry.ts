@@ -58,11 +58,22 @@ export interface AgentCompletion {
   finishReason: "tool_calls" | "stop" | "length";
 }
 
+/** 流式增量：目前只有正文；工具调用不对外流式（只在结束时整体交付）。 */
+export interface AgentStreamDelta {
+  text?: string;
+}
+
 export interface AgentChatRequest {
   messages: AgentMessage[];
   tools: ToolDescriptor[];
   timeoutMs: number;
   signal?: AbortSignal;
+  /**
+   * 可选增量回调。**提供即开启流式**（provider 发 `stream: true` 并按 SSE 增量回调）；
+   * 缺省仍是 `stream: false` 的完整响应 —— 「同步完整就加载中」那条口径的落点。
+   * 流式不改变返回值形状：`chat()` 仍只在流结束后返回一份完整 `AgentCompletion`。
+   */
+  onDelta?: (chunk: AgentStreamDelta) => void;
 }
 
 export interface AgentProvider {
