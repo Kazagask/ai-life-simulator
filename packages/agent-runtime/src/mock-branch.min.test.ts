@@ -212,7 +212,6 @@ describe("mock 分支轮：只有显式 `branch:` 指令才把事件上桌", () 
 });
 
 describe("分支轮契约（不依赖模板拼写）", () => {
-
   it("两条显式分支提示 ⇒ 只摆第一条（一次 invocation 只上桌一个事件）", async () => {
     const rounds = await runRounds(
       makeView({ contextHints: ["branch:evt:trial", "branch:evt:ambush"] }),
