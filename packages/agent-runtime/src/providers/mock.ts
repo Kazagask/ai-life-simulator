@@ -105,11 +105,6 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: "已取消",
 };
 
-/** 展示用：去掉 `fact:` / `dag:` 之类前缀，正文里不出现裸机器 id。 */
-function displayRef(ref: string): string {
-  return ref.replace(/^(fact|dag|secret|asset|flag):/, "");
-}
-
 /** 最近一轮的可读标题（历史条目形状由调用方决定，取第一个可用字段）。 */
 function recentTitle(turns: readonly unknown[]): string | null {
   for (let i = turns.length - 1; i >= 0; i -= 1) {
@@ -121,16 +116,30 @@ function recentTitle(turns: readonly unknown[]): string | null {
   return null;
 }
 
-/** 事实值里的人名 / 地名等可读片段（跳过与 ref 同值的占位）。 */
+/** 占位 / 哨兵值：world.yaml 会把初始旗标写成 "unknown"，这类值不能进正文。 */
+const SENTINEL_VALUES = new Set(["", "unknown", "undefined", "null", "none", "n/a", "hidden"]);
+
+/** 纯 ASCII 的标识符形状（`infoVisibility:npc-mentor` / `gate-location`）当作机器 id，不进正文。 */
+const looksMachiney = (value: string): boolean => /^[A-Za-z0-9_.:\-]+$/.test(value);
+
+const isHumanText = (value: string): boolean =>
+  !SENTINEL_VALUES.has(value.trim().toLowerCase()) && !looksMachiney(value);
+
+/**
+ * 事实值里的人名 / 地名等**可读**片段。
+ * 过滤三类噪声：① 与 factRef 同值的占位；② "unknown" 之类哨兵；③ 机器 id 形状的标识符。
+ * 这样玩家只会看到「引路人」这种名字，而不会看到 `infoVisibility:npc-mentor`。
+ */
 function readableValues(view: MockContextView): string[] {
   const out: string[] = [];
   for (const fact of view.facts.facts ?? []) {
     if (fact.level !== undefined && fact.level !== "known" && fact.level !== "inferred") continue;
     const value = fact.value;
-    if (typeof value === "string" && value.length > 0 && value !== fact.factRef) out.push(value);
-    else if (isRecord(value)) {
+    if (typeof value === "string") {
+      if (value !== fact.factRef && isHumanText(value)) out.push(value.trim());
+    } else if (isRecord(value)) {
       const name = value.name ?? value.title ?? value.location ?? value.label;
-      if (typeof name === "string" && name.length > 0) out.push(name);
+      if (typeof name === "string" && name !== fact.factRef && isHumanText(name)) out.push(name.trim());
     }
   }
   return [...new Set(out)];
@@ -174,22 +183,25 @@ function synthesizeNarrative(view: MockContextView): string {
 
   const refs = visibleFactRefs(view);
   const readable = readableValues(view);
+  const event = eventTitle(view);
   if (refs.length === 0) {
     // 没有可见事实时用事件标题兜底，避免「什么都没有发生」的空话。
-    sentences.push(`「${eventTitle(view)}」就在眼前，你得决定怎么应对。`);
+    sentences.push(`「${event}」就在眼前，你得决定怎么应对。`);
   } else {
     readable.slice(0, 2).forEach((value) => sentences.push(`你看见了${value}。`));
-    const firstRef = refs[0]!;
-    if (!readable.includes(firstRef)) {
-      sentences.push(`「${displayRef(firstRef)}」这条线索已经落在你手里。`);
-    }
+    // 正文只给「有几条线索」这种可读信息；引用 id 只留在 refs[] 里，不泄漏给玩家。
+    sentences.push(
+      readable.length > 0
+        ? `围绕「${event}」，你手里还攥着 ${refs.length} 条线索。`
+        : `有些细节还没理清，「${event}」已经摆在你面前。`,
+    );
   }
 
   const node = activeNode(view);
   if (node !== undefined) {
-    sentences.push(`眼下你正处在「${node.nodeId}」这一步，${STATUS_LABELS[node.status] ?? node.status}。`);
+    sentences.push(`眼下这一步${STATUS_LABELS[node.status] ?? "正在进行"}，你得决定怎么迈出去。`);
   } else if (nodes.length > 0) {
-    sentences.push(`眼前的路标指向「${nodes[0]!.nodeId}」。`);
+    sentences.push("前面的路已经铺开，只差你选一个方向。");
   }
 
   const title = recentTitle(view.recentTurns);
@@ -240,8 +252,8 @@ function optionTexts(view: MockContextView): string[] {
       : `走上前，把${event}看个清楚`;
 
   const rest: string[] = [];
-  if (refs[0] !== undefined) rest.push(`循着「${displayRef(refs[0])}」的线索追下去`);
-  if (node !== undefined) rest.push(`按「${node.nodeId}」继续向前推进`);
+  if (refs.length > 0) rest.push(`循着「${event}」的线索追下去`);
+  if (node !== undefined) rest.push("继续推进手头这一环，不回头");
   rest.push("先退半步，把四周看清楚");
   rest.push("径直走上前，不再犹豫");
   rest.push("转身回到来路，暂避锋芒");

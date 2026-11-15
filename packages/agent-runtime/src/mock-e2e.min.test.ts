@@ -52,7 +52,7 @@ describe("零 key 端到端：真引擎 + mock provider", () => {
       expect((option.text ?? "").length).toBeGreaterThan(3);
       expect(CJK.test(option.text ?? "")).toBe(true);
       // 第二人称、动词开头的动作短语，而不是「选项 A」这类描述。
-      expect(option.text ?? "").toMatch(/^(向|按|先|径直|转身|走上前|走近|循着|放慢)/);
+      expect(option.text ?? "").toMatch(/^(向|按|先|径直|转身|走上前|走近|循着|放慢|继续)/);
       expect(option.refs.length).toBeGreaterThan(0);
     }
 
@@ -104,6 +104,51 @@ describe("零 key 端到端：真引擎 + mock provider", () => {
     expect(narrativeText.length).toBeGreaterThan(0);
     expect(JSON.stringify(fixture.state)).not.toContain(narrativeText);
     for (const forbidden of NARRATIVE_KEYS) expect(stateKeys(fixture.state)).not.toContain(forbidden);
+  });
+
+  it("叙事与选项不泄漏机器 id / 哨兵值（unknown 旗标不进正文）", async () => {
+    const fixture = loadDemoFixture();
+    // 复刻真实存档里的噪声：world.yaml 把初始旗标写成字符串 "unknown"，键是机器 id。
+    fixture.state.flags["infoVisibility:npc-mentor"] = "unknown";
+    fixture.state.flags["took-right"] = true;
+    const ledger = fixture.state.observationLedger.player ?? [];
+    ledger.push({
+      factRef: "flag:infoVisibility:npc-mentor",
+      level: "known",
+      source: "rule",
+      sinceTurn: 0,
+    });
+    ledger.push({ factRef: "flag:took-right", level: "known", source: "rule", sinceTurn: 0 });
+    fixture.state.observationLedger.player = ledger;
+
+    const traces: LlmTrace[] = [];
+    const gateway = new AgentGateway({
+      provider: new MockAgentProvider(),
+      engineApi: fixture.engine,
+      templateRef: "demo-agentic@1.0.0",
+      rules: fixture.rules,
+      toolProfile: "narrative",
+      onTrace: (trace) => traces.push(trace),
+    });
+
+    const outcome = await gateway.invoke(
+      makeInvocation(fixture, { invocationId: "inv-no-leak", reason: "task.completed" }),
+    );
+    expect(outcome.outcome).toBe("committed");
+
+    const texts = (traces[0]!.contentBlocks ?? []).map((block) => block.text ?? "");
+    expect(texts.length).toBeGreaterThan(0);
+    for (const text of texts) {
+      expect(text.toLowerCase()).not.toContain("unknown");
+      expect(text).not.toContain("infoVisibility");
+      expect(text).not.toContain("took-right");
+      // 任何 `fact:` / `flag:` / `dag:` / `secret:` / `asset:` 前缀都不该出现在玩家文本里。
+      expect(text).not.toMatch(/(fact|flag|dag|secret|asset):/);
+      expect(CJK.test(text)).toBe(true);
+    }
+    // 引用 id 仍然完整保留在 refs[] 里，只是不进正文。
+    const refs = (traces[0]!.contentBlocks ?? []).flatMap((block) => block.refs);
+    expect(refs).toContain("flag:infoVisibility:npc-mentor");
   });
 
   it("选项确定性：同一 invocationId 逐字复现，不同 invocationId 不逐字重复", async () => {
