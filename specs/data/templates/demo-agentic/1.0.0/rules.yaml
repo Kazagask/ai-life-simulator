@@ -26,7 +26,19 @@ llmTriggers:
       contextHints: ["facts", "secrets"]
       toolProfile: "narrative"
 toolProfile:
-  narrative: ["content.writeNarrative", "content.referenceAsset", "fact.enqueueEvent"]
+  # 能力画像 = 本次 invocation 允许的工具面。两项硬约束：
+  # 1) 只能列 game-core 工具注册表里真实存在的工具（engine-api.ts: defaultToolRegistry）。
+  #    列了未注册的工具 ⇒ 模型一 emit 就吃 unknown_tool（FATAL，不消耗重试）。
+  #    原稿的 fact.enqueueEvent 属此列，已移除（设计 §3.5 有此构想但注册表尚未实现，记为已知缺口）。
+  # 2) 必须含 content.submit，否则本次 invocation 无法到达 committed 终止态。
+  # content.writeOption 是「点击为主」交互的主承载：叙事之后给玩家 2~3 个可点动作。
+  narrative:
+    [
+      "content.writeNarrative",
+      "content.writeOption",
+      "content.referenceAsset",
+      "content.submit",
+    ]
 knowledgeGrants:
   - when: [{ op: "eventResolved", args: { eventId: "evt:trial" } }]
     grant: { observers: ["player"], factRefs: ["fact:trial-result"], level: "known", source: "witness" }
