@@ -21,12 +21,12 @@ export function isPortraitSlot(slot: string): boolean {
 }
 
 /**
- * 可**内联**上屏的画面槽位（叙事流里那一张图）。
+ * 可进内联图位的槽位（`scene*` 只内联，横幅仍只认 `cg*`）。
  *
- * 注意与横幅口径的区别：顶部横幅（`CgStage`）只认 `cg*`，因为横幅是**模板声明**的
+ * 与横幅口径的区别：顶部横幅（`CgStage`）只认 `cg*`，因为横幅是**模板声明**的
  * 展示位；`scene*` 只能由内容块指名后内联，不参与横幅。两者不共用这个判定。
  *
- * 两类算画面槽：
+ * 两类算内联图位：
  *  - `cg*` —— 模板声明的全屏插画槽（设计约定）；
  *  - `scene*` —— 引擎内联块实际使用的槽位。`content.referenceAsset` 落库时
  *    `state.media` 直接抄块的 `slot`（`packages/game-core/src/api/engine-api.ts`

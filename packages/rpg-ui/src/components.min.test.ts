@@ -362,6 +362,8 @@ describe("NarrativeStream", () => {
     );
     // 自定义渲染器能收到全部 asset 块（含道具槽），不会被默认的「至多一张」提前拦掉
     expect(custom.match(/class="custom-asset"/g)?.length).toBe(2);
+    // 覆盖生效时内联图位不再出图：这一帧的 asset 块全部交给自定义渲染器，不重复渲染
+    expect(custom).not.toContain("<img");
 
     // 默认路径行为不变：只内联画面槽的那一张，道具槽不占位
     const fallback = render(h(NarrativeStream, { content, media }));
