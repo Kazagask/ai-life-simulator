@@ -41,6 +41,7 @@ import type {
   EndingView,
   Perspective,
   V2Snapshot,
+  V2TurnResult,
   WorldStateV2,
 } from "@life-sim/shared";
 import { compareVersions, loadTemplates, readAssetEntries, type ReadyTemplateEntry } from "./templates.js";
@@ -645,6 +646,63 @@ function requestAgentConfig(request: import("fastify").FastifyRequest) {
 }
 
 /**
+ * ADR-0035：**所有会推进世界的接口共用同一条事务边界**。
+ *
+ * 锁内必须按四步走，缺一步都会留下可观测的缺陷：
+ * 1. **锁内重取世界**：锁只保证临界区串行，不保证进临界区前读到的 `world` 引用是新的
+ *    （外层 `getWorld` 只用于 404 快路径）；`entry.pipeline` 是启动期快照，也不该直接用；
+ * 2. **per-request pipeline**：gateway 由 `pipelineForTurn` 按本请求的凭证注入 —— 直接用
+ *    `entry.pipeline` 会得到「没有 gateway」，结构写入（`fact.enqueueEvent` / `advanceDag` /
+ *    `setKnowledge`）根本不执行；
+ * 3. **保存点 + 回滚**：非 `committed` 的收场整体撤销（ADR-0035 §5「宁可不发生，也不许晚到」）；
+ * 4. **重投影**：引擎返回的 `res.snapshot` 算在结构写入之前，直接下发会让玩家看不到刚被
+ *    摆上桌的事件（IO-3）。
+ */
+async function runWorldTransaction(
+  request: import("fastify").FastifyRequest,
+  id: string,
+  step: (
+    world: WorldStateV2,
+    entry: ReadyTemplateEntry,
+    pipeline: TurnPipelineConfig,
+  ) => V2TurnResult,
+) {
+  return withWorldLock(id, async () => {
+    const current = getWorld(id);
+    if (!current) return { ok: false as const };
+    const { world, entry } = current;
+
+    const pipeline = {
+      ...pipelineForTurn(world, entry, requestAgentConfig(request)),
+      deferInvocation: true as const,
+    };
+    const res = step(world, entry, pipeline);
+
+    // 结构写入必须在世界再推进之前落账；非 committed ⇒ 整体回滚。
+    const inv = res.state.pendingInvocation;
+    if (inv !== undefined && pipeline.gateway !== undefined) {
+      const savepoint = captureStructuralSavepoint(res.state);
+      const outcome = await pipeline.gateway.invoke(inv);
+      if (outcome.outcome !== "committed") restoreStructuralSavepoint(res.state, savepoint);
+    }
+
+    const fresh = projectWorld(res.state, entry);
+    worldStore.save(res.state);
+    scheduleFlavors(request, id, fresh, res.triggeredEvents);
+    const snapshot = await decorateSnapshot(fresh, res.state, entry, "player", request.llmProvider);
+    return {
+      ok: true as const,
+      turnIndex: res.snapshot.turnIndex,
+      elapsed: res.elapsed,
+      snapshot,
+      triggeredEvents: res.triggeredEvents,
+      wheelResult: res.wheelResult,
+      eventFlavors: responseEventFlavors(id, fresh, res.triggeredEvents),
+    };
+  });
+}
+
+/**
  * 推进轮次（自由行动）。
  * 拒绝条件（ADR-0034 §5）：`slot` 被占（`pending_event_required`）或战斗进行中（`battle_in_progress`）。
  * **例外**：槽内是 `random` 时本接口即「转盘确认」——请求体里的 `action` 被忽略（不校验、不报错）。
@@ -660,45 +718,20 @@ app.post("/api/worlds/:id/turns", async (request, reply) => {
   }
 
   try {
-    // ADR-0035：回合是一条事务 —— 结算 → 结构写入落账 → 重投影 → 存档，全在锁内。
-    return await withWorldLock(id, async () => {
-      const pipeline = {
-        ...pipelineForTurn(found.world, found.entry, requestAgentConfig(request)),
-        deferInvocation: true as const,
-      };
-      const res = advanceTurnV2(
-        found.world,
-        parsed.data,
-        found.entry.template,
-        found.entry.lookup,
-        undefined,
-        pipeline,
-      );
-
-      // 结构写入（fact.enqueueEvent / advanceDag / setKnowledge）必须在世界再推进之前落账；
-      // 非 committed 的收场整体回滚 —— 「宁可不发生，也不许晚到」（ADR-0035 §5）。
-      const inv = res.state.pendingInvocation;
-      if (inv !== undefined && pipeline.gateway !== undefined) {
-        const savepoint = captureStructuralSavepoint(res.state);
-        const outcome = await pipeline.gateway.invoke(inv);
-        if (outcome.outcome !== "committed") restoreStructuralSavepoint(res.state, savepoint);
-      }
-
-      // 重投影：res.snapshot 算在结构写入之前，直接返回会让玩家看不到刚被摆上桌的事件（IO-3）。
-      const fresh = projectWorld(res.state, found.entry);
-      worldStore.save(res.state);
-      scheduleFlavors(request, found.world.id, fresh, res.triggeredEvents);
-      const snapshot = await decorateSnapshot(fresh, res.state, found.entry, "player", request.llmProvider);
-      return {
-        worldId: found.world.id,
-        turnIndex: res.snapshot.turnIndex,
-        elapsed: res.elapsed,
-      snapshot,
-      triggeredEvents: res.triggeredEvents,
-      wheelResult: res.wheelResult,
-      eventFlavors: responseEventFlavors(found.world.id, fresh, res.triggeredEvents),
-      };
-    });
+    const tx = await runWorldTransaction(request, id, (world, entry, pipeline) =>
+      advanceTurnV2(world, parsed.data, entry.template, entry.lookup, undefined, pipeline),
+    );
+    // 锁内重取时世界已被删除（并发删档）：与快路径同一响应，不落到 handleEngineError 的 400。
+    if (!tx.ok) return reply.code(404).send({ error: "world_not_found" });
+    return {
+      worldId: id,
+      turnIndex: tx.turnIndex,
+      elapsed: tx.elapsed,
+      snapshot: tx.snapshot,
+      triggeredEvents: tx.triggeredEvents,
+      wheelResult: tx.wheelResult,
+      eventFlavors: tx.eventFlavors,
+    };
   } catch (error) {
     return handleEngineError(request, reply, error);
   }
@@ -715,16 +748,16 @@ app.post("/api/worlds/:id/events/choose", async (request, reply) => {
   }
 
   try {
-    const res = chooseOptionV2(found.world, parsed.data, found.entry.template, found.entry.lookup, found.entry.pipeline);
-    worldStore.save(res.state);
-    scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, "player", request.llmProvider);
+    const tx = await runWorldTransaction(request, id, (world, entry, pipeline) =>
+      chooseOptionV2(world, parsed.data, entry.template, entry.lookup, pipeline),
+    );
+    if (!tx.ok) return reply.code(404).send({ error: "world_not_found" });
     return {
-      worldId: found.world.id,
-      snapshot,
-      triggeredEvents: res.triggeredEvents,
-      wheelResult: res.wheelResult,
-      eventFlavors: responseEventFlavors(found.world.id, res.snapshot, res.triggeredEvents),
+      worldId: id,
+      snapshot: tx.snapshot,
+      triggeredEvents: tx.triggeredEvents,
+      wheelResult: tx.wheelResult,
+      eventFlavors: tx.eventFlavors,
     };
   } catch (error) {
     return handleEngineError(request, reply, error);
@@ -742,16 +775,16 @@ app.post("/api/worlds/:id/battle", async (request, reply) => {
   }
 
   try {
-    const res = battleActionV2(found.world, parsed.data, found.entry.template, found.entry.lookup, found.entry.pipeline);
-    worldStore.save(res.state);
-    scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
-    const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, "player", request.llmProvider);
+    const tx = await runWorldTransaction(request, id, (world, entry, pipeline) =>
+      battleActionV2(world, parsed.data, entry.template, entry.lookup, pipeline),
+    );
+    if (!tx.ok) return reply.code(404).send({ error: "world_not_found" });
     return {
-      worldId: found.world.id,
-      snapshot,
-      triggeredEvents: res.triggeredEvents,
-      wheelResult: res.wheelResult,
-      eventFlavors: responseEventFlavors(found.world.id, res.snapshot, res.triggeredEvents),
+      worldId: id,
+      snapshot: tx.snapshot,
+      triggeredEvents: tx.triggeredEvents,
+      wheelResult: tx.wheelResult,
+      eventFlavors: tx.eventFlavors,
     };
   } catch (error) {
     return handleEngineError(request, reply, error);
