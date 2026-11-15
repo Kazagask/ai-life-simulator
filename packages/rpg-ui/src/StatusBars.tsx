@@ -10,15 +10,20 @@ function pct(b: StatusBarVM): number {
 }
 
 /**
- * 资源条（HP / MP）：标签来自模板（`labels.resources`），样式按 `key` 上钩子。
- * 数值超界（>max / <0）一律夹到 0-100%，不让模板数值把进度条画到容器外。
+ * 资源条（HP / MP）：常驻 HUD，**不参与叙事流排版**。
+ *
+ * 分工：阈值判定（danger）由适配器算在 `tone` 上，本组件只按 `tone` 上色，
+ * 不写任何 `value <= 25 ? …` 规则；空集合是**一等状态**（渲染一条占位提示），
+ * 直接 `return null` 会让 HUD 无声消失，玩家以为界面坏了。
  */
 export function StatusBars({ bars }: StatusBarsProps) {
-  if (bars.length === 0) return null;
+  if (bars.length === 0) {
+    return <p className="ls-bars__empty">暂无资源条</p>;
+  }
   return (
     <div className="ls-bars">
       {bars.map((bar) => (
-        <div key={bar.key} className="ls-bar" data-key={bar.key}>
+        <div key={bar.key} className="ls-bar" data-key={bar.key} data-tone={bar.tone}>
           <span className="ls-bar__label">{bar.label}</span>
           <div className="ls-bar__track">
             <div className="ls-bar__fill" style={{ width: `${pct(bar)}%` }} />

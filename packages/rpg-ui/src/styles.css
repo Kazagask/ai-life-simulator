@@ -142,16 +142,41 @@
   animation: ls-fade-in 0.45s ease-out both;
 }
 
-.ls-narrative__choice {
-  display: inline-block;
+/*
+ * 选项块 = 第二点击面（产品口径：点击为主）。
+ * 移动端整行铺满、≥44px 触控高度；描金描边与正文明显区分，但仍是「书里的一行选择」而非聊天按钮。
+ */
+.ls-choice {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
   margin: 0 0 0.7em;
-  padding: 3px 10px;
+  padding: 10px 14px;
   border: 1px solid var(--ls-gold);
   border-radius: 999px;
+  background: color-mix(in srgb, var(--ls-gold) 6%, transparent);
   color: var(--ls-gold);
-  font-size: 13px;
-  line-height: 1.5;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
   animation: ls-fade-in 0.45s ease-out both;
+  transition: background 0.2s ease, transform 0.12s ease;
+}
+
+.ls-choice:active:not(:disabled) {
+  transform: scale(0.99);
+  background: color-mix(in srgb, var(--ls-gold) 12%, transparent);
+}
+
+.ls-choice--static {
+  cursor: default;
+  border-style: dashed;
+  color: var(--ls-text-dim);
+  border-color: var(--ls-border);
+  background: transparent;
 }
 
 .ls-narrative__empty {
@@ -176,7 +201,7 @@
 @media (prefers-reduced-motion: reduce) {
   .ls-narrative__block,
   .ls-narrative__block--flavor,
-  .ls-narrative__choice {
+  .ls-choice {
     animation: none;
   }
 }
@@ -337,30 +362,66 @@
   background: linear-gradient(90deg, var(--ls-mp), #6fb3c4);
 }
 
+/* danger 由适配器算在 tone 上，这里只负责上色 */
+.ls-bar[data-tone="danger"] .ls-bar__fill {
+  background: linear-gradient(90deg, var(--ls-hp), #ff9a76);
+}
+
+.ls-bar[data-tone="danger"] .ls-bar__label,
+.ls-bar[data-tone="danger"] .ls-bar__value {
+  color: #ff9a76;
+}
+
+.ls-bars__empty {
+  margin: 0;
+  padding: 2px 0;
+  color: var(--ls-text-dim);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
 .ls-bar__value {
   text-align: right;
   font-variant-numeric: tabular-nums;
   color: var(--ls-text);
 }
 
-/* ---------- 行动栏（阅读区底部锚点） ---------- */
+/* ---------- 行动栏（主点击面：贴拇指区、整宽、≥48px） ---------- */
 
-.ls-actions {
+.ls-actionbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ≤4 个动作：单列卡片，顺拇指顺序排；>4 个：两列网格，仍保证单手可点 */
+.ls-actionbar__list[data-layout="stack"] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ls-actionbar__list[data-layout="grid"] {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  position: sticky;
-  bottom: 0;
-  padding: 10px 0 4px;
-  background: linear-gradient(180deg, transparent, var(--ls-bg) 55%);
+}
+
+/* 动作多时列表内部滚动，绝不让行动坞吃掉整屏 */
+.ls-actionbar__list {
+  max-height: 38vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 .ls-action {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  justify-content: center;
   gap: 2px;
-  padding: 10px 12px;
+  min-height: 48px;
+  padding: 10px 14px;
   border: 1px solid var(--ls-border);
   border-radius: var(--ls-radius);
   background: var(--ls-surface);
@@ -372,7 +433,8 @@
 }
 
 .ls-action:active:not(:disabled) {
-  transform: scale(0.985);
+  transform: scale(0.99);
+  border-color: var(--ls-gold);
 }
 
 .ls-action:disabled {
@@ -381,22 +443,39 @@
 }
 
 .ls-action__label {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .ls-action__desc {
   color: var(--ls-text-dim);
-  font-size: 11px;
-  line-height: 1.4;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
-.ls-actions__empty {
-  margin: 0;
-  padding: 10px 0;
+/* 打字输入折叠在这个入口后（视觉次要，但功能完整） */
+.ls-actionbar__free {
+  min-height: 40px;
+  padding: 6px 12px;
+  border: 1px dashed var(--ls-border);
+  border-radius: var(--ls-radius);
+  background: transparent;
   color: var(--ls-text-dim);
-  font-size: 12px;
+  font: inherit;
+  font-size: 13px;
   text-align: center;
+  cursor: pointer;
+}
+
+.ls-actionbar__free:hover:not(:disabled) {
+  color: var(--ls-text);
+  border-color: var(--ls-gold);
+}
+
+.ls-actionbar__free:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* ---------- 窄屏收敛（375px 仍是完整布局） ---------- */

@@ -1605,3 +1605,46 @@ details.llm-config .llm-saved {
   gap: 10px;
   padding: 12px 16px 14px;
 }
+
+/* ---------- 底部行动坞（点击为主：钉在拇指区） ---------- */
+
+/*
+ * 固定贴在 tabbar 之上，宽度与 .shell 对齐。
+ * 高度由 ActionDock 实测后写进 --dock-h，正文区据此留白（精确避让、不遮挡最后一张卡片）。
+ */
+.action-dock {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+  width: 100%;
+  max-width: 520px;
+  z-index: 15;
+  pointer-events: none;
+}
+
+.action-dock__inner {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px 12px;
+  background: linear-gradient(
+    180deg,
+    rgba(11, 14, 20, 0) 0%,
+    color-mix(in srgb, var(--bg) 88%, transparent) 16%,
+    var(--bg) 44%
+  );
+  backdrop-filter: blur(10px);
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.free-input--dock {
+  margin-top: 0;
+}
+
+.content--dock {
+  padding-bottom: calc(
+    var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + var(--dock-h, 0px) + 24px
+  );
+}

@@ -3,6 +3,11 @@ import type { MediaVM } from "@life-sim/shared";
 
 export interface CgStageProps {
   media: MediaVM[];
+  /**
+   * 内联模式：由叙事流的 `asset` 块显式引用某张资源时使用。
+   * 此时不再按 `cg` 槽名前缀筛选（块引用本身就是强信号），仍保留加载失败即整块不渲染。
+   */
+  inline?: boolean;
 }
 
 /**
@@ -10,6 +15,7 @@ export interface CgStageProps {
  *
  * 为什么要约定：`MediaVM` 不带 `kind`（资源清单的 kind 不下发到展示层），
  * 前端只有 `slot` 这一个稳定信号；模板侧把全屏插画槽统一冠以 `cg` 前缀即可自动上屏。
+ * 由内容块显式引用的情况走 `inline` 模式，不受本约定限制。
  */
 export function isCgSlot(slot: string): boolean {
   return /^cg(?![a-z0-9])/i.test(slot);
@@ -19,8 +25,10 @@ export function isCgSlot(slot: string): boolean {
  * 全屏 CG 舞台：媒体列表里**第一个** CG 槽存在时全出血呈现，否则整块不渲染。
  * 图片加载失败同样整块不渲染（宁可没有插画，也不要留一条破图色带）。
  */
-export function CgStage({ media }: CgStageProps) {
-  const cg: MediaVM | undefined = media.find((m) => isCgSlot(m.slot) && m.url !== "");
+export function CgStage({ media, inline = false }: CgStageProps) {
+  const cg: MediaVM | undefined = inline
+    ? media.find((m) => m.url !== "")
+    : media.find((m) => isCgSlot(m.slot) && m.url !== "");
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {

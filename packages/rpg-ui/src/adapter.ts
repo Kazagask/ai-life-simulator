@@ -57,15 +57,29 @@ export function toBattleVM(battle: NonNullable<V2Snapshot["battle"]>): BattleVM 
 }
 
 /**
+ * 资源告警阈值：剩余比例 ≤ 25% 视为危险。
+ *
+ * 阈值判定属于**投影口径**（和引擎面板同一处算，展示层不该各写一遍），
+ * 所以只在适配器里算一次，`StatusBars` 只认 `tone` 上色。
+ */
+export const DANGER_RATIO = 0.25;
+
+function toneOf(value: number, max: number): "normal" | "danger" {
+  return value / Math.max(1, max) <= DANGER_RATIO ? "danger" : "normal";
+}
+
+/**
  * 资源条派生：值取玩家当前 hp/mp，**标签取模板 `labels.resources`**（缺省才回退 "HP"/"MP"）。
  * `max` 归一为 ≥1，避免除零；不派生心情条（模板的心情是 0-100 的软量，不属于资源）。
  */
 function deriveStatusBar(snapshot: V2Snapshot): ViewModel["statusBar"] {
   const labels = snapshot.labels.resources;
   const p = snapshot.player;
+  const hpMax = Math.max(1, p.maxHp);
+  const mpMax = Math.max(1, p.maxMp);
   return [
-    { key: "hp", label: labels.hp ?? "HP", value: p.hp, max: Math.max(1, p.maxHp) },
-    { key: "mp", label: labels.mp ?? "MP", value: p.mp, max: Math.max(1, p.maxMp) },
+    { key: "hp", label: labels.hp ?? "HP", value: p.hp, max: hpMax, tone: toneOf(p.hp, hpMax) },
+    { key: "mp", label: labels.mp ?? "MP", value: p.mp, max: mpMax, tone: toneOf(p.mp, mpMax) },
   ];
 }
 

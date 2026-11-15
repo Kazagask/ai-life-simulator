@@ -49,9 +49,16 @@ export type MediaVM = z.infer<typeof MediaVMSchema>;
 export const ContentBlockVMSchema = z
   .object({
     blockId: z.string(),
-    /** 内容块类型（narrative / option / flavor / …）。展示层按已知值分支，未知值按正文处理。 */
+    /** 内容块类型（narrative / option / flavor / asset / …）。展示层按已知值分支，未知值按正文处理。 */
     kind: z.string(),
     text: z.string().optional(),
+    /**
+     * `kind === "asset"` 时的资源引用（追加字段）：展示层据此在叙事流里内联一张媒体资源。
+     * 服务端当前投影只发 blockId / kind / text，字段缺省时内联渲染为空（不回退猜图）。
+     */
+    assetId: z.string().optional(),
+    /** 资源槽位名（追加字段），与 `MediaVM.slot` 同一套命名。 */
+    slot: z.string().optional(),
   })
   .strict();
 export type ContentBlockVM = z.infer<typeof ContentBlockVMSchema>;
@@ -77,6 +84,9 @@ export type ActionVM = z.infer<typeof ActionVMSchema>;
 /**
  * 资源条（HP / MP …）。`label` 一律来自模板 `labels.resources`，展示层不得硬编码世界观用词；
  * `key` 是稳定标识（React key / 样式钩子），`max` 由适配器保证 ≥1。
+ *
+ * `tone` 由**适配器**按阈值算好（数值告警属于投影口径，不是配色偏好）：
+ * 展示层只照 `tone` 上色，不再自己写 `value <= 25 ? …` 这类规则。
  */
 export const StatusBarVMSchema = z
   .object({
@@ -84,6 +94,7 @@ export const StatusBarVMSchema = z
     label: z.string(),
     value: z.number(),
     max: z.number(),
+    tone: z.enum(["normal", "danger"]),
   })
   .strict();
 export type StatusBarVM = z.infer<typeof StatusBarVMSchema>;

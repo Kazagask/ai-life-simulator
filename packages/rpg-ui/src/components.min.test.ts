@@ -86,11 +86,11 @@ describe("toViewModel: 快照 → 视图模型", () => {
     ]);
   });
 
-  it("资源条标签取模板 labels.resources，且 max 归一为 ≥1", () => {
+  it("资源条标签取模板 labels.resources，max 归一为 ≥1", () => {
     const vm = toViewModel({ snapshot: BASE_SNAPSHOT });
     expect(vm.statusBar).toEqual([
-      { key: "hp", label: "气血", value: 42, max: 60 },
-      { key: "mp", label: "灵力", value: 5, max: 20 },
+      { key: "hp", label: "气血", value: 42, max: 60, tone: "normal" },
+      { key: "mp", label: "灵力", value: 5, max: 20, tone: "danger" },
     ]);
 
     const broken = toViewModel({
@@ -98,6 +98,16 @@ describe("toViewModel: 快照 → 视图模型", () => {
     });
     expect(broken.statusBar[0]?.max).toBe(1);
     expect(broken.statusBar[1]?.max).toBe(1);
+  });
+
+  it("tone 阈值在适配器里算：剩余 ≤25% 判 danger，展示层不写阈值规则", () => {
+    const at = (hp: number, maxHp: number) =>
+      toViewModel({ snapshot: { ...BASE_SNAPSHOT, player: { ...BASE_SNAPSHOT.player, hp, maxHp } } }).statusBar[0]?.tone;
+
+    expect(at(60, 60)).toBe("normal");
+    expect(at(16, 60)).toBe("normal"); // 26.7% → 未到阈值
+    expect(at(15, 60)).toBe("danger"); // 25% → danger（含边界）
+    expect(at(0, 60)).toBe("danger");
   });
 
   it("产出必须通过 ViewModelSchema（.strict() 契约）", () => {
@@ -203,7 +213,7 @@ describe("EventStage", () => {
 });
 
 describe("NarrativeStream", () => {
-  it("按入参顺序渲染，并按 kind 分组样式", () => {
+  it("按入参顺序渲染，并按 kind 分派渲染器", () => {
     const html = render(
       h(NarrativeStream, {
         content: [
@@ -222,10 +232,68 @@ describe("NarrativeStream", () => {
     expect(i1).toBeLessThan(i2);
     expect(i2).toBeLessThan(i3);
     expect(i3).toBeLessThan(i4);
-    expect(html).toContain("ls-narrative__choice");
+    expect(html).toContain("ls-choice");
     expect(html).toContain("ls-narrative__block--flavor");
-    // 未知 kind 按正文处理（服务端新增内容块类型不会让前端崩）
+    // 未注册的 kind 按正文渲染（服务端新增内容块类型不会让前端崩）
     expect(html).toContain('data-kind="memory"');
+  });
+
+  it("选项块是第二点击面：有 onAct 时渲染可点按钮，无 onAct 时只作展示", () => {
+    const interactive = render(
+      h(NarrativeStream, {
+        content: [{ blockId: "o1", kind: "option", text: "先退半步" }],
+        onAct: () => {},
+      }),
+    );
+    expect(interactive).toMatch(/<button[^>]*class="ls-choice"/);
+    expect(interactive).toContain("先退半步");
+
+    const readOnly = render(
+      h(NarrativeStream, { content: [{ blockId: "o1", kind: "option", text: "先退半步" }] }),
+    );
+    expect(readOnly).not.toContain("<button");
+    expect(readOnly).toContain("ls-choice--static");
+  });
+
+  it("renderers 可覆盖单个 kind，未知 kind 仍回退正文", () => {
+    const html = render(
+      h(NarrativeStream, {
+        content: [
+          { blockId: "b1", kind: "narrative", text: "第一段" },
+          { blockId: "b2", kind: "battle-hint", text: "提示" },
+        ],
+        renderers: {
+          narrative: (block) => h("em", { className: "custom" }, block.text ?? ""),
+        },
+      }),
+    );
+    expect(html).toContain('<em class="custom">第一段</em>');
+    expect(html).toContain("提示");
+  });
+
+  it("asset 块按 assetId 内联到流里，且每轮至多一张", () => {
+    const media = [
+      { slot: "scene", assetId: "cg1", url: "/cg1.png", alt: "雨夜" },
+      { slot: "scene", assetId: "cg2", url: "/cg2.png", alt: "炉火" },
+    ];
+    const html = render(
+      h(NarrativeStream, {
+        media,
+        content: [
+          { blockId: "b1", kind: "narrative", text: "推门而入。" },
+          { blockId: "b2", kind: "asset", assetId: "cg1" },
+          { blockId: "b3", kind: "asset", assetId: "cg2" },
+        ],
+      }),
+    );
+    expect(html).toContain('src="/cg1.png"');
+    expect(html).not.toContain('src="/cg2.png"');
+
+    // 解析不到资源 ⇒ 不占位（不猜图、不留破图）
+    const unresolved = render(
+      h(NarrativeStream, { media, content: [{ blockId: "b1", kind: "asset", assetId: "nope" }] }),
+    );
+    expect(unresolved).not.toContain("<img");
   });
 
   it("空列表给空态文案而不是空容器", () => {
@@ -235,17 +303,30 @@ describe("NarrativeStream", () => {
   });
 });
 
-describe("ActionBar", () => {
+describe("ActionBar（主点击面）", () => {
   const actions = [
     { id: "explore", label: "四处走走", description: "看看镇上" },
     { id: "rest", label: "歇一会", description: "" },
   ];
 
-  it("战斗进行中（battle !== null）整条禁用", () => {
+  it("≤4 个动作用单列卡片，>4 个用两列网格", () => {
+    const stack = render(h(ActionBar, { actions, onAct: () => {} }));
+    expect(stack).toContain('data-layout="stack"');
+
+    const many = render(
+      h(ActionBar, {
+        onAct: () => {},
+        actions: Array.from({ length: 5 }, (_, i) => ({ id: `a${i}`, label: `动作${i}`, description: "" })),
+      }),
+    );
+    expect(many).toContain('data-layout="grid"');
+  });
+
+  it("战斗进行中整条禁用", () => {
     const html = render(
       h(ActionBar, {
         actions,
-        onAction: () => {},
+        onAct: () => {},
         battle: {
           round: 1,
           over: null,
@@ -256,17 +337,21 @@ describe("ActionBar", () => {
         },
       }),
     );
-    expect(html.match(/<button[^>]*disabled/g)?.length).toBe(2);
+    expect(html.match(/<button[^>]*disabled/g)?.length).toBe(3); // 2 个动作 + 自由行动入口
     expect(html).toContain('aria-disabled="true"');
   });
 
-  it("无战斗时可点击，且无动作时给中性提示", () => {
-    const html = render(h(ActionBar, { actions, onAction: () => {} }));
+  it("无动作时不渲染空容器，只留「自由行动…」入口", () => {
+    const empty = render(h(ActionBar, { actions: [], onAct: () => {} }));
+    expect(empty).not.toContain("ls-actionbar__list");
+    expect(empty).toContain("自由行动…");
+    expect(empty).toMatch(/<button[^>]*class="ls-actionbar__free"/);
+  });
+
+  it("无战斗时动作可点", () => {
+    const html = render(h(ActionBar, { actions, onAct: () => {} }));
     expect(html).not.toMatch(/<button[^>]*\sdisabled/);
     expect(html).toContain("四处走走");
-
-    const empty = render(h(ActionBar, { actions: [], onAction: () => {} }));
-    expect(empty).toContain("ls-actions__empty");
   });
 });
 
@@ -306,6 +391,14 @@ describe("Portrait / CgStage", () => {
     );
     expect(none).toBe("");
   });
+
+  it("inline 模式按显式引用上屏，不受 cg 槽名限制", () => {
+    const html = render(
+      h(CgStage, { media: [{ slot: "scene", assetId: "s1", url: "/s.png", alt: "场景" }], inline: true }),
+    );
+    expect(html).toContain('src="/s.png"');
+    expect(html).toContain('data-slot="scene"');
+  });
 });
 
 describe("WorldClock / StatusBars", () => {
@@ -319,17 +412,25 @@ describe("WorldClock / StatusBars", () => {
     expect(chapter).toContain("第 2 章");
   });
 
-  it("资源条把超界数值夹到 0-100%", () => {
+  it("资源条把超界数值夹到 0-100%，且只按 tone 上色", () => {
     const html = render(
       h(StatusBars, {
         bars: [
-          { key: "hp", label: "气血", value: 120, max: 60 },
-          { key: "mp", label: "灵力", value: -5, max: 20 },
+          { key: "hp", label: "气血", value: 120, max: 60, tone: "normal" },
+          { key: "mp", label: "灵力", value: -5, max: 20, tone: "danger" },
         ],
       }),
     );
     expect(html).toContain("width:100%");
     expect(html).toContain("width:0%");
+    expect(html).toContain('data-tone="danger"');
+    expect(html).toContain('data-tone="normal"');
+  });
+
+  it("空资源条渲染占位而不是静默消失", () => {
+    const html = render(h(StatusBars, { bars: [] }));
+    expect(html).toContain("ls-bars__empty");
+    expect(html).toContain("暂无资源条");
   });
 });
 

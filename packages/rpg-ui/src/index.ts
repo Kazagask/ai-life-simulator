@@ -21,7 +21,9 @@ export { WorldClock } from "./WorldClock.js";
 export type { WorldClockProps } from "./WorldClock.js";
 
 export { NarrativeStream } from "./NarrativeStream.js";
-export type { NarrativeStreamProps } from "./NarrativeStream.js";
+export type { NarrativeStreamProps, BlockRenderer } from "./NarrativeStream.js";
+
+export type { Act, ActHandler } from "./act.js";
 
 export { Portrait } from "./Portrait.js";
 export type { PortraitProps } from "./Portrait.js";
@@ -32,7 +34,7 @@ export type { CgStageProps } from "./CgStage.js";
 export { StatusBars } from "./StatusBars.js";
 export type { StatusBarsProps } from "./StatusBars.js";
 
-export { toViewModel, toBattleVM } from "./adapter.js";
+export { toViewModel, toBattleVM, DANGER_RATIO } from "./adapter.js";
 export type { ToViewModelInput } from "./adapter.js";
 
 export type {

@@ -32,7 +32,8 @@ import { platformEndingNarrative, platformEventFlavor, platformEvaluationSummary
 import { deleteLifeRecord, listLifeRecords, saveLifeRecord, shouldAutoArchive } from "./records";
 import type { LifeRecordRow } from "./records";
 import { toViewModel } from "@life-sim/rpg-ui";
-import type { ContentBlockVM, ViewModel } from "@life-sim/rpg-ui";
+import type { ActHandler, ContentBlockVM, ViewModel } from "@life-sim/rpg-ui";
+import { ActionDock } from "./ActionDock";
 import { NarrativeStage } from "./NarrativeStage";
 
 // ---------- 工具 ----------
@@ -420,6 +421,22 @@ function App() {
   );
 
   /**
+   * 点击面上的**唯一提交入口**（产品裁决：点击为主、打字为辅）。
+   *
+   * `ActionBar` 的动作、叙事流里的选项块、折叠后的自由输入三者都走这里：
+   *  - 有 `id` ⇒ 模板动作，按动作 id 走 `/turns`；
+   *  - 只有文案 ⇒ 选项块 / 手打文本，一律按自由行动语义（`type: "free"` + 描述）。
+   * 叙事流选项不带 optionId（`ContentBlock` 没这个字段），所以不能走 `/events/choose`。
+   */
+  const act = useCallback<ActHandler>(
+    (choice) => {
+      if (choice.id !== undefined) advance({ type: choice.id, description: "" });
+      else advance({ type: "free", description: choice.text });
+    },
+    [advance],
+  );
+
+  /**
    * 转盘「继续」= **确认**（ADR-0034 §8-⑩）。
    *
    * 槽内是 `random` 时 `POST /turns` 的语义就是"确认已呈现的那一格"：不消耗行动、不推时间、
@@ -556,6 +573,13 @@ function App() {
   // 转盘槽不挂浮标：转盘自己的「命运之轮 / 继续」已经说明要做什么，而 `.interact-hint` 是
   // `position: fixed` 的贴底气泡，会正好压在事件区底部的「继续」上（D-05 同一处坑）。
   const interacting = slot !== null && slot.kind !== "random";
+  // 终局 / 已归档不再接收动作（与 LifeTab 内的判定同口径，供底部行动坞与正文留白使用）。
+  const ended = snapshot.status === "terminated" || snapshot.status === "archived";
+  /**
+   * 自由行动回合 ⇒ 底部行动坞常驻（点击为主：行动栏贴在拇指区，不随长叙事被推走）。
+   * 事件 / 转盘 / 战斗回合各有自己的点击面，不再叠加行动坞。
+   */
+  const docked = !ended && slot === null;
 
   // 刚结算的这一轮才播转盘动画；从存档恢复（刷新后 lastResult 为空）直接呈现已落定结果，
   // 否则每次刷新都要白等 4s 才看到「继续」（D-09）。
@@ -586,7 +610,7 @@ function App() {
       {error && <div className="banner error" onClick={() => setError(null)}>{error}</div>}
       {authNotice && <div className="banner info" onClick={() => setAuthNotice(null)}>{authNotice}</div>}
 
-      <main className="content">
+      <main className={docked && tab === "life" ? "content content--dock" : "content"}>
         {tab === "life" && (
           <LifeTab
             snapshot={snapshot}
@@ -596,7 +620,7 @@ function App() {
             wheelsFresh={wheelsFresh}
             signedIn={session !== null}
             summarySource={summarySource}
-            onAdvance={advance}
+            onAct={act}
             onConfirmWheel={confirmWheel}
             onChoose={choose}
             onBattle={battle}
@@ -1296,7 +1320,7 @@ function LifeTab({
   wheelsFresh,
   signedIn,
   summarySource,
-  onAdvance,
+  onAct,
   onChoose,
   onBattle,
   onUseItem,
@@ -1315,7 +1339,8 @@ function LifeTab({
   signedIn: boolean;
   /** R2.7 / T-S2：归档响应的人生总结来源；缺省 / 非 llm 时展示与改前逐字一致 */
   summarySource?: NarrativeSource;
-  onAdvance: (action: { type: string; description: string }) => void;
+  /** 统一点击提交（行动栏按钮 / 叙事流选项块 / 自由输入共用一条路径）。 */
+  onAct: ActHandler;
   /** 转盘「继续」= 确认已呈现的那一格（ADR-0034 §8-⑩，走 `/turns`，不带行动语义） */
   onConfirmWheel: () => void;
   onChoose: (optionId: string) => void;
@@ -1373,108 +1398,113 @@ function LifeTab({
     }
   }, [lastResult]);
 
+  // 自由行动回合：底部行动坞常驻；此时叙事流里的选项块也可点（同一条 onAct 路径）。
+  // 事件 / 转盘 / 战斗回合各有自己的点击面，叙事流选项只作只读展示（避免撞 409）。
+  const docked = !ended && slot === null;
+  const narrativeAct: ActHandler | undefined = docked ? onAct : undefined;
+
   return (
-    <div className="stack">
-      <PlayerCard snapshot={snapshot} summarySource={summarySource} />
+    <>
+      <div className="stack">
+        <PlayerCard snapshot={snapshot} summarySource={summarySource} />
 
-      {/*
-        AI 叙事区（T-09a）：紧贴角色卡下方，是默认前端的**主文本面**。
-        正文来自服务端 trace 读回（刷新后仍在），立绘 / CG 来自快照媒体投影；
-        组件只吃 ViewModel，交互区（事件 / 战斗 / 自由行动）保持在其下方不受影响。
-      */}
-      <NarrativeStage view={view} />
+        {/*
+          AI 叙事区（T-09a）：紧贴角色卡下方，是默认前端的**主文本面**。
+          正文来自服务端 trace 读回（刷新后仍在），立绘 / CG 来自快照媒体投影；
+          组件只吃 ViewModel，点击面由底部行动坞 + 叙事流选项共同承担。
+        */}
+        <NarrativeStage view={view} onAct={narrativeAct} />
 
-      {ended && snapshot.ending && (
-        <EndingPanel
-          ending={snapshot.ending}
-          archived={snapshot.status === "archived"}
-          busy={busy}
-          signedIn={signedIn}
-          onArchive={onArchive}
-        />
-      )}
+        {ended && snapshot.ending && (
+          <EndingPanel
+            ending={snapshot.ending}
+            archived={snapshot.status === "archived"}
+            busy={busy}
+            signedIn={signedIn}
+            onArchive={onArchive}
+          />
+        )}
 
-      {!ended && (
-        <section className={`card slot-area slot-${occupant}`}>
-          <header className="slot-head">
-            <span className="slot-label">事件区</span>
-            <span className={`slot-badge badge-${occupant}`}>{SLOT_BADGE[occupant]}</span>
-          </header>
-          {lastResult?.elapsed && <p className="slot-elapsed">过去{lastResult.elapsed}</p>}
+        {!ended && (
+          <section className={`card slot-area slot-${occupant}`}>
+            <header className="slot-head">
+              <span className="slot-label">事件区</span>
+              <span className={`slot-badge badge-${occupant}`}>{SLOT_BADGE[occupant]}</span>
+            </header>
+            {lastResult?.elapsed && <p className="slot-elapsed">过去{lastResult.elapsed}</p>}
 
-          <div className="slot-body">
-            {slot !== null && slot.kind === "random" && slot.wheel !== undefined && (
-              <WheelDeck
-                key={`${slot.eventId}:${slot.wheel.label}`}
-                items={[{ wheel: slot.wheel, title: slot.title }]}
-                animate={wheelsFresh}
-                busy={busy}
-                onContinue={onConfirmWheel}
-              />
-            )}
-            {/* 投影缺 `wheel` 时的逃生口：仍然给一个可点的「继续」，不让玩家卡在空槽前 */}
-            {slot !== null && slot.kind === "random" && slot.wheel === undefined && (
-              <div className="event-body">
-                <h2>{slot.title}</h2>
-                <p>{slot.narrative}</p>
-                <button className="primary wheel-continue" disabled={busy} onClick={onConfirmWheel}>
-                  继续
-                </button>
-              </div>
-            )}
-            {slot !== null && slot.kind === "combat" && (
-              <BattlePanel
-                snapshot={snapshot}
-                busy={busy}
-                onBattle={onBattle}
-                onContinue={onConfirmWheel}
-              />
-            )}
-            {slot !== null && slot.kind === "normal" && (
-              <EventPanel slot={slot} busy={busy} onChoose={onChoose} />
-            )}
-            {slot === null && (
-              <ActionPanel
-                snapshot={snapshot}
-                busy={busy}
-                onAdvance={onAdvance}
-                onUseItem={onUseItem}
-                onEndLife={onEndLife}
-              />
-            )}
-          </div>
-        </section>
-      )}
+            <div className="slot-body">
+              {slot !== null && slot.kind === "random" && slot.wheel !== undefined && (
+                <WheelDeck
+                  key={`${slot.eventId}:${slot.wheel.label}`}
+                  items={[{ wheel: slot.wheel, title: slot.title }]}
+                  animate={wheelsFresh}
+                  busy={busy}
+                  onContinue={onConfirmWheel}
+                />
+              )}
+              {/* 投影缺 `wheel` 时的逃生口：仍然给一个可点的「继续」，不让玩家卡在空槽前 */}
+              {slot !== null && slot.kind === "random" && slot.wheel === undefined && (
+                <div className="event-body">
+                  <h2>{slot.title}</h2>
+                  <p>{slot.narrative}</p>
+                  <button className="primary wheel-continue" disabled={busy} onClick={onConfirmWheel}>
+                    继续
+                  </button>
+                </div>
+              )}
+              {slot !== null && slot.kind === "combat" && (
+                <BattlePanel
+                  snapshot={snapshot}
+                  busy={busy}
+                  onBattle={onBattle}
+                  onContinue={onConfirmWheel}
+                />
+              )}
+              {slot !== null && slot.kind === "normal" && (
+                <EventPanel slot={slot} busy={busy} onChoose={onChoose} />
+              )}
+              {/* 自由行动：行动按钮已上移到常驻底部行动坞，这里只留次要入口 */}
+              {slot === null && (
+                <ActionPanel snapshot={snapshot} busy={busy} onUseItem={onUseItem} onEndLife={onEndLife} />
+              )}
+            </div>
+          </section>
+        )}
 
-      {alsoHappened.length > 0 && (
-        <section className="card result">
-          <h3 className="result-title">本轮还发生</h3>
-          <div className="stack-sm">
-            {alsoHappened.map((event) => (
-              <div key={event.id} className="event-card">
-                <strong>⚡ {event.title}</strong>
-                {/* R2.7 / R-NAR-03：有 flavor 用服务端已校验文案，缺失 / 空串回退模板文案（零回归） */}
-                <p>{resolveEventNarrative(event, { ...platformFlavors, ...lastResult?.eventFlavors })}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
+        {alsoHappened.length > 0 && (
+          <section className="card result">
+            <h3 className="result-title">本轮还发生</h3>
+            <div className="stack-sm">
+              {alsoHappened.map((event) => (
+                <div key={event.id} className="event-card">
+                  <strong>⚡ {event.title}</strong>
+                  {/* R2.7 / R-NAR-03：有 flavor 用服务端已校验文案，缺失 / 空串回退模板文案（零回归） */}
+                  <p>{resolveEventNarrative(event, { ...platformFlavors, ...lastResult?.eventFlavors })}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
-      {settledWheel !== null && (
-        <section className="card result">
-          <h3 className="result-title">命运落定</h3>
-          <div className="event-card">
-            <strong>⚄ {settledWheel.title ?? "随机事件"}</strong>
-            <p>{settledWheel.label}</p>
-          </div>
-        </section>
-      )}
+        {settledWheel !== null && (
+          <section className="card result">
+            <h3 className="result-title">命运落定</h3>
+            <div className="event-card">
+              <strong>⚄ {settledWheel.title ?? "随机事件"}</strong>
+              <p>{settledWheel.label}</p>
+            </div>
+          </section>
+        )}
 
-      {lastResult && !ended && alsoHappened.length === 0 && settledWheel === null && slot === null && (
-        <p className="muted result-quiet">世界平静地流转着。</p>
-      )}
-    </div>
+        {lastResult && !ended && alsoHappened.length === 0 && settledWheel === null && slot === null && (
+          <p className="muted result-quiet">世界平静地流转着。</p>
+        )}
+      </div>
+
+      {/* 点击为主：行动坞固定贴在 tabbar 上方，长叙事也推不走 */}
+      {docked && <ActionDock view={view} busy={busy} onAct={onAct} />}
+    </>
   );
 }
 
@@ -2188,57 +2218,30 @@ function BattlePanel({
   );
 }
 
-// ---------- 行动面板 ----------
+// ---------- 行动面板（次要入口） ----------
 
+/**
+ * 自由行动回合的**次要**内容。
+ *
+ * 产品裁决「点击为主，打字为辅」之后，主行动按钮与自由输入都搬到了常驻底部行动坞
+ * （`ActionDock` + `@life-sim/rpg-ui` 的 `ActionBar`，贴在拇指区、不被长叙事推走）。
+ * 这里只保留不推进时间的次要入口：可用物品、结束这一生。
+ */
 function ActionPanel({
   snapshot,
   busy,
-  onAdvance,
   onUseItem,
   onEndLife,
 }: {
   snapshot: V2Snapshot;
   busy: boolean;
-  onAdvance: (action: { type: string; description: string }) => void;
   onUseItem: (itemId: string) => void;
   onEndLife: () => void;
 }) {
-  const [freeText, setFreeText] = useState("");
   const usableItems = snapshot.player.inventory.filter((i) => i.usableOutsideBattle);
 
   return (
     <div className="action-body">
-      <div className="action-grid">
-        {snapshot.availableActions.map((action) => (
-          <button
-            key={action.id}
-            className="action"
-            disabled={busy}
-            onClick={() => onAdvance({ type: action.id, description: "" })}
-          >
-            <strong>{action.label}</strong>
-            <span>{action.duration ? `${action.duration.value}${UNIT_NAMES[action.duration.unit] ?? action.duration.unit}` : "默认时长"}</span>
-          </button>
-        ))}
-      </div>
-      <div className="free-input">
-        <input
-          value={freeText}
-          onChange={(e) => setFreeText(e.target.value)}
-          placeholder="或自由描述你的行动…"
-          maxLength={100}
-        />
-        <button
-          className="primary"
-          disabled={busy || !freeText.trim()}
-          onClick={() => {
-            onAdvance({ type: "free", description: freeText.trim() });
-            setFreeText("");
-          }}
-        >
-          执行
-        </button>
-      </div>
       {usableItems.length > 0 && (
         <div className="inventory">
           <h4>物品</h4>
