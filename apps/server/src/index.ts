@@ -56,6 +56,7 @@ import {
 } from "./narrative/generate.js";
 import { recordNarrative } from "./narrative/trace.js";
 import { readNarrativeBlocks } from "./narrative/read.js";
+import { registerNarrativeStreamRoute } from "./narrative/stream.js";
 import {
   getFlavors,
   getFlavorsForEvents,
@@ -1043,4 +1044,6 @@ app.setNotFoundHandler((request, reply) => {
 });
 
 const port = Number(process.env.PORT ?? 3000);
+// SSE 叙事流：正文可流式下发，但**结构写入仍在回合事务内**（ADR-0035 §6）。必须在 listen 前注册。
+await registerNarrativeStreamRoute(app);
 await app.listen({ port, host: "0.0.0.0" });
