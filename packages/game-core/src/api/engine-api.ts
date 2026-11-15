@@ -201,7 +201,7 @@ const advanceDag: ToolHandler = {
  * - 权威写入（delayQueue / enqueueSeqCounter）只在本文件发生（调度器只做纯入队构造）。
  */
 const enqueueEvent: ToolHandler = {
-  run(state, args, _ctx, env) {
+  run(state, args, ctx, env) {
     if (!isRecord(args) || typeof args.eventId !== "string" || args.eventId.length === 0) {
       return rejected("invalid_arguments", "fact.enqueueEvent 需要 { eventId }");
     }
@@ -230,7 +230,19 @@ const enqueueEvent: ToolHandler = {
       definitionId: eventId,
       // origin.kind 是封闭枚举；模板效果与 LLM 提议在引擎里同属「效果驱动入队」。
       origin: { kind: "effect", id: eventId },
-      absoluteStart: state.worldTime,
+      /**
+       * 时间锚必须取 **本次 dispatch 的上下文**，不是 `state.worldTime`。
+       *
+       * 这两者只在「写入与本回合同一事务」时才相等。一旦写入晚到（异步 LLM），
+       * `state.worldTime` 已经被后续回合推走 —— 事件会被锚到「落地那一刻」，
+       * 而不是「它被设想的那一刻」，于是出现「A 轮设想的事件出现在 A+n 轮」。
+       * `ctx.worldTime` 在 agent loop 起始处固定（`loop.ts` 的 dispatchCtx），
+       * 保证锚点永远是创作它的那一轮。
+       *
+       * 注意：这只是**必要条件**，不是充分条件。真正杜绝「诈尸」要靠事务边界
+       * （见 ADR-0035）：结构写入必须在同一回合的临界区内落账，晚到即不许落。
+       */
+      absoluteStart: ctx.worldTime,
     });
     return accepted([{ path: `delayQueue.${instance.instanceId}`, after: "waiting" }]);
   },
