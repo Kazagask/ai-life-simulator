@@ -1,1 +1,26 @@
-skills: []
+# 两个战斗技能：玩家的一击（playerTemplate.skills 持有）与影子的爪（enemy-shadow 持有）。
+# 只用 world.yaml 声明的三个属性（body / mind / luck）——属性 id 写错会在加载期 fail-fast。
+skills:
+  - id: sk-demo-strike
+    kind: combat
+    name: 蓄力一击
+    description: 把全身的力气压进一次挥击。
+    cost: { mp: 0 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: body, defender: body, baseChance: 0.75 }
+    damage:
+      - { preset: scaled, base: 4, scaleBy: body, multiplier: 1.2 }
+    cooldownTurns: 0
+    usableInBattle: true
+
+  - id: sk-shadow-claw
+    kind: combat
+    name: 影爪
+    description: 从地上的阴影里伸出手指，抓住脚踝。
+    cost: { mp: 0 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: body, defender: luck, baseChance: 0.5 }
+    damage:
+      - { preset: scaled, base: 3, scaleBy: body, multiplier: 1 }
+    cooldownTurns: 0
+    usableInBattle: true

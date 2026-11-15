@@ -1,9 +1,48 @@
-# 4 个事件，narrative 全部省略（?? title 回退）。事件 id 与 rules.yaml fallbackDag.templateRefs 逐字一致。
+# 6 个事件（转盘 / 试炼前哨 / 战斗 / 收束），叙事可缺省（?? title 回退）。
+# 事件 id 与 rules.yaml fallbackDag.templateRefs 逐字一致。
+#
+# demo 流程（开局 → 转盘 → 叙事 → 战斗）：
+#   1. opening.yaml 把它排到 t=0 ⇒ 第一次推进轮次即**呈现**命数转盘（kind: random）；
+#   2. 确认转盘 ⇒ 写 fateDealt 并 nextEventId → evt:awaken；
+#   3. evt:awaken → evt:trial；evt:trial 的第三个选项直通 evt:ambush（kind: combat）。
+#
+# 重要：`evt:trial` / `evt:chance` 两个 id 被 rules.yaml 的 contextHints 逐字引用
+# （`evt:trial` / `evt:chance`），**不得改名或删除**，否则 mock 的 DAG 分支轮会静默失效。
+#
+# 池事件（source: pool）统一用 `fateDealt` 门闩：转盘未确认前池子抽不出任何东西，
+# 保证「第一轮取出的一定是转盘」而不是被权重 1 的 evt:awaken 抢了先。
 events:
+  - id: "evt:wheel-fate"
+    title: 命数转盘
+    narrative: 转盘转过一格，停了一瞬，又自己转起来。指针在等你把手放上去。
+    kind: random
+    trigger: { source: chain }
+    settle:
+      random:
+        wheel:
+          segments:
+            - weight: 3
+              label: 生而强健
+              effects:
+                - { type: adjustAttribute, attribute: body, value: 1 }
+                - { type: setFlag, id: fateDealt, value: true }
+              nextEventId: "evt:awaken"
+            - weight: 3
+              label: 生而慧黠
+              effects:
+                - { type: adjustAttribute, attribute: mind, value: 1 }
+                - { type: setFlag, id: fateDealt, value: true }
+              nextEventId: "evt:awaken"
+            - weight: 2
+              label: 机缘缠身
+              effects:
+                - { type: adjustAttribute, attribute: luck, value: 2 }
+                - { type: setFlag, id: fateDealt, value: true }
+              nextEventId: "evt:awaken"
   - id: "evt:awaken"
     title: 苏醒
     kind: normal
-    trigger: { source: pool, weight: 1, once: true }
+    trigger: { source: pool, weight: 1, once: true, conditions: [{ flag: fateDealt, eq: true }] }
     settle:
       normal:
         options:
@@ -11,7 +50,7 @@ events:
   - id: "evt:trial"
     title: 初次试炼
     kind: normal
-    trigger: { source: pool, weight: 1 }
+    trigger: { source: pool, weight: 1, conditions: [{ flag: fateDealt, eq: true }] }
     settle:
       normal:
         options:
@@ -23,10 +62,41 @@ events:
             text: 走右边
             effects: [{ type: setFlag, id: took-right, value: true }]
             nextEventId: "evt:chance"
+          # 战斗演示入口：第三条路确定性直通 kind: combat（前两条保持原样，DAG 分支不受影响）。
+          - id: opt-face
+            text: 迎上去
+            effects: [{ type: setFlag, id: choseFight, value: true }]
+            nextEventId: "evt:ambush"
+  - id: "evt:ambush"
+    title: 墙里的影子
+    narrative: 墙皮鼓了一下，像有什么东西在里面换了个姿势。它顺着裂缝渗出来，慢慢站直。
+    kind: combat
+    trigger: { source: chain }
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-shadow, levelScale: 0.35 }
+        canFlee: true
+        fleeCheck: { preset: opposed, attacker: body, defender: body, baseChance: 0.55 }
+        onVictory:
+          effects:
+            - { type: adjustAttribute, attribute: body, value: 1 }
+            - { type: adjustMood, value: 5 }
+            - { type: setFlag, id: foughtShadow, value: true }
+          nextEventId: "evt:closing"
+        onDefeat:
+          effects:
+            - { type: adjustResource, resource: hp, value: 20 }
+            - { type: adjustMood, value: -10 }
+          nextEventId: "evt:closing"
+        onFlee:
+          effects:
+            - { type: adjustMood, value: -4 }
+          nextEventId: "evt:closing"
   - id: "evt:chance"
     title: 偶遇
     kind: random
-    trigger: { source: pool, probability: 0.3 }
+    trigger: { source: pool, probability: 0.3, conditions: [{ flag: fateDealt, eq: true }] }
     settle:
       random:
         wheel:
@@ -36,7 +106,7 @@ events:
   - id: "evt:closing"
     title: 落幕
     kind: normal
-    trigger: { source: pool, weight: 1 }
+    trigger: { source: pool, weight: 1, conditions: [{ flag: fateDealt, eq: true }] }
     settle:
       normal:
         options:
