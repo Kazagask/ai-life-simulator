@@ -72,8 +72,16 @@ export interface AgentProvider {
 
 // ---------- 工具清单 ----------
 
-/** 事实写入工具（与 game-core `defaultToolRegistry()` 对齐）。 */
-export const FACT_TOOL_NAMES = ["fact.setKnowledge", "fact.advanceDag"] as const;
+/**
+ * 事实写入工具（与 game-core `defaultToolRegistry()` 对齐）。
+ * `fact.enqueueEvent` 是「把 DAG 分支上的事件上桌」的唯一通道（只入队、不占槽）；
+ * 缺了它，LLM 侧就只剩 `content.*` —— 分支永远上不了桌。
+ */
+export const FACT_TOOL_NAMES = [
+  "fact.setKnowledge",
+  "fact.advanceDag",
+  "fact.enqueueEvent",
+] as const;
 
 /** 内容写入工具（与 game-core `defaultToolRegistry()` 对齐）。 */
 export const CONTENT_TOOL_NAMES_ALL = [
@@ -88,10 +96,8 @@ export const CONTENT_TOOL_NAMES_ALL = [
  * 常驻工具（不受能力画像收窄影响）：
  * - `content.submit`：唯一的「提交」终止信号，缺了它一次 invocation 永远进不了 committed；
  * - `content.writeOption`：产品口径「点击为主、打字输入为辅」，决策点必须给出可点击选项。
- *   现有 demo 模板的 `toolProfile.narrative` 只列
- *   `[content.writeNarrative, content.referenceAsset, fact.enqueueEvent]`（且最后一个引擎未注册），
- *   漏了 writeOption —— 模板冻结不归本包改，先按常驻处理并通过 REPORT 反馈；
- *   画像补齐后可把本项移出常驻集合。
+ *   早期 demo 模板的 `toolProfile.narrative` 漏列了它（模板不归本包改），先按常驻处理；
+ *   画像现已显式列出 writeOption，本项保留为兜底不变量。
  */
 export const CONTROL_TOOL_NAMES = ["content.submit", "content.writeOption"] as const;
 
@@ -219,6 +225,16 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
     description: "用一份新的任务 DAG 覆盖当前 DAG（整体校验后落账）。",
     parameters: schemaOf({ dag: { type: "object" } }, ["dag"]),
   },
+  "fact.enqueueEvent": {
+    name: "fact.enqueueEvent",
+    description:
+      "把一个**模板里已存在**的事件入队（只入队、不占槽），用于把任务 DAG 分支上桌。" +
+      "eventId 必须逐字取自上下文里出现过的 evt:xxx 引用，禁止自行发明事件 id。",
+    parameters: schemaOf(
+      { eventId: { type: "string", minLength: 1, description: "模板已存在的事件引用 id（evt:xxx）" } },
+      ["eventId"],
+    ),
+  },
 };
 
 const descriptorOf = (name: string): ToolDescriptor | undefined =>
@@ -328,6 +344,13 @@ export function validateToolCall(
   if (call.name === "fact.advanceDag") {
     if (!TaskDagSchema.safeParse(call.arguments.dag).success) {
       return { ok: false, code: "invalid_arguments", detail: "fact.advanceDag.dag 未通过 TaskDagSchema" };
+    }
+    return { ok: true, args: call.arguments };
+  }
+  if (call.name === "fact.enqueueEvent") {
+    const eventId = call.arguments.eventId;
+    if (typeof eventId !== "string" || eventId.length === 0) {
+      return { ok: false, code: "invalid_arguments", detail: "fact.enqueueEvent 需要 { eventId }" };
     }
     return { ok: true, args: call.arguments };
   }

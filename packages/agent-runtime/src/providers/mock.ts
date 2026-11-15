@@ -12,11 +12,15 @@ import {
  * 零 API key 也能玩的**确定性**脚本 provider。
  *
  * 产品口径（用户裁决）：「点击为主，打字输入为辅」——**每一回合**都要给出可点动作；
- * 只产出散文的一回合等于坏回合。回合内分三轮（与 loop 的 dispatch 轮次一致）：
+ * 只产出散文的一回合等于坏回合。回合内按 loop 的 dispatch 轮次推进：
  *   ① 叙事（content.writeNarrative，必要时 content.referenceAsset）
- *   ② 选项（2-3 条 content.writeOption，必要时 content.writeFlavor）
- *   ③ 提交（content.submit）
+ *   ② 分支（可选：fact.enqueueEvent —— 把 DAG 分支上的模板事件上桌）
+ *   ③ 选项（2-3 条 content.writeOption，必要时 content.writeFlavor）
+ *   ④ 提交（content.submit）
  * 因此 `contentBlocks` 顺序恒为 narrative → option → flavor，前端可直接按序渲染。
+ *
+ * ② 只在调用上下文里**确实出现** `evt:xxx` 引用时才发生：eventId 必须是模板已有事件，
+ * 自造 id 必然吃 `unknown_reference`（FATAL），所以取不到就整轮跳过 —— 宁可少演示一次。
  *
  * 文本全部由 `inv.context` 的 facts / dagNodes / recentTurns 与 invocationReason 合成；
  * 无随机、无时钟：同一 invocationId + 同一世界状态 ⇒ 逐字节相同的输出。
@@ -368,6 +372,51 @@ function optionTexts(view: MockContextView): string[] {
   return picks.slice(0, 3);
 }
 
+/** ② 分支轮唯一会发的「写世界」工具（把分支上的模板事件上桌）。 */
+const BRANCH_TOOL = "fact.enqueueEvent";
+
+const isEventRef = (ref: string): boolean =>
+  ref.startsWith("evt:") && ref.length > "evt:".length;
+
+/**
+ * 本轮要上桌的事件 id：**只从调用上下文里取模板已有的 `evt:xxx` 引用**。
+ * 优先级：`contextHints` → `facts[].factRef`。取不到 ⇒ null。
+ *
+ * 硬约束：绝不自己编 id —— `fact.enqueueEvent` 的 eventId 会跟模板 ref 全集比对，
+ * 编出来的 id 必然吃 `unknown_reference`（FATAL，不消耗重试）。宁可不演示。
+ *
+ * 注意：eventId 是机器引用（与 `refs[]` / assetId 同类），**不过** `sanitizeProse` 闸门 ——
+ * 那道闸门针对玩家可见文本，用在这里会把 id 洗成空串。
+ */
+function branchEventId(view: MockContextView): string | null {
+  for (const hint of view.contextHints ?? []) {
+    if (isEventRef(hint)) return hint;
+  }
+  for (const fact of view.facts.facts ?? []) {
+    if (isEventRef(fact.factRef)) return fact.factRef;
+  }
+  return null;
+}
+
+/**
+ * ② 分支轮：把分支事件上桌（`fact.enqueueEvent` 只入队、不占槽）。
+ *
+ * 排在叙事之后、选项之前：事件先上桌，玩家再在它的分支上做选择。
+ * 取不到事件引用或画像没给该工具 ⇒ 返回空数组，原有「叙事 → 选项 → 提交」节奏不变。
+ */
+function branchCalls(view: MockContextView, available: Set<string>): ToolCallRequest[] {
+  if (!available.has(BRANCH_TOOL)) return [];
+  const eventId = branchEventId(view);
+  if (eventId === null) return [];
+  return [
+    {
+      id: `${view.invocationId}:call:branch`,
+      name: BRANCH_TOOL,
+      arguments: { eventId },
+    },
+  ];
+}
+
 function assetIdFrom(view: MockContextView): string | null {
   for (const fact of view.facts.facts ?? []) {
     if (fact.factRef.startsWith("asset:")) return fact.factRef.slice("asset:".length);
@@ -425,6 +474,11 @@ function lastRejection(messages: readonly AgentMessage[]): MockRejection | null 
     };
   }
   return null;
+}
+
+/** 被拒的是写世界工具（fact.*）：mock 无法通过改写文案修复它，只能跳过。 */
+function isFactRejection(name: string | undefined): boolean {
+  return typeof name === "string" && name.startsWith("fact.");
 }
 
 /** ① 叙事轮：正文 + 至多一次媒体资源挂载。 */
@@ -514,11 +568,13 @@ export class MockAgentProvider implements AgentProvider {
     const rejection = lastRejection(req.messages);
     const emitted = emittedToolNames(req.messages);
     const done = submitted(req.messages);
+    const branch = branchCalls(view, available);
 
     if (done) {
       // 已有 submit，不再产出（loop 正常情况下已在此前终止）。
-    } else if (rejection !== null) {
+    } else if (rejection !== null && !isFactRejection(rejection.name)) {
       // 分支①：按被拒工具重生成；窗口类拒绝一律收敛为「不带 refs + 权威窗口」。
+      // fact.* 的拒绝不走这里：mock 改不了事件 id / DAG 事实，重写文案修不好它（见下一条分支）。
       const hintTarget =
         typeof rejection.factsHint?.targetPerspective === "string"
           ? (rejection.factsHint.targetPerspective as Perspective)
@@ -550,6 +606,10 @@ export class MockAgentProvider implements AgentProvider {
       }
     } else if (!emitted.has("content.writeNarrative") && !emitted.has("content.writeOption")) {
       toolCalls.push(...narrativeCalls(view, available));
+    } else if (branch.length > 0 && !emitted.has(BRANCH_TOOL)) {
+      // ② 分支轮：把分支事件上桌（只入队、不占槽）。`branch` 已按「画像 + 现有 evt 引用」筛过，
+      // 为空则整段跳过，不改变原有三阶段节奏。
+      toolCalls.push(...branch);
     } else if (!emitted.has("content.writeOption")) {
       // 有叙事但还没有点击面 ⇒ 本回合继续产出选项（每条回合都必须可点）。
       toolCalls.push(...optionCalls(view, available));

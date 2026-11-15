@@ -3,13 +3,15 @@
 # 当前 DECLARATIVE_FILES 未含本文件，加载期由 templates.ts:422 warn + 忽略；
 # 运行时加载验证依赖 T-06 补白名单 11→13 与独立 RulesSchema loader（预期的中间态）。
 # when / guards / completion 统一 { op, args } 开放形（v2 §3.5 口径）。
+# contextHints 里的 `evt:xxx` 是**本轮分支可上桌的事件引用**（模板已有事件，逐字对应
+# events.yaml 的 id）：LLM 只能从这类引用里挑，不许自造 —— 自造 id 必然 unknown_reference。
 llmTriggers:
   - when: [{ op: "nodeCompleted", args: { nodeId: "n1.awaken" } }]
     invoke:
       reason: "chapter.advance"
       perspective: "player"
       targetPerspective: "player"
-      contextHints: ["chapter.tone"]
+      contextHints: ["chapter.tone", "evt:trial"]
       toolProfile: "narrative"
   - when: [{ op: "random", args: { probability: 0.1 } }]
     invoke:
@@ -23,7 +25,7 @@ llmTriggers:
       reason: "task.completed"
       perspective: "world"
       targetPerspective: "player"
-      contextHints: ["facts", "secrets"]
+      contextHints: ["facts", "secrets", "evt:chance"]
       toolProfile: "narrative"
 toolProfile:
   # 能力画像 = 本次 invocation 允许的工具面。三项硬约束：
