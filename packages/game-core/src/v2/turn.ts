@@ -693,6 +693,43 @@ function resolveHooksV2(
  * 结算后的「其他判定」（ADR-0034 §2 步 5，顺序固定：NPC 自主行动 → pool 摇一个）。
  * `missWhen` 的处置在队列扫描里（`scanDelayQueue`），不在这里。
  */
+/**
+ * 生成分支的「必然」档：条件满足才入队（AGENTIC-GM 重构）。
+ *
+ * 硬要求：**在 `enqueueCandidate` 之前判条件**，不许"先入队再靠 hold 等条件"——
+ * `countPresentableQueue` 会把**条件已满足**的 waiting 实例计入可上桌数，
+ * 多条同时满足会顶满 `maxQueueLength` ⇒ 池抽取静默停摆（症状是"随机事件变少了"，
+ * 没人会想到是这几条分支干的）。另外每条定义按 `definitionId` 去重：
+ * 一个 `waiting` 至多一个，避免同一分支重复入场。
+ *
+ * 只处理 `story.submitBranch` 生成的、`source === "schedule"` 的事件（模板事件不在此列，
+ * 它们在**世界初始化**时一次性入队，见 `createWorldV2`）。
+ */
+function enqueueGeneratedCertain(
+  state: WorldStateV2,
+  lookup: TemplateLookup,
+  rng: Rng,
+): void {
+  const generated = state.generatedEvents;
+  if (generated === undefined || generated.length === 0) return;
+  for (const def of generated) {
+    if (def.trigger.source !== "schedule") continue;
+    const waiting = state.delayQueue.some(
+      (inst) => inst.definitionId === def.id && inst.status === "waiting",
+    );
+    if (waiting) continue;
+    // 已结算过的生成事件不重放（生成分支是一次性内容，不靠 cooldown 收敛）。
+    if (state.firedEvents[def.id] !== undefined) continue;
+    if (!checkEventPremise(def, { state, lookup, rng }).ok) continue;
+    enqueueScheduled({
+      state,
+      definitionId: def.id,
+      origin: { kind: "generated", id: def.id },
+      absoluteStart: state.worldTime,
+    });
+  }
+}
+
 function postSettleJudgements(
   state: WorldStateV2,
   template: WorldTemplateV2,
@@ -701,6 +738,7 @@ function postSettleJudgements(
 ): void {
   const npcResult = runNpcActionsV2(state, lookup, rng);
   enqueueChainStarts(state, lookup, npcResult.startedChains);
+  enqueueGeneratedCertain(state, lookup, rng);
   resolvePoolV2(state, template, lookup, rng);
 }
 

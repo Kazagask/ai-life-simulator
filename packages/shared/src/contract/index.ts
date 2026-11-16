@@ -8,3 +8,4 @@ export * from "./content-ref.js";
 export * from "./asset-manifest.js";
 export * from "./rules.js";
 export * from "./view-model.js";
+export * from "./branch-submit.js";

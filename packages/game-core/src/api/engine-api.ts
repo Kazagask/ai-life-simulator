@@ -1,7 +1,9 @@
 import {
   ContentBlockSchema,
   DIAGNOSTIC_CODES,
+  EventV2Schema,
   SetKnowledgeArgsSchema,
+  SubmitBranchArgsSchema,
   TaskDagSchema,
   TaskEdgeSchema,
   TaskNodeSchema,
@@ -12,6 +14,7 @@ import {
   type DispatchContext,
   type DispatchResult,
   type EngineApiHandle,
+  type EventV2,
   type FactChange,
   type LlmBudget,
   type Perspective,
@@ -507,6 +510,110 @@ const enqueueEvent: ToolHandler = {
 };
 
 /**
+ * `story.submitBranch`（AGENTIC-GM 重构 · 设计 §4/§5）：提交**一整条独立分支**。
+ *
+ * 边界（用户裁定，硬约束）：
+ * - LLM **永远不入队、不占槽**：本 handler 只把定义写进 `state.generatedEvents`，
+ *   排不排、什么时候排，由回合边界的引擎调度决定。
+ * - **引擎上必须独立**：不引用、不修改任何既有事件；`goto` 只能指向本次提交内的 node。
+ * - 全局 id / 选项 id 由引擎分配（`gen:<invocationId>:<node>`），模型只给局部别名，
+ *   防止伪造引用。
+ * - **原子性**：整条分支要么全落、要么全不落（任何一块不合 schema 即整体拒绝）。
+ */
+const submitBranch: ToolHandler = {
+  run(state, args, ctx) {
+    // 结构写入必须与本回合同事务（与 fact.* 同一条守卫）。
+    const violation = crossTurnViolation(state, ctx);
+    if (violation !== null) return violation;
+
+    const parsed = SubmitBranchArgsSchema.safeParse(args);
+    if (!parsed.success) {
+      return rejected(
+        "invalid_arguments",
+        `story.submitBranch 参数未通过 schema：${parsed.error.issues[0]?.path.join(".") ?? "?"} ${parsed.error.issues[0]?.message ?? ""}`.trim(),
+      );
+    }
+    const { trigger, branch } = parsed.data;
+
+    // 局部别名唯一
+    const aliases = new Set<string>();
+    for (const node of branch) {
+      if (aliases.has(node.node)) {
+        return rejected("invalid_arguments", `节点别名重复：${node.node}（同一次提交内必须唯一）`);
+      }
+      aliases.add(node.node);
+    }
+    // goto 闭合：只能指向本次提交内的节点（跨提交一律拒）
+    for (const node of branch) {
+      for (const option of node.options) {
+        if (option.goto !== undefined && !aliases.has(option.goto)) {
+          return rejected(
+            "unknown_reference",
+            `goto 指向本次提交之外的节点：${option.goto}（分支必须自洽，不可接续既有剧情）`,
+            { allowedRefs: [...aliases] },
+          );
+        }
+      }
+    }
+
+    const prefix = `gen:${ctx.invocationId}:`;
+    const compiled: EventV2[] = [];
+    for (const node of branch) {
+      const event: EventV2 = {
+        id: `${prefix}${node.node}`,
+        title: node.title,
+        narrative: node.text,
+        kind: "normal",
+        trigger:
+          trigger.mode === "certain"
+            ? {
+                source: "schedule",
+                /**
+                 * 相对入队时刻换算 ⇒ 下一轮扫描即到期（不是"世界时间 0"）。
+                 * 注意 `TimeAmountSchema` 要求 `value` 是**正整数**，`value: 0` 会被拒；
+                 * 1 分钟已经小于任何一轮的默认步长（10 分钟），等价于"入队即到期"。
+                 */
+                window: { start: { value: 1, unit: "minute" } },
+                ...(trigger.conditions !== undefined ? { conditions: trigger.conditions } : {}),
+              }
+            : {
+                source: "pool",
+                weight: 1,
+                ...(trigger.conditions !== undefined ? { conditions: trigger.conditions } : {}),
+              },
+        settle: {
+          normal: {
+            options: node.options.map((option, index) => ({
+              id: `opt-gen-${index + 1}`,
+              text: option.text,
+              // 显式给 [] 而不是省略：省略的语义是"这个选项什么也不做"，
+              // 而缺省语义将来一变就是静默改行为。
+              effects: option.effects ?? [],
+              ...(option.goto !== undefined ? { nextEventId: `${prefix}${option.goto}` } : {}),
+            })),
+          },
+        },
+      } as EventV2;
+
+      // 用与模板事件**同一个** schema 校验：生成事件必须与模板事件同形，
+      // 否则调度器/投影/前端会各走一条特殊路径。
+      const check = EventV2Schema.safeParse(event);
+      if (!check.success) {
+        return rejected(
+          "invalid_arguments",
+          `节点 ${node.node} 编译后未通过 EventV2Schema：${check.error.issues[0]?.message ?? "?"}`,
+        );
+      }
+      compiled.push(check.data as EventV2);
+    }
+
+    // 追加式：注册后不再修改（与"不能在已有结构上打补丁"同一条纪律）。
+    state.generatedEvents = [...(state.generatedEvents ?? []), ...compiled];
+    return accepted([{ path: "generatedEvents", after: compiled.map((e) => e.id).join(",") }]);
+  },
+};
+
+/**
  * content.* 共用处理器（F4，追加2）：窗口校验 + 正文进 sink（不写 state）+ 媒体锚点。
  *
  * 硬不变量：**绝不采信 args 自带的窗口**。dispatch 第 2 层只以 ctx.targetPerspective
@@ -573,6 +680,7 @@ function defaultToolRegistry(): Map<string, ToolHandler> {
   map.set("fact.advanceDag", advanceDag);
   map.set("fact.upsertDagBranch", upsertDagBranch);
   map.set("fact.enqueueEvent", enqueueEvent);
+  map.set("story.submitBranch", submitBranch);
   for (const name of [
     "content.writeNarrative",
     "content.writeMemory",

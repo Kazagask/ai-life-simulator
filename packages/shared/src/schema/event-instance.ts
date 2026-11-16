@@ -14,7 +14,7 @@ import { TimeAmountSchema } from "./common.js";
 
 export const EventInstanceOriginSchema = z
   .object({
-    kind: z.enum(["opening", "schedule-init", "effect", "pool"]),
+    kind: z.enum(["opening", "schedule-init", "effect", "pool", "generated"]),
     id: z.string().min(1),
   })
   .strict();

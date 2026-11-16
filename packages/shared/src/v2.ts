@@ -331,6 +331,12 @@ export interface WorldStateV2 {
   firedEvents: Record<string, number>;
   /** 实例层：**唯一队列**——延时事件队列（有 id / status / 固化窗口，可审计） */
   delayQueue: ScheduledEventInstance[];
+  /**
+   * 运行时生成的分支事件定义（AGENTIC-GM 重构）：追加式，与模板事件同 schema。
+   * 由 `story.submitBranch` 写入；`TemplateLookup.event()` 查表时优先命中它。
+   * 可选 ⇒ 旧档可直载、没有生成内容的世界逐字段不变。
+   */
+  generatedEvents?: EventV2[];
   /** 全局单调入队序号，纯状态递增（不用 Date / 随机） */
   enqueueSeqCounter: number;
   /** 事实层：错失记录（append-only） */

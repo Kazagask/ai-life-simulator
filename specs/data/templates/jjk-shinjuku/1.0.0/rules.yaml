@@ -25,7 +25,9 @@ llmTriggers:
       perspective: "player"
       targetPerspective: "player"
       contextHints: ["fork.tone"]
-      toolProfile: "narrative"
+      # GM 画像（AGENTIC-GM 重构）：只给「写叙事 + 提交分支 + 结束」。
+      # 不给选项工具 —— 选项属于事件块的 settle，由 story.submitBranch 一并提交。
+      toolProfile: "gm"
 
 toolProfile:
   # 能力画像 = 本次 invocation 允许的工具面。三条硬约束：
@@ -44,6 +46,10 @@ toolProfile:
       "fact.enqueueEvent",
       "content.submit",
     ]
+  # AGENTIC-GM 画像：模板给的是**能力上限**，实际下发由引擎按槽状态求交
+  # （槽被占时去掉 story.submitBranch；combat 不唤起）。
+  gm:
+    ["content.writeNarrative", "story.submitBranch", "content.submit"]
 
 knowledgeGrants:
   # 走到分叉点 = 亲眼看见「世界本身被切开」这件事。

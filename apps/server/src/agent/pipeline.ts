@@ -68,7 +68,9 @@ export function resolveAgentConfig(
 export function engineApiForTurn(world: WorldStateV2, entry: ReadyTemplateEntry): RpgEngineAPI {
   return new RpgEngineAPI({
     state: world,
-    projectSnapshot: (s) => projectSnapshotV2(s, entry.template, entry.lookup),
+    // 同上：GM 看到的 facts / 槽位描述也必须能读到生成事件。
+    projectSnapshot: (s) =>
+      projectSnapshotV2(s, entry.template, entry.lookup.withGenerated(s.generatedEvents)),
     perspective: "world",
     targetPerspective: "player",
     // 集合在模板加载期算一次随 entry 缓存，不按请求重算。

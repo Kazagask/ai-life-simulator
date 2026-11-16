@@ -153,7 +153,10 @@ function projectWorld(world: WorldStateV2, entry: ReadyTemplateEntry) {
   return projectSnapshotV2(
     world,
     entry.template,
-    entry.lookup,
+    // 生成事件属于**这个世界的存档**，不在模板里 ⇒ 投影也必须用带 overlay 的 lookup。
+    // 漏了这一处就会出现"存档里 slot 已经有值、API 却返回 slotEvent: null"——
+    // 事件真的上桌了，只是投影看不见它。
+    entry.lookup.withGenerated(world.generatedEvents),
     evaluateLifeV2(world, entry.evaluationConfig),
     entry.endingConfig?.endings,
   );
@@ -723,7 +726,7 @@ app.post("/api/worlds/:id/turns", async (request, reply) => {
 
   try {
     const tx = await runWorldTransaction(request, id, (world, entry, pipeline) =>
-      advanceTurnV2(world, parsed.data, entry.template, entry.lookup, undefined, pipeline),
+      advanceTurnV2(world, parsed.data, entry.template, entry.lookup.withGenerated(world.generatedEvents), undefined, pipeline),
     );
     // 锁内重取时世界已被删除（并发删档）：与快路径同一响应，不落到 handleEngineError 的 400。
     if (!tx.ok) return reply.code(404).send({ error: "world_not_found" });
@@ -753,7 +756,7 @@ app.post("/api/worlds/:id/events/choose", async (request, reply) => {
 
   try {
     const tx = await runWorldTransaction(request, id, (world, entry, pipeline) =>
-      chooseOptionV2(world, parsed.data, entry.template, entry.lookup, pipeline),
+      chooseOptionV2(world, parsed.data, entry.template, entry.lookup.withGenerated(world.generatedEvents), pipeline),
     );
     if (!tx.ok) return reply.code(404).send({ error: "world_not_found" });
     return {
@@ -780,7 +783,7 @@ app.post("/api/worlds/:id/battle", async (request, reply) => {
 
   try {
     const tx = await runWorldTransaction(request, id, (world, entry, pipeline) =>
-      battleActionV2(world, parsed.data, entry.template, entry.lookup, pipeline),
+      battleActionV2(world, parsed.data, entry.template, entry.lookup.withGenerated(world.generatedEvents), pipeline),
     );
     if (!tx.ok) return reply.code(404).send({ error: "world_not_found" });
     return {
@@ -806,7 +809,7 @@ app.post("/api/worlds/:id/items/use", async (request, reply) => {
   }
 
   try {
-    const res = useItemV2(found.world, parsed.data, found.entry.template, found.entry.lookup, found.entry.pipeline);
+    const res = useItemV2(found.world, parsed.data, found.entry.template, found.entry.lookup.withGenerated(found.world.generatedEvents), found.entry.pipeline);
     worldStore.save(res.state);
     scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
     const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, "player", request.llmProvider);
@@ -847,7 +850,7 @@ app.post("/api/worlds/:id/equipment/equip", async (request, reply) => {
   }
 
   try {
-    const res = equipV2(found.world, parsed.data, found.entry.template, found.entry.lookup);
+    const res = equipV2(found.world, parsed.data, found.entry.template, found.entry.lookup.withGenerated(found.world.generatedEvents));
     worldStore.save(res.state);
     const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, "player", request.llmProvider);
     return { worldId: found.world.id, snapshot };
@@ -867,7 +870,7 @@ app.post("/api/worlds/:id/equipment/unequip", async (request, reply) => {
   }
 
   try {
-    const res = unequipV2(found.world, parsed.data, found.entry.template, found.entry.lookup);
+    const res = unequipV2(found.world, parsed.data, found.entry.template, found.entry.lookup.withGenerated(found.world.generatedEvents));
     worldStore.save(res.state);
     const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, "player", request.llmProvider);
     return { worldId: found.world.id, snapshot };

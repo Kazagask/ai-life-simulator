@@ -1,6 +1,7 @@
 import {
   ContentToolArgsSchemas,
   SetKnowledgeArgsSchema,
+  SubmitBranchArgsSchema,
   TaskDagSchema,
   TaskEdgeSchema,
   TaskNodeSchema,
@@ -122,10 +123,21 @@ export const CONTENT_TOOL_NAMES_ALL = [
  */
 export const CONTROL_TOOL_NAMES = ["content.submit", "content.writeOption"] as const;
 
+/**
+ * 剧情编排工具（AGENTIC-GM 重构）。
+ *
+ * `story.submitBranch` 是**唯一**的写世界结构通道：LLM 提交一整条独立分支
+ * （触发方式 + 完整编排），由引擎编译成事件、按声明的方式调度。
+ * LLM **永远不入队、不占槽** —— 那两条通道（`fact.enqueueEvent` / `fact.upsertDagBranch`）
+ * 在新架构里会被逐步下线。
+ */
+export const STORY_TOOL_NAMES = ["story.submitBranch"] as const;
+
 export const ALL_TOOL_NAMES: readonly string[] = [
   ...FACT_TOOL_NAMES,
   ...CONTENT_TOOL_NAMES_ALL,
   ...CONTROL_TOOL_NAMES,
+  ...STORY_TOOL_NAMES,
 ];
 
 const schemaOf = (
@@ -206,6 +218,78 @@ const CONTENT_DESCRIPTORS: Record<string, ToolDescriptor> = {
 };
 
 const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
+  /**
+   * 剧情编排：提交一整条分支。参数 schema 刻意只暴露**创作语义**——
+   * 触发方式（随机/必然）、条件、事件块、选项去向；槽/队列/权重/DAG 一律不出现。
+   */
+  "story.submitBranch": {
+    name: "story.submitBranch",
+    description:
+      "提交一整条独立的分支（1..12 个事件块）。你只表达三件事：这条分支**怎么触发**、" +
+      "每个事件**是什么**、整条**编排**是什么。引擎会校验后按触发方式调度，你不需要也不允许" +
+      "直接让事件上桌或占槽。" +
+      "要点：① `goto` 只能指向本次提交内的 `node`，跨提交接续既有剧情会被拒；" +
+      "② 同一 invocation 内多次提交的分支互相独立；" +
+      "③ 涉及具体角色时在 `actors` 里列 id，引擎会在呈现前复核其存活/在场（防诈尸）；" +
+      "④ 标记 `mode: \"certain\"` 表示条件满足即发生，`random` 表示有机会发生。" +
+      " —— 照下面这个例子写，注意 **effects 用 type+id，conditions 用 op+args**，两套 DSL 形状不同：" +
+      '{"trigger":{"mode":"certain","conditions":[{"op":"flagSet","args":{"flag":"domainDone","eq":true}}]},' +
+      '"branch":[{"node":"s1","title":"路口","text":"……","actors":["npc-yuji"],' +
+      '"options":[{"text":"推进","effects":[{"type":"setFlag","id":"swept","value":true}],"goto":"s2"}]},' +
+      '{"node":"s2","title":"残渣","text":"……","options":[{"text":"绕开"}]}]}',
+    parameters: schemaOf(
+      {
+        trigger: {
+          type: "object",
+          properties: {
+            mode: { type: "string", enum: ["random", "certain"] },
+            conditions: {
+              type: "array",
+              description:
+                "触发前置条件，**必须用引擎的 condition DSL**：" +
+                '[{"op":"flagSet","args":{"flag":"domainDone","eq":true}}]。' +
+                "不要自创 {factRef,op,value} 这种形状（会被判参数非法）。" +
+                "省略 = 无条件（条件满足即按 mode 调度）。",
+              items: {
+                type: "object",
+                properties: { op: { type: "string" }, args: { type: "object" } },
+                required: ["op", "args"],
+              },
+            },
+          },
+          required: ["mode"],
+        },
+        branch: {
+          type: "array",
+          minItems: 1,
+          maxItems: 12,
+          items: {
+            type: "object",
+            properties: {
+              node: { type: "string", description: "本次提交内的局部别名" },
+              title: { type: "string" },
+              text: { type: "string", description: "玩家在事件区看到的事件正文" },
+              actors: { type: "array", items: { type: "string" } },
+              options: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    text: { type: "string" },
+                    effects: { type: "array", items: { type: "object" } },
+                    goto: { type: "string", description: "本次提交内的另一个 node" },
+                  },
+                  required: ["text"],
+                },
+              },
+            },
+            required: ["node", "title", "text", "options"],
+          },
+        },
+      },
+      ["trigger", "branch"],
+    ),
+  },
   "fact.setKnowledge": {
     name: "fact.setKnowledge",
     description: "给观察者授一条知识（known / inferred）。",
@@ -408,6 +492,24 @@ export function validateToolCall(
       };
     }
     return { ok: true, args };
+  }
+  if (call.name === "story.submitBranch") {
+    // 与引擎同一份 schema：本层先拦明显的形状错误，省一次 dispatch；
+    // 语义级校验（goto 闭合、EventV2 编译、actors 存在性）仍在引擎。
+    const parsed = SubmitBranchArgsSchema.safeParse(call.arguments);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        code: "invalid_arguments",
+        // 带上**字段路径**：zod 的 "Invalid input" 单看没有信息量，
+        // 真实模型照示例写仍会错在 `branch.0.options.0.effects.0` 这种深层位置。
+        detail: `story.submitBranch 参数未通过 schema：${parsed.error.issues
+          .slice(0, 3)
+          .map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`)
+          .join("; ")}`,
+      };
+    }
+    return { ok: true, args: call.arguments };
   }
   if (call.name === "fact.setKnowledge") {
     const batch = isRecord(call.arguments) && Array.isArray(call.arguments.entries)

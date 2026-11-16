@@ -20,12 +20,35 @@ export interface ActionDef {
   effects?: Effect[];
 }
 
-/** 模板快速查找器：跨实体引用集中解析，O(1) 查询。 */
+/**
+ * 模板快速查找器：跨实体引用集中解析，O(1) 查询。
+ *
+ * AGENTIC-GM 重构：`event()` 会增加一层「运行时生成事件」的 overlay。生成事件属于**某个世界**
+ * 的存档，不属于模板，所以不能写进模板对象；做法是本类多带一份只读索引，由
+ * `withGenerated(state.generatedEvents)` 为每个世界派生一个查找器。
+ * **调度器因此零改动**：它拿到的 `EventV2` 与模板事件完全同形。
+ */
 export class TemplateLookup {
-  constructor(readonly template: WorldTemplateV2) {}
+  private readonly generated: Map<string, EventV2> | undefined;
+
+  constructor(
+    readonly template: WorldTemplateV2,
+    generatedEvents: readonly EventV2[] = [],
+  ) {
+    this.generated =
+      generatedEvents.length > 0
+        ? new Map(generatedEvents.map((event) => [event.id, event]))
+        : undefined;
+  }
+
+  /** 为本世界的生成事件派生一个查找器；无生成事件时原样返回（零开销、零行为变化）。 */
+  withGenerated(events: readonly EventV2[] | undefined): TemplateLookup {
+    if (events === undefined || events.length === 0) return this;
+    return new TemplateLookup(this.template, events);
+  }
 
   event(id: string): EventV2 | undefined {
-    return this.template.events.find((e) => e.id === id);
+    return this.generated?.get(id) ?? this.template.events.find((e) => e.id === id);
   }
 
   skill(id: string): Skill | undefined {

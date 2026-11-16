@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CombatSettleSchema } from "./schema/event.js";
+import { CombatSettleSchema, EventV2Schema } from "./schema/event.js";
 import { EndingConfigSchema } from "./schema/ending.js";
 import { EquipmentInstanceSchema } from "./schema/equipment.js";
 import { ScheduledEventInstanceSchema } from "./schema/event-instance.js";
@@ -243,6 +243,12 @@ export const WorldStateV2Schema = z
     firedEvents: z.record(z.string(), z.number().int().nonnegative()),
     /** 唯一队列（ADR-0034 §1）：延时事件队列。改名自 `scheduledEvents`（形状不变）。 */
     delayQueue: z.array(ScheduledEventInstanceSchema),
+    /**
+     * 运行时生成的分支事件定义（AGENTIC-GM 重构）：**追加式**，与模板事件同 schema。
+     * 由 `story.submitBranch` 写入；`TemplateLookup` 查表时优先命中它（overlay）。
+     * 可选 + 缺省 `[]` ⇒ 旧档可直载、无生成内容的世界逐字段不变。
+     */
+    generatedEvents: z.array(EventV2Schema).optional(),
     enqueueSeqCounter: z.number().int().nonnegative(),
     missedEvents: z.array(MissedEventRecordSchema),
     eventFires: z.array(EventFireRecordSchema),
