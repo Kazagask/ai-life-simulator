@@ -392,18 +392,22 @@ const TemplateBranchEventSchema = z
 
 /**
  * 把 `events[].branch`（模板侧分支）展开成普通 `EventV2[]`：
- * - 全局 id = `<eventId>#<node>`；`goto` → `nextEventId`；`goto.after` → 后继事件 `trigger.window.start`；
+ * - **首节点沿用父事件 id**（`<eventId>`，外部 `nextEventId` / `eventResolved` 零改动），
+ *   其余节点 `<eventId>#<node>`；`goto` → `nextEventId`；`goto.after` → 后继 `trigger.window.start`；
  * - 第一个节点继承父事件的 `trigger`，其余节点为 `chain`（只靠 nextEventId 到达）；
  * - 展开后引擎完全不知道"分支"这个概念，复用的仍是普通事件调度。
  *
- * 撞车护栏：展开出的 id 与任何手写事件 id / 另一条分支的展开 id 重复 ⇒ 加载期拒载。
+ * 撞车护栏：首节点复用父 id 属于**自我替换**（先从占位集合摘掉自己的 id）；
+ * 其余展开 id 与任何手写事件 / 另一条分支的展开 id 重复 ⇒ 加载期拒载。
+ *
+ * 真样例见 `specs/data/templates/jjk-shinjuku/1.0.0/events.yaml` 的 `evt:north-counter`。
  */
 function expandTemplateEvents(rawEvents: readonly unknown[]): unknown[] {
-  // 第一遍：非分支事件的 id 先占位（同时守住手写 id 自身重复）。
+  // 第一遍：所有声明的事件 id 先占位（**含 branch 父 id**）；手写 id 自身重复即拒载。
   const ids = new Set<string>();
   for (const raw of rawEvents) {
     const rec = asRecord(raw);
-    if (rec === null || rec.branch !== undefined) continue;
+    if (rec === null) continue;
     if (typeof rec.id === "string") {
       if (ids.has(rec.id)) throw new Error(`events: id 重复：${rec.id}`);
       ids.add(rec.id);
@@ -458,8 +462,13 @@ function expandTemplateEvents(rawEvents: readonly unknown[]): unknown[] {
       }
     }
 
+    // 首节点沿用父 id：先摘掉自己的占位，再逐节点 add（否则会把自己判成撞车）。
+    ids.delete(event.id);
+    const expandedId = (alias: string): string =>
+      alias === event.branch[0]?.node ? event.id : `${prefix}${alias}`;
+
     for (const [index, node] of event.branch.entries()) {
-      const id = `${prefix}${node.node}`;
+      const id = expandedId(node.node);
       if (ids.has(id)) {
         throw new Error(
           `events: branch 展开后的事件 id 撞车：${id}（与手写事件或另一条分支重复）`,
@@ -490,9 +499,9 @@ function expandTemplateEvents(rawEvents: readonly unknown[]): unknown[] {
               ...(option.effects !== undefined ? { effects: option.effects } : {}),
               ...(option.goto !== undefined
                 ? {
-                    nextEventId: `${prefix}${
-                      typeof option.goto === "string" ? option.goto : option.goto.node
-                    }`,
+                    nextEventId: expandedId(
+                      typeof option.goto === "string" ? option.goto : option.goto.node,
+                    ),
                   }
                 : {}),
             })),

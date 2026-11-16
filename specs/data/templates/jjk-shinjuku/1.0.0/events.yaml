@@ -7,7 +7,7 @@
 #       → evt:domain-clash（领域对撞 · 2 选项）
 #         → evt:south-north（★ 分叉点 · 向南／向北）
 #              ├─ 向南 → evt:south-cut   → flag ending=south → end-south（原作）
-#              └─ 向北 → evt:north-counter → evt:north-dawn → flag ending=north → end-north（IF）
+#              └─ 向北 → evt:north-counter（branch: counter → #dawn） → flag ending=north → end-north（IF）
 #
 # 边分两种，用途不同：
 # - 首尾相接的**立即边**（nextEventId）：轮盘 → 战斗 → 领域，玩家一秒都不脱手；
@@ -173,40 +173,33 @@ events:
 
   # ---------- 向北（IF） ----------
 
+  # branch 形态的真样例（P1）：首节点沿用 `evt:north-counter`，其余 `<id>#<node>`。
   - id: evt:north-counter
     title: 半步之后
-    narrative: 你侧过身。那道斩击从鼻尖前面过去，切掉了半条街——但没切到你。宿傩第一次没有笑。他收招的那一瞬间，空隙只有半秒。
     trigger: { source: chain }
-    kind: normal
-    settle:
-      normal:
+    branch:
+      - node: counter
+        title: 半步之后
+        text: 你侧过身。那道斩击从鼻尖前面过去，切掉了半条街——但没切到你。宿傩第一次没有笑。他收招的那一瞬间，空隙只有半秒。
         options:
-          - id: opt-purple
-            text: 就在这半秒里，把「茈」按进去
+          - text: 就在这半秒里，把「茈」按进去
             effects:
               - { type: setFlag, id: northCountered, value: true }
               - { type: adjustMood, value: 8 }
               - { type: adjustAttribute, attribute: cursedEnergy, value: 3 }
-            nextEventId: evt:north-dawn
-          - id: opt-cover
-            text: 先转身把虎杖他们推出去
+            goto: dawn
+          - text: 先转身把虎杖他们推出去
             effects:
               - { type: setFlag, id: savedAllies, value: true }
               - { type: adjustRelation, npcId: npc-yuji, value: 12 }
               - { type: adjustRelation, npcId: npc-megumi, value: 8 }
               - { type: adjustMood, value: 5 }
-            nextEventId: evt:north-dawn
-
-  - id: evt:north-dawn
-    title: 天亮之前
-    narrative: 宿傩退进废墟深处，没有回头。天边泛出一点很淡的颜色，把新宿的玻璃照得像水。你站着，第一次觉得"活着"这件事也需要一点时间去习惯。
-    trigger: { source: chain }
-    kind: normal
-    settle:
-      normal:
+            goto: dawn
+      - node: dawn
+        title: 天亮之前
+        text: 宿傩退进废墟深处，没有回头。天边泛出一点很淡的颜色，把新宿的玻璃照得像水。你站着，第一次觉得"活着"这件事也需要一点时间去习惯。
         options:
-          - id: opt-stand
-            text: 站着，等天亮
+          - text: 站着，等天亮
             effects:
               - { type: setFlag, id: ending, value: north }
               - { type: setFlag, id: endingReached, value: true }
