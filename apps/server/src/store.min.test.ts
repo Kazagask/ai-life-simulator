@@ -21,14 +21,16 @@ const SPEC_TEMPLATES = fileURLToPath(new URL("../../../specs/data/templates", im
 let dataDirPath: string;
 let templatesDirPath: string;
 let entry: ReadyTemplateEntry;
+/** 无 `rules.yaml` 的模板（`jjk-2006`）：用来断「不种 DAG」的零回归那一半。 */
+let legacyEntry: ReadyTemplateEntry;
 
 beforeAll(() => {
-  // 只把 demo-agentic 复制进临时模板根：别的模板目录可能正被其它 worker 编辑，
-  // 启动期 fail-fast 会连坐（本测试只关心 store 持久层）。
+  // 只复制用到的两个模板进临时模板根：别的模板目录可能正被其它 worker 编辑，
+  // 启动期 fail-fast 会连坐（本测试只关心 store 持久层与建局种子）。
   templatesDirPath = mkdtempSync(path.join(tmpdir(), "life-sim-templates-"));
-  cpSync(path.join(SPEC_TEMPLATES, "demo-agentic"), path.join(templatesDirPath, "demo-agentic"), {
-    recursive: true,
-  });
+  for (const id of ["demo-agentic", "jjk-2006"]) {
+    cpSync(path.join(SPEC_TEMPLATES, id), path.join(templatesDirPath, id), { recursive: true });
+  }
   process.env.TEMPLATES_DIR = templatesDirPath;
   dataDirPath = mkdtempSync(path.join(tmpdir(), "life-sim-store-"));
   process.env.LIFE_SIM_DATA_DIR = dataDirPath;
@@ -36,6 +38,9 @@ beforeAll(() => {
   const resolved = registry.resolve({ id: "demo-agentic", version: "1.0.0" });
   if (!resolved) throw new Error("demo-agentic@1.0.0 未加载");
   entry = resolved;
+  const legacy = registry.resolve({ id: "jjk-2006", version: "1.0.0" });
+  if (!legacy) throw new Error("jjk-2006@1.0.0 未加载");
+  legacyEntry = legacy;
 });
 
 afterAll(() => {
@@ -184,5 +189,37 @@ describe("信封版本封闭拒载", () => {
     const { unloadable, loaded } = loadPersistedWorlds(registry);
     expect(unloadable.find((u) => u.id === world.id)).toBeUndefined();
     expect(loaded.some((record) => record.state.id === world.id)).toBe(true);
+  });
+});
+
+/**
+ * ADR-0037 D1：建世界期必须把模板 `rules.fallbackDag` 种进 `state.taskDag`。
+ *
+ * 这条链的断点在生产调用点上（`store.ts` 的 `createWorldV2(...)` 少传第 5 参），
+ * 所以两条都断：正向证明「有 rules ⇒ 种」；反向证明「无 rules ⇒ 逐字段停在空 DAG」。
+ * 只断正向会漏掉「无条件种一个默认 DAG」这种改坏法（jjk-2006 会被凭空塞进节点）。
+ */
+describe("建局 taskDag 种子（ADR-0037 D1 / IO-10）", () => {
+  it("demo-agentic（有 rules.yaml）⇒ 种入 fallbackDag：3 节点、dagId 为模板声明值", () => {
+    const world = worldStore.create(
+      { templateId: "demo-agentic", playerName: "阿种", seed: 3 },
+      entry,
+    );
+    expect(world.taskDag.dagId).toBe("demo-agentic.fallback.v1");
+    expect(world.taskDag.version).toBe(1);
+    expect(world.taskDag.nodes).toHaveLength(3);
+    expect(world.taskDag.nodes.map((n) => n.id)).toEqual(["n1.awaken", "n2.trial", "n3.hiddenSeed"]);
+    // 种子是 structuredClone 进来的，不是 rules 里的对象引用（改动不得反写模板）。
+    expect(world.taskDag.nodes[0]).not.toBe(entry.rules?.fallbackDag.nodes[0]);
+  });
+
+  it("jjk-2006（无 rules.yaml）⇒ taskDag 停在空 DAG，dagId 仍是 initial", () => {
+    const world = worldStore.create(
+      { templateId: "jjk-2006", playerName: "阿空", seed: 3 },
+      legacyEntry,
+    );
+    expect(world.taskDag.dagId).toBe("initial");
+    expect(world.taskDag.nodes).toHaveLength(0);
+    expect(world.taskDag.edges).toHaveLength(0);
   });
 });

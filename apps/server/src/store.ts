@@ -440,7 +440,13 @@ export const worldStore = {
    * 同时写入「内存快照」与「固化 ref」——一条 record 两面。
    */
   create(input: CreateWorldInputV2, entry: ReadyTemplateEntry): WorldStateV2 {
-    const base = createWorldV2(input, entry.template, randomUUID());
+    // ADR-0037 D1 / IO-10：`rules` 必须**从生产调用点**传进来，否则建世界期不会种
+    // `fallbackDag` ⇒ `state.taskDag` 永远是 `createWorldV2` 的硬编码空壳（`initial` / 0 节点），
+    // 而 `chapter.advance`（`nodeCompleted n1.awaken`）永远为假。
+    // 第 4 参 `ctx` 刻意仍传 `undefined`：不传 ctx ⇒ 沿用 `Math.random()` 派生 seed 的既有口径，
+    // 改成 `createRunnerContext(...)` 会改变建局 seed 的来源，破坏确定性复现。
+    // 无 `rules.yaml` 的模板（如 jjk-2006）`entry.rules === undefined` ⇒ 逐字段停在空 DAG。
+    const base = createWorldV2(input, entry.template, randomUUID(), undefined, entry.rules);
     // 开局为可选分域：提供 opening.yaml 时跑自定义开局，否则用最小默认开局；
     // 两条路径都执行 runOpening + handoff，使新世界 openingCompleted === true。
     // 本轮按 openingId 选择（R-OP-01）；未指定时取加载顺序首个。
