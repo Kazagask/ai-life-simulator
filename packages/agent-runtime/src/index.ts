@@ -17,7 +17,6 @@ export type { BuiltLlmContext, LlmContextDeps } from "./context.js";
 
 export {
   ALL_TOOL_NAMES,
-  CONTENT_TOOL_NAMES_ALL,
   CONTROL_TOOL_NAMES,
   buildToolDescriptors,
   resolveToolNames,

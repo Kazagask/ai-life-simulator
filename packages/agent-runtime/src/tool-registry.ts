@@ -1,8 +1,6 @@
 import {
-  ContentToolArgsSchemas,
   SubmitBranchArgsSchema,
   type ApiCall,
-  type Perspective,
   type RulesTemplate,
   type ToolDescriptor,
 } from "@life-sim/shared";
@@ -12,23 +10,16 @@ import { READ_TOOL_NAMES, isReadTool } from "./read-tools.js";
  * T-03：能力画像 → 工具描述（OpenAI `tools` 结构）+ 第 1 层参数校验 + ApiCall 翻译。
  *
  * ---------- 已知契约缺口（不改契约，只在此存档；改动需走协议评审） ----------
- * [缺口 3] `WriteNarrativeArgsSchema` / `WriteMemoryArgsSchema` 等 LLM 侧 args 没有 `kind` /
- *          `visibility`，而 game-core 的 `writeContent` 直接 `ContentBlockSchema.parse(args)`。
- *          本包在 `toApiCall` 里补齐 kind / visibility / 默认 targetPerspective 作为桥接；
- *          若将来把 ContentBlock 形状搬到工具 schema，可删掉这层翻译。
  * [缺口 4] `LlmInvocation` 不带 `turnIndex` / `worldTime`，loop 只能从
  *          `engineApi.snapshot()` 读时钟。当 server 注入 `projectSnapshotV2` 时，trace 的
  *          时钟字段就依赖投影路径；若要「trace 可脱离投影独立回放」，应把时钟放进 invocation。
- * [缺口 5] `content.writeOption.optionId` 在 `ContentBlock` 上没有落点，引擎边界会丢弃它，
- *          只剩 `blockId` 可做稳定 key。当前前端提交的是选项 `text`，故可接受；
- *          若将来要「选项 → 事件分支」精确映射，需要在 ContentBlock 上补 optionId 字段。
  *
  * 硬不变量：
  * - 工具调用走**结构化** `tools` / `tool_calls`，本文件绝不从自由文本里正则抠工具名。
  * - 工具名集合是封闭的（与 game-core 的 `RpgEngineAPI` 注册表逐字一致）；
  *   能力画像 `rules.toolProfile[name]` 只能**收窄**，不能新增。
- * - `content.*` 的 args 在这里补齐 `kind` / `visibility` / `targetPerspective`，
- *   翻译成 game-core 校验的完整 `ContentBlock`；正文仍只进 sink，不进 `WorldStateV2`。
+ * - 写世界只有 `story.submitBranch`；叙事正文只来自 `delta.content` 的
+ *   `<narrative-content>` 标签（loop 落 sink / trace），不走工具面。
  */
 
 // ---------- Provider 抽象（本包私有，不进 shared 契约） ----------
@@ -96,25 +87,6 @@ export interface AgentProvider {
  * **不要**为了兼容把任何一个加回工具面 —— 模型看到它们就会调用，幻觉与 `unknown_tool` 随之而来。
  */
 
-/** 内容写入工具（与 game-core `defaultToolRegistry()` 对齐）。 */
-/**
- * 叙事写入工具（与 game-core `defaultToolRegistry()` 对齐）：**只剩两个**。
- * `writeOption` / `writeMemory` / `referenceAsset` 已从函数层删除，理由见引擎注册处注释。
- */
-export const CONTENT_TOOL_NAMES_ALL = ["narrative.write", "narrative.flavor"] as const;
-
-/**
- * 常驻工具（不受能力画像收窄影响）：**只留 `agent.submit`**。
- *
- * `agent.submit` 是唯一的「提交」终止信号，缺了它一次 invocation 永远进不了 committed，
- * 任何画像都必须有它。
- *
- * `content.writeOption` **已从常驻里移除**（AGENTIC-GM 重构）：选项是**事件的一部分**
- * （`story.submitBranch` 里的 `options`，带真 optionId、由引擎呈现），不是模型写的一段文本。
- * 它曾经因为"早期 demo 画像漏列"被当常驻兜底，结果是 **gm 画像也照样能写文本选项** ——
- * 前端把它渲染成黄色胶囊，看起来像选项，点下去却只能按自由行动受理，和事件面板里的
- * 真选项是两套东西。画像不列 = 不下发，这才是"能力由画像与槽状态共同决定"。
- */
 /**
  * 常驻工具：**空**。
  *
@@ -135,7 +107,6 @@ export const CONTROL_TOOL_NAMES: readonly string[] = [];
 export const STORY_TOOL_NAMES = ["story.submitBranch"] as const;
 
 export const ALL_TOOL_NAMES: readonly string[] = [
-  ...CONTENT_TOOL_NAMES_ALL,
   ...CONTROL_TOOL_NAMES,
   ...STORY_TOOL_NAMES,
   ...READ_TOOL_NAMES,
@@ -150,32 +121,6 @@ const schemaOf = (
   required,
   additionalProperties: false,
 });
-
-const contentRefsSchema = {
-  type: "array",
-  items: { type: "string" },
-  description: "本次内容引用的事实 / DAG / 资源引用 id（必须落在 targetPerspective 窗口内）",
-};
-
-const CONTENT_DESCRIPTORS: Record<string, ToolDescriptor> = {
-  "narrative.write": {
-    name: "narrative.write",
-    description: "写入一段叙事正文（只进 trace，不进权威状态）。",
-    // 只要求 text：blockId / refs / targetPerspective 由运行时补齐（toApiCall）。
-    parameters: schemaOf(
-      { text: { type: "string", minLength: 1, description: "叙事正文（中文）" } },
-      ["text"],
-    ),
-  },
-  "narrative.flavor": {
-    name: "narrative.flavor",
-    description: "写入风味文本（环境描写）。",
-    parameters: schemaOf(
-      { text: { type: "string", minLength: 1, description: "环境描写" } },
-      ["text"],
-    ),
-  },
-};
 
 const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
   /**
@@ -351,8 +296,7 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
   },
 };
 
-const descriptorOf = (name: string): ToolDescriptor | undefined =>
-  FACT_DESCRIPTORS[name] ?? CONTENT_DESCRIPTORS[name];
+const descriptorOf = (name: string): ToolDescriptor | undefined => FACT_DESCRIPTORS[name];
 
 /** 画像里列出、但本包不认识（引擎也没注册）的工具名，供诊断 / 契约漂移测试断言。 */
 export function unknownProfileTools(
@@ -405,14 +349,6 @@ export type ArgValidation =
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
-const CONTENT_SCHEMA_BY_TOOL: Record<
-  string,
-  (typeof ContentToolArgsSchemas)[keyof typeof ContentToolArgsSchemas]
-> = {
-  "narrative.write": ContentToolArgsSchemas.writeNarrative,
-  "narrative.flavor": ContentToolArgsSchemas.writeFlavor,
-};
-
 /**
  * 第 1 层校验：工具名 ∈ 允许表面、args 是对象、通过 shared Zod schema。
  * 失败即 FATAL（unknown_tool / invalid_arguments），**不消耗**重试额度。
@@ -437,27 +373,6 @@ export function validateToolCall(
   if (!isRecord(call.arguments)) {
     return { ok: false, code: "invalid_arguments", detail: `${call.name} 的 arguments 不是对象` };
   }
-  /**
-   * 第 1 层只校验**模型真正能决定的那部分**：正文/资源引用。
-   *
-   * `blockId` / `refs` / `targetPerspective` 是运行时簿记（调用身份、引用集、视角），
-   * 由 `toApiCall` 补齐，不该要求模型生成 —— 实测 glm-5.3 在这三个字段上反复失败：
-   * 一次给空对象，一次给 `body`，一次给 `narrative`，还有一次给了跨轮重复的 `blockId`。
-   * 让模型猜簿记字段，只会把"可修的格式错误"变成整轮作废。
-   *
-   * 完整校验仍然发生：`toApiCall` 归一化之后，引擎侧 handler 用同一套 strict schema 解析。
-   */
-  if (CONTENT_SCHEMA_BY_TOOL[call.name] !== undefined) {
-    const args = call.arguments;
-    if (typeof args.text !== "string" || args.text.trim().length === 0) {
-      return {
-        ok: false,
-        code: "invalid_arguments",
-        detail: `${call.name} 需要 text（非空字符串，正文内容）`,
-      };
-    }
-    return { ok: true, args };
-  }
   if (call.name === "story.submitBranch") {
     // 与引擎同一份 schema：本层先拦明显的形状错误，省一次 dispatch；
     // 语义级校验（goto 闭合、EventV2 编译、actors 存在性）仍在引擎。
@@ -479,61 +394,17 @@ export function validateToolCall(
   return { ok: false, code: "unknown_tool", detail: `无参数契约的工具：${call.name}` };
 }
 
-// ---------- 第 1.5 层：LLM args → ContentBlock / ApiCall ----------
-
-/** 叙事工具 → 内容块 kind。只剩两个：正文与旁注（option/memory/asset 已删）。 */
-const CONTENT_KIND_BY_TOOL: Record<string, string> = {
-  "narrative.write": "narrative",
-  "narrative.flavor": "flavor",
-};
-
-const asPerspective = (v: unknown): Perspective | undefined => {
-  if (typeof v !== "string") return undefined;
-  if (v === "world" || v === "player" || v.startsWith("npc:")) return v as Perspective;
-  return undefined;
-};
+// ---------- 第 1.5 层：LLM args → ApiCall ----------
 
 /**
- * 把 LLM 侧 args（`WriteNarrativeArgs` 等）翻译成引擎侧完整 `ContentBlock`，
- * 再包成 `ContentCall`。`targetPerspective` **不做纠正**：LLM 写错就让它撞
- * `visibility_violation`（RETRYABLE，带 factsHint 回灌），这正是分支①要练的路径。
+ * LLM args 直通引擎：写世界只剩 `story.submitBranch`，读工具不经过 dispatch。
+ * 不再有 `content.*` 的 args→ContentBlock 翻译（叙事正文从 `<narrative-content>` 标签来，
+ * 由 loop 直接落 sink / trace）。
  */
 export function toApiCall(
   tool: string,
   args: Record<string, unknown>,
-  ctx: { callId: string; targetPerspective: Perspective },
+  ctx: { callId: string },
 ): ApiCall {
-  if (tool === "agent.submit") {
-    return { callId: ctx.callId, tool, args };
-  }
-  const kind = CONTENT_KIND_BY_TOOL[tool];
-  if (kind === undefined) {
-    return { callId: ctx.callId, tool, args };
-  }
-  const refs = Array.isArray(args.refs)
-    ? args.refs.filter((r): r is string => typeof r === "string")
-    : [];
-  const declaredTarget = asPerspective(args.targetPerspective);
-  // `writeMemory` 已删：记忆由引擎按模板 knowledgeGrants 授予，不是 AI 写的。
-  const observerTarget = undefined;
-  /**
-   * `blockId` 由运行时补齐，**不要求模型生成**。
-   *
-   * 真实模型实测（glm-5.3）：它要么不给 blockId，要么给一个跨轮重复的 `"b1"` —— 前者过不了
-   * 必填校验，后者会让两块正文撞同一个 id（前端 key 冲突）。而 blockId 本来就是
-   * 「这次调用的身份」，运行时手里有唯一确定的 `callId`，没有任何理由让模型去编。
-   */
-  const blockId =
-    typeof args.blockId === "string" && args.blockId.length > 0 ? args.blockId : ctx.callId;
-  const block: Record<string, unknown> = {
-    blockId,
-    kind,
-    refs,
-    visibility: "public",
-    targetPerspective: declaredTarget ?? observerTarget ?? ctx.targetPerspective,
-  };
-  if (typeof args.text === "string") block.text = args.text;
-  if (typeof args.assetId === "string") block.assetId = args.assetId;
-  if (typeof args.slot === "string") block.slot = args.slot;
-  return { callId: ctx.callId, tool, args: block, refs };
+  return { callId: ctx.callId, tool, args };
 }

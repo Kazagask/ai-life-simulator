@@ -13,8 +13,8 @@ import { traceFile } from "../store.js";
  *    ⇒ **整块丢弃**。T-05a 裁决：hidden 块**不**替换成 `maskText`，`maskText` 永不下发。
  *
  * ③的 refs 判据用 game-core 的 `allowedContentRefs(state,"player")`——**与写侧
- * `narrative.write` 完全同一集合**（窗口可见事实 ∪ `flag:*` ∪ 公开 DAG 节点；
- * npc 隐秘 / hidden DAG 节点只在 world 窗口出现）。读侧若用更窄的 `visibleFactRefs`，
+ * （`recordNarrative` / loop 的标签块）完全同一集合**（窗口可见事实 ∪ `flag:*`；
+ * npc 隐秘只在 world 窗口出现）。读侧若用更窄的 `visibleFactRefs`，
  * 会把写侧已验收的块（例如引用 `flag:*` 的块）判成越窗 ⇒ 正文永久读不出来；
  * 防御纵深针对的是 world 窗口写入的隐秘引用，这一集合同样挡住。
  *

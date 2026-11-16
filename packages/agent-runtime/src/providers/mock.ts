@@ -13,11 +13,11 @@ import {
  *
  * 产品口径（用户裁决）：「点击为主，打字输入为辅」——**每一回合**都要给出可点动作；
  * 只产出散文的一回合等于坏回合。回合内按 loop 的 dispatch 轮次推进：
- *   ① 叙事（narrative.write）
+ *   ① 叙事正文（`content` 里的 `<narrative-content>` 标签，逐片 `onDelta`）
  *   ② 分支（可选：story.submitBranch —— 提交一条单节点分支，由引擎调度上桌）
- *   ③ 旁注（narrative.flavor；选项属于事件块，不再由 LLM 写）
- *   ④ 结束（不再发 tool call，运行时补一次内部提交做记账）
- * 因此 `contentBlocks` 顺序恒为 narrative → flavor，前端按 kind 渲染。
+ *   ③ 结束（不再发 tool call，运行时补一次内部提交做记账）
+ * 因此 `contentBlocks` 只有叙事块（narrative）；`narrative.write` / `narrative.flavor`
+ * 已从工具面删除（2026-11-17）。
  *
  * ② 只在调用上下文声明了 `branchEventIds`（模板声明"本 invocation 可写分支"）时发生。
  * 它只是**能力信号**：提交内容由 mock 确定性生成，事件 id 由引擎分配 —— `contextHints`
@@ -447,28 +447,6 @@ async function streamNarrative(req: AgentChatRequest, text: string): Promise<voi
   }
 }
 
-/**
- * ② 旁注轮：只发 flavor（确实是叙事文本）。
- *
- * `content.writeOption` 已从函数层删除（AGENTIC-GM 重构）——"写一个选项"在语义上就是错的：
- * 选项是事件块里的 `options`，由引擎分配 id、由事件面板呈现。想给玩家选择，正确做法是
- * `story.submitBranch` 提交一条带 options 的分支。
- */
-function optionCalls(view: MockContextView, available: Set<string>): ToolCallRequest[] {
-  const calls: ToolCallRequest[] = [];
-  if (!available.has("narrative.flavor")) return calls;
-  const title = sanitizeProse(recentTitle(view.recentTurns) ?? undefined);
-  const flavor = title === null ? null : sanitizeProse(`${title}的余韵还没散去，空气里有细微的变动。`);
-  if (flavor !== null) {
-    calls.push({
-      id: `${view.invocationId}:call:flavor`,
-      name: "narrative.flavor",
-      arguments: { text: flavor },
-    });
-  }
-  return calls;
-}
-
 export class MockAgentProvider implements AgentProvider {
   readonly id = "mock" as const;
 
@@ -502,10 +480,6 @@ export class MockAgentProvider implements AgentProvider {
     } else if (branch.length > 0 && !emitted.has(BRANCH_TOOL)) {
       // 分支轮：正文与 tool_calls 同轮返回（content + tool_calls 可以并存）。
       toolCalls.push(...branch);
-    } else if (!emitted.has("narrative.flavor")) {
-      // 有正文后补一句旁注；产不出来就直接收尾。
-      const extra = optionCalls(view, available);
-      if (extra.length > 0) toolCalls.push(...extra);
     }
     // 末轮：不再发 `agent.submit`（已从工具面移除）。返回空 toolCalls ⇒ 循环自然退出、
     // 由运行时补一次内部提交做记账。

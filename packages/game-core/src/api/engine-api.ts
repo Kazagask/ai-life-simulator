@@ -1,5 +1,4 @@
 import {
-  ContentBlockSchema,
   DIAGNOSTIC_CODES,
   CharacterSchema,
   EventV2Schema,
@@ -7,7 +6,6 @@ import {
   type BranchEffect,
   type ApiCall,
   type CallReceipt,
-  type ContentBlock,
   type DiagnosticCode,
   type DispatchContext,
   type DispatchResult,
@@ -26,11 +24,7 @@ import {
   type V2Snapshot,
   type WorldStateV2,
 } from "@life-sim/shared";
-import {
-  allowedContentRefs,
-  applyKnowledgeBatch,
-  buildFacts as computeFacts,
-} from "./perspective.js";
+import { applyKnowledgeBatch, buildFacts as computeFacts } from "./perspective.js";
 import { createContentSink, type ContentSink } from "../v2/narrative.js";
 
 /**
@@ -45,8 +39,8 @@ import { createContentSink, type ContentSink } from "../v2/narrative.js";
  * - 幂等：`idempotencyKey` 重复 ⇒ `idempotency_conflict`（FATAL）。
  * - `CallReceipt` 带 `changes` / `factsHint`。
  * - `state.slot` 的唯一写入收敛到本文件的 `assignSlot`（见 turn.ts 收敛）。
- * - F3：叙事正文只进 `ContentSink`（trace），绝不进 `WorldStateV2`；`content.*` 的 refs
- *   经 `allowedContentRefs` 做窗口校验，越窗 ⇒ `visibility_violation`（RETRYABLE）。
+ * - F3：叙事正文只进 `ContentSink`（trace），绝不进 `WorldStateV2`；正文由 agent-runtime
+ *   的 loop（标签块）或服务端 `recordNarrative` 直接 append，不再经工具 handler。
  * - F4：窗口计算（buildFacts）由 game-core 拥有，agent-runtime 不得自建判据。
  */
 
@@ -120,7 +114,6 @@ export type ToolRunResult =
     };
 
 export interface ToolRunEnv {
-  sink: ContentSink;
   /**
    * 模板纯函数查表（可选）。`story.submitBranch` 的节点级 `npcs` 需要把
    * alias → 角色 id → 刷新规则 id 三选一解析并拒掉未知引用；缺省时退化为
@@ -493,47 +486,6 @@ const submitBranch: ToolHandler = {
 };
 
 /**
- * content.* 共用处理器（F4，追加2）：窗口校验 + 正文进 sink（不写 state）+ 媒体锚点。
- *
- * 硬不变量：**绝不采信 args 自带的窗口**。dispatch 第 2 层只以 ctx.targetPerspective
- * 为权威验收窗口；args 里若带 targetPerspective 且 !== ctx.targetPerspective，
- * 立即 visibility_violation（RETRYABLE，带 factsHint）。refs[] 也只比对该权威窗口。
- */
-const writeContent: ToolHandler = {
-  run(state, args, ctx, env) {
-    const parsed = ContentBlockSchema.safeParse(args);
-    if (!parsed.success) return rejected("invalid_arguments", "content 块未通过 ContentBlockSchema");
-    const block: ContentBlock = parsed.data;
-    const target: Perspective = ctx.targetPerspective;
-    if (block.targetPerspective !== target) {
-      return rejected(
-        "visibility_violation",
-        `args.targetPerspective (${block.targetPerspective}) 不等于权威窗口 ${target}（F4）`,
-        { targetPerspective: target, received: block.targetPerspective },
-      );
-    }
-    const allowed = allowedContentRefs(state, target);
-    const violations = block.refs.filter((r) => !allowed.has(r));
-    if (violations.length > 0) {
-      return rejected(
-        "visibility_violation",
-        `refs 越出 ${target} 窗口：${violations.join(", ")}`,
-        { allowedRefs: [...allowed], violations },
-      );
-    }
-    env.sink.append(block);
-    const changes: FactChange[] = [
-      { path: `trace.contentBlocks.${block.blockId}`, after: block.blockId },
-    ];
-    if (block.assetId !== undefined && block.slot !== undefined) {
-      state.media = [...(state.media ?? []), { slot: block.slot, assetId: block.assetId }];
-      changes.push({ path: `media.${block.slot}`, after: block.assetId });
-    }
-    return accepted(changes);
-  },
-};
-
-/**
  * `agent.submit`：invocation 正常落地的终止点。
  *
  * F3：traceRef 是 trace 的引用锚；正文仍只在 sink，不进 state。
@@ -557,18 +509,10 @@ function defaultToolRegistry(): Map<string, ToolHandler> {
   const map = new Map<string, ToolHandler>();
   map.set("story.submitBranch", submitBranch);
   /**
-   * 叙事写入只留两个：`narrative.write`（正文）/ `narrative.flavor`（环境旁注）。
-   *
-   * 删除的三个，理由各不相同：
-   * - `content.writeOption`：**"写一个选项"在语义上就是错的** —— 选项是事件块里的
-   *   `options`，由引擎分配 id、由事件面板呈现；它不是叙事，不该有"写"的入口。
-   * - `content.writeMemory`：记忆是**知识台账**，由模板 `knowledgeGrants` 授予。
-   * - `content.referenceAsset`：媒体挂载不是叙事；将来接资产应作为 `narrative.write`
-   *   的可选参数（`assetId`），而不是独立工具。
+   * 叙事正文不走工具面：只来自 `delta.content` 的 `<narrative-content>` 标签，
+   * 由 agent-runtime 的 loop 合成 ContentBlock 后直接落 sink / trace。
+   * `narrative.write` / `narrative.flavor` 已于 2026-11-17 从工具面删除。
    */
-  for (const name of ["narrative.write", "narrative.flavor"]) {
-    map.set(name, writeContent);
-  }
   map.set("agent.submit", submitContent);
   return map;
 }
@@ -606,7 +550,6 @@ export class RpgEngineAPI implements EngineApiHandle {
     }
     this.env = {
       ...(deps.lookup ? { lookup: deps.lookup } : {}),
-      sink: this.sink,
     };
   }
 

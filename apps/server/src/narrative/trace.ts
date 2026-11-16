@@ -6,10 +6,9 @@ import {
   type WorldStateV2,
 } from "@life-sim/shared";
 import {
-  RpgEngineAPI,
+  allowedContentRefs,
   buildContentTrace,
-  projectSnapshotV2,
-  visibleFactRefs,
+  createContentSink,
 } from "@life-sim/game-core";
 import type { ReadyTemplateEntry } from "../templates.js";
 import { appendTrace, worldStore } from "../store.js";
@@ -18,10 +17,12 @@ import { appendTrace, worldStore } from "../store.js";
  * F3 / T-07 写入侧：把服务端自己产出的叙事（结局 / 人生总结 / 后续生产消费方）
  * 送进 `ContentSink` → `LlmTrace` → append-only `<worldId>.trace.jsonl`。
  *
- * 为什么必须走 `RpgEngineAPI.dispatch` 而不是直接 `appendTrace`：
- * - `narrative.write` 是唯一的正文写入口，窗口校验（`allowedContentRefs`）在引擎内完成，
- *   server 不能自建可见性判据（F4）；
- * - 回程对象（`sink`）由引擎持有，`buildContentTrace(sink, base)` 才能拿到真正的内容块。
+ * 为什么不是直接 `appendTrace`：
+ * - 正文必须先过窗口校验（`allowedContentRefs`，game-core 的唯一实现），server 不能
+ *   自建可见性判据（F4）；
+ * - `buildContentTrace(sink, base)` 是 trace 的唯一组装入口。
+ * `narrative.write` 工具已删除（2026-11-17）：服务端产出的正文直接 append 到这个 sink，
+ * 与 agent-runtime 的 `<narrative-content>` 标签路径共用同一条落盘链路。
  *
  * 硬不变量：
  * - 正文**只**进 trace，`WorldStateV2` 只留下 `traceRef`（`trace:${invocationId}`）；
@@ -58,18 +59,16 @@ export function recordNarrative(
   const invocationId = `narr:${state.id}:${turnIndex}:${randomUUID()}`;
   const templateRef = `${entry.ref.id}@${entry.ref.version}`;
 
-  const engineApi = new RpgEngineAPI({
-    state,
-    projectSnapshot: (s) =>
-      projectSnapshotV2(s, entry.template, entry.lookup),
-  });
+  const sink = createContentSink();
 
-  // 写侧也过滤一遍 refs：`narrative.write` 会以 `allowedContentRefs` 拒收越窗引用，
-  // 但整块被拒会丢掉合法正文；这里先把不可见 ref 摘掉，保留正文本身。
-  const visible = visibleFactRefs(state, "player");
-  const calls = input.blocks.map((block, index) => {
-    const refs = (block.refs ?? []).filter((ref) => visible.has(ref));
-    const args: ContentBlock = {
+  /**
+   * 写侧过滤 refs：与已删除的 `narrative.write` 同一集合（`allowedContentRefs`）。
+   * 越窗的 ref 先摘掉、保留正文本身；整块被拒会丢掉合法叙事。
+   */
+  const allowed = allowedContentRefs(state, "player");
+  for (const block of input.blocks) {
+    const refs = (block.refs ?? []).filter((ref) => allowed.has(ref));
+    const full: ContentBlock = {
       blockId: block.blockId,
       kind: block.kind ?? "narrative",
       text: block.text,
@@ -77,26 +76,13 @@ export function recordNarrative(
       visibility: "public",
       targetPerspective: "player",
     };
-    return {
-      callId: `${invocationId}#${index}`,
-      tool: "narrative.write",
-      args,
-      refs,
-    };
-  });
+    sink.append(full);
+  }
 
-  engineApi.dispatch(calls, {
-    turnIndex,
-    worldTime,
-    invocationId,
-    perspective: "world",
-    targetPerspective: "player",
-  });
-
-  if (engineApi.sink.list().length === 0) return null;
+  if (sink.list().length === 0) return null;
 
   const trace: LlmTrace = LlmTraceSchema.parse(
-    buildContentTrace(engineApi.sink, {
+    buildContentTrace(sink, {
       invocationId,
       turnIndex,
       worldTime,

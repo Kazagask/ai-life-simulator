@@ -88,8 +88,8 @@ function toOpenAiMessages(messages: readonly AgentMessage[]): unknown[] {
           id: call.id,
           type: "function",
           // 与 `toOpenAiTools` 同一张映射：回放的 assistant 历史里也必须用出网名，
-          // 否则网关会看到「历史里叫 narrative.write、工具表里叫
-          // content_writeNarrative」两套名字，重试轮直接 400。
+          // 否则网关会看到「历史里叫 story.submitBranch、工具表里叫
+          // story_submitBranch」两套名字，重试轮直接 400。
           function: { name: toWireName(call.name), arguments: JSON.stringify(call.arguments) },
         })),
       };
@@ -107,13 +107,13 @@ function toOpenAiMessages(messages: readonly AgentMessage[]): unknown[] {
 
 /**
  * 工具名出网映射：OpenAI 规范（以及绝大多数兼容网关）要求 function name 只含
- * `[a-zA-Z0-9_-]`、最长 64，**不允许点号**。我们内部用点号分层（`narrative.write`
- * / `story.submitBranch`），这是可读性与分组的好处，但在线上一律转成下划线：
- * `narrative_write`。
+ * `[a-zA-Z0-9_-]`、最长 64，**不允许点号**。我们内部用点号分层（`story.submitBranch`
+ * / `world.now`），这是可读性与分组的好处，但在线上一律转成下划线：
+ * `story_submitBranch`。
  *
  * 只在**这一层边界**转换：内部（模板画像、注册表、trace、测试）仍用点号，模型看到的
  * 是下划线，收回来时按同一张表转回。不转的话实测会被网关直接 400：
- * `tool name "narrative.write" is invalid (allowed: letters, digits, "_" and "-")`
+ * `tool name "story.submitBranch" is invalid (allowed: letters, digits, "_" and "-")`
  * —— 这条以前被 mock 掩盖了（mock 不校验名字）。
  */
 function toWireName(name: string): string {
