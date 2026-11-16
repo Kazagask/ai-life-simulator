@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ContentBlockVM } from "@life-sim/shared";
 import { NarrativeStream, durationFor, prefersReducedMotion, revealStep, typingIndex } from "./NarrativeStream.js";
+import { OptionDeck } from "./OptionDeck.js";
 
 /**
  * 打字机：节奏函数 + 渲染面的静态断言。
@@ -83,12 +84,17 @@ describe("SSR / 首帧不逐字（node 环境无 window ⇒ 按 reduce 处理）
     expect(html).toContain(text);
   });
 
-  it("选项块永不被截断：narrative 在打字，选项文本仍完整（少一个字就点错指令）", () => {
+  it("选项不在叙事流里：打字机永远截不到选项文案，选项由 OptionDeck 原样输出", () => {
     const text = "你站在岔路口。";
     const option = "沿着溪水往上游走";
     const content = [block("n1", "narrative", text), block("o1", "option", option)];
-    const html = renderToStaticMarkup(createElement(NarrativeStream, { content }));
-    expect(html).toContain(text);
-    expect(html).toContain(option);
+
+    const stream = renderToStaticMarkup(createElement(NarrativeStream, { content }));
+    expect(stream).toContain(text);
+    expect(stream).not.toContain(option);
+
+    // 同一份块交给事件区：文案完整（选项是「要点」，一个字都不能少）
+    const deck = renderToStaticMarkup(createElement(OptionDeck, { blocks: [content[1] as ContentBlockVM] }));
+    expect(deck).toContain(option);
   });
 });

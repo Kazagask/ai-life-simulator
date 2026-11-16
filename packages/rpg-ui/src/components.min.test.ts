@@ -13,6 +13,7 @@ import { ActionBar } from "./ActionBar.js";
 import { CgStage, isCgSlot } from "./CgStage.js";
 import { EventStage } from "./EventStage.js";
 import { NarrativeStream, renderOptionBlock } from "./NarrativeStream.js";
+import { OptionDeck } from "./OptionDeck.js";
 import { Portrait } from "./Portrait.js";
 import { isVisualSlot } from "./slots.js";
 import { StatusBars } from "./StatusBars.js";
@@ -283,7 +284,7 @@ describe("EventStage", () => {
 });
 
 describe("NarrativeStream", () => {
-  it("按入参顺序渲染，并按 kind 分派渲染器", () => {
+  it("按入参顺序渲染，并按 kind 分派渲染器（option 块被剔除，不进叙事流）", () => {
     const html = render(
       h(NarrativeStream, {
         content: [
@@ -295,34 +296,26 @@ describe("NarrativeStream", () => {
       }),
     );
     const i1 = html.indexOf("雨声渐密。");
-    const i2 = html.indexOf("敲门");
     const i3 = html.indexOf("炉火噼啪。");
     const i4 = html.indexOf("你想起母亲。");
     expect(i1).toBeGreaterThan(-1);
-    expect(i1).toBeLessThan(i2);
-    expect(i2).toBeLessThan(i3);
-    expect(i3).toBeLessThan(i4);
-    expect(html).toContain("ls-choice");
+    expect(i3).toBeGreaterThan(i1);
+    expect(i4).toBeGreaterThan(i3);
+    // 契约：叙事区只放散文 —— 选项文案与 `.ls-choice` 都不该出现在这里
+    expect(html).not.toContain("敲门");
+    expect(html).not.toContain("ls-choice");
     expect(html).toContain("ls-narrative__block--flavor");
     // 未注册的 kind 按正文渲染（服务端新增内容块类型不会让前端崩）
     expect(html).toContain('data-kind="memory"');
   });
 
-  it("选项块是第二点击面：有 onAct 时渲染可点按钮，无 onAct 时只作展示", () => {
-    const interactive = render(
-      h(NarrativeStream, {
-        content: [{ blockId: "o1", kind: "option", text: "先退半步" }],
-        onAct: () => {},
-      }),
+  it("全是 option 块的 content ⇒ 空态文案，而不是空容器（选项归事件区）", () => {
+    const html = render(
+      h(NarrativeStream, { content: [{ blockId: "o1", kind: "option", text: "先退半步" }], onAct: () => {} }),
     );
-    expect(interactive).toMatch(/<button[^>]*class="ls-choice"/);
-    expect(interactive).toContain("先退半步");
-
-    const readOnly = render(
-      h(NarrativeStream, { content: [{ blockId: "o1", kind: "option", text: "先退半步" }] }),
-    );
-    expect(readOnly).not.toContain("<button");
-    expect(readOnly).toContain("ls-choice--static");
+    expect(html).toContain("ls-narrative__empty");
+    expect(html).not.toContain("ls-choice");
+    expect(html).not.toContain("先退半步");
   });
 
   it("renderers 可覆盖单个 kind，未知 kind 仍回退正文", () => {
@@ -487,18 +480,6 @@ describe("NarrativeStream", () => {
     expect(screenImages({ content: [asBlock("p.lucy")], media: [lucy] })).toEqual([]);
   });
 
-  it("disabled 时选项按钮置灰且带 aria-disabled", () => {
-    const html = render(
-      h(NarrativeStream, {
-        content: [{ blockId: "o1", kind: "option", text: "先退半步" }],
-        onAct: () => {},
-        disabled: true,
-      }),
-    );
-    expect(html).toMatch(/<button[^>]*disabled/);
-    expect(html).toContain('aria-disabled="true"');
-  });
-
   it("disabled 时点击不会触发 onAct（不依赖浏览器 disabled 语义）", () => {
     const spy = vi.fn();
     const node = renderOptionBlock(
@@ -520,6 +501,47 @@ describe("NarrativeStream", () => {
     const html = render(h(NarrativeStream, { content: [] }));
     expect(html).toContain("ls-narrative__empty");
     expect(html).not.toContain('role="log"');
+  });
+});
+
+describe("OptionDeck（事件区的 AI 选项面）", () => {
+  const blocks: ContentBlockVM[] = [
+    { blockId: "o1", kind: "option", text: "先退半步" },
+    { blockId: "o2", kind: "option", text: "开门" },
+  ];
+
+  it("同一份 option 块给 OptionDeck ⇒ 每块一个可点的 .ls-choice 胶囊，文案完整", () => {
+    const html = render(h(OptionDeck, { blocks, onAct: () => {} }));
+    expect(html).toContain('class="ls-option-deck"');
+    expect(html.match(/class="ls-choice"/g)?.length).toBe(2);
+    expect(html).toContain("先退半步");
+    expect(html).toContain("开门");
+  });
+
+  it("无 onAct ⇒ 静态引述（不可点），槽非空时保留上下文但不给必 400 的按钮", () => {
+    const html = render(h(OptionDeck, { blocks }));
+    expect(html).toContain("ls-choice--static");
+    expect(html).not.toMatch(/<button/);
+    expect(html).toContain("先退半步");
+  });
+
+  it("disabled ⇒ 按钮置灰带 aria-disabled，且点击不触发 onAct", () => {
+    const html = render(h(OptionDeck, { blocks, onAct: () => {}, disabled: true }));
+    expect(html).toMatch(/<button[^>]*disabled/);
+    expect(html).toContain('aria-disabled="true"');
+
+    const spy = vi.fn();
+    const deck = OptionDeck({ blocks: [blocks[0] as ContentBlockVM], onAct: spy, disabled: true }) as ReactElement<{
+      children: ReactElement<{ children: ReactElement<{ onClick: () => void }> }>[];
+    }>;
+    // 结构：<div class="ls-option-deck"> → <Fragment key> → <button>
+    const button = deck.props.children[0]?.props.children;
+    button?.props.onClick();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("空数组 ⇒ 不占位（返回 null，事件区不出空标题）", () => {
+    expect(render(h(OptionDeck, { blocks: [] }))).toBe("");
   });
 });
 

@@ -36,7 +36,7 @@ import {
 } from "./platformLlm";
 import { deleteLifeRecord, listLifeRecords, saveLifeRecord, shouldAutoArchive } from "./records";
 import type { LifeRecordRow } from "./records";
-import { interactionMode, toActPayload, toViewModel } from "@life-sim/rpg-ui";
+import { OptionDeck, interactionMode, toActPayload, toViewModel } from "@life-sim/rpg-ui";
 import type { ActHandler, ContentBlockVM, ViewModel } from "@life-sim/rpg-ui";
 import { ActionDock } from "./ActionDock";
 import { NarrativeStage } from "./NarrativeStage";
@@ -1411,8 +1411,8 @@ function LifeTab({
   // 槽内有待决事件 ⇒ 只有事件面板的 optionId 合法；战斗中 ⇒ 只有战斗指令合法。
   const mode = interactionMode(view);
   const docked = !ended && mode === "free";
-  // 非自由行动阶段：叙事流里的选项降级成「引述」，不可点（点了必 400）
-  const narrativeAct: ActHandler | undefined = docked ? onAct : undefined;
+  // LLM 写的选项块（`kind === "option"`）：叙事区只放散文，这些块归事件区。
+  const aiOptions = view.content.filter((block) => block.kind === "option");
 
   return (
     <>
@@ -1421,10 +1421,11 @@ function LifeTab({
 
         {/*
           AI 叙事区（T-09a）：紧贴角色卡下方，是默认前端的**主文本面**。
-          正文来自服务端 trace 读回（刷新后仍在），立绘 / CG 来自快照媒体投影；
-          组件只吃 ViewModel，点击面由底部行动坞 + 叙事流选项共同承担。
+          正文来自服务端 trace 读回（刷新后仍在），立绘 / CG 来自快照媒体投影。
+          这里**没有点击面**：选项块由 `NarrativeStream` 过滤掉，统一的点击面是
+          底部行动坞 + 事件区（引擎 optionId 选项 / AI 选项）。
         */}
-        <NarrativeStage view={view} onAct={narrativeAct} busy={busy} />
+        <NarrativeStage view={view} busy={busy} />
 
         {ended && snapshot.ending && (
           <EndingPanel
@@ -1475,9 +1476,17 @@ function LifeTab({
               {slot !== null && slot.kind === "normal" && (
                 <EventPanel slot={slot} busy={busy} onChoose={onChoose} />
               )}
-              {/* 自由行动：行动按钮已上移到常驻底部行动坞，这里只留次要入口 */}
+              {/* 自由行动：行动按钮上移到常驻底部行动坞；这里接 AI 选项 + 次要入口 */}
               {slot === null && (
-                <ActionPanel snapshot={snapshot} busy={busy} onUseItem={onUseItem} onEndLife={onEndLife} />
+                <>
+                  {/*
+                    LLM 写的选项铺在行动坞入口上方：事件区是「本轮要点」的唯一归属地。
+                    `docked` 之外（理论上走不到：槽空即自由行动）不传 `onAct` ⇒ 静态引述，
+                    避免渲染出点了必 400 的按钮。空数组时 `OptionDeck` 自身返回 null（不占位）。
+                  */}
+                  <OptionDeck blocks={aiOptions} onAct={docked ? onAct : undefined} disabled={busy} />
+                  <ActionPanel snapshot={snapshot} busy={busy} onUseItem={onUseItem} onEndLife={onEndLife} />
+                </>
               )}
             </div>
           </section>

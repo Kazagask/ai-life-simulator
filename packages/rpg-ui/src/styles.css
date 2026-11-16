@@ -184,6 +184,21 @@
   background: transparent;
 }
 
+/*
+ * 事件区的 AI 选项面（`OptionDeck`）。
+ * `.ls-choice` 原本处在叙事流里，自带下外边距；这里改成 flex 间距，避免最后一条多出一截空白。
+ */
+.ls-option-deck {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.ls-option-deck .ls-choice {
+  margin: 0;
+}
+
 .ls-narrative__empty {
   margin: 0;
   padding: 18px 2px;

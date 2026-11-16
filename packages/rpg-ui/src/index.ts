@@ -23,6 +23,9 @@ export type { WorldClockProps } from "./WorldClock.js";
 export { NarrativeStream } from "./NarrativeStream.js";
 export type { NarrativeStreamProps, BlockRenderer } from "./NarrativeStream.js";
 
+export { OptionDeck } from "./OptionDeck.js";
+export type { OptionDeckProps } from "./OptionDeck.js";
+
 export {
   MAX_ACT_TEXT,
   MAX_ACT_TYPE,

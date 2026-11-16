@@ -9,17 +9,17 @@ import { CgStage } from "./CgStage.js";
 export type BlockRenderer = (block: ContentBlockVM) => ReactNode;
 
 export interface NarrativeStreamProps {
-  /** 按时间顺序排列的内容块（AI 叙事正文的唯一展示面）。 */
+  /** 按时间顺序排列的内容块（AI 叙事正文的唯一展示面；`option` 块会被过滤掉，归事件区）。 */
   content: ContentBlockVM[];
   /**
-   * 统一提交回调：叙事流里的 `option` 块点击后走这里，与 `ActionBar` 是同一条路径。
-   * 缺省时选项只作展示（不可点）—— 待决事件 / 战斗阶段就靠这一点让位给事件面板。
+   * @deprecated 叙事区**不再渲染任何可点块**（选项统一归 `OptionDeck` / 事件区）。
+   * 保留这个 prop 只是为了不打断已有的自定义前端调用点；传了也不会有按钮。
    */
   onAct?: ActHandler;
   /** 媒体列表（`kind === "asset"` 的内联块按 `assetId` 在这里解析）。 */
   media?: MediaVM[];
   /**
-   * 按 `kind` 覆盖渲染器。默认覆盖 narrative / option / flavor / asset，
+   * 按 `kind` 覆盖渲染器。默认覆盖 narrative / flavor / asset，
    * 未注册的 kind 一律按正文渲染 —— 服务端新增内容块类型时不需要改本组件。
    *
    * 覆盖 `asset` 时**不受**「每轮至多一张」限制（那条规则只在默认渲染器里），
@@ -27,11 +27,8 @@ export interface NarrativeStreamProps {
    */
   renderers?: Partial<Record<string, BlockRenderer>>;
   /**
-   * 请求进行中：选项按钮置灰并带 `aria-disabled`（引擎侧 busy 锁兜底，视觉也要同步）。
-   *
-   * 与「不可点」的区别：`disabled` 是**临时**忙态（还停留在自由行动阶段），
-   * 而 `onAct` 缺省是**状态性**不可点（槽内有待决事件 / 战斗中，提交必被拒）。
-   * 两种原因分开表达，别合并成一个 prop。
+   * @deprecated 与 `onAct` 同因：叙事区已无可点块，忙态由事件区 / 行动坞表达。
+   * 保留只为兼容既有调用点。
    */
   disabled?: boolean;
 }
@@ -225,8 +222,20 @@ export function NarrativeStream({ content, onAct, media = [], renderers, disable
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   // hooks 必须在任何 early return 之前调用（空叙事那一支也要走到这里）。
   const frame = useTypewriter(content);
-  const lastBlockId = content.length > 0 ? content[content.length - 1]?.blockId : undefined;
-  const tailLength = content.length === 0 ? 0 : (content[content.length - 1]?.text ?? "").length;
+
+  /**
+   * 叙事区只放 narrative / flavor / asset：**选项是「要点」，不是散文**。
+   *
+   * 必须在 map 之前过滤掉 `option` —— 不能靠「删掉 `defaults.option`」来达到同样效果：
+   * 渲染回退是 `renderers[kind] ?? defaults[kind] ?? defaults.narrative`，删掉注册项只会让
+   * 选项文案以正文段落的形式印出来，比原来更糟。选项归事件区（`OptionDeck`），
+   * 与引擎事件面板的 `optionId` 选项在同一块地方，玩家不用分辨两个点击面。
+   */
+  const blocks = content.filter((block) => block.kind !== "option");
+
+  const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : undefined;
+  const lastBlockId = lastBlock?.blockId;
+  const tailLength = (lastBlock?.text ?? "").length;
   const typedLength = frame?.visible.length ?? 0;
 
   useEffect(() => {
@@ -235,11 +244,11 @@ export function NarrativeStream({ content, onAct, media = [], renderers, disable
     // 只滚到最新一行；jsdom / SSR 下 scrollHeight 为 0，赋值无副作用。
     //
     // 依赖里必须带上「末尾**可见**字数」：逐字揭示 / 上游流式追加时块数与 blockId 都不变，
-    // 只靠 `content.length` 会让粘底失效（文字长到可视区外面还在原处）。
+    // 只靠块数会让粘底失效（文字长到可视区外面还在原处）。
     el.scrollTop = el.scrollHeight;
-  }, [content.length, lastBlockId, tailLength, typedLength]);
+  }, [blocks.length, lastBlockId, tailLength, typedLength]);
 
-  if (content.length === 0) {
+  if (blocks.length === 0) {
     return <p className="ls-narrative__empty">故事尚未开始。</p>;
   }
 
@@ -261,7 +270,6 @@ export function NarrativeStream({ content, onAct, media = [], renderers, disable
         {block.text ?? ""}
       </p>
     ),
-    option: (block) => renderOptionBlock(block, { onAct, disabled }),
     asset: (block) => {
       // 每轮至多内联一张：只有解析器选中的那块出图。放在**默认渲染器内部**，
       // 是为了让 `renderers.asset` 覆盖仍然能收到全部 asset 块（自定义前端可能
@@ -276,10 +284,10 @@ export function NarrativeStream({ content, onAct, media = [], renderers, disable
 
   return (
     <div className="ls-narrative" ref={scrollerRef} role="log" aria-label="叙事">
-      {content.map((block) => {
+      {blocks.map((block) => {
         // 只给「正在揭示的那一块」换上前缀正文，其余块原样 —— 自定义 `renderers` 也因此
-        // 自动享受逐字，不需要各自再实现一遍。`typingIndex` 只挑 narrative，故 option /
-        // asset 块的文本永远不会被截断（选项必须点得准，不能少字）。
+        // 自动享受逐字，不需要各自再实现一遍。`typingIndex` 只挑 narrative，故其余块
+        // （flavor / asset）的文本永远不会被截断。
         const shown = frame !== null && frame.blockId === block.blockId ? { ...block, text: frame.visible } : block;
         const render = renderers?.[block.kind] ?? defaults[block.kind] ?? defaults.narrative;
         // `blockId` 是内容块在 trace 里的稳定标识（agent-runtime 契约：optionId 不落块）。
