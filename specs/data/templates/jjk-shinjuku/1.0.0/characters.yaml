@@ -1,0 +1,63 @@
+# JJK · 新宿决战 · characters.yaml
+#
+# 玩家 = 五条悟。`playerTemplate.skills` 是他在战斗面板上真正能按的三个键
+# （苍 / 赫 / 茈）—— 没有战斗技能就打不完整场，详见 skills.yaml 的说明。
+#
+# `enemy-sukuna` 是战斗实体：`settle.combat.enemies[].ref` 按**角色 id** 解析，
+# 所以必须写在本文件、`isEnemy: true`、且不带 lifecycle（缺省 = 在世，
+# 否则引擎会走 SKIP_ALL_ENEMIES_INACTIVE 把整条战斗跳过）。
+
+characters:
+  - id: npc-yuji
+    isEnemy: false
+    identity: { name: 虎杖悠仁, age: 15, gender: male }
+    visibility: public
+    mood: { value: 55 }
+    attributes: { cursedEnergy: 22, physique: 30, agility: 24, intellect: 12, luck: 14, reputation: 20 }
+    public:
+      personality: 直率、扛事
+      knownGoals: [把宿傩从这具身体里赶出去]
+    private:
+      goals: [protect-others]
+      traits: [reckless, loyal]
+    relationship: 40
+
+  - id: npc-megumi
+    isEnemy: false
+    identity: { name: 伏黑惠, age: 15, gender: male }
+    visibility: public
+    mood: { value: 45 }
+    attributes: { cursedEnergy: 25, physique: 20, agility: 26, intellect: 22, luck: 12, reputation: 18 }
+    public:
+      personality: 冷静、少话
+      knownGoals: [判断该救谁]
+    private:
+      goals: [make-the-right-call]
+      traits: [cautious]
+    relationship: 35
+
+  - id: enemy-sukuna
+    isEnemy: true
+    identity:
+      name: 两面宿傩
+      age: 1000
+      gender: male
+      description: 四只手，两张脸，站在废墟中央像一根烧不化的柱子。他看着你，像在看一件终于值得拆开的玩具。
+    visibility: public
+    mood: { value: 80 }
+    attributes: { cursedEnergy: 90, physique: 60, agility: 55, intellect: 50, luck: 20, reputation: 100 }
+    skills: [sk-sukuna-dismantle, sk-sukuna-cleave]
+    public:
+      personality: 傲慢、愉悦
+      knownGoals: [把五条悟拆开看看]
+    private:
+      combatHints:
+        skillWeights: { sk-sukuna-dismantle: 3, sk-sukuna-cleave: 2 }
+    relationship: -80
+
+playerTemplate:
+  identity: { gender: male, age: 28 }
+  # 六眼 + 无下限：咒力与敏捷远高于常人，所以 ev:sukuna-duel 的 levelScale 压到 0.55
+  # 之后仍然打得下来（实测 5 回合内见分晓）。
+  attributes: { cursedEnergy: 120, physique: 34, agility: 42, intellect: 40, luck: 28, reputation: 95 }
+  skills: [sk-limitless-blue, sk-limitless-red, sk-hollow-purple]

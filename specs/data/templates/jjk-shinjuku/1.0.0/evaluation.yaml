@@ -1,0 +1,28 @@
+# JJK · 新宿决战 · evaluation.yaml
+#
+# 评价只读本局事实，不决定结局、不写状态；结局类型不得作为评分依据。
+# 只有三个维度 —— 一夜的决战不需要"人生总结"那种颗粒度。
+dimensions:
+  - id: power
+    label: 压制
+    weight: 1.2
+    ranges: [0, 100]
+    explainRules:
+      - 战斗中造成的伤害与剩余咒力计入压制。
+      - 领域对撞赢下来额外加分。
+  - id: resolve
+    label: 决断
+    weight: 1.0
+    ranges: [-50, 100]
+    explainRules:
+      - 明确选择向南或向北计入决断；停在原地会扣分。
+      - 掩护他人、保住同伴额外加分。
+
+worldSpecificDimensions:
+  - id: aftermath
+    label: 余波
+    weight: 0.8
+    ranges: [-30, 100]
+    explainRules:
+      - 救下的平民数量、被挂上的重伤/过载状态计入余波。
+      - 带着伤走出新宿是加分项，不是减分项。

@@ -1,0 +1,23 @@
+# JJK · 新宿决战 · items.yaml
+#
+# 只有两件：一样回血、一样回咒力。决战之夜没有商店，捡到什么用什么。
+items:
+  - id: item-ration
+    type: consumable
+    name: 压缩口粮
+    description: 高专发的战备口粮。难吃，但嚼下去能让反转术式跑得更稳。
+    stackable: true
+    usableInBattle: true
+    usableOutsideBattle: true
+    use:
+      - { type: adjustResource, resource: hp, value: 40 }
+
+  - id: item-shard
+    type: consumable
+    name: 咒力碎片
+    description: 从咒灵身上剥下来的一小块凝结咒力。捏碎它，回路会短暂地宽一点。
+    stackable: true
+    usableInBattle: true
+    usableOutsideBattle: true
+    use:
+      - { type: adjustResource, resource: mp, value: 60 }

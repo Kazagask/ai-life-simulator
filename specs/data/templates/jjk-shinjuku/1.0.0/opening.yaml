@@ -1,0 +1,55 @@
+# JJK · 新宿决战 · opening.yaml
+#
+# 唯一开局 `op-shinjuku-night`：把「战场转盘」当成创建世界后的第一个待决事件。
+#
+# 为什么用 `handoff.schedule`（t=1 分钟入队）而不是 `pendingEvents`：
+# `pendingEvents` 会在**创建时**就占住槽位，于是任何"建完世界立刻提交自由行动"的
+# 调用方都会吃 `pending_event_required`。schedule 让转盘"世界一开始就已到期"，
+# 但把「取出 → 呈现」留给第一轮 —— 第一次推进轮次就掷骰并呈现转盘。
+#
+# 转盘本身 `trigger.source: chain`（不是 pool）：这一夜没有随机池，
+# 随机性只在开局这一格与战斗骰上。
+
+- openingId: op-shinjuku-night
+  name: 2018 · 新宿决战
+  description: 2018 年 12 月，新宿。你落在站前的碎玻璃上，宿傩在废墟另一头等你。这一夜之后，历史要么照旧，要么拐弯。
+  entryConditions: []
+  steps:
+    - { id: step-land-shinjuku, kind: required }
+  characterSetup:
+    effects:
+      - { type: grantItem, itemId: item-ration, count: 2 }
+      - { type: grantItem, itemId: item-shard, count: 1 }
+    flags:
+      openingPath: shinjuku
+  worldSetup:
+    flags:
+      openingDone: true
+      chapter: 1
+      ready1: true
+      # 剧情旗标：全部显式置假，避免"缺省 undefined"在条件里被当成真/假不明确。
+      pathSouth: false
+      pathNorth: false
+      domainDone: false
+      endingReached: false
+      duelWon: false
+      whisperDone: false
+  npcSetup:
+    relations:
+      - { npcId: npc-yuji, value: 40, source: 同行 }
+      - { npcId: npc-megumi, value: 35, source: 同行 }
+    visibility:
+      enemy-sukuna: known
+  eventPools: []
+  objectives:
+    flags:
+      objective: 走完这一夜：向南，或者向北
+  choices: {}
+  completionConditions:
+    - { flag: openingDone, eq: true }
+  handoff:
+    pendingEvents: []
+    schedule:
+      # 1 分钟（TimeAmount.value 必须 > 0）：世界一开始就到期，
+      # 第一次推进轮次即被取出并呈现（掷骰不结算）。
+      - { eventId: "evt:shinjuku-wheel", at: { value: 1, unit: minute } }

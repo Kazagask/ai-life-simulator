@@ -1,0 +1,76 @@
+# JJK · 新宿决战 · rules.yaml
+#
+# 独立声明式文件：触发 / 工具画像 / 知识授权 / 推断 / fallbackDag。
+# 不并入 TEMPLATE_MERGE_FILES、不是 world.yaml 顶层键（WorldTemplateV2Schema 为 .strict()）。
+# when / guards / completion 统一 { op, args } 开放形（v2 §3.5 口径）。
+#
+# `contextHints` 只是给模型的**上下文标签**，引擎侧对其内容**零解释**。
+# 「把某个事件摆上桌」只能由结构化字段表达（`invoke.branchEventIds`，ADR-0038）。
+
+llmTriggers:
+  # 领域对撞结算之后：这一轮值得一段由 AI 写的旁白。
+  # 用 edge 语义（缺省）—— 只在「上一轮假、本轮真」时发一次，不会每轮烧钱。
+  - when: [{ op: "flagSet", args: { flag: "domainDone" } }]
+    invoke:
+      reason: "after.domain"
+      perspective: "player"
+      targetPerspective: "player"
+      contextHints: ["battle.tone"]
+      # 能力声明：允许本轮把「墙后的低语」摆上桌。它没有 nextEventId、也不进 pool
+      # （见 events.yaml 的注释）⇒ 队列里出现它只能是分支轮干的。
+      branchEventIds: ["evt:whisper"]
+      toolProfile: "narrative"
+
+  # 玩家真的走到分叉点：让 AI 把「这一格不是打不打得赢，而是动不动」写出来。
+  - when: [{ op: "nodeCompleted", args: { nodeId: "n2.domain" } }]
+    invoke:
+      reason: "at.fork"
+      perspective: "player"
+      targetPerspective: "player"
+      contextHints: ["fork.tone"]
+      toolProfile: "narrative"
+
+toolProfile:
+  # 能力画像 = 本次 invocation 允许的工具面。三条硬约束：
+  # 1) 只能列**两处注册表都认识**的工具：game-core 的 defaultToolRegistry()（执行面）
+  #    与 agent-runtime 的 ALL_TOOL_NAMES（给模型看的表面）。少了后者会被静默过滤。
+  # 2) 必须含 content.submit，否则本次 invocation 到不了 committed 终止态。
+  # 3) 必须包含写世界的工具：DAG 分支用 fact.upsertDagBranch（增量续写，
+  #    整份覆盖会静默丢掉模型没看见的 guards/completion/edges），
+  #    把分支事件上桌用 fact.enqueueEvent。
+  narrative:
+    [
+      "content.writeNarrative",
+      "content.writeOption",
+      "content.referenceAsset",
+      "fact.upsertDagBranch",
+      "fact.enqueueEvent",
+      "content.submit",
+    ]
+
+knowledgeGrants:
+  # 走到分叉点 = 亲眼看见「世界本身被切开」这件事。
+  - when: [{ op: "eventResolved", args: { eventId: "evt:south-north" } }]
+    grant: { observers: ["player"], factRefs: ["fact:cut-truth"], level: "known", source: "witness" }
+  # 战场常识：一开局就成立。
+  - when: [{ op: "always", args: {} }]
+    grant: { observers: ["player"], factRefs: ["fact:shinjuku-arena"], level: "known", source: "rule" }
+
+inferenceRules:
+  # 听见墙后的计数 ⇒ 你会把"有人在数时间"和"这道斩击是预先算好的"联起来。
+  - when: [{ op: "flagSet", args: { flag: "heardWhisper" } }]
+    grant: { observers: ["player"], factRefs: ["fact:counted-cut"], level: "inferred", source: "inferred" }
+
+fallbackDag:
+  # DAG 是「这一夜的三段」。completion 用 `eventResolved`（ADR-0037 §14）：
+  # 节点完成 = 它代表的事件**真的结算过**，不是「判据永远为真」。
+  dagId: "jjk-shinjuku.fallback.v1"
+  version: 1
+  issuedBy: "template"
+  nodes:
+    - { id: "n1.duel", kind: "battle", title: "第一场", status: "ready", guards: [], completion: [{ op: "eventResolved", args: { eventId: "evt:sukuna-duel" } }], templateRefs: ["evt:sukuna-duel"], visibility: "public" }
+    - { id: "n2.domain", kind: "battle", title: "领域对撞", status: "draft", guards: [{ op: "nodeCompleted", args: { nodeId: "n1.duel" } }], completion: [{ op: "eventResolved", args: { eventId: "evt:domain-clash" } }], templateRefs: ["evt:domain-clash"], visibility: "public" }
+    - { id: "n3.fork", kind: "decision", title: "向南，还是向北", status: "draft", guards: [{ op: "nodeCompleted", args: { nodeId: "n2.domain" } }], completion: [{ op: "eventResolved", args: { eventId: "evt:south-north" } }], templateRefs: ["evt:south-north"], visibility: "public" }
+  edges:
+    - { from: "n1.duel", to: "n2.domain", kind: "unlocks" }
+    - { from: "n2.domain", to: "n3.fork", kind: "unlocks" }

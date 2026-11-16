@@ -1,0 +1,248 @@
+# JJK · 新宿决战 · events.yaml
+#
+# 一条主线，一个分叉：
+#
+#   evt:shinjuku-wheel（转盘 · 开局）
+#     → evt:sukuna-duel（combat · 第一场）
+#       → evt:domain-clash（领域对撞 · 2 选项）
+#         → evt:south-north（★ 分叉点 · 向南／向北）
+#              ├─ 向南 → evt:south-cut   → flag ending=south → end-south（原作）
+#              └─ 向北 → evt:north-counter → evt:north-dawn → flag ending=north → end-north（IF）
+#
+# 全部走确定性边（nextEventId），**没有 `source: pool` 事件**：
+# 这一夜是一条被焊死的线，随机性只在开局转盘与战斗骰上，不在"下一幕是什么"上。
+#
+# 另外 `evt:whisper` 刻意**不接任何 nextEventId、也不进任何 pool** ——
+# 它只能由 `fact.enqueueEvent`（rules.yaml 的 branchEventIds 白名单）摆上桌，
+# 用来证明分支轮真的能把事件送到玩家面前。
+
+events:
+  # ══════════════════════════════════════════════════════════════
+  # 一、开局 · 战场转盘
+  # ══════════════════════════════════════════════════════════════
+
+  - id: evt:shinjuku-wheel
+    title: 战场转盘
+    narrative: 你落在新宿站前，鞋底踩碎了一块玻璃。风里有三种味道——血、咒力、还有宿傩身上那股像烧焦的甜。手指无意识地敲了敲，你是在算这一夜能用几次术式。
+    trigger: { source: chain }
+    kind: random
+    settle:
+      random:
+        wheel:
+          segments:
+            - label: 先手压制
+              weight: 2
+              effects:
+                - { type: setFlag, id: opener, value: 先手 }
+                - { type: adjustAttribute, attribute: cursedEnergy, value: 4 }
+                - { type: adjustMood, value: 5 }
+              nextEventId: evt:sukuna-duel
+            - label: 咒力充盈
+              weight: 3
+              effects:
+                - { type: setFlag, id: opener, value: 充盈 }
+                - { type: adjustResource, resource: mp, value: 30 }
+              nextEventId: evt:sukuna-duel
+            - label: 带着旧伤
+              weight: 2
+              effects:
+                - { type: setFlag, id: opener, value: 旧伤 }
+                - { type: applyStatus, status: st-grievous, stacks: 1 }
+                - { type: adjustMood, value: -4 }
+              nextEventId: evt:sukuna-duel
+
+  # ══════════════════════════════════════════════════════════════
+  # 二、第一场 · 对宿傩
+  # ══════════════════════════════════════════════════════════════
+  #
+  # `levelScale: 0.55` 是**刻意压过**的：这一场的目标是"打到能继续演"，不是打赢。
+  # 三路结局（胜／败／逃）都接同一条边 evt:domain-clash —— 战斗只决定状态与心情，
+  # 不决定剧情走哪条路（决定权留在 evt:south-north）。
+
+  - id: evt:sukuna-duel
+    title: 第一场 · 宿傩
+    narrative: 他从断楼里走出来，四只手，两张脸，脚步声比他的身体重。你抬起手，空气在你指尖弯了一下。
+    trigger: { source: chain }
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-sukuna, levelScale: 0.55 }
+        canFlee: true
+        fleeCheck: { preset: opposed, attacker: agility, defender: agility, baseChance: 0.55 }
+        onVictory:
+          effects:
+            - { type: setFlag, id: duelWon, value: true }
+            - { type: adjustMood, value: 6 }
+            - { type: adjustAttribute, attribute: cursedEnergy, value: 3 }
+          nextEventId: evt:domain-clash
+        onDefeat:
+          effects:
+            - { type: applyStatus, status: st-grievous, stacks: 1 }
+            - { type: adjustMood, value: -8 }
+          nextEventId: evt:domain-clash
+        onFlee:
+          effects:
+            - { type: setFlag, id: duelFled, value: true }
+            - { type: adjustMood, value: -5 }
+          nextEventId: evt:domain-clash
+
+  # ══════════════════════════════════════════════════════════════
+  # 三、领域对撞 · 无量空处 vs 伏魔御厨子
+  # ══════════════════════════════════════════════════════════════
+
+  - id: evt:domain-clash
+    title: 领域对撞
+    narrative: 你们几乎同时抬手。一边是无穷的信息灌进颅骨，一边是刀锋从四面八方长出。两个领域贴在一起的瞬间，新宿的玻璃全部朝外碎。
+    trigger: { source: chain }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-void
+            text: 展开「无量空处」，用信息量压死他
+            effects:
+              - { type: setFlag, id: domainClashWon, value: true }
+              - { type: setFlag, id: domainDone, value: true }
+              - { type: adjustMood, value: 8 }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
+            nextEventId: evt:south-north
+          - id: opt-outlast
+            text: 不跟他对拼，硬吃「伏魔御厨子」
+            effects:
+              - { type: setFlag, id: domainClashLost, value: true }
+              - { type: setFlag, id: domainDone, value: true }
+              - { type: applyStatus, status: st-overload, stacks: 1 }
+              - { type: adjustMood, value: -6 }
+            nextEventId: evt:south-north
+
+  # ══════════════════════════════════════════════════════════════
+  # 四、★ 分叉点 · 向南 / 向北
+  # ══════════════════════════════════════════════════════════════
+  #
+  # 这一格不是"打不打得赢"，而是"动不动"。向南 = 按原作站着不动；
+  # 向北 = 侧身半步，把世界斩让到身后。两个选项各自接一条完整的后续，
+  # 各自落不同的 `ending` flag —— 结局由 flag 决定，不由"血条"决定。
+
+  - id: evt:south-north
+    title: 向南，还是向北
+    narrative: 空间的边缘开始不对劲。你认得这一手——那不是斩击，是"世界"本身被切开的一道缝。它还没落下，但你已经知道它会从哪里来。半秒钟，够你侧身，也够你想清楚。
+    trigger: { source: chain }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-south
+            text: 向南 —— 站着不动，把命留给该留的人
+            effects:
+              - { type: setFlag, id: pathSouth, value: true }
+              - { type: setFlag, id: direction, value: 向南 }
+              - { type: adjustMood, value: 4 }
+            nextEventId: evt:south-cut
+          - id: opt-north
+            text: 向北 —— 侧身半步，让那道斩击落空
+            effects:
+              - { type: setFlag, id: pathNorth, value: true }
+              - { type: setFlag, id: direction, value: 向北 }
+              - { type: adjustMood, value: 2 }
+            nextEventId: evt:north-counter
+
+  # ---------- 向南（原作） ----------
+
+  - id: evt:south-cut
+    title: 世界斩
+    narrative: 你没有动。那道缝从你的肩头斜着穿过去，世界静了一瞬，然后血才开始流。你听见有人在很远的地方喊你的名字。你想说"别过来"，但更想说的是——剩下的交给你们了。
+    trigger: { source: chain }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-accept
+            text: 合上眼睛
+            effects:
+              - { type: setFlag, id: ending, value: south }
+              - { type: setFlag, id: endingReached, value: true }
+              # 顺手掐掉分支轮的低语（它是这一夜唯一可能空槽的时刻，见 evt:whisper 的注释）。
+              - { type: setFlag, id: whisperDone, value: true }
+              - { type: adjustMood, value: 2 }
+
+  # ---------- 向北（IF） ----------
+
+  - id: evt:north-counter
+    title: 半步之后
+    narrative: 你侧过身。那道斩击从鼻尖前面过去，切掉了半条街——但没切到你。宿傩第一次没有笑。他收招的那一瞬间，空隙只有半秒。
+    trigger: { source: chain }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-purple
+            text: 就在这半秒里，把「茈」按进去
+            effects:
+              - { type: setFlag, id: northCountered, value: true }
+              - { type: adjustMood, value: 8 }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 3 }
+            nextEventId: evt:north-dawn
+          - id: opt-cover
+            text: 先转身把虎杖他们推出去
+            effects:
+              - { type: setFlag, id: savedAllies, value: true }
+              - { type: adjustRelation, npcId: npc-yuji, value: 12 }
+              - { type: adjustRelation, npcId: npc-megumi, value: 8 }
+              - { type: adjustMood, value: 5 }
+            nextEventId: evt:north-dawn
+
+  - id: evt:north-dawn
+    title: 天亮之前
+    narrative: 宿傩退进废墟深处，没有回头。天边泛出一点很淡的颜色，把新宿的玻璃照得像水。你站着，第一次觉得"活着"这件事也需要一点时间去习惯。
+    trigger: { source: chain }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-stand
+            text: 站着，等天亮
+            effects:
+              - { type: setFlag, id: ending, value: north }
+              - { type: setFlag, id: endingReached, value: true }
+              - { type: setFlag, id: whisperDone, value: true }
+              - { type: adjustMood, value: 6 }
+
+  # ══════════════════════════════════════════════════════════════
+  # 五、只走队列路径的事件（分支轮演示）
+  # ══════════════════════════════════════════════════════════════
+  #
+  # 没有任何 nextEventId 指向它、也不进 pool ⇒ 全篇唯一的上桌方式是
+  # `fact.enqueueEvent`（rules.yaml 的 branchEventIds: ["evt:whisper"]）。
+  # 带 missWhen：被反复塞回队列时不会二次上桌（`once` 挡不住这条路径，
+  # 因为 `fact.enqueueEvent` 直接调 enqueueScheduled，见 demo-agentic 的同款注释）。
+
+  - id: evt:whisper
+    title: 墙后的低语
+    narrative: 你路过一截塌掉的墙，墙后面有人在低声计数。数到"十九"的时候，声音停了——像是发现你听见了。
+    trigger:
+      source: chain
+      # 闸门只有一个：`whisperDone`。它同时承担两件事 ——
+      # ① 被反复塞回队列时不二次上桌（`once` 挡不住这条路径，因为 `fact.enqueueEvent`
+      #    直接调 enqueueScheduled）；
+      # ② **终局事件的两个终点选项都写它** ⇒ 一旦向南／向北落定，低语立刻永久失效，
+      #    不会在收场那一轮抢在结局前面占槽（实测 seed 4207：不写时它会挡掉结局一拍）。
+      # 注意 `missWhen` 是**与**语义（`checkAllConditions`）—— 写成两条等于"两个都成立才失效"，
+      # 想表达"任一"只能合并成一个 flag。
+      missWhen: [{ flag: whisperDone, eq: true }]
+      missLabel: 墙后的声音已经过去了
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-listen
+            text: 停下来听清他在数什么
+            effects:
+              - { type: setFlag, id: heardWhisper, value: true }
+              - { type: setFlag, id: whisperDone, value: true }
+              - { type: adjustMood, value: -2 }
+          - id: opt-walk
+            text: 装作没听见，继续往战场走
+            effects:
+              - { type: setFlag, id: whisperedPast, value: true }
+              - { type: setFlag, id: whisperDone, value: true }

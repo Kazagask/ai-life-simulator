@@ -1,0 +1,83 @@
+# JJK · 新宿决战 · endings.yaml
+#
+# 判据纪律：终止与死亡只看声明式 flag 与 battleDefeat 信号，
+# **不得以 HP 数值 / HP 归零为判据**（R-EN-07 / P9，加载期会拒绝）。
+#
+# 这一夜只有两个真正的收束：
+#   ending=south → end-south（原作：向南，死于世界斩）
+#   ending=north → end-north（IF：向北，躲过世界斩）
+# 两条都由「终局事件写 flag → worldState 终止条件命中」驱动，
+# 不靠时间跑完，也不靠战败 —— 第一场战斗战败不会结束这一局，
+# 它只挂 `st-grievous` 并把剧情推给领域对撞（见 events.yaml）。
+
+terminationConditions:
+  # 终局事件落 `endingReached=true` 就地收束：不再回日常、不再多走一轮。
+  - type: worldState
+    params:
+      conditions:
+        - { flag: endingReached, eq: true }
+    combinator: AND
+    terminationMode: afterSettle
+
+  - type: playerRequested
+    params:
+      conditions: []
+    combinator: AND
+    terminationMode: afterSettle
+
+  # 兜底：玩家一直拖着不打（最多两夜），按时间收束到 fallback 结局。
+  - type: timeReached
+    params:
+      conditions:
+        - { time: { gte: { value: 2, unit: day } } }
+    combinator: AND
+    terminationMode: afterSettle
+
+endings:
+  # ---------- 向南 · 原作 ----------
+
+  - endingId: end-south
+    name: 向南
+    description: 你没有躲。世界斩落下，新宿的夜里少了一个人。
+    # 只有走过领域对撞的人才有资格进候选集 —— 没打到这里就谈结局是不成立的。
+    unlockConditions:
+      - { flag: domainDone, eq: true }
+    triggerConditions:
+      - { flag: ending, eq: south }
+    priority: 80
+    endingType: sacrifice
+    narrativeConfig:
+      source: template
+      title: 向南
+      summary: 你站着没动，因为身后还有人。那道斩击穿过你的时候，你想起的不是战场，是教室里某个下午，有人问「最强的咒术师是什么样」，你随口答「大概是很孤单的那个吧」。后来你替所有人挡了一次，孤单这件事就没那么重要了。
+
+  # ---------- 向北 · IF ----------
+
+  - endingId: end-north
+    name: 向北
+    description: 你侧身半步，让世界斩落空。这一夜，你活着走出新宿。
+    unlockConditions:
+      - { flag: domainDone, eq: true }
+    triggerConditions:
+      - { flag: ending, eq: north }
+    priority: 80
+    endingType: glory
+    narrativeConfig:
+      source: template
+      title: 向北
+      summary: 半步。就差这半步，历史拐了个弯。天快亮的时候你坐在断墙上，虎杖在旁边问你疼不疼，你说不疼——其实疼，但你已经很久没有回答过这种问题了。向北的意思不是逃，是"还没到该结束的时候"。
+
+  # ---------- 兜底 ----------
+
+  - endingId: end-fallback
+    name: 未写完的一夜
+    description: 这一夜没有走到该有的地方。
+    triggerConditions: []
+    priority: 0
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 未写完的一夜
+      summary: 新宿的废墟还在，风还在吹，但你既没有向南，也没有向北。有些夜里，最糟的不是死，是停在原地。
+
+fallback: end-fallback

@@ -1,0 +1,25 @@
+# JJK · 新宿决战 · statuses.yaml
+#
+# 两个补正，都为剧情服务：
+# - `st-grievous`（重伤）：领域对撞输了之后挂上，压体术，让后面「向北」那一路更紧；
+# - `st-overload`（咒力过载）：硬撑领域之后挂上，压咒力上限，逼玩家在「放茈」与「稳住」之间选。
+statuses:
+  - id: st-grievous
+    name: 重伤
+    description: 肋骨至少断了三根，反转术式只来得及把血止住。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { physique: -4, agility: -2 }
+    visibility: known
+
+  - id: st-overload
+    name: 咒力过载
+    description: 回路烧得发烫。再往上压，先坏的会是你自己。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: -6 }
+    combat:
+      damageDealt: -0.08
+    visibility: known
