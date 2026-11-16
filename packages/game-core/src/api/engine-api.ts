@@ -582,6 +582,8 @@ const submitBranch: ToolHandler = {
         title: node.title,
         narrative: node.text,
         kind: "normal",
+        // 参与角色随定义编译进去：引擎在**呈现前**复核存活/在场（防诈尸）。
+        ...(node.actors !== undefined ? { actors: [...node.actors] } : {}),
         /**
          * **只有入口节点（`branch[0]`）参与调度**；下游节点一律 `chain`，
          * 只能由上一节的选项 `goto` 到达。

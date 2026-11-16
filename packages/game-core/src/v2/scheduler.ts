@@ -246,6 +246,16 @@ export type EventPremiseVerdict =
  * 明确**不**复核的东西（ADR 决策 1）：`cooldown` / `window` / `probability` / `once` / `weight`
  * —— 它们已在入队门控消费，pending 期间再判会把玩家已看到的场景判成不合法。
  */
+/**
+ * 角色是否"在场且活着"：`player` 恒真（玩家不会"不在场"），NPC 看 `lifecycle.state`。
+ * 未知 id ⇒ 视为不在场（宁可少演一幕，也不让不存在的人出现在正文里）。
+ */
+function isActorPresent(state: WorldStateV2, actorId: string): boolean {
+  if (actorId === "player") return true;
+  const npc = state.npcs.find((n) => n.id === actorId);
+  return npc !== undefined && npc.lifecycle.state === "alive";
+}
+
 export function checkEventPremise(def: EventV2, ctx: ConditionContext): EventPremiseVerdict {
   const trigger = def.trigger;
   // 序 1：触发前提永久失效（模板显式声明，引擎不隐式推断）
@@ -254,6 +264,21 @@ export function checkEventPremise(def: EventV2, ctx: ConditionContext): EventPre
   }
   // 序 2：场景条件（读定义现值）
   if (!checkAllConditions(trigger.conditions, ctx)) return { ok: false, missWhen: false };
+  /**
+   * 序 3：**参与角色活性复核**（2026-11-16 补）。
+   *
+   * 这是诈尸的结构防线：事件定义声明 `actors`，出队前逐个核对"还在、还活着"。
+   * 不满足 ⇒ 判 `missWhen`（进 `missedEvents` 留痕，不静默丢弃）。
+   *
+   * 为什么不交给作者写 `missWhen`：生成分支写这一幕时 NPC 还活着，几轮之后可能已经死了，
+   * 作者根本不知道未来会死谁 —— 靠自觉写守卫等于没有防线。
+   */
+  if (def.actors !== undefined && def.actors.length > 0) {
+    const missing = def.actors.find((id) => !isActorPresent(ctx.state, id));
+    if (missing !== undefined) {
+      return { ok: false, missWhen: true, label: `参与角色已不在场：${missing}` };
+    }
+  }
   return { ok: true };
 }
 

@@ -182,6 +182,15 @@ const EventBase = z
     /** F3：LLM 叙事正文不进模板 / 存档；narrative 可缺省，消费侧用 ?? title 回退。 */
     narrative: z.string().min(1).optional(),
     trigger: EventTriggerSchema,
+    /**
+     * 参与角色（角色 id）：引擎在**呈现前**复核其存活/在场，任一不成立即判错失。
+     *
+     * 为什么放在事件定义而不是让作者写 `missWhen`：诈尸是**结构问题**，不是文案问题。
+     * 生成分支尤其如此 —— LLM 写这一幕时 NPC 还活着，几轮之后它可能已经死了，
+     * 靠作者自觉写守卫等于没有防线（模板作者根本不知道未来会死谁）。
+     * 模板事件也可以声明它；不声明 = 不检查（零回归）。
+     */
+    actors: z.array(z.string().min(1)).max(8).optional(),
   })
   .strict();
 
