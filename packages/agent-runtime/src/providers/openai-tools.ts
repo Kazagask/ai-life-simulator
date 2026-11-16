@@ -245,7 +245,10 @@ export class OpenAiCompatibleProvider implements AgentProvider {
     let response: Response;
     if (process.env.LIFE_SIM_DEBUG_LLM === "1") {
       // 诊断：把实际出网请求（脱敏后）打到 stderr，定位"模型为什么发空参数"这类问题。
-      console.error("[llm-req]", this.redact(JSON.stringify(body)).slice(0, 2500));
+      // 只打 user 段：system 段是 stablePrefix（长且稳定），把 2500 字符全占了，
+      // 真正要看的内容（perspective / facts 窗口 / 读工具结果）反而被截掉。
+      const last = body.messages[body.messages.length - 1];
+      console.error("[llm-req]", this.redact(JSON.stringify(last)).slice(0, 2500));
     }
     try {
       // 外部取消信号（客户端断开）与单次调用超时**取并集**：传 signal 不等于放弃时限。
