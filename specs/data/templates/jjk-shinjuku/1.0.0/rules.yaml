@@ -41,12 +41,13 @@ toolProfile:
   #    都已下线（前者是"直接入队"、后者是"往已有 DAG 打补丁"，都是被禁止的写法）。
   gm:
     [
-      # 只读查询（先查后写：世界是什么样、谁在场、我之前干过什么）
+      # 只读查询（先查后写：世界是什么样、我在哪、谁在场、我之前干过什么）
+      # 注意：`world.clues` 已随 taskDag 子系统一起删除（它只读 DAG 节点），
+      # 别再写回画像 —— 画像里列未注册的工具会被静默过滤，模型永远看不到。
       "world.now",
       "world.history",
       "world.present",
       "world.self",
-      "world.clues",
       # 写入：只有叙事与提交分支
       "narrative.write",
       "narrative.flavor",
