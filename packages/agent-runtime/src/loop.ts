@@ -218,7 +218,14 @@ export async function runAgentLoop(
 
     inputTokens += completion.inputTokens;
     outputTokens += completion.outputTokens;
-    if (inputTokens + outputTokens > budget.maxTotalTokens || inputTokens > budget.maxInputTokens) {
+    // `maxInputTokens` 是**单轮**上限、`maxTotalTokens` 才是累计口径
+    // （REFACTOR-DESIGN §终止条件 4：「累计 token > maxTotalTokens 或单轮输入 > maxInputTokens」）。
+    // 原来把累计值比到单轮上限：提示词每轮重发一遍，3 轮就必然超过 8000，
+    // 于是任何需要 3 轮以上的 invocation 都会在第 3 轮被判 budget_exceeded。
+    if (
+      inputTokens + outputTokens > budget.maxTotalTokens ||
+      completion.inputTokens > budget.maxInputTokens
+    ) {
       record("budget_exceeded");
       end = { reason: "budget_exceeded", code: "budget_exceeded", detail: "token 预算耗尽" };
       break;
