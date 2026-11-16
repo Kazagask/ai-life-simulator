@@ -153,11 +153,17 @@ export const LlmContextSchema = z.object({
 { "limit": 8 }        // 可选；缺省 = all（引擎上限 50，超限截断为最近 50）
 // 返回
 { "entries": [
-  { "turnIndex": 6, "worldTime": 100, "eventId": "evt:awaken", "title": "苏醒", "summary": "…" }
-] }
+    { "turnIndex": 6, "worldTime": 100, "eventId": "evt:awaken", "title": "苏醒", "summary": "…" }
+  ],
+  "returned": 8,      // 本次返回条数
+  "total": 137,       // 本视角可见的历史总条数
+  "truncated": true   // 是否被上限截断
+}
 ```
 
 **裁剪规则**：只回**本视角可见**的历史条目；`hidden` 事件不进历史；`summary` 是已落账的可见摘要，不是原文重放。
+
+> **`total` / `truncated` 不是可选项**：模型必须知道「还有更早的」，否则会把「只看到 50 条」误当成「世界只发生过 50 件事」，进而编出「世界很空」的叙事。分页游标不提供——单次最多 50 条，超出部分不返回，`truncated:true` 就是唯一提示。
 
 #### 3.2.3 `world.present` —— 场上还有谁
 
@@ -311,6 +317,11 @@ LLM 侧只表达三件事：**怎么触发、事件是什么、完整编排是�
 
 **注入单位 = 一整条分支**（1..N 个事件块）。单事件是退化形态（`branch.length === 1`）。**不做跨提交补丁**：`goto` 只能指向本批内节点，指向本次提交之外的任何 id ⇒ 拒绝。
 
+**两条提交配额硬约束**：
+
+1. **跨提交完全独立**：同一 invocation 内多次提交的分支**互相独立**；跨提交的 `goto` 一律拒绝（与跨 invocation 同待遇，不因为是「同一轮写的」就放宽）。
+2. **每次 invocation 上限 2 条**：第 3 条起 `rejected` + 记 `budget_exceeded`，**不注册**（防单轮刷出过多分支把队列撑满，见 §5.3.1 的队列瘦身理由）。
+
 ### 4.4 失败回灌契约
 
 沿用既有分支①：回执 `rejected` + `code` + `factsHint` 作为 `tool` 消息回灌，模型重生成，最多 `budget.retryLimit`（默认 2）次。
@@ -348,8 +359,12 @@ LLM 侧只表达三件事：**怎么触发、事件是什么、完整编排是�
 | `options[].text` | `settle.normal.options[].text`；`id = opt-gen-<seq>`（**引擎分配**） |
 | `options[].effects` | `settle.normal.options[].effects` |
 | `options[].goto` | `settle.normal.options[].nextEventId`（映射成全局 id；无 `goto` ⇒ 省略） |
-| `trigger.mode = "certain"` | `trigger = { source: "schedule", window: { start: 0 }, conditions }` |
+| `trigger.mode = "certain"` | `trigger = { source: "schedule", window: { start: { value: 0, unit: "minute" } }, conditions }` |
 | `trigger.mode = "random"` | `trigger = { source: "pool", weight: <引擎默认>, conditions }` |
+
+> `window.start` 是 `TimeSpec`，**不是裸数字**；写成裸 `0` 会被 `TimeSpecSchema` 拒。
+> `enqueueScheduled`（`scheduler.ts:113`）以 `state.worldTime` 为基准**一次性换算成绝对分钟**
+> ⇒ `start = { value: 0, unit: "minute" }` 就是「**入队即到期**」，**不是**「世界时间 0」。
 
 ### 5.2 存放：`WorldStateV2.generatedEvents`
 
@@ -372,6 +387,21 @@ generatedEvents: z.array(EventV2Schema),   // 追加式；与模板事件同 sch
 - `EventInstanceOrigin.kind` 需新增 `"generated"`（封闭枚举，属协议变更，随 schemaVersion 5 落地）。
 - **两套调度不存在**：生成事件与模板事件在 `delayQueue` 里是同一种东西，排序键 `start → hasEnd → end → enqueueSeq` 一视同仁。
 - **重复防止**：`once` 语义 + 入队幂等（同一 `definitionId` 已在 `waiting` 不重复入队）；引擎内部消化，LLM 不感知。
+
+#### 5.3.1 硬要求：`certain` 必须在 `enqueueCandidate` 之前判条件（不可协商）
+
+只有「条件**当前成立**、且该 `definitionId` 尚无 `waiting` 实例」时才调用
+`enqueueCandidate({ origin: { kind: "generated", id }, preGated: true })`。
+编译出的 `trigger.conditions` 可以在扫描期再判一次（纵深防御），但**不得成为唯一判据**。
+
+**为什么不能「先入队再 hold」**（机制已按 `turn.ts:582-595` 核实）：
+
+- `countPresentableQueue`（A2'）只数「当前可上桌」的 `waiting`；前提不成立的实例**不进分子**（`turn.ts:591` 直接 `continue`）。所以「一条永远不满足条件的分支压住池」**不成立**——它压根不被计入。
+- 真正的压制边是**多条条件已满足的 `certain` 同时躺在队列里**：它们全部计入 `presentable`，撞到 `maxQueueLength`（默认 3）就停摇 ⇒ 世界静默地「没有随机事件了」，症状是「随机事件变少」，没人会想到是这几条分支干的。
+- 所以：`certain` 实例按 `definitionId` **去重**（一个 `waiting` 至多一个），并**在入队前先判条件**。
+
+**第二条理由：队列要瘦（rng 顺位）**
+`countPresentableQueue` 每轮只建**一条** rng 流，`checkEventPremise` 按 `sortScheduled` 全序**顺序消费骰值**。每多一条 `waiting` 实例、且其条件含 `random`，后面的骰值就整体后移一位 ⇒ **加一条分支会改变下游所有随机结果**。这**不是**不确定性（同 state 同 seed 仍可复现），而是结构性的；但必须记一笔，免得以后有人在「为什么加了一条分支之后随机事件全变了」上浪费一天。
 
 ### 5.4 槽状态如何决定工具面
 
@@ -427,7 +457,7 @@ LLM 生成分支时，场景里那个 NPC 可能：① 已死；② 已离场（
 | `buildStablePrefix` 的 `# 工具与参数` 段 | `agent-runtime/context.ts` | 工具 schema 已作为 FC `tools` 下发，双份只烧 token |
 | `BRANCH_PROMPT_LEAD` 引导语 | `agent-runtime/loop.ts` | 依附于 `branchEventIds`，随之删除 |
 
-**保留**：`content.writeNarrative`（本轮叙事）、`content.submit`（终止信号）、`content.writeFlavor` / `content.referenceAsset`（风味 / 媒体锚点，只写 trace 不改结构）、`content.writeMemory`（**待裁**，见 §11）。
+**保留**：`content.writeNarrative`（本轮叙事）、`content.submit`（终止信号）、`content.writeFlavor` / `content.referenceAsset`（风味 / 媒体锚点，只写 trace 不改结构）、`content.writeMemory`（**保留**，已核实只 `sink.append`、零结构写入，见 §11-6）。
 
 ---
 
@@ -444,6 +474,11 @@ LLM 生成分支时，场景里那个 NPC 可能：① 已死；② 已离场（
 ### 8.3 从快照能否复现
 
 **能**。给定「同一快照 + 同一 seed + 同一后续指令序列」，`generatedEvents` 已落盘，调度完全确定性（无 `Date` / `Math.random`，`instanceId` 由 `enqueueSeqCounter` 派生），呈现槽由 `scanDelayQueue` 按全序取出。回放 = 重跑 turn 管线，不重跑 LLM。
+
+> **边界（必须同时满足）**：快照复现的前提是 `generatedEvents` **与** `delayQueue` **同时进档**。
+> 只落 `generatedEvents` 不落 `delayQueue`，队列里已排的实例就丢了，时序无从复现；
+> 只落 `delayQueue` 不落 `generatedEvents`，被引用的 `definitionId` 在 `lookup` 里查不到（定义缺失）。
+> **只进一个都不能复现。**
 
 ### 8.4 从 seed + 指令能否复现
 
@@ -536,6 +571,10 @@ LLM 生成分支时，场景里那个 NPC 可能：① 已死；② 已离场（
 10. `story.submitBranch` 失败超限 ⇒ **不注册任何分支**，但本轮叙事正文**仍在**（作废只废编排，不废叙事）。
 11. 前端**没有** `OptionDeck`、叙事区**没有**可点选项块；选项全部来自事件面板。
 
+### 10.2.1 已知不做（用户验收时请勿当 bug 报）
+
+- **生成事件不支持 `kind: "combat"`**：`story.submitBranch` 在 v1 只产 `normal` 事件。战斗不走 turn 管线；生成的战斗需要另接一套结算，不在本轮范围。看到「AI 生成的分支里没有战斗」是**预期行为**。
+
 ### 10.3 回归线
 
 12. 不传 `gateway` / `rules` ⇒ turn 管线**逐字段不变**（既有零回归不变量）。
@@ -543,20 +582,24 @@ LLM 生成分支时，场景里那个 NPC 可能：① 已死；② 已离场（
 
 ---
 
-## 11. 待裁
+## 11. 裁决结果（原 8 个待裁点，team-lead 已全部裁定）
 
-> 以下点我拿不准，按 team-lead 指示写进文档而不停下来等。默认取「本文件已写的方案」，如需改动请回信点名。
+> 2026-11-16 全部按下列结论生效，实施按此执行；本表从「待裁」转为「已裁」，作为实现依据。
 
-| # | 待裁点 | 我的建议 | 理由 |
+| # | 裁点 | **裁决** | 理由 / 备注 |
 |---|---|---|---|
-| 1 | `mode: "random"` 的权重由引擎默认给，还是 LLM 可指定 `weight`？ | **引擎默认**（按 branch 长度反比），LLM 不指定 | 权重是「引擎节奏」，属 LLM 不该感知的调度参数 |
-| 2 | 生成事件是否允许 `kind: "combat"`？ | **v1 不允许**，`story.submitBranch` 只产 `normal` 事件 | 战斗不走 turn 管线（用户已定），生成的战斗需要另一套结算接线，超出本轮 |
-| 3 | `generatedEvents` 进 `WorldStateV2`（schemaVersion 5）还是做模板 overlay？ | **进 `WorldStateV2`，升 5** | 要能刷新续玩、要能回放；overlay 不进档就没法复现 |
-| 4 | `world.history` 的 `limit` 缺省 all 的硬上限 | **50 条** | 防超长 prompt；模型要更多可分多次查 |
-| 5 | 诈尸 drop 的 `reason` 用 `miss_when` 还是新增 `actor_absent`？ | **`miss_when`**（label 由引擎生成） | `MissReason` 是封闭枚举，新增会扩散到前端 / 存档 / 诊断；label 已能表达原因 |
-| 6 | `content.writeMemory` 是否保留？ | **保留** | 它只写 trace 的记忆块，不改结构，不违反任何硬线；删了 NPC 记忆就没了 |
-| 7 | 读工具是否合并（如 `world.now` + `world.history` → `world.timeline`）？ | **不合并** | §3.3「单语义」判据；合并会造出半个上帝函数 |
-| 8 | `story.submitBranch` 一次 invocation 能否调用多次？ | **能，但每次一条分支** | 多条分支是多次提交，不是一次超长分支；与「注入单位 = 一整条分支」一致 |
+| 1 | `mode: "random"` 的权重 | **引擎默认**（按 branch 长度反比），LLM 不指定 | 权重是「引擎节奏」，属 LLM 不该感知的调度参数 |
+| 2 | 生成事件是否允许 `kind: "combat"` | **v1 不允许**，只产 `normal` | 战斗不走 turn 管线；生成的战斗需另接结算，超本轮。已写入 §10.2.1「已知不做」 |
+| 3 | `generatedEvents` 存哪 | **进 `WorldStateV2`，schemaVersion 4→5**；不做模板 overlay | 不进档就没法刷新续玩、没法回放；旧档拒载是既定代价（用户已确认接受） |
+| 4 | `world.history` 缺省 all 的硬上限 | **50 条**，且返回体必须带 `returned / total / truncated` | 模型必须知道「还有更早的」，否则误判世界很空（§3.2.2） |
+| 5 | 诈尸 drop 的 `reason` | **复用 `miss_when`** + 引擎生成 label，**不新增** `actor_absent` | `MissReason` 是封闭枚举，新增会扩散到前端 / 存档 / 诊断，成本高于收益 |
+| 6 | `content.writeMemory` 是否保留 | **保留** | 已核实：只 `sink.append`、对 `WorldStateV2` 零结构写入，不违硬线 |
+| 7 | 读工具是否合并 | **不合并** | §3.3「单语义」判据；合并即半个上帝函数，不让步 |
+| 8 | 一次 invocation 能否多次 `story.submitBranch` | **能，每次一条，上限 2 条** | 多条 = 多次提交（非一次超长分支）；跨提交 `goto` 一律拒；第 3 条起 `budget_exceeded`（§4.3） |
+
+**追加的两条硬要求（主理人裁定，已并入正文）**：
+- `certain` 必须在 `enqueueCandidate` **之前**判条件 + `definitionId` 去重（§5.3.1，不可协商）。
+- 快照复现要求 `generatedEvents` 与 `delayQueue` **同时进档**（§8.3）。
 
 ---
 
