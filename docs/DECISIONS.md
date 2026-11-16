@@ -4052,3 +4052,32 @@ spread 让以后加字段自动进 prompt（避免"加了字段没进 prompt"这
 **R11 IO-15 再补一条（比"无 rejected 回执"更硬）：hints 任意取值下，trace 里不得**存在**`content.referenceAsset` 调用。**
 不是"发了被拒"，而是"根本没发过"。它同时锁两件事：B-40 不复活、以及将来有人想加回"从 hints 猜资源"会被立刻挡下。比断言回执形态稳 —— 不依赖 engine 的越窗判定逻辑是否正确。
 ⇒ IO-15 最终四条：① `receipts` 的 `(code, 顺序)` 序列相同；② `contentBlocks` 的 `blockId` 序列相同且无重复；③ `state` 逐字段相同；④ trace 中**不存在** `content.referenceAsset` 调用。
+
+---
+
+## ADR-0035 补记 · 事务内 `await` ⇒ `llmPending` 在 REST 响应里不可达（2026-11-16）
+
+- **状态**：已裁（实测确认，纠正主理人此前一条错的验收结论）
+
+ADR-0035 D2 落地后，`apps/server` 的三条写路径都在锁内 `await pipeline.gateway.invoke(inv)`。于是：
+
+```
+assignPendingInvocation(state, inv)            // turn.ts：先写上 pendingInvocation
+→ await gateway.invoke(inv)                    // 事务内等它收场
+→ gateway.ts finally: clearPending(invocationId)  // 清掉
+→ projectWorld(res.state)                      // 此时才投影
+⇒ projection.ts 的 llmPending 永远不成立
+```
+
+**结论：同步事务模型下，`llmPending` 在 REST 响应里恒缺席。** 这不是接线漏了，是"等调用收场再响应"的必然结果。
+
+**不做以下两件事**（都更糟）：
+| 想法 | 为什么不做 |
+|---|---|
+| 在 `clearPending` 之前投影 | 会报出一个**已经不成立**的状态（AI 早就写完了，却说"书写中"） |
+| 不 `await` | 把 ADR-0035 要消灭的诈尸 / 错误错过全部放回来 |
+
+**口径**：
+1. `pendingInvocation` 继续作为**内部在飞标记**（锁、诊断、SSE 用），不删。
+2. `snapshot.llmPending` 字段**不删**（契约兼容 + 单测仍在用），但按"REST 里恒缺席"看待。
+3. **加载态由「请求在飞」驱动**（客户端本来就知道请求发出去了）；异步/流式进度由 SSE `delta` 驱动。`NarrativeStage.tsx:44` 那个依赖 `llmPending` 的「AI 书写中」标签**永远不会显示**，属于待修的前端问题（不是后端缺陷）。
