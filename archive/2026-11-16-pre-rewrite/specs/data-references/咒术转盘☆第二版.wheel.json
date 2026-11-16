@@ -1,0 +1,5356 @@
+{
+  "type": "meme-auto-wheel-config",
+  "version": 1,
+  "title": "咒术转盘·究极完整版V2",
+  "description": "参考B站UP主毓彧庾咒术转盘系列，结合咒术回战全设定制作。55+轮盘，600+选项。覆盖出身、性格、术式、领域、咒具、人际关系、剧情事件、黑闪战斗成长、口癖神人语录、结局等全部维度。支持条件分支跳转。",
+  "system_prompt": "你是咒术回战世界观的角色设定生成器。根据转盘结果，生成一个完整、有血有肉、符合原作逻辑的咒术回战角色设定。",
+  "prompt_template": "请根据以下转盘结果生成一个完整的咒术回战角色设定。\n\n输出：基本信息、背景故事、能力详解、装备、性格、人际关系、剧情走向、最终结局。\n\n转盘结果：\n{{summary}}\n\n补充要求：\n{{custom_input}}",
+  "start_wheel_id": "入场时期",
+  "wheels": [
+    {
+      "id": "入场时期",
+      "description": "角色入场的剧情时间点",
+      "default_next_wheel_id": "出身地点",
+      "options": [
+        {
+          "id": "平安时代（千年前咒术全盛期）",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "宿傩活跃的时代"
+        },
+        {
+          "id": "大正时代（旧咒术界）",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "怀玉·玉折时期（高专时代）",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "五条悟夏油杰学生时代"
+        },
+        {
+          "id": "幼鱼与逆罚时期",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "真人顺平篇"
+        },
+        {
+          "id": "京都姐妹校交流会",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "涩谷事变前夕",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "10月31日前"
+        },
+        {
+          "id": "涩谷事变当日",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "万圣节惨剧"
+        },
+        {
+          "id": "涩谷后清算时期",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "虎杖处刑篇"
+        },
+        {
+          "id": "死灭回游时期",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "羂索的大逃杀"
+        },
+        {
+          "id": "新宿决战前置",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "新宿决战进行中",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "最终决战"
+        },
+        {
+          "id": "时代不明/穿越者",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "出身地点",
+      "description": "角色的出身地点",
+      "default_next_wheel_id": "年龄",
+      "options": [
+        {
+          "id": "东京都·市区",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "东京都·郊区",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "京都府",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "大阪府",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "北海道",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "九州地区",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "东北地方乡村",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "中国·四国地区",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "冲绳",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "海外·亚洲其他地区",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "海外·欧美",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "海外·非洲",
+          "weight": 2,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "黑绳产地"
+        },
+        {
+          "id": "出生地不明（弃婴/孤儿）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "年龄",
+      "description": "入场时的年龄",
+      "default_next_wheel_id": "性别",
+      "options": [
+        {
+          "id": "6-12岁（小学生）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "咒力早期觉醒"
+        },
+        {
+          "id": "13-15岁（中学生）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "16岁（高专一年级）",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "17岁（高专二年级）",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "18岁（高专三年级）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "19-22岁（新晋术师）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "23-30岁（成熟术师）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "31-45岁（资深术师）",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "46-60岁（老一辈）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "60岁以上",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "年龄异常（跳转年龄异常判定）",
+          "weight": 5,
+          "custom_next_enabled": true,
+          "next_wheel_id": "年龄异常判定",
+          "color": "",
+          "note": "受肉/咒物/术式影响"
+        }
+      ]
+    },
+    {
+      "id": "年龄异常判定",
+      "description": "年龄异常的具体原因",
+      "default_next_wheel_id": "性别",
+      "options": [
+        {
+          "id": "两面宿傩手指受肉",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "虎杖型"
+        },
+        {
+          "id": "咒物附身获得长生",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "反转术式维持年轻外表",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "九十九型"
+        },
+        {
+          "id": "死灭回游泳者（千年前术师）",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "咒灵（无人类年龄概念）",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "术式效果肉体时间静止",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "术式副作用加速衰老",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "时间穿越者",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "性别",
+      "description": "生理性别",
+      "default_next_wheel_id": "基础身份",
+      "options": [
+        {
+          "id": "女",
+          "weight": 35,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "男",
+          "weight": 35,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "无性别（咒灵/式神/人造生命）",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "生理性别模糊",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "可变性（咒灵特性）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "基础身份",
+      "description": "角色的基础身份定位",
+      "default_next_wheel_id": "阵营倾向",
+      "options": [
+        {
+          "id": "东京咒术高专学生",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "京都咒术高专学生",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "在职咒术师（高专所属）",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "御三家家族成员",
+          "weight": 8,
+          "custom_next_enabled": true,
+          "next_wheel_id": "御三家判定",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "民间无登记术师",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "诅咒师",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "咒灵",
+          "weight": 8,
+          "custom_next_enabled": true,
+          "next_wheel_id": "咒灵诞生来源",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "普通人（术师家属）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "普通人（完全无关）",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "可能觉醒"
+        },
+        {
+          "id": "咒物/受肉体",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "式神获得自我意识",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游改造人",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "咒术高层",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "御三家私兵",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "咒灵诞生来源",
+      "description": "咒灵的诞生来源",
+      "default_next_wheel_id": "阵营倾向",
+      "options": [
+        {
+          "id": "人类集体恐惧（战争）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "人类集体恐惧（疾病）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "人类集体恐惧（自然灾难）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "漏瑚型"
+        },
+        {
+          "id": "人类负面情绪（孤独）",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "人类负面情绪（怨恨）",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "古代死者执念凝聚",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "动物被咒术改造演化",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "人为仪式制造（咒胎）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "羂索型"
+        },
+        {
+          "id": "术师死后咒灵化",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "日常怨念小规模积累",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "御三家判定",
+      "description": "御三家出身判定",
+      "default_next_wheel_id": "阵营倾向",
+      "options": [
+        {
+          "id": "五条家（跳转五条继承判定）",
+          "weight": 33,
+          "custom_next_enabled": true,
+          "next_wheel_id": "五条家继承",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "禅院家（跳转禅院继承判定）",
+          "weight": 34,
+          "custom_next_enabled": true,
+          "next_wheel_id": "禅院家继承",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "加茂家（跳转加茂继承判定）",
+          "weight": 33,
+          "custom_next_enabled": true,
+          "next_wheel_id": "加茂家继承",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "五条家继承",
+      "description": "五条家能力继承判定",
+      "default_next_wheel_id": "阵营倾向",
+      "options": [
+        {
+          "id": "无下限术式+六眼（几百年一例）",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "最强组合"
+        },
+        {
+          "id": "仅无下限术式（无六眼）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "消耗极大"
+        },
+        {
+          "id": "仅六眼（无对应术式）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "超强感知"
+        },
+        {
+          "id": "五条本家直系（无特殊继承）",
+          "weight": 20,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "五条远房旁系",
+          "weight": 35,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "被五条家驱逐流放",
+          "weight": 22,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "禅院家继承",
+      "description": "禅院家能力继承判定",
+      "default_next_wheel_id": "阵营倾向",
+      "options": [
+        {
+          "id": "十种影法术",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "伏黑惠型"
+        },
+        {
+          "id": "投射咒法",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "直毘人型"
+        },
+        {
+          "id": "天与咒缚（肉体天赋）",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "甚尔/真希型"
+        },
+        {
+          "id": "禅院本家直系（无特殊术式）",
+          "weight": 20,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "禅院旁系（饱受歧视）",
+          "weight": 30,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "脱离禅院户籍的出走者",
+          "weight": 20,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "加茂家继承",
+      "description": "加茂家能力继承判定",
+      "default_next_wheel_id": "阵营倾向",
+      "options": [
+        {
+          "id": "赤血操术",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "宪纪/胀相型"
+        },
+        {
+          "id": "加茂本家直系（无特殊术式）",
+          "weight": 25,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "加茂旁系（术式遗传微弱）",
+          "weight": 35,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "与加茂家决裂出走",
+          "weight": 25,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "阵营倾向",
+      "description": "角色的阵营立场",
+      "default_next_wheel_id": "出身家族",
+      "options": [
+        {
+          "id": "坚定守护人类（高专方）",
+          "weight": 18,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "认同高专但质疑高层",
+          "weight": 20,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "中立理性（只遵从自我）",
+          "weight": 18,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "厌恶体制但不作恶",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "咒灵方",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "诅咒师方（夏油杰派）",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "诅咒师方（羂索派）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "咒术高层保守派",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游泳者（为生存而战）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "纯粹混乱利己",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "出身家族",
+      "description": "家族背景",
+      "default_next_wheel_id": "主性格",
+      "options": [
+        {
+          "id": "普通无咒术血脉家庭",
+          "weight": 20,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "小型地方咒术世家",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "家族出过特级术师（已死亡）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "家族多人死于咒灵灾害",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "双亲皆是在职术师",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "孤儿（无家族亲人）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "诅咒师世家",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "海外咒术组织家族",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "单亲家庭",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "主性格",
+      "description": "主要性格特质",
+      "default_next_wheel_id": "副性格A",
+      "options": [
+        {
+          "id": "冷静理性克制",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "伏黑惠型"
+        },
+        {
+          "id": "热血直权重情义",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "虎杖型"
+        },
+        {
+          "id": "玩世不恭内里沉重",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "五条悟型"
+        },
+        {
+          "id": "内向寡言行动派",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "高傲自尊心极强",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "温柔悲悯共情力强",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "偏执执拗不择手段",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "圆滑世故擅长周旋",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "天真纯粹无防备",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "悲观虚无厌倦世界",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "多疑戒备难信任人",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "认真古板责任感强",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "七海型"
+        },
+        {
+          "id": "佛系懒散随遇而安",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "秤金次型"
+        },
+        {
+          "id": "疯狂偏执享受战斗",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "腹黑算计深谋远虑",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "羂索型"
+        }
+      ]
+    },
+    {
+      "id": "副性格A",
+      "description": "次要性格特质A",
+      "default_next_wheel_id": "副性格B",
+      "options": [
+        {
+          "id": "责任感极强习惯扛一切",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "习惯性逃避冲突",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "占有欲强重视的人绝不放手",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "轻微毒舌嘴硬心软",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "极度护短同伴做错也袒护",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "完美主义无法接受失败",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "念旧困于过去回忆",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "乐于自嘲拿苦难开玩笑",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "心软容易被恳求打动",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "好胜心强不服输",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "社交恐惧不喜人群",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "乐天派总能看到希望",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "副性格B",
+      "description": "次要性格特质B",
+      "default_next_wheel_id": "精神创伤",
+      "options": [
+        {
+          "id": "害怕亲密关系推开靠近的人",
+          "weight": 9,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "压抑痛苦情绪向内消化",
+          "weight": 9,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "叛逆越被命令越要反抗",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "温和包容对他人过错容忍度高",
+          "weight": 9,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "胜负欲极强痴迷变强",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "厌恶暴力不到绝境不动手",
+          "weight": 9,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "自尊脆弱害怕被否定",
+          "weight": 9,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "不在乎外界评价只忠于自我",
+          "weight": 9,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "好奇心强喜欢研究术式",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "守诺重承诺绝不食言",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "对食物有执念",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "喜欢小孩子/小动物",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "精神创伤",
+      "description": "原生精神创伤来源",
+      "default_next_wheel_id": "恐惧弱点",
+      "options": [
+        {
+          "id": "无重大创伤心理稳定",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "亲眼目睹亲人被咒灵杀害",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "被信任之人背叛出卖",
+          "weight": 14,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "被迫亲手杀死友人/同伴",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "长期家族精神打压PUA",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "战场无数次目睹同伴战死",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "被当作实验体/工具对待",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "涩谷事变亲历惨剧",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "被高层诬陷迫害",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "恐惧弱点",
+      "description": "内心最深的恐惧或弱点",
+      "default_next_wheel_id": "执念目标",
+      "options": [
+        {
+          "id": "害怕重要的人因自己而死",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "害怕变得和憎恨的人一样",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "害怕被抛弃孤独一人",
+          "weight": 11,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "害怕失去力量变得无用",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "害怕死亡",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "害怕自己的术式伤害到无辜者",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "害怕被看穿真实的自己",
+          "weight": 9,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "害怕封闭空间/黑暗",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "害怕特定类型的咒灵",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "没有明显恐惧（已麻木）",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "害怕下雨天/特定天气",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "害怕自己无法保护任何人",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "执念目标",
+      "description": "角色的核心执念或人生目标",
+      "default_next_wheel_id": "生得术式",
+      "options": [
+        {
+          "id": "变强保护重要的人",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "向害死亲人的存在复仇",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "证明自己的价值",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "推翻腐朽的咒术界高层",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "找到失踪的亲人/友人",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "追求最强的力量",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "守护普通人的平凡生活",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "复活死去的重要之人",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "解开自身术式的秘密",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "过上平静的普通人生活",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "消灭所有咒灵/诅咒",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "没有明确目标随波逐流",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "生得术式",
+      "description": "核心生得术式",
+      "default_next_wheel_id": "术式开发度",
+      "options": [
+        {
+          "id": "无生得术式（跳转天与咒缚）",
+          "weight": 10,
+          "custom_next_enabled": true,
+          "next_wheel_id": "天与咒缚",
+          "color": "",
+          "note": "纯体术路线"
+        },
+        {
+          "id": "无下限咒术",
+          "weight": 2,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "五条悟：苍/赫/茈"
+        },
+        {
+          "id": "十种影法术",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "伏黑惠：式神召唤"
+        },
+        {
+          "id": "赤血操术",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "加茂/胀相：操控血液"
+        },
+        {
+          "id": "咒灵操术",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "夏油杰：收服咒灵"
+        },
+        {
+          "id": "无为转变",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "真人：触摸灵魂"
+        },
+        {
+          "id": "十划咒法",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "七海：3:7弱点打击"
+        },
+        {
+          "id": "刍灵咒法",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "钉崎：诅咒人偶"
+        },
+        {
+          "id": "咒言",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "狗卷：言灵束缚"
+        },
+        {
+          "id": "不义游戏",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "东堂：拍手换位"
+        },
+        {
+          "id": "黑鸟操术",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "冥冥：乌鸦共享视野"
+        },
+        {
+          "id": "投射咒法",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "直毘人：1秒24帧"
+        },
+        {
+          "id": "坐杀博徒",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "秤金次：抽奖无敌"
+        },
+        {
+          "id": "术式没收",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "日车：审判剥夺"
+        },
+        {
+          "id": "雷电术式",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "鹿紫云：雷电"
+        },
+        {
+          "id": "御厨子",
+          "weight": 2,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "宿傩：解/捌/灶开"
+        },
+        {
+          "id": "火焰术式",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "漏瑚：火山火焰"
+        },
+        {
+          "id": "植物术式",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "花御：操控植物"
+        },
+        {
+          "id": "海洋术式",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "陀艮：水与式神"
+        },
+        {
+          "id": "淀月",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "顺平：毒水母"
+        },
+        {
+          "id": "空间系原创术式",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "传送/切割/置换"
+        },
+        {
+          "id": "精神幻术系原创术式",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "幻觉/记忆/意识"
+        },
+        {
+          "id": "肉体操控系原创术式",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "细胞/再生/变形"
+        },
+        {
+          "id": "重力力场系原创术式",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "重力/压力/斥力"
+        },
+        {
+          "id": "影子系原创术式",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "影子操控/穿梭"
+        },
+        {
+          "id": "声波振动系原创术式",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "音波/共振/粉碎"
+        },
+        {
+          "id": "毒素腐蚀系原创术式",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "毒/腐蚀/分解"
+        },
+        {
+          "id": "物质转化系原创术式",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "金属/土/创造"
+        },
+        {
+          "id": "契约规则系原创术式",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "规则/束缚/审判"
+        },
+        {
+          "id": "运势因果系原创术式",
+          "weight": 2,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "运气/因果/命运"
+        },
+        {
+          "id": "时间系原创术式",
+          "weight": 1,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "停止/回溯/加速"
+        },
+        {
+          "id": "未觉醒术式（危机中可能觉醒）",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "术式开发度",
+      "description": "术式的开发和掌握程度",
+      "default_next_wheel_id": "咒力量",
+      "options": [
+        {
+          "id": "术式运用生疏（仅基础效果）",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "基础熟练可稳定释放",
+          "weight": 20,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "熟练运用有自创衍生技",
+          "weight": 20,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "极之番（术式顺转最大）",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "术式反转",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "领域展开（跳转领域展开）",
+          "weight": 8,
+          "custom_next_enabled": true,
+          "next_wheel_id": "领域展开",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "术式开发完成（理论极限）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "术式残缺不稳定（有严重反噬）",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "咒力量",
+      "description": "咒力总量等级",
+      "default_next_wheel_id": "体术水平",
+      "options": [
+        {
+          "id": "极低（四级术师级）",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "低（三级术师级）",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "中（二级术师级）",
+          "weight": 20,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "高（一级术师级）",
+          "weight": 18,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "极高（特级术师级）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "乙骨/五条级"
+        },
+        {
+          "id": "异常庞大（宿傩级）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "咒力为零（天与咒缚体质）",
+          "weight": 5,
+          "custom_next_enabled": true,
+          "next_wheel_id": "天与咒缚",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "咒力带污染腐蚀性",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "咒力性质特殊（正向能量）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "反转术式天赋"
+        },
+        {
+          "id": "咒力输出不稳定（时强时弱）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "体术水平",
+      "description": "近战体术能力",
+      "default_next_wheel_id": "天与咒缚",
+      "options": [
+        {
+          "id": "完全不会（纯远程型）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "基础防身训练",
+          "weight": 18,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "普通近战能力",
+          "weight": 20,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "精通近战格斗",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "顶级近战（七海/东堂级）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "体术怪物（甚尔/宿傩级）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "擅长武器格斗",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "擅长暗器/远程投掷",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "天与咒缚",
+      "description": "天与咒缚类型",
+      "default_next_wheel_id": "特殊体质",
+      "options": [
+        {
+          "id": "无天与咒缚",
+          "weight": 55,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "完全天与暴君（咒力换肉体）",
+          "weight": 10,
+          "custom_next_enabled": true,
+          "next_wheel_id": "特殊体质",
+          "color": "",
+          "note": "甚尔：零咒力超人肉体"
+        },
+        {
+          "id": "不完全天与咒缚（肉体强化）",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "真希：少量咒力"
+        },
+        {
+          "id": "天与咒缚（五感缺陷换咒力增幅）",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "肉体脆弱咒力极强"
+        },
+        {
+          "id": "天与咒缚（感官换能力）",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "失去某感官换取强化"
+        },
+        {
+          "id": "天与咒缚（寿命换力量）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "特殊体质",
+      "description": "特殊体质或能力",
+      "default_next_wheel_id": "反转术式",
+      "options": [
+        {
+          "id": "无特殊体质",
+          "weight": 40,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "六眼",
+          "weight": 2,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "五条家专属"
+        },
+        {
+          "id": "受肉体（宿傩容器）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "虎杖型"
+        },
+        {
+          "id": "反转术式天赋（超强自愈）",
+          "weight": 12,
+          "custom_next_enabled": true,
+          "next_wheel_id": "黑闪",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "咒毒抗性极强",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "魔虚罗适配体质",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "能适应适应能力"
+        },
+        {
+          "id": "记忆操作抗性",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "术式束缚（自缚强化）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "多重人格/灵魂",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "胀相型"
+        },
+        {
+          "id": "咒力感知范围极广",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "反转术式",
+      "description": "反转术式掌握程度",
+      "default_next_wheel_id": "黑闪",
+      "options": [
+        {
+          "id": "不会反转术式",
+          "weight": 45,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "只会自我治疗（小伤口）",
+          "weight": 25,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "能自我治疗（重伤）",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "能治疗他人",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "硝子级"
+        },
+        {
+          "id": "反转术式精通（可攻击）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "五条/宿傩级"
+        },
+        {
+          "id": "反转术式大师（永续治疗）",
+          "weight": 2,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "近乎不死"
+        }
+      ]
+    },
+    {
+      "id": "黑闪",
+      "description": "黑闪掌握程度（打出黑闪后将经历一场战斗并判定成长）",
+      "default_next_wheel_id": "黑闪战斗",
+      "options": [
+        {
+          "id": "从未打出过黑闪",
+          "weight": 40,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "偶然打出（1-2次）",
+          "weight": 28,
+          "custom_next_enabled": true,
+          "next_wheel_id": "黑闪战斗",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "能稳定打出",
+          "weight": 18,
+          "custom_next_enabled": true,
+          "next_wheel_id": "黑闪战斗",
+          "color": "",
+          "note": "虎杖级"
+        },
+        {
+          "id": "黑闪连续记录（4次+）",
+          "weight": 8,
+          "custom_next_enabled": true,
+          "next_wheel_id": "黑闪战斗",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "黑闪大师（随心所欲）",
+          "weight": 6,
+          "custom_next_enabled": true,
+          "next_wheel_id": "黑闪战斗",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "黑闪战斗",
+      "description": "打出黑闪时经历的那场战斗的对手与情境",
+      "default_next_wheel_id": "战斗成长判定",
+      "options": [
+        {
+          "id": "对战特级咒灵（真人/漏瑚级）",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "对战一级咒灵",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "对战诅咒师（夏油杰派）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "对战御三家术师",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "对战死灭回游泳者",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "对战两面宿傩的手指/分身",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "对战量产咒灵群（消耗战）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "对战昔日同伴/友人（黑化）",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "对战未知强敌（情报不足）",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "对战特级术师（五条/乙骨级）",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "对战羂索/夏油杰",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "对战两面宿傩本体",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "绝望级"
+        },
+        {
+          "id": "1v多围殴战",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "保护人质的限制战",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "战斗成长判定",
+      "description": "黑闪战斗后是否获得成长突破",
+      "default_next_wheel_id": "重要关系",
+      "options": [
+        {
+          "id": "战斗后突破成长（进入成长方向）",
+          "weight": 30,
+          "custom_next_enabled": true,
+          "next_wheel_id": "成长方向",
+          "color": "",
+          "note": "黑闪带来顿悟"
+        },
+        {
+          "id": "战斗后无明显成长",
+          "weight": 25,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "战斗后受伤但积累了经验",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "战斗后领悟新技巧（进入成长方向）",
+          "weight": 12,
+          "custom_next_enabled": true,
+          "next_wheel_id": "成长方向",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "战斗后术式进化（进入成长方向）",
+          "weight": 8,
+          "custom_next_enabled": true,
+          "next_wheel_id": "成长方向",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "战斗后精神蜕变（进入成长方向）",
+          "weight": 10,
+          "custom_next_enabled": true,
+          "next_wheel_id": "成长方向",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "成长方向",
+      "description": "黑闪战斗后获得的具体成长方向",
+      "default_next_wheel_id": "重要关系",
+      "options": [
+        {
+          "id": "术式开发度提升（学会新衍生技）",
+          "weight": 18,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "成长方向1：术式"
+        },
+        {
+          "id": "咒力量大幅增长（总量+输出）",
+          "weight": 16,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "成长方向2：咒力"
+        },
+        {
+          "id": "体术/近战能力突破",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "成长方向3：体术"
+        },
+        {
+          "id": "领悟反转术式/治疗能力",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "成长方向4：反转"
+        },
+        {
+          "id": "领域展开觉醒/领域强化",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "成长方向5：领域"
+        },
+        {
+          "id": "获得新咒具/新式神",
+          "weight": 13,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "成长方向6：装备"
+        },
+        {
+          "id": "精神力/意志突破（黑闪更稳定）",
+          "weight": 14,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "成长方向7：精神"
+        }
+      ]
+    },
+    {
+      "id": "领域展开",
+      "description": "领域展开能力",
+      "default_next_wheel_id": "简易领域",
+      "options": [
+        {
+          "id": "不会领域展开",
+          "weight": 50,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "半成品领域（需借助外物）",
+          "weight": 18,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "伏黑早期型"
+        },
+        {
+          "id": "完整领域展开（必中效果）",
+          "weight": 18,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "开放式领域（无结界）",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "宿傩型"
+        },
+        {
+          "id": "领域展延（partial使用）",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "简易领域",
+      "description": "简易领域掌握",
+      "default_next_wheel_id": "咒具",
+      "options": [
+        {
+          "id": "不会简易领域",
+          "weight": 55,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "新阴流·简易领域",
+          "weight": 25,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "抵消必中"
+        },
+        {
+          "id": "其他流派简易领域",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "能领域对轰",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "咒具",
+      "description": "持有的咒具",
+      "default_next_wheel_id": "战斗经验",
+      "options": [
+        {
+          "id": "无咒具（纯术式）",
+          "weight": 20,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "四级咒具（普通武器）",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "三级咒具",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "二级咒具",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "一级咒具",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "特级咒具·天逆鉾",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "强制解除术式"
+        },
+        {
+          "id": "特级咒具·游云",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "三节棍完美传导"
+        },
+        {
+          "id": "特级咒具·万里锁",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "无限伸缩锁链"
+        },
+        {
+          "id": "特级咒具·释魂刀",
+          "weight": 2,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "切割灵魂"
+        },
+        {
+          "id": "特级咒具·退魔之剑",
+          "weight": 2,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "一击灭咒灵"
+        },
+        {
+          "id": "特级相当·黑绳",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "干扰术式"
+        },
+        {
+          "id": "特级相当·屠坐魔",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "虎杖初期短刀"
+        },
+        {
+          "id": "原创咒具（自定义效果）",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "诅咒道具（持续付出代价）",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "战斗经验",
+      "description": "实战经验丰富程度",
+      "default_next_wheel_id": "天赋等级",
+      "options": [
+        {
+          "id": "无实战经验（新人）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "少量任务经验",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "普通实战经验",
+          "weight": 20,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "丰富实战经验",
+          "weight": 18,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "身经百战",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "千年战斗经验",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "宿傩/羂索级"
+        },
+        {
+          "id": "仅训练无实战",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游杀出来的",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "天赋等级",
+      "description": "术式天赋和学习能力",
+      "default_next_wheel_id": "努力程度",
+      "options": [
+        {
+          "id": "毫无天赋",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "普通天赋",
+          "weight": 25,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "优秀天赋",
+          "weight": 25,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "天才级天赋",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "乙骨级"
+        },
+        {
+          "id": "特级苗子",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "五条级"
+        },
+        {
+          "id": "异形天赋（无法衡量）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "宿傩级"
+        },
+        {
+          "id": "努力型天才（后天觉醒）",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "天赋不稳定（爆发型）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "努力程度",
+      "description": "训练和努力程度",
+      "default_next_wheel_id": "初始等级",
+      "options": [
+        {
+          "id": "完全不努力（躺平）",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "被动训练（被推着走）",
+          "weight": 18,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "普通努力",
+          "weight": 25,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "努力型",
+          "weight": 20,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "疯狂努力（极限训练）",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "努力到扭曲（自我毁灭式）",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "聪明努力（效率型）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "初始等级",
+      "description": "入场时的咒术师等级",
+      "default_next_wheel_id": "战斗风格",
+      "options": [
+        {
+          "id": "四级术师",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "三级术师",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "二级术师",
+          "weight": 18,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "一级术师",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "特级术师",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "无等级（自由术师）",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "一级咒灵",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "特级咒灵",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "真人/漏瑚级"
+        },
+        {
+          "id": "灾害级咒灵",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "超越特级"
+        },
+        {
+          "id": "诅咒师（无官方等级）",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "战斗风格",
+      "description": "战斗中的风格倾向",
+      "default_next_wheel_id": "重要关系",
+      "options": [
+        {
+          "id": "正面硬刚型",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "暗杀偷袭型",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "远程消耗型",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "控场辅助型",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "陷阱算计型",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "狂暴碾压型",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "灵活游击型",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "防御反击型",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "领域一开就结束型",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "治疗支援型",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "不择手段型",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "重要关系",
+      "description": "与原作重要角色的关系",
+      "default_next_wheel_id": "家庭关系",
+      "options": [
+        {
+          "id": "无固定重要关系",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "五条悟的弟子",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "五条悟的同期/友人",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "与五条悟理念冲突",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "虎杖悠仁的同伴",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "伏黑惠的同伴/亲属",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "钉崎野蔷薇的好友",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "夏油杰的追随者",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "与两面宿傩有宿命因缘",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "羂索的棋子/实验体",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "七海建人的后辈/同事",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "乙骨忧太的关系者",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "禅院真希的亲友/家族冲突",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "狗卷棘的信任战友",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "咒灵集团核心成员",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游关键泳者",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "家入硝子的医疗救助关系",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "夜蛾正道的导师关系",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "家庭关系",
+      "description": "与原生家庭的关系状态",
+      "default_next_wheel_id": "师徒关系",
+      "options": [
+        {
+          "id": "家庭和睦亲人支持",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "家人不理解咒术世界有隔阂",
+          "weight": 18,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "被家人当工具只看重才能",
+          "weight": 18,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "与家人激烈决裂断绝来往",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "所有亲人全部死亡只剩自己",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "被家人抛弃送入高专",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "家族内部权力斗争受害者",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "有需要保护的年幼弟妹",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "师徒关系",
+      "description": "师徒关系状态",
+      "default_next_wheel_id": "关键事件1",
+      "options": [
+        {
+          "id": "无正式师父自学成才",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "师父是五条悟",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "师父是七海建人",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "师父是夜蛾正道",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "师父已战死（继承遗志）",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "师父背叛了自己",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "与师父亦敌亦友",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "自己是别人的师父",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "师父是御三家长辈",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "师父是诅咒师（走上歧途）",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "与师父关系冷淡仅交易",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "关键事件1",
+      "description": "人生第一个关键事件",
+      "default_next_wheel_id": "关键事件2",
+      "options": [
+        {
+          "id": "亲眼目睹亲人被咒灵杀害",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "重要师长战死在面前",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "被迫亲手杀死友人",
+          "weight": 9,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "被高层诬陷迫害",
+          "weight": 9,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "绝境中觉醒术式",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "与强大诅咒交易付出代价",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "涩谷事变亲历惨剧",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游被迫入场",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "亲手拯救大量普通人获得声望",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "被同伴背叛险些丧命",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "发现自己身世的惊天秘密",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "关键事件2",
+      "description": "人生第二个关键事件",
+      "default_next_wheel_id": "涩谷经历",
+      "options": [
+        {
+          "id": "无第二重大事件",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "领域展开首次成功",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "打出第一次黑闪",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "学会反转术式",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "获得特级咒具",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "击败特级咒灵一战成名",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "被宿傩关注/认可",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "被羂索盯上成为棋子",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "与重要角色建立深刻羁绊",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "犯下无法挽回的错误",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "拯救了本应死去的角色",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "改变剧情"
+        }
+      ]
+    },
+    {
+      "id": "涩谷经历",
+      "description": "涩谷事变中的经历",
+      "default_next_wheel_id": "死灭回游经历",
+      "options": [
+        {
+          "id": "未经历涩谷事变",
+          "weight": 20,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "涩谷事变中存活",
+          "weight": 25,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "涩谷事变中死亡",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "涩谷事变中救下重要角色",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "涩谷事变中被改造/咒物化",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "涩谷事变中黑化/叛逃",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "涩谷事变中失去重要之人",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "涩谷事变中被封印/囚禁",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "死灭回游经历",
+      "description": "死灭回游中的具体经历与行为",
+      "default_next_wheel_id": "新宿决战经历",
+      "options": [
+        {
+          "id": "未参与死灭回游",
+          "weight": 20,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游中存活得分（普通泳者）",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游中死亡",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游中成为100分以上高分泳者",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游中觉醒新能力",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游中与主角团合作",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游中被羂索利用",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游中杀死了秤金次",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "杀死坐杀博徒使用者"
+        },
+        {
+          "id": "死灭回游中杀死了鹿紫云一",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "杀死雷电术式使用者"
+        },
+        {
+          "id": "死灭回游中杀死了日车宽见",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "杀死术式没收使用者"
+        },
+        {
+          "id": "死灭回游中杀死了乙骨忧太",
+          "weight": 2,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "杀死特级术师"
+        },
+        {
+          "id": "死灭回游中杀死了虎杖悠仁",
+          "weight": 2,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "改变剧情"
+        },
+        {
+          "id": "死灭回游中杀死了伏黑惠",
+          "weight": 2,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "改变剧情"
+        },
+        {
+          "id": "死灭回游中杀死了九十九由基",
+          "weight": 2,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游中杀死了胀相",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游中杀死了其他重要泳者（原创角色）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游中被秤金次击败",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游中被鹿紫云一击败",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游中被日车宽见审判剥夺术式",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游中与高羽史彦对战（被搞笑击败）",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死灭回游中收集了大量分数但未杀人",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "新宿决战经历",
+      "description": "新宿决战中的具体角色与行为",
+      "default_next_wheel_id": "成长突破",
+      "options": [
+        {
+          "id": "未参与新宿决战",
+          "weight": 20,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "新宿决战参战（普通战力）",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "新宿决战中斩杀两面宿傩",
+          "weight": 2,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "改变剧情，主角级"
+        },
+        {
+          "id": "新宿决战中死亡",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "新宿决战中重伤生还",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "新宿决战中辅助五条悟作战",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "新宿决战中挑战五条悟",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "成为关键变数：给宿傩造成致命伤",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "改变战局"
+        },
+        {
+          "id": "成为关键变数：救下本应死去的五条悟",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "改变剧情"
+        },
+        {
+          "id": "成为关键变数：破解宿傩的伏魔御厨子",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "成为关键变数：用反转术式救活关键角色",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "成为关键变数：召唤魔虚罗改变战局",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "成为关键变数：牺牲自己为同伴创造机会",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "成为关键变数：用术式封印宿傩",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "成为关键变数：提供关键情报/战术",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "成为关键变数：成为宿傩的新容器",
+          "weight": 2,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "成为关键变数：单挑并击退宿傩",
+          "weight": 2,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "主角级"
+        },
+        {
+          "id": "成为关键变数：用束缚与宿傩同归于尽",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "成为关键变数：开启领域对轰拖住宿傩",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "新宿决战中被宿傩一招秒杀",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "新宿决战中观战/后方支援",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "成长突破",
+      "description": "剧情中的成长突破类型",
+      "default_next_wheel_id": "突破契机",
+      "options": [
+        {
+          "id": "无明显成长",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "术式觉醒",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "领域展开觉醒",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "反转术式掌握",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "黑闪顿悟",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "体术突破",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "天赋突破（理解壁垒）",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "特殊觉醒（肉体/精神质变）",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "束缚达成（自缚获力）",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "多重突破（主角级成长）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "术式反转开发",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "获得新咒具/式神",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "突破契机",
+      "description": "成长突破的契机",
+      "default_next_wheel_id": "外貌特征",
+      "options": [
+        {
+          "id": "至亲死亡带来精神蜕变",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "生死濒死战斗中突破极限",
+          "weight": 20,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "长时间苦修量变产生质变",
+          "weight": 18,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "敌人压迫逼迫自己进化",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "理解自我术式内核瞬间顿悟",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "重要之人的鼓励/托付",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "吞噬/吸收了特殊咒物",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "被他人牺牲所拯救激发潜能",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "外貌特征",
+      "description": "外貌标志性特征",
+      "default_next_wheel_id": "服装风格",
+      "options": [
+        {
+          "id": "普通外貌无明显特征",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "异色瞳",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "白发/银发",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "黑色长发",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "短发利落",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "身上有大面积伤疤",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "纹身/咒纹",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "戴眼镜/眼罩/面罩",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "身材异常高大/娇小",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "咒灵特征（非人类外貌）",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "标志性发型/发饰",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "服装风格",
+      "description": "日常/战斗服装风格",
+      "default_next_wheel_id": "兴趣爱好",
+      "options": [
+        {
+          "id": "高专制服",
+          "weight": 20,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "自定义改良制服",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "黑色高领战斗服",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "日式和服/羽织",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "休闲街头风",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "西装/正装",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "咒灵风格（怪异服装）",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "御三家家纹服饰",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "邋遢随意不讲究",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "兴趣爱好",
+      "description": "个人兴趣爱好",
+      "default_next_wheel_id": "口头禅",
+      "options": [
+        {
+          "id": "吃甜食/零食",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "五条型"
+        },
+        {
+          "id": "读书/研究术式",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "运动/健身",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "睡觉/摸鱼",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "喝酒",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "七海型"
+        },
+        {
+          "id": "赌博/游戏",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "秤型"
+        },
+        {
+          "id": "购物/时尚",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "做饭/做家务",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "养小动物/植物",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "听音乐",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "没有爱好只有任务",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "收集咒具/咒物",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "口头禅",
+      "description": "标志性口癖、语调和自称习惯",
+      "default_next_wheel_id": "最终结局",
+      "options": [
+        {
+          "id": "无明显口癖",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "句尾加「だぜ/だよ」热血口调",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "少年漫画男主型"
+        },
+        {
+          "id": "句尾加「なのだ」笃定口调",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "句尾加「じゃ」老者/武士口调",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "句尾加「ですわ」大小姐口调",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "句尾加「ござる」武士口调",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "关西腔/关西方言",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "自称「俺」（粗鲁男性）",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "自称「僕」（斯文男性）",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "自称「私」（正式/女性）",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "自称「わし」（老者）",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "自称「うち」（关西女性）",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "称呼别人「てめえ/贵样」",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "粗暴"
+        },
+        {
+          "id": "称呼别人「お前」",
+          "weight": 7,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "称呼别人「君」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "战斗时必喊招式名",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "叹气「はあ」/「まったく」",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "七海型"
+        },
+        {
+          "id": "笑声「ククク」（腹黑）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "笑声「ワハハ」（豪爽）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "笑声「フフフ」（优雅）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "口癖「なの」/「なのよ」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "口癖「だと！？」（惊讶）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "口癖「なんてこった」",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "口癖「真没办法」",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "说话喜欢引用名言/诗句",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "说话简短如命令",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "说话带「～かも」不确定语气",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "说话喜欢加「超」「绝」等强调词",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "语尾上挑（疑问语气）",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "沉默寡言只用单词回答",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "伏黑型"
+        }
+      ]
+    },
+    {
+      "id": "神人语录",
+      "description": "角色的标志性名台词、战斗宣言或中二语录",
+      "default_next_wheel_id": "最终结局",
+      "options": [
+        {
+          "id": "「天上天下，唯我独尊」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "五条悟名台词"
+        },
+        {
+          "id": "「我可是最强的」",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「劳动是狗屎」",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "七海建人名台词"
+        },
+        {
+          "id": "「一起上吧」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "虎杖型"
+        },
+        {
+          "id": "「你很弱啊」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「这就是领域展开」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「我要把你揍飞」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「咒力用量是常人的几倍」",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「你说什么？我听不见」",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「真是无聊」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「这就是...黑闪！」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「不要小看人类啊」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「我可是两面宿傩」",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「伏魔御厨子」",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "宿傩领域"
+        },
+        {
+          "id": "「无量空处」",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "五条领域"
+        },
+        {
+          "id": "「八握剑异戒神将魔虚罗」",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "十种影法术最强式神"
+        },
+        {
+          "id": "「坐杀博徒」",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "秤金次领域"
+        },
+        {
+          "id": "「术式顺转，最大输出」",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「反转术式」",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「领域展延」",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「嵌合暗翳庭」",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "伏黑惠领域"
+        },
+        {
+          "id": "「自閉圓裹縛」",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「等等，先让我说完」",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「我会把你变成我的东西」",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「你已经死了」",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「这就是我的术式」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「不要逃避」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「我要变得更强」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「为了守护重要的人」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「这就是...觉悟！」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「你很有趣，让我更兴奋一点」",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "宿傩型"
+        },
+        {
+          "id": "「我要把你从这个世界上抹除」",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「这就是...人类的可能性！」",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「我不会让你过去的」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「就算死也要拉你垫背」",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「接下来就是我的回合了」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「你以为你在和谁说话」",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「我对弱者没有兴趣」",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「让我看看你的觉悟吧」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "「这一击，赌上一切」",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "最终结局",
+      "description": "角色的最终结局",
+      "default_next_wheel_id": "结局细节",
+      "options": [
+        {
+          "id": "正常生还继续做术师",
+          "weight": 15,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "活下来退出咒术界过普通生活",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "为守护他人英勇战死",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "重伤永久丧失咒力",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "理念崩溃走向叛逃",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "肉体消亡意识以诅咒留存",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "成为特级术师",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "成为世界最强",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "建立新世界秩序",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "被封印/囚禁",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": "狱门疆等"
+        },
+        {
+          "id": "成为传说（失踪/神隐）",
+          "weight": 5,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "牺牲自己拯救他人",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "成为咒灵（死后变化）",
+          "weight": 4,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "时代转折点（影响巨大）",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "与重要之人一起归隐",
+          "weight": 3,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    },
+    {
+      "id": "结局细节",
+      "description": "结局的补充细节",
+      "default_next_wheel_id": "",
+      "options": [
+        {
+          "id": "结局圆满，与重要之人团聚",
+          "weight": 12,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "孤独终老，背负一切前行",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死前看到重要之人的幻影",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死后被世人铭记传颂",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "死后被世人遗忘",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "留下了传承给下一代",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "结局开放，生死不明",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "达成了最初的执念目标",
+          "weight": 10,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "最终发现执念毫无意义",
+          "weight": 8,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "与宿敌最终和解",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "改变了咒术界的未来",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        },
+        {
+          "id": "无特殊细节，平淡收尾",
+          "weight": 6,
+          "custom_next_enabled": false,
+          "next_wheel_id": "",
+          "color": "",
+          "note": ""
+        }
+      ]
+    }
+  ]
+}
