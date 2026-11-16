@@ -370,7 +370,12 @@ const TemplateBranchNodeSchema = z
         z
           .object({
             text: z.string().min(1).max(120),
-            effects: z.array(EffectSchema).max(4).optional(),
+            /**
+             * 模板侧效果用**规范 Effect**，一次选项常常要同时做「置结局旗标 + 改生命周期 +
+             * 调关系 + 调资源」——上限 4 是从 LLM 那套扁平 DSL 抄来的，对模板太紧。
+             * 提到 8：够写完整的一幕，又不至于让一个选项变成脚本。
+             */
+            effects: z.array(EffectSchema).max(8).optional(),
             /** 分支内跳转：只能指本 branch 的节点。 */
             goto: TemplateBranchGotoSchema.optional(),
             /**

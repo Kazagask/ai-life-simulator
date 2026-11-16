@@ -6,8 +6,10 @@
 #   evt:gojo-open → evt:gojo-wheel（转盘·战况判定，weightBy）
 #     → evt:gojo-duel（对宿傩·三路） → evt:gojo-domain（领域对撞）
 #       → evt:gojo-fork ★走马灯（236 话）：候机厅 → 向南（原作·接受）/ 向北（IF·拒绝）
-#            ├ 向南 → evt:gojo-south-cut → ending=gojo-south（原作 236 话「向南」）
-#            └ 向北 → evt:gojo-north（branch · 半步之后，goto.after 延迟两小时）→ end:gojo-north（IF）
+#            ├ 向南 → evt:gojo-south-cut（原作 236 走马灯收尾）→ ending=gojo-south
+#            └ 向北 → evt:gojo-north ★接 235 话「双方都用不了领域」，四选一 → 五种结局：
+#                 先恢复领域 → 胜利（伏黑死 / 伏黑活）· 先叫醒伏黑 → 吃一发世界斩战败未死
+#                 打信号群殴 → 打团取胜（goto.after 6 分钟 = 等他们赶到）· 不赌领域 → 战死
 #
 # 虎杖线（op-yuji）：
 #   evt:yuji-open → evt:yuji-seal（术式封锁 st-sealed）
@@ -185,9 +187,20 @@ events:
           - text: 睁眼 ——侧身半步
             nextEventId: evt:gojo-north
 
+  # ── 五条线 · 向南（原作 236 话收尾）──────────────────────────────
+  # 走马灯在 `evt:gojo-fork` 的 south 节点已经开始；这一幕写的是**剩下的原作内容**：
+  # 与夏油那段「满足吗」、飞机起飞、「真希望这不是幻觉」，然后切回现实那一刀。
   - id: evt:gojo-south-cut
-    title: 世界斩
-    narrative: 再睁眼时，候机厅已经不在了。那道缝从肩头斜着穿过去，世界静了一瞬，血才慢慢流出来。你听见很远的地方有人喊你，你想说「别过来」，更想说的是——剩下的交给你们了。车站的灯亮着，几个老朋友还在等你。
+    title: 向南
+    narrative: |
+      你坐回椅子上。夏油在对面，还是高专时那副样子，校服第二颗扣子永远不系。
+      「满足吗？」他问。
+      你说：「……满足呐。如果为我撑腰的人里有你的话，可能会满足吧。」
+      他没接，只笑了一下。广播响了，那架飞机终于要起飞。
+      你说：真希望这不是幻觉。
+      ——然后你睁开眼。候机厅不在了，新宿的夜贴着脸，那道缝从肩头斜着穿过去。
+      世界静了一瞬，血才慢慢流出来。很远的地方有人在喊你，你想说「别过来」，
+      最后说的是：剩下的，交给你们了。
     trigger: { source: chain }
     kind: normal
     mentions: [npc-megumi]
@@ -202,38 +215,95 @@ events:
               - { type: setFlag, id: gojoDead, value: true }
               - { type: adjustMood, value: 2 }
 
-  # 分支：半步之后。counter 是首节点（沿用父 id evt:gojo-north），dawn 是 <id>#dawn。
-  # 两个回来的选项都用同一个 goto.after（同一幕只能有一个延迟），制造「两小时后天亮」的间隔。
+  # ── 五条线 · 向北（IF：接 235 话之后）────────────────────────────
+  # 前提：魔虚罗已被破坏，**双方都用不了领域**，比的是谁先把领域重建起来。
+  # 四个首层选择对应五条后续：
+  #   先恢复领域 → 胜利（伏黑死 / 伏黑活，二选一）
+  #   先叫醒伏黑 → 宿傩抢先进度，吃一发世界斩，战败但没死
+  #   打信号群殴   → 在宿傩恢复之前打团取胜（`goto.after` 六分钟 = 等他们赶到）
+  #   不赌领域     → 拼尽全力仍不敌，战死
   - id: evt:gojo-north
-    title: 半步之后
+    title: 领域之前
     trigger: { source: chain }
     branch:
-      - node: counter
-        title: 半步之后
-        text: 你侧过身。那道斩击从鼻尖前擦过去，切掉了半条街，但没切到你。宿傩第一次没有笑——他收招的那一瞬间，空隙只有半秒。你得决定，这半秒用来杀，还是用来救人。
+      - node: race
+        title: 领域之前
+        text: |
+          你站住了。魔虚罗的残骸在脚边冒烟，那东西终于死了。
+          但你们俩都用不了领域了——你的脑子像被人从里面敲过，他的神社也塌了。
+          接下来比的不是术式，是谁先把这口气喘回来。远处，乙骨他们还在往这边跑。
         options:
-          - text: 就在这半秒里，把「茈」按进去
-            effects:
-              - { type: setFlag, id: northCountered, value: true }
-              - { type: adjustMood, value: 8 }
-              - { type: adjustAttribute, attribute: cursedEnergy, value: 3 }
-            goto: { node: dawn, after: { value: 2, unit: hour } }
-          - text: 先转身把还站着的同伴推出去
-            effects:
-              - { type: setFlag, id: savedAllies, value: true }
-              - { type: adjustRelation, npcId: npc-yuta, value: 12 }
-              - { type: adjustRelation, npcId: npc-maki, value: 8 }
-              - { type: adjustMood, value: 5 }
-            goto: { node: dawn, after: { value: 2, unit: hour } }
-      - node: dawn
-        title: 天亮之前
-        text: 宿傩退进废墟深处，没有回头。天边泛出一点很淡的颜色，把新宿的玻璃照得像水。你站着，第一次觉得「活着」这件事，也需要一点时间去习惯。
+          - text: 抢在他前面，重开无量空处
+            goto: domain
+          - text: 先把伏黑叫醒
+            goto: wake
+          - text: 抬手打信号，让外面的人一起上
+            goto: { node: gang, after: { value: 6, unit: minute } }
+          - text: 不赌领域了，把一切压进最后一发
+            goto: last
+      - node: domain
+        title: 无量空处
+        text: |
+          你先成了。手印合上的一瞬，无量空处重新把这个街区罩进去——宿傩无处可躲，
+          但他脚下的那个人也无处可躲。伏黑惠还在那具身体里。
         options:
-          - text: 站着，等天亮
+          - text: 连着伏黑一起烧掉
             effects:
-              - { type: setFlag, id: ending, value: gojo-north }
+              - { type: setFlag, id: ending, value: gojo-win-dark }
               - { type: setFlag, id: endingReached, value: true }
               - { type: setFlag, id: gojoSurvived, value: true }
+              - { type: setNpcLifecycle, npcId: npc-megumi, state: inactive, reasonCode: "与宿傩一同被无量空处吞没" }
+              - { type: adjustMood, value: -14 }
+          - text: 收半瞬的力，把他从里面挤出来
+            effects:
+              - { type: setFlag, id: ending, value: gojo-win-save }
+              - { type: setFlag, id: endingReached, value: true }
+              - { type: setFlag, id: gojoSurvived, value: true }
+              - { type: setFlag, id: megumiRescued, value: true }
+              - { type: setNpcLifecycle, npcId: npc-megumi, state: alive }
+              - { type: adjustResource, resource: hp, value: -40 }
+              - { type: adjustMood, value: 10 }
+      - node: wake
+        title: 名字
+        text: |
+          你把手按在他胸口，喊他的名字。伏黑的手指动了一下——宿傩也动了。
+          你听见头顶上方传来一声很轻的气音，那是「解」的起手。
+          他比你先恢复了。
+        options:
+          - text: 撑住这一刀
+            effects:
+              - { type: setFlag, id: ending, value: gojo-regroup }
+              - { type: setFlag, id: endingReached, value: true }
+              - { type: setFlag, id: gojoSurvived, value: true }
+              - { type: adjustResource, resource: hp, value: -60 }
+              - { type: adjustMood, value: -6 }
+      - node: gang
+        title: 一起上
+        text: |
+          六分钟。乙骨先到，真希的刀紧跟着从侧面切进来，秤在废墟顶上笑着喊了句什么，
+          虎杖一句话没说，直接冲进宿傩的斩击范围里。宿傩第一次露出「算不过来」的表情。
+        options:
+          - text: 压上去
+            effects:
+              - { type: setFlag, id: ending, value: gojo-gang }
+              - { type: setFlag, id: endingReached, value: true }
+              - { type: setFlag, id: gojoSurvived, value: true }
+              - { type: setFlag, id: megumiRescued, value: true }
+              - { type: adjustRelation, npcId: npc-yuta, value: 15 }
+              - { type: adjustRelation, npcId: npc-maki, value: 12 }
+              - { type: adjustRelation, npcId: npc-kugisaki, value: 10 }
+              - { type: adjustMood, value: 12 }
+      - node: last
+        title: 最后一发
+        text: |
+          你把剩下的咒力全压进掌心。茈在指尖成形，那颜色和十八岁在冲绳海面上看见的一样好看。
+          你笑了一下，然后松手。
+        options:
+          - text: 赌它一次
+            effects:
+              - { type: setFlag, id: ending, value: gojo-last }
+              - { type: setFlag, id: endingReached, value: true }
+              - { type: setFlag, id: gojoDead, value: true }
               - { type: adjustMood, value: 6 }
 
   # ════════════════════════════════════════════════════════════════

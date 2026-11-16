@@ -3,8 +3,12 @@
 # 终止只看声明式 flag 与 battleDefeat 信号，绝不以 HP 数值 / HP 归零为判据（加载期会拒）。
 # 两条线各自的结局集，靠 `ending` flag 区分；互不串线（flag 值不同）。
 #
-#   ending=gojo-south → end-gojo-south（原作 236 话「向南」：五条身亡）
-#   ending=gojo-north → end-gojo-north（IF：向北，五条存活）
+#   ending=gojo-south    → end-gojo-south（原作 236 话「向南」：五条身亡）
+#   ending=gojo-win-dark → end-gojo-win-dark（向北 · 先恢复领域 · 胜利但伏黑死）
+#   ending=gojo-win-save → end-gojo-win-save（向北 · 先恢复领域 · 胜利且伏黑活）
+#   ending=gojo-regroup  → end-gojo-regroup（向北 · 宿傩先恢复 · 吃一发世界斩 · 战败未死）
+#   ending=gojo-gang     → end-gojo-gang（向北 · 群殴 · 在宿傩恢复前打团取胜）
+#   ending=gojo-last     → end-gojo-last（向北 · 拼尽全力仍不敌 · 战死）
 #   ending=yuji-canon → end-yuji-canon（原作向：宿傩消灭，伏黑获救）
 #   ending=yuji-if    → end-yuji-if   （IF：独扛，代价惨重）
 # 兜底 end-fallback 承接「既没到分叉也没收束」的拖局。
@@ -45,18 +49,66 @@ endings:
       title: 向南
       summary: 你站着没动，因为身后还有人。那道斩击穿过你的时候，你想起的不是战场，是教室里某个下午，有人问「最强的咒术师是什么样」，你随口答「大概是很孤单的那个吧」。后来你替所有人挡了一次，孤单这件事，好像就没那么重要了。车站的灯亮着，他们都在。
 
-  # ── 五条线 · 向北（IF）──
-  - endingId: end-gojo-north
-    name: 向北
-    description: 你侧身半步，让世界斩落空。这一夜，你活着走出新宿。
+  # ── 五条线 · 向北（IF 五种走向，全部接 235 话「双方都用不了领域」的前提）──
+  - endingId: end-gojo-win-dark
+    name: 无量空处
+    description: 你先恢复了领域。宿傩死了——伏黑惠也没有走出来。
     triggerConditions:
-      - { flag: ending, eq: gojo-north }
+      - { flag: ending, eq: gojo-win-dark }
+    priority: 80
+    endingType: sacrifice
+    narrativeConfig:
+      source: template
+      title: 无量空处
+      summary: 领域收起来的时候，废墟中央只剩一个跪着的影子。你赢了，赢得很干净——干净到连那个总说「我不想救所有人」的别扭小孩，也一起算进了代价里。五条悟这一生做过很多正确的判断，只有这一个，你到天亮都没敢再想第二遍。乙骨走过来，站在你旁边，很久没有说话。
+
+  - endingId: end-gojo-win-save
+    name: 两个人
+    description: 你收住半瞬的力，把伏黑从宿傩体内挤了出来。两个人都活着。
+    triggerConditions:
+      - { flag: ending, eq: gojo-win-save }
+    priority: 80
+    endingType: salvation
+    narrativeConfig:
+      source: template
+      title: 两个人
+      summary: 你松手那一下，脑子里像有根线断了。伏黑从半空摔下来，砸在碎石上，骂了一句脏话——你听见这句才确定他还活着。你坐在他旁边，两个人都没力气动。他说「你差点把我也烧了」，你说「差一点」。天快亮的时候，救护车的声音终于近了。
+
+  - endingId: end-gojo-regroup
+    name: 差一口气
+    description: 宿傩先恢复了领域。你撑住了那一发世界斩，但站不起来了。
+    triggerConditions:
+      - { flag: ending, eq: gojo-regroup }
     priority: 70
+    endingType: tragedy
+    narrativeConfig:
+      source: template
+      title: 差一口气
+      summary: 你侧过身，可这次慢了半拍。那道缝从锁骨划到腰侧，血是热的，世界是凉的。你还站着，只是再也用不上力。宿傩看了你一眼，转身走了——他没补刀，那比补刀更难堪。后面的事你只能听着：有人在喊你的名字，有人在骂，有人已经开始追。
+
+  - endingId: end-gojo-gang
+    name: 一起上
+    description: 你打了那个信号。他们在宿傩恢复领域之前把他埋进了废墟里。
+    triggerConditions:
+      - { flag: ending, eq: gojo-gang }
+    priority: 80
     endingType: glory
     narrativeConfig:
       source: template
-      title: 向北
-      summary: 半步。就差这半步，历史拐了个弯。天快亮的时候你坐在断墙上，虎杖在旁边问你疼不疼，你说不疼——其实疼，但你已经很久没有回答过这种问题了。向北不是逃，是「还没到该结束的时候」。
+      title: 一起上
+      summary: 六分钟之后新宿变成了另一个样子：乙骨的术式压着宿傩的斩击边界，真希的刀从死角切进去，秤在废墟顶上笑得像个疯子，虎杖冲在最前面——你站在中间，第一次不用一个人扛。宿傩散的时候看着你们，说了一句什么，风太大没人听清。伏黑被拖出来的时候还有气。你蹲下去，觉得自己这十年教的东西，好像真的有人学会了。
+
+  - endingId: end-gojo-last
+    name: 最后一发
+    description: 你把所有咒力压进那一发茈。宿傩死了，你也没能站起来。
+    triggerConditions:
+      - { flag: ending, eq: gojo-last }
+    priority: 70
+    endingType: sacrifice
+    narrativeConfig:
+      source: template
+      title: 最后一发
+      summary: 光把整条街照白了。等它散开，宿傩的身体只剩一半，另一半在灰里。你也倒了，倒得比想象中安静。十八岁那年你在冲绳的海面上第一次拟出这一发，当时夏油在旁边说「这也太夸张了」。现在没人这么说。你闭上眼睛之前想的是：至少这一次，是我自己选的落点。
 
   # ── 虎杖线 · 原作向 ──
   - endingId: end-yuji-canon
