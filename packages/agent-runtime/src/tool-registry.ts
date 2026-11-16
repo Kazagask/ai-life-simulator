@@ -242,10 +242,11 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
       "② 同一 invocation 内多次提交的分支互相独立；" +
       "③ 涉及具体角色时在 `actors` 里列 id，引擎会在呈现前复核其存活/在场（防诈尸）；" +
       "④ 标记 `mode: \"certain\"` 表示条件满足即发生，`random` 表示有机会发生。" +
-      " —— 照下面这个例子写，注意 **effects 用 type+id，conditions 用 op+args**，两套 DSL 形状不同：" +
-      '{"trigger":{"mode":"certain","conditions":[{"op":"flagSet","args":{"flag":"domainDone","eq":true}}]},' +
+      " —— 照下面这个例子写。effects 只有三种扁平形状：{\"flag\":\"名字\",\"value\":true} 置旗标、" +
+      "{\"mood\":3} 调心情、{\"hp\":-5}/{\"mp\":-5} 调资源；**不要写 type/op 字段**。" +
+      '{"trigger":{"mode":"certain"},' +
       '"branch":[{"node":"s1","title":"路口","text":"……","actors":["npc-yuji"],' +
-      '"options":[{"text":"推进","effects":[{"type":"setFlag","id":"swept","value":true}],"goto":"s2"}]},' +
+      '"options":[{"text":"推进","effects":[{"flag":"swept","value":true}],"goto":"s2"}]},' +
       '{"node":"s2","title":"残渣","text":"……","options":[{"text":"绕开"}]}]}',
     parameters: schemaOf(
       {
@@ -274,7 +275,13 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
                   type: "object",
                   properties: {
                     text: { type: "string" },
-                    effects: { type: "array", items: { type: "object" } },
+                    effects: {
+                      type: "array",
+                      maxItems: 4,
+                      description:
+                        "三种扁平形状之一：{flag,value} 置旗标 / {mood} 调心情 / {hp}或{mp} 调资源",
+                      items: { type: "object" },
+                    },
                     goto: { type: "string", description: "本次提交内的另一个 node" },
                   },
                   required: ["text"],

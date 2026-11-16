@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { ConditionSchema, EffectSchema } from "../schema/common.js";
 
 /**
  * `story.submitBranch` 的入参（AGENTIC-GM 重构 · 设计 §4.2）。
@@ -13,12 +12,32 @@ import { ConditionSchema, EffectSchema } from "../schema/common.js";
  *   防止模型伪造引用。
  * - 选项 id 也由引擎分配。
  */
+/**
+ * 分支选项能带的效果：**三种扁平形状**，没有 `type`、没有嵌套。
+ *
+ * 为什么不用引擎那套 `EffectSchema`（24 变体判别联合、每个变体字段名都不同）：
+ * 真实模型每写一次都要回忆一次字段表，实测反复写错（`{op,args}` / `{factRef,op,value}`
+ * / `{type,id,value}` 三种混用），每次都让整轮作废。
+ * 这里只暴露"作者真正会用的三个动作"，引擎编译时再映射回规范 Effect。
+ */
+export const BranchEffectSchema = z.union([
+  /** 置旗标（最常用：给分支留一个可观测痕迹） */
+  z.object({ flag: z.string().min(1), value: z.union([z.boolean(), z.string(), z.number()]) }).strict(),
+  /** 调心情 */
+  z.object({ mood: z.number() }).strict(),
+  /** 调资源（hp / mp） */
+  z.object({ hp: z.number() }).strict(),
+  z.object({ mp: z.number() }).strict(),
+]);
+
+export type BranchEffect = z.infer<typeof BranchEffectSchema>;
+
 export const SubmitBranchOptionSchema = z
   .object({
     /** 选项文案（第二人称、动词开头） */
     text: z.string().min(1).max(120),
     /** 该选项的效果（走模板同一套 effect 白名单校验） */
-    effects: z.array(EffectSchema).max(8).optional(),
+    effects: z.array(BranchEffectSchema).max(4).optional(),
     /** 指向**本次提交内**的另一个 node；缺省 = 到此为止 */
     goto: z.string().min(1).optional(),
   })

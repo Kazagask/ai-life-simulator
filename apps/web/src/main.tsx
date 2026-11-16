@@ -1448,6 +1448,8 @@ function LifeTab({
           />
         )}
 
+        <GmWorkingStrip busy={busy} />
+
         {!ended && (
           <section className={`card slot-area slot-${occupant}`}>
             <header className="slot-head">
@@ -1515,6 +1517,40 @@ function LifeTab({
       {/* 点击为主：行动坞固定贴在 tabbar 上方，长叙事也推不走 */}
       {docked && <ActionDock view={view} busy={busy} onAct={onAct} />}
     </>
+  );
+}
+
+
+/**
+ * GM 推演中提示（不剧透）。
+ *
+ * 一次 invocation 可能跑 30-60 秒（真模型 + 多轮工具调用）。原来只有叙事卡里一个
+ * 小标签，而玩家此刻正盯着事件区 —— 那里毫无变化，看起来像卡死。
+ *
+ * 这里只显示**进度与耗时**，不显示任何内容：
+ * - 不带模型输出（哪怕是片段）—— 那是剧透，且未校验的文本不该先上屏；
+ * - 文案只说"在做什么阶段"，且阶段是**引擎已知的事实**（请求在飞 / 已过 N 秒），
+ *   不是从模型里猜的。
+ */
+function GmWorkingStrip({ busy }: { busy: boolean }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!busy) {
+      setElapsed(0);
+      return;
+    }
+    const started = Date.now();
+    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 500);
+    return () => clearInterval(timer);
+  }, [busy]);
+  if (!busy) return null;
+  const hint = elapsed < 6 ? "正在读取世界" : elapsed < 20 ? "正在编排这一幕" : "正在收尾";
+  return (
+    <div className="gm-working" role="status" aria-live="polite">
+      <span className="gm-working__dot" aria-hidden="true" />
+      <span className="gm-working__text">GM 推演中 · {hint}</span>
+      <span className="gm-working__elapsed">{elapsed}s</span>
+    </div>
   );
 }
 

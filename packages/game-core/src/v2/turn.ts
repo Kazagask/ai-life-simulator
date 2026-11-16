@@ -930,6 +930,15 @@ function runSettlementHooks(
     state,
     computeKnowledgeGrants(state, pipeline.rules, registry, state.turnIndex),
   );
+  /**
+   * **轮内动作不唤起 agent**（2026-11-16 用户实测）：
+   * `useItemV2` / `equipV2` / `unequipV2` 这类不占槽、不推进回合的操作，
+   * 传进来的 `atTurnBoundary === false`。原来这个 flag 只挡了 DAG 推进，
+   * 触发器求值照跑 ⇒ "喝瓶药"会真的去调一次 LLM 并等它几十秒。
+   *
+   * 口径：LLM 参与是**回合级**的稀疏事件，轮内小动作用引擎规则结算即可。
+   */
+  if (!atTurnBoundary) return;
   if (!pipeline.gateway) return;
   /**
    * ADR-0036：改用**边沿语义**求值（`fireMode` 缺省 edge）。

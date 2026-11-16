@@ -4,6 +4,7 @@ import {
   EventV2Schema,
   SetKnowledgeArgsSchema,
   SubmitBranchArgsSchema,
+  type BranchEffect,
   TaskDagSchema,
   TaskEdgeSchema,
   TaskNodeSchema,
@@ -13,6 +14,7 @@ import {
   type DiagnosticCode,
   type DispatchContext,
   type DispatchResult,
+  type Effect,
   type EngineApiHandle,
   type EventV2,
   type FactChange,
@@ -520,6 +522,22 @@ const enqueueEvent: ToolHandler = {
  *   防止伪造引用。
  * - **原子性**：整条分支要么全落、要么全不落（任何一块不合 schema 即整体拒绝）。
  */
+/**
+ * 分支的**扁平效果** → 引擎规范 `Effect`。
+ *
+ * 对外协议故意只有三种形状（`{flag,value}` / `{mood}` / `{hp}|{mp}`）：
+ * 真实模型记不住 24 变体的判别联合，会反复写错字段名。这里做一次映射，
+ * 把"作者语言"翻译成"引擎语言"。
+ */
+function toCanonicalEffects(list: readonly BranchEffect[]): Effect[] {
+  return list.map((effect) => {
+    if ("flag" in effect) return { type: "setFlag", id: effect.flag, value: effect.value };
+    if ("mood" in effect) return { type: "adjustMood", value: effect.mood };
+    if ("hp" in effect) return { type: "adjustResource", resource: "hp", value: effect.hp };
+    return { type: "adjustResource", resource: "mp", value: effect.mp };
+  });
+}
+
 const submitBranch: ToolHandler = {
   run(state, args, ctx) {
     // 结构写入必须与本回合同事务（与 fact.* 同一条守卫）。
@@ -586,7 +604,7 @@ const submitBranch: ToolHandler = {
               text: option.text,
               // 显式给 [] 而不是省略：省略的语义是"这个选项什么也不做"，
               // 而缺省语义将来一变就是静默改行为。
-              effects: option.effects ?? [],
+              effects: toCanonicalEffects(option.effects ?? []),
               ...(option.goto !== undefined ? { nextEventId: `${prefix}${option.goto}` } : {}),
             })),
           },
