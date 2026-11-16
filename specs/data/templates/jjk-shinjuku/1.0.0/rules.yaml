@@ -49,17 +49,16 @@ llmTriggers:
       toolProfile: "gm"
 
 toolProfile:
-  # GM 画像：先查后写；写入只有叙事与提交分支（fact.enqueueEvent / upsertDagBranch 已下线）。
-  # 注：叙事正文的承载方式正在切换（<narrative-content> 标签），此画像暂沿用现行写法，
-  #     由团队统一调整，模板侧不另造。
+  # GM 画像：只读查询 + 提交分支。叙事正文由模型 content 里的
+  # <narrative-content> 标签承载，不经工具。
   gm:
     [
+      # 只读查询（先查后写：世界是什么样、我在哪、谁在场、我之前干过什么）
       "world.now",
       "world.history",
       "world.present",
       "world.self",
-      "narrative.write",
-      "narrative.flavor",
+      # 写世界只有一条通道：提交整条分支
       "story.submitBranch",
     ]
 
