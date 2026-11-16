@@ -297,7 +297,7 @@ describe("分支轮契约：mock ↔ loop ↔ 真引擎", () => {
     expect(branchReceipt).toMatchObject({ outcome: "accepted" });
   });
 
-  it("零 key 真引擎：白名单声明 ⇒ evt:trial 真的进 delayQueue 且 committed", async () => {
+  it("零 key 真引擎：白名单声明 ⇒ evt:rumor 真的进 delayQueue 且 committed", async () => {
     const fixture = loadDemoFixture();
     fixture.state.taskDag = {
       ...fixture.rules.fallbackDag,
@@ -315,7 +315,9 @@ describe("分支轮契约：mock ↔ loop ↔ 真引擎", () => {
     const invocation = invocations.find((inv) => inv.reason === "chapter.advance");
     expect(invocation).toBeDefined();
     // 白名单来自模板 `invoke.branchEventIds`（core 求值拷贝），不是测试硬塞。
-    expect(invocation!.context.branchEventIds).toEqual(["evt:trial"]);
+    // ADR-0037 §13 D16：白名单指向 rumor（无 pool / 无 nextEventId / 无 missWhen）⇒
+    // 它出现在 delayQueue 里只能是分支轮摆的（trial 会被 awaken 链边放下，证明不了什么）。
+    expect(invocation!.context.branchEventIds).toEqual(["evt:rumor"]);
 
     const queueBefore = fixture.state.delayQueue.length;
     const traces: Array<{ contentBlocks?: Array<{ kind: string }> }> = [];
@@ -331,9 +333,9 @@ describe("分支轮契约：mock ↔ loop ↔ 真引擎", () => {
     const outcome = await gateway.invoke(invocation!);
 
     expect(outcome.outcome).toBe("committed");
-    const enqueued = fixture.state.delayQueue.filter((inst) => inst.definitionId === "evt:trial");
+    const enqueued = fixture.state.delayQueue.filter((inst) => inst.definitionId === "evt:rumor");
     expect(enqueued).toHaveLength(1);
-    expect(enqueued[0]!.origin).toMatchObject({ kind: "effect", id: "evt:trial" });
+    expect(enqueued[0]!.origin).toMatchObject({ kind: "effect", id: "evt:rumor" });
     expect(fixture.state.delayQueue.length).toBe(queueBefore + 1);
 
     const blocks = traces[0]?.contentBlocks ?? [];

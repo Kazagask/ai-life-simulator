@@ -12,8 +12,14 @@ llmTriggers:
       reason: "chapter.advance"
       perspective: "player"
       targetPerspective: "player"
-      # 只放上下文标签，不在这里表达「上桌」——后者等 `invoke.branchEventIds`（ADR-0038）。
+      # 只放上下文标签，不在这里表达「上桌」—— 后者由 `branchEventIds` 声明（ADR-0038）。
       contextHints: ["chapter.tone"]
+      # 能力声明（不是用途声明）：允许本轮把 evt:rumor 摆上桌。
+      # 为什么是 rumor 而不是 trial（ADR-0037 §13 D16）：`evt:trial` 会被 `evt:awaken` 的
+      # 确定性链边自动放下 —— 指向它等于「观察点与因果源重合」，它在不在队列里与分支轮
+      # 是否生效无关，演示不成立、测试只能假绿。`evt:rumor` 不进 pool、没有任何
+      # `nextEventId` 指向它、也没有 `missWhen` ⇒ 它出现在 delayQueue 里**只能**来自分支轮。
+      branchEventIds: ["evt:rumor"]
       toolProfile: "narrative"
   - when: [{ op: "random", args: { probability: 0.1 } }]
     invoke:

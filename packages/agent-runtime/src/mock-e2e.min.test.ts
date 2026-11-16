@@ -290,7 +290,7 @@ describe("零 key 端到端：真引擎 + mock provider", () => {
  * 模板在并行改动期间不该把它拖红。
  */
 describe("分支轮 × 真引擎：分支事件真的上桌", () => {
-  it("显式分支提示 ⇒ evt:trial 进 delayQueue（origin.kind=effect）且 committed", async () => {
+  it("显式白名单 ⇒ evt:rumor 进 delayQueue（origin.kind=effect）且 committed", async () => {
     const fixture = loadDemoFixture();
     // 把 n1.awaken 结掉，让 rules.yaml 的 nodeCompleted 触发器真的命中。
     fixture.state.taskDag = {
@@ -311,7 +311,9 @@ describe("分支轮 × 真引擎：分支事件真的上桌", () => {
     );
     expect(invocation).toBeDefined();
     // ADR-0038：上桌能力由结构化白名单声明（`branchEventIds`），且提示通道里不得再出现事件 id。
-    expect(invocation!.context.branchEventIds).toEqual(["evt:trial"]);
+    // ADR-0037 §13 D16：白名单必须指向**链边绝不会放置**的事件 —— rumor 无 pool、无
+    // nextEventId、无 missWhen，所以「它入队」本身就是分支轮生效的证据（trial 满足不了这点）。
+    expect(invocation!.context.branchEventIds).toEqual(["evt:rumor"]);
     expect(invocation!.context.contextHints ?? []).not.toContainEqual(
       expect.stringMatching(/^evt:/),
     );
@@ -331,9 +333,10 @@ describe("分支轮 × 真引擎：分支事件真的上桌", () => {
 
     expect(outcome.outcome).toBe("committed");
     // 分支事件真的入队了（只入队、不占槽）：origin.kind === "effect"。
-    const enqueued = fixture.state.delayQueue.filter((inst) => inst.definitionId === "evt:trial");
+    // rumor 没有任何其它上桌路径 ⇒ 这条断言同时锁住 D16（观察点不与因果源重合）。
+    const enqueued = fixture.state.delayQueue.filter((inst) => inst.definitionId === "evt:rumor");
     expect(enqueued.length).toBe(1);
-    expect(enqueued[0]!.origin).toMatchObject({ kind: "effect", id: "evt:trial" });
+    expect(enqueued[0]!.origin).toMatchObject({ kind: "effect", id: "evt:rumor" });
     expect(fixture.state.delayQueue.length).toBe(queueBefore + 1);
 
     // 一次 invocation 内三件事都发生了：叙事 / 分支上桌 / 可点选项。
