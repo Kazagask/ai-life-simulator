@@ -40,7 +40,7 @@ import {
   buildFacts as computeFacts,
 } from "./perspective.js";
 import { validateDag, type DagValidationResult } from "../v2/task-dag.js";
-import { enqueueScheduled } from "../v2/scheduler.js";
+import { enqueueScheduled, hasFired } from "../v2/scheduler.js";
 import type { ConditionRegistry } from "../v2/condition-evaluator.js";
 import { createContentSink, type ContentSink } from "../v2/narrative.js";
 
@@ -483,6 +483,20 @@ const enqueueEvent: ToolHandler = {
         "unknown_reference",
         `eventId 不在本次 invocation 的 branchEventIds 白名单内：${eventId}`,
         { allowedRefs: [...allowlist] },
+      );
+    }
+    /**
+     * `once` 语义：模板声明「一辈子只演一次」，LLM 是不可信输入源，不得通过
+     * `fact.enqueueEvent` 把**已触发过**的 once 事件重新塞回队列 —— 否则 once 只是建议。
+     *
+     * 非 once 事件不拦（日常 / 随机遭遇本就允许重演）。码用 `idempotency_conflict`：
+     * 「这次写入不该再发生」，重试一万次那一场也已经演过（码表里本就不可重试）。
+     */
+    const def = env.lookup?.event(eventId);
+    if (def?.trigger.once === true && hasFired(state, eventId)) {
+      return rejected(
+        "idempotency_conflict",
+        `once 事件已触发过，不可由 LLM 重新入队：${eventId}`,
       );
     }
     /**
