@@ -101,13 +101,11 @@ events:
     settle:
       normal:
         options:
-          # ⚠ 这里**刻意不写 nextEventId**，改用 `enqueueEvent` + `delay`：
-          # 下一步（分叉点）要在 **2 个空槽回合之后**才上桌，那两轮是留给
-          # 「引擎调度的分支事件」唯一的落点（整条链其余部分首尾相接，槽永远是满的）。
-          # 算术：一轮 = `world.yaml` 的 defaultStep 10 分钟，延时 30 分钟 ⇒
-          # 结算当轮 +10 / +20 两轮槽为空（玩家可自由行动），+30 那一轮才被取出。
-          # 写成 nextEventId 的话，分叉点会立刻占槽 ⇒ 分支事件没有窗口，
-          # 只能等到收场那一瞬挤进来（实测过，会抢在结局前面）。
+          # 直链到分叉点：`nextEventId` 立刻占槽，中间**不留空窗**。
+          # 曾经用过 `enqueueEvent + delay 30 分钟` 制造 2 个空槽回合，留给「引擎调度的
+          # 分支事件」——那是为 GM agent 提交分支准备的窗口。但 GM agent 还没落地，
+          # 空窗里没有任何东西会来，玩家只会看到「领域对撞打完 → 突然变自由行动」，
+          # 读起来像剧情断了。所以现在直链，等 `story.submitBranch` 真正可用时再开窗。
           - id: opt-void
             text: 展开「无量空处」，用信息量压死他
             effects:
@@ -115,7 +113,7 @@ events:
               - { type: setFlag, id: domainDone, value: true }
               - { type: adjustMood, value: 8 }
               - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
-              - { type: enqueueEvent, eventId: evt:south-north, delay: { value: 30, unit: minute } }
+            nextEventId: "evt:south-north"
           - id: opt-outlast
             text: 不跟他对拼，硬吃「伏魔御厨子」
             effects:
@@ -123,7 +121,7 @@ events:
               - { type: setFlag, id: domainDone, value: true }
               - { type: applyStatus, status: st-overload, stacks: 1 }
               - { type: adjustMood, value: -6 }
-              - { type: enqueueEvent, eventId: evt:south-north, delay: { value: 30, unit: minute } }
+            nextEventId: "evt:south-north"
 
   # ══════════════════════════════════════════════════════════════
   # 四、★ 分叉点 · 向南 / 向北

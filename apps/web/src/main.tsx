@@ -1366,9 +1366,12 @@ function LifeTab({
   const slot = snapshot.slotEvent;
   const occupant = occupantOf(slot);
 
-  // 「本轮还发生了什么」：已结算的其它事件叙述。
-  // 槽内正在呈现的那一格由事件区负责（`slotEvent.eventId` 是唯一真源），不在底栏重复。
-  const alsoHappened = (lastResult?.events ?? []).filter((e) => e.id !== slot?.eventId);
+  // 「本轮还发生了什么」区块已删除（2026-11-16）。原来的做法是把 `triggeredEvents`
+  // 过滤掉当前槽那一格后当卡片列出来——**骨架是引擎事实、肉是叙事文本**，两边都不纯：
+  // 作为事实它该进「记录」tab（那里读 `/history`，带 turnIndex/type/summary）；
+  // 作为叙事它与事件区重复（同一格的正文刚在事件区演过）。
+  // 真正值得保留的语义是「玩家没注意到的事件」，但 `triggeredEvents` 只说明
+  // 「本轮结算了哪些」，不说明「玩家看过没有」——要做需引擎侧标记 noticed，另开。
 
   /**
    * 转盘确认后（槽已让位）仍要让玩家看到「这一格是什么」：直接读**确认响应**带回的
@@ -1492,21 +1495,6 @@ function LifeTab({
           </section>
         )}
 
-        {alsoHappened.length > 0 && (
-          <section className="card result">
-            <h3 className="result-title">本轮还发生</h3>
-            <div className="stack-sm">
-              {alsoHappened.map((event) => (
-                <div key={event.id} className="event-card">
-                  <strong>⚡ {event.title}</strong>
-                  {/* R2.7 / R-NAR-03：有 flavor 用服务端已校验文案，缺失 / 空串回退模板文案（零回归） */}
-                  <p>{resolveEventNarrative(event, { ...platformFlavors, ...lastResult?.eventFlavors })}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
         {settledWheel !== null && (
           <section className="card result">
             <h3 className="result-title">命运落定</h3>
@@ -1517,7 +1505,7 @@ function LifeTab({
           </section>
         )}
 
-        {lastResult && !ended && alsoHappened.length === 0 && settledWheel === null && slot === null && (
+        {lastResult && !ended && settledWheel === null && slot === null && (
           <p className="muted result-quiet">世界平静地流转着。</p>
         )}
       </div>

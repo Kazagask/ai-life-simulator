@@ -8,24 +8,20 @@
 # 「把某个事件摆上桌」只能由结构化字段表达（`invoke.branchEventIds`，ADR-0038）。
 
 llmTriggers:
-  # 领域对撞结算之后：这一轮值得一段由 AI 写的旁白。
-  # 用 edge 语义（缺省）—— 只在「上一轮假、本轮真」时发一次，不会每轮烧钱。
-  - when: [{ op: "flagSet", args: { flag: "domainDone" } }]
+  # ⚠ 全文件**只有这一条**。不是精简，是必须：
+  # 「每轮最多执行一条」的规则下，如果两条触发器在**同一轮**由假变真，只有声明序第一条
+  # 会执行，而被挤掉的那条**照样记成已触发**（`triggerFireLedger` 落 `hit: true`）——
+  # 账本说它跑过，实际一次没执行，且此后永不重发。
+  # 之前 `flagSet domainDone` 与 `nodeCompleted n2.domain` 就是这样同轮撞车，
+  # 等于用一条假保险丝换掉了唯一一次 AI 旁白机会。
+  #
+  # 为什么挂在「分叉点结算之后」而不是「领域对撞结算时」：
+  # 领域对撞那一轮，分叉还没发生，模型只能预告「你即将向南或向北」——那正是玩家反馈的
+  # 「事件描述被写到叙事区、还说早了」。挂到 `eventResolved evt:south-north` 之后，
+  # 它写的是**刚做的选择的后果**，才对得上玩家此刻看见的东西。
+  - when: [{ op: "eventResolved", args: { eventId: "evt:south-north" } }]
     invoke:
-      reason: "after.domain"
-      perspective: "player"
-      targetPerspective: "player"
-      contextHints: ["battle.tone"]
-      # 本轮**不声明** branchEventIds：这一版模板里没有"只可能来自分支"的事件，
-      # 而空声明（或指向链边能放下的 id）在 ADR-0038 的语义下要么被拒、要么测试只能假绿。
-      # 领域对撞 → 分叉点之间有 2 个空槽回合（events.yaml 的延时边），
-      # 下一轮切到 story.submitBranch 后，分支就落在那里。
-      toolProfile: "narrative"
-
-  # 玩家真的走到分叉点：让 AI 把「这一格不是打不打得赢，而是动不动」写出来。
-  - when: [{ op: "nodeCompleted", args: { nodeId: "n2.domain" } }]
-    invoke:
-      reason: "at.fork"
+      reason: "after.fork"
       perspective: "player"
       targetPerspective: "player"
       contextHints: ["fork.tone"]
