@@ -167,10 +167,17 @@ function buildCompletion(input: {
         try {
           parsedArgs = JSON.parse(rawArgs);
         } catch {
-          throw new AgentProviderError(
-            "invalid_arguments",
-            `tool_call ${name} 的 arguments 不是合法 JSON`,
-          );
+          /**
+           * **不要因为一个坏参数炸掉整轮**（2026-11-16 实测）。
+           *
+           * 真实模型偶发把 arguments 吐成半截 JSON / 多一层引号。原来的做法是抛
+           * `invalid_arguments` ⇒ 整轮 fallback、零产出。这里改成退化为空对象：
+           * 第 1 层校验会给出"缺 text"之类的具体提示，模型下一轮就能改对。
+           */
+          if (process.env.LIFE_SIM_DEBUG_LLM === "1") {
+            console.error("[llm-bad-args]", name, String(rawArgs).slice(0, 200));
+          }
+          parsedArgs = {};
         }
       }
     } else if (isRecord(rawArgs)) {
@@ -420,6 +427,9 @@ export class OpenAiCompatibleProvider implements AgentProvider {
       if (raw.length > 0) suffix = `: ${this.redact(raw).slice(0, 200)}`;
     } catch {
       // 读不到 body 不影响诊断码
+    }
+    if (process.env.LIFE_SIM_DEBUG_LLM === "1") {
+      console.error("[llm-http]", response.status, suffix.slice(0, 500));
     }
     return new AgentProviderError(code, `provider HTTP ${response.status}${suffix}`);
   }

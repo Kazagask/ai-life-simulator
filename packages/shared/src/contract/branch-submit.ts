@@ -41,8 +41,15 @@ export const SubmitBranchArgsSchema = z
   .object({
     trigger: z
       .object({
-        /** 触发前置条件（与模板同一套 condition DSL） */
-        conditions: z.array(ConditionSchema).max(6).optional(),
+        /**
+         * **v1 不解释条件**：接受但忽略（`z.array(z.unknown())`）。
+         *
+         * 实测（glm-5.3）模型反复写错 condition DSL 形状 —— 这不该成为"整轮作废"的理由：
+         * 分支什么时候触发，v1 由「触发器" + `mode` 决定就够了（`certain` = 尽快、
+         * `random` = 进候选池）。条件触发等这一版跑顺再以**结构化**方式加回来，
+         * 届时同步改工具描述与校验，而不是让模型猜。
+         */
+        conditions: z.array(z.unknown()).max(6).optional(),
         /**
          * `certain` = 条件满足即发生；`random` = 进候选池、按引擎节奏抽取。
          * 语义只到这一层——"池 / 权重 / 到期"是引擎内部实现，模型不感知。

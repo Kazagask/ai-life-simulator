@@ -574,12 +574,10 @@ const submitBranch: ToolHandler = {
                  * 1 分钟已经小于任何一轮的默认步长（10 分钟），等价于"入队即到期"。
                  */
                 window: { start: { value: 1, unit: "minute" } },
-                ...(trigger.conditions !== undefined ? { conditions: trigger.conditions } : {}),
               }
             : {
                 source: "pool",
                 weight: 1,
-                ...(trigger.conditions !== undefined ? { conditions: trigger.conditions } : {}),
               },
         settle: {
           normal: {

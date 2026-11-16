@@ -68,7 +68,7 @@ describe("OpenAiCompatibleProvider（结构化 tool_calls）", () => {
     expect(result.finishReason).toBe("tool_calls");
   });
 
-  it("arguments 不是合法 JSON ⇒ invalid_arguments（FATAL 语义）", async () => {
+  it("arguments 不是合法 JSON ⇒ 退化为空对象（不再炸整轮）", async () => {
     const provider = new OpenAiCompatibleProvider({
       baseUrl: "https://llm.example/v1",
       model: "m",
@@ -89,10 +89,11 @@ describe("OpenAiCompatibleProvider（结构化 tool_calls）", () => {
       }),
     });
 
-    await expect(provider.chat(request)).rejects.toMatchObject({
-      name: "AgentProviderError",
-      code: "invalid_arguments",
-    });
+    // 2026-11-16：坏参数不再抛错——退化成 `{}`，交给第 1 层校验给出可修的提示，
+    // 模型下一轮就能改对。抛错会让整轮直接作废、零产出。
+    const completion = await provider.chat(request);
+    expect(completion.toolCalls).toHaveLength(1);
+    expect(completion.toolCalls[0]!.arguments).toEqual({});
   });
 
   it("HTTP 500 ⇒ provider_unavailable；400 ⇒ invalid_arguments", async () => {

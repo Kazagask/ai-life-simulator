@@ -16,8 +16,8 @@ export const LlmBudgetSchema = z
     invocationTimeoutMs: z.number().int().nonnegative().default(180000),
     turnLlmBudgetMs: z.number().int().nonnegative().default(240000),
     maxInputTokens: z.number().int().nonnegative().default(8000),
-    maxOutputTokens: z.number().int().nonnegative().default(2000),
-    maxTotalTokens: z.number().int().nonnegative().default(24000),
+    maxOutputTokens: z.number().int().nonnegative().default(8000),
+    maxTotalTokens: z.number().int().nonnegative().default(48000),
     recentTurns: z.number().int().nonnegative().default(6),
   })
   .strict();

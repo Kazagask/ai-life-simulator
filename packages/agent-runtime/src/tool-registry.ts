@@ -253,19 +253,7 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
           type: "object",
           properties: {
             mode: { type: "string", enum: ["random", "certain"] },
-            conditions: {
-              type: "array",
-              description:
-                "触发前置条件，**必须用引擎的 condition DSL**：" +
-                '[{"op":"flagSet","args":{"flag":"domainDone","eq":true}}]。' +
-                "不要自创 {factRef,op,value} 这种形状（会被判参数非法）。" +
-                "省略 = 无条件（条件满足即按 mode 调度）。",
-              items: {
-                type: "object",
-                properties: { op: { type: "string" }, args: { type: "object" } },
-                required: ["op", "args"],
-              },
-            },
+            // v1 不解释条件：可以不写，写了也会被忽略（写错不会导致整轮失败）。
           },
           required: ["mode"],
         },
