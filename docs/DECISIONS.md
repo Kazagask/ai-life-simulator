@@ -3818,7 +3818,7 @@ key = `` `${reason}#${index}` ``（`reason` 是语义身份，`index` 防同 rea
 ### 4. 回归锁
 
 - demo 模板建世界 ⇒ `state.taskDag.nodes` 含 `n1.awaken` / `n2.trial` / `n3.hiddenSeed`。
-- 建世界后跑一轮 ⇒ `n1.awaken` 变 `completed`（`ready` + `completion: [always]`）⇒ `nodeCompleted n1.awaken` 为真 ⇒ `chapter.advance` **恰好触发 1 次**，且 `contextHints` 含 `branch:evt:trial`。
+- 建世界后跑一轮 ⇒ `n1.awaken` 变 `completed`（`ready` + `completion: [always]`）⇒ `nodeCompleted n1.awaken` 为真 ⇒ `chapter.advance` **恰好触发 1 次**，且该 invocation 的 `context.branchEventIds` 含 `"evt:trial"`（**2026-11-16 修正**：原文写「`contextHints` 含 `branch:evt:trial`」，该形态已被 ADR-0038 整体废止 —— 判定面改为 `branchEventIds`，且 `contextHints` 必须**不含**任何 `evt:` 项）。
 - `upsertDagBranch` 加 2 节点 1 边 ⇒ 再次相同调用后 `nodes.length` 不变、`edges.length` 不变、`version` 只 +1。
 - `upsertDagBranch` 造环 ⇒ `state_conflict` 拒绝，`state.taskDag` 逐字段不变。
 - `upsertDagBranch` 改已存在节点的 `title` ⇒ `state_conflict`。
@@ -4081,3 +4081,67 @@ assignPendingInvocation(state, inv)            // turn.ts：先写上 pendingInv
 1. `pendingInvocation` 继续作为**内部在飞标记**（锁、诊断、SSE 用），不删。
 2. `snapshot.llmPending` 字段**不删**（契约兼容 + 单测仍在用），但按"REST 里恒缺席"看待。
 3. **加载态由「请求在飞」驱动**（客户端本来就知道请求发出去了）；异步/流式进度由 SSE `delta` 驱动。`NarrativeStage.tsx:44` 那个依赖 `llmPending` 的「AI 书写中」标签**永远不会显示**，属于待修的前端问题（不是后端缺陷）。
+
+### 11. 实施前影响分析的四项裁定（2026-11-16，只读分析提出）
+
+**D10 【前置阻塞】`lookupRefs` 在生产路径上是死的，必须先补齐，否则 D4.6 / IO-14 无法执行。**
+`EngineApiDeps.lookupRefs`（`engine-api.ts:412`）与 ctor 透传（`:443`）都存在，但**没有任何调用方提供它**：`apps/server/src/agent/pipeline.ts:70-75` 构造 `new RpgEngineAPI({state, projectSnapshot, perspective, targetPerspective})`，既没 `lookupRefs` 也没 `conditionRegistry`。
+现在的实际后果：`fact.enqueueEvent` 的模板存在性校验（`:255-260`）被跳过；`validateDag` 步骤 6（guard op 可解析 + `templateRefs ⊆ lookupRefs`）被跳过。
+⇒ **ADR-0037 D4.6 与 ADR-0038 IO-14 目前都不可执行。** 决策：把「ref 全集构建 + 穿透」作为 ADR-0037 的**前置任务**，落在 `apps/server/src/templates.ts`（`ReadyTemplateEntry` 已有 `entry.lookup`）→ `agent/pipeline.ts` → `RpgEngineAPI`。
+- 仓库今天**没有**任何 ref 全集构建器，这是新代码。前缀约定必须一次性定死：事件 `evt:`、技能 `skill:`、物品 `item:`、状态 `status:`、角色 `char:`、链 `chain:`（facts 已用 `flag:` / `dag:`；`enqueueEvent` 现在按 `evt:` 过滤）。
+- 与之配套：`branchEventIds` 的集合校验（IO-14）应在**模板加载期**做，不是 dispatch 期 —— 加载期失败比运行期拒绝更早、更可诊断。
+
+**D11 【新风险】`useItemV2` 在**不推进回合**的情况下跑结算钩子，DAG 推进必须加边界门。**
+`useItemV2`（`turn.ts:1310-1356`）刻意不调 `nextTurn`，但会调 `revalidateThenProject`（`:1350`）。一旦 `advanceDagProgress` 挂进 `runSettlementHooks`，**每喝一瓶药就推进一格 DAG，同一 `turnIndex` 内可反复推进**（道具连点 = DAG 速通）。
+五个钩子调用点里，只有它不推进回合：`wheel confirm:1015` / `advance:1088` / `battle:1200` / `choose:1296` 都会推进，`useItem:1350` 不会。
+⇒ 决策：`runSettlementHooks` 增加显式 `atTurnBoundary: boolean`，`useItem` 传 `false`，其余传 `true`；DAG 推进只在 `true` 时执行。**不引入**「上次推进的 turnIndex」这类持久字段 —— 那是把调用点的意图藏进状态，下一次加钩子还会错。
+
+**D12 【必须同时发】模板 `completion: [always]` 必须与 D1/D2 同批改成 `eventResolved`。**
+`rules.yaml:68` 的 `n2.trial.completion` 仍是 `[{ op: "always" }]`。D2 上线后，`n2` 会在第二轮 `draft→ready`、第三轮 `ready→completed`，**与 `evt:trial` 是否跑过无关**。只发 D1/D2 会得到一条会撒谎的时间线。
+⇒ 模板侧改写属于同一波，不得拆开。
+
+**D13 一轮一节点一格，必须靠"冻结快照求值"，不能只靠 per-node 判断。**
+ADR 原文只说「一轮每个节点至多前进一格」，但那只防同节点连跳。真正的坑是**跨节点**：同一轮里 `n1` 变成 `completed` 后，`n2` 的 guard `nodeCompleted n1` 立即为真 —— 若边遍历边写状态，一轮就能吃掉一条边，正是 ADR 要防的"故事节奏被吞掉"。
+⇒ 决策：`advanceDagProgress` 基于**本轮开始时的 status 快照**求值，收集 `transitions[]` 后统一 `assignDagProgress` 落账；一轮内不重读自己刚写的状态。`guards: []` 视为无前置条件（首轮即 `ready`），写进注释。
+
+**D14 `fact.upsertDagBranch` 的四处细则。**
+1. `issuedBy` 只在 nodes/edges **实际发生变化**时置 `"llm"`，否则保持原值 —— 否则一次空操作也把模板 DAG 标成 LLM 产物。
+2. **IO-11 的 `version` 只 +1 依赖"无变化短路"**：合并结果与现状深度相等 ⇒ 直接 `accepted([])` 返回，**不 bump version**。ADR 原文没写这一句，会在第二次相同调用时给出 +2。
+3. **禁止把节点从 `completed` / `cancelled` 往回改**（IO-9 单调），即使 LLM 显式要求。
+4. 已存在节点的 `templateRefs` / `contextHints` **不随 upsert 变化**（只允许改 `status/guards/completion/due/visibility`）；`dagId` **永不取自入参**。
+
+**D15 `replay` 必须接收 `rules`，否则确定性被破坏。**
+`v2/replay.ts:33-55` 现在用三参调用 `createWorldV2`。D1 之后生产路径会种 DAG，而 replay 不种 ⇒ 同一 seed 回放出一个空 DAG 的世界。**确定性是硬约束**，这条不是可选项。
+同时删除 `agent-runtime/src/testing/fixtures.ts:101` 手写 `state.taskDag = rules.fallbackDag` 的测试专用 hack，改为传 `rules`；并给 `assignTaskDagSeed` 加 `structuredClone` —— `entry.rules` 是跨世界共享的缓存对象，直接赋引用会让一个世界的改动漂到另一个世界。
+**旧存档说明**：D1 之前建的档载入后 `taskDag.nodes` 仍为 `[]`，**不做回溯补种**。这是"不迁移"策略的必然结果，要写进交付说明，否则会被当成 bug 报上来。
+
+### 12. 修前运行时基线（2026-11-16，真实服务 + mock provider + 零 key，两 seed × 14 轮）
+
+**§10 的落地顺序约束已被满足，且其中一条反事实前提不成立 —— 先更正。**
+§10 说「只上 DAG、不上边沿，会把死链换成每回合烧 LLM」。这是**反事实**：ADR-0036（边沿）已于 `d1ebf15` 先落地。实测确认边沿语义在真实服务上生效：`task.completed` 在 14 轮里**只发 1 次** invocation（第 4 轮，`setFlag took-right` 的上升沿），第 8–14 轮连跑 7 轮自由行动全部 200、零 invocation，而 `triggerFireLedger` 终态仍是 `{"task.completed#2":{"turnIndex":14,"hit":true}}` —— **hit 持续为真但不再发 invocation**，正是边沿语义的设计意图。
+⇒ §10 的约束保留为"顺序要求"，但适用条件已满足；**不要再把它当成"要顺手压制每轮触发"的任务**，那是已修好的东西。
+
+**P1 / P2 运行时坐实（比静态结论更强）：**
+| 断点 | 实测 |
+|---|---|
+| P1 | 建世界后 `taskDag = {"dagId":"initial","version":0,"nodes":[],"edges":[]}`，14 轮后逐字不变。`rules.yaml` 声明的 `demo-agentic.fallback.v1` / version 1 / 3 nodes **从未出现**。`createWorldV2(input, template, worldId, ctx)` 签名里**根本没有 `rules` 参数**（`turn.ts:92-97`）⇒ 结构上不可能读到 `fallbackDag`；生产路径唯一读者是 `condition-evaluator.ts:312` 的诊断扫描（只 collect 未注册 op，不写 state） |
+| P2 | `nodesLength` 全程 0 ⇒ 无节点可求值；`chapter.advance`（`when: nodeCompleted n1.awaken`）在两个 seed、28 轮里 **0 次触发**，ledger 落账 `hit: false` |
+| P3 | 只能静态坐实（生产路径永远走不到 `advanceDag`，这是 P1/P2 的推论）：`engine-api.ts:212-226` 要求完整 `TaskDagSchema`（`.strict()`，dagId/version/issuedBy/nodes/edges 必填）且整份覆盖；world 窗口 `perspective.ts:78-83` 只给 `{nodeId,status}` |
+
+**`evt:trial` 的 origin 原文（证明分支轮从未发生）：**
+```json
+{"eventId":"evt:trial","from":"successor","fromEventId":"evt:awaken","kind":"normal","title":"初次试炼"}
+```
+`from: "successor"` + 无 `instanceId`（`instanceId` 只在 `from === "queueTake"` 时写）⇒ 它来自 `evt:awaken` 选项的 `nextEventId` 链边，与 `fact.enqueueEvent` 无关。
+
+**度量口径（后续复测必须一致）**：`snapshot.llmPending` **不能**当作"本轮有 invocation"的信号 —— `runWorldTransaction` 先 `await gateway.invoke` 再投影再应答，响应时刻 `pendingInvocation` 必然已清空（28/28 步该字段根本不出现）。权威信号是 `data/worlds/<worldId>.trace.jsonl` 的**行增量**。
+
+### 13. D16 分支演示事件不得与链边重复（本轮新增裁定）
+
+D1/D2 落地后，若 n1 的 `completion` 仍是 `[always]`，它在**第一轮**就 `completed` ⇒ `chapter.advance` 在转盘都还没确认时触发，把 `evt:trial` 提前摆上桌，故事顺序被打乱。
+改成 `eventResolved evt:awaken`（D12）后，n1 在 `evt:awaken` 结算的那轮完成 ⇒ `chapter.advance` 才触发。但此时 `evt:trial` **已经**通过 `evt:awaken.nextEventId` 的链边进入了槽位（见 §12 的 origin 原文）⇒ `fact.enqueueEvent` 会再塞一条队列实例，制造重复 + 一条注定被 `missWhen` 清掉的 `miss_when` 记录。
+
+⇒ **D16：demo 的 `branchEventIds` 必须指向一个"链边不会摆"的事件。**
+理由不是洁癖：若分支轮摆的正是链上必然出现的事件，**观察者无法分辨"分支轮生效了"还是"故事自己走到了"** —— 演示点等于零，测试也会假绿（队列里那条既可能是链带来的，也可能是分支带来的）。
+做法：为分支轮单独新增一个只在队列路径出现的事件（如 `evt:rumor`，不出现在任何 `nextEventId` / 不属 `pool`），把 `branchEventIds` 指向它。这样"它出现在槽里"就只有一个原因。
+（这同时是 ADR-0038 §5「事件摆放权威」那个 DEFERRED 议题的最小代价解法：不动权威归属，只让演示不产生二义。）
