@@ -7,7 +7,6 @@ import { ScheduledEventInstanceSchema } from "./schema/event-instance.js";
 import { TerminationRecordSchema } from "./schema/ending.js";
 import { RelationEdgeSchema } from "./schema/relation.js";
 import { ObservationLedgerSchema } from "./contract/perspective.js";
-import { TaskDagSchema } from "./contract/task-dag.js";
 import { LlmInvocationSchema } from "./contract/llm-invocation.js";
 import type { BattleState, HistoryEntryV2, WorldStateV2 } from "./v2.js";
 
@@ -283,7 +282,6 @@ export const WorldStateV2Schema = z
     archived: z.boolean(),
     // ---------- F3 / F4 新契约状态（schemaVersion 4 预留；本波旧档不兼容） ----------
     observationLedger: ObservationLedgerSchema,
-    taskDag: TaskDagSchema,
     pendingInvocation: LlmInvocationSchema.optional(),
     media: z
       .array(z.object({ slot: z.string().min(1), assetId: z.string().min(1) }).strict())

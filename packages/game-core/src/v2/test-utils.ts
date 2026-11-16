@@ -1,4 +1,4 @@
-import type { OpeningTemplate, Rules, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
+import type { OpeningTemplate, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
 import { createLookup } from "./lookup.js";
 import { createDefaultOpeningTemplate, handoff, runOpening, type OpeningRunnerContext } from "./opening.js";
 import { createRunnerContext } from "./runner-context.js";
@@ -15,9 +15,8 @@ export function createActiveWorldV2(
   template: WorldTemplateV2,
   worldId: string,
   opening: OpeningTemplate = createDefaultOpeningTemplate(),
-  rules?: Rules,
 ): WorldStateV2 {
-  const base = createWorldV2(input, template, worldId, undefined, rules);
+  const base = createWorldV2(input, template, worldId, undefined);
   const lookup = createLookup(template);
   const openingCtx: OpeningRunnerContext = {
     ...createRunnerContext(base.seed),

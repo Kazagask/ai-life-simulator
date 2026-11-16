@@ -65,17 +65,3 @@ inferenceRules:
   # 走到分叉点 ⇒ 你会把"这道斩击是算好的"和"宿傩早就在等这一手"联起来。
   - when: [{ op: "flagSet", args: { flag: "domainDone" } }]
     grant: { observers: ["player"], factRefs: ["fact:counted-cut"], level: "inferred", source: "inferred" }
-
-fallbackDag:
-  # DAG 是「这一夜的三段」。completion 用 `eventResolved`（ADR-0037 §14）：
-  # 节点完成 = 它代表的事件**真的结算过**，不是「判据永远为真」。
-  dagId: "jjk-shinjuku.fallback.v1"
-  version: 1
-  issuedBy: "template"
-  nodes:
-    - { id: "n1.duel", kind: "battle", title: "第一场", status: "ready", guards: [], completion: [{ op: "eventResolved", args: { eventId: "evt:sukuna-duel" } }], templateRefs: ["evt:sukuna-duel"], visibility: "public" }
-    - { id: "n2.domain", kind: "battle", title: "领域对撞", status: "draft", guards: [{ op: "nodeCompleted", args: { nodeId: "n1.duel" } }], completion: [{ op: "eventResolved", args: { eventId: "evt:domain-clash" } }], templateRefs: ["evt:domain-clash"], visibility: "public" }
-    - { id: "n3.fork", kind: "decision", title: "向南，还是向北", status: "draft", guards: [{ op: "nodeCompleted", args: { nodeId: "n2.domain" } }], completion: [{ op: "eventResolved", args: { eventId: "evt:south-north" } }], templateRefs: ["evt:south-north"], visibility: "public" }
-  edges:
-    - { from: "n1.duel", to: "n2.domain", kind: "unlocks" }
-    - { from: "n2.domain", to: "n3.fork", kind: "unlocks" }

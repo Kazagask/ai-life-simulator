@@ -21,8 +21,6 @@ import {
   type PerspectiveFactView,
   type SetKnowledgeArgs,
   type SlotScene,
-  type TaskDag,
-  type TaskStatus,
   type TemplateLookup,
   type V2Snapshot,
   type WorldStateV2,
@@ -720,34 +718,6 @@ export function assignTriggerFireLedger(
 
 /** 诊断码封闭集合（转出，便于源码守卫 / 测试断言 13 码）。 */
 export const ENGINE_DIAGNOSTIC_CODES = DIAGNOSTIC_CODES;
-
-/**
- * ADR-0037 D1：建世界期把模板 `fallbackDag` 种进 `state.taskDag` 的唯一写入点。
- *
- * `structuredClone` 是**硬要求**：`entry.rules` 是跨世界共享的缓存对象，直接赋引用会让
- * 一个世界的 `upsertDagBranch` 改动漂到另一个世界，也破坏同 seed 回放的确定性。
- * 同一 `fallbackDag` 重复种入 ⇒ 逐字段一致（IO-8）。
- */
-export function assignTaskDagSeed(state: WorldStateV2, dag: TaskDag): void {
-  state.taskDag = structuredClone(dag);
-}
-
-/**
- * ADR-0037 D2：节点状态迁移的唯一写入点（引擎权威，LLM 不参与）。
- *
- * 只改 `status` 这一个字段，其余（`guards` / `completion` / `templateRefs`…）保持不动。
- * 迁移列表由纯函数 `advanceDagProgress` 基于**本轮开始时的快照**算出，本函数只负责落账。
- */
-export function assignDagNodeStatus(
-  state: WorldStateV2,
-  nodeId: string,
-  status: TaskStatus,
-): void {
-  state.taskDag = {
-    ...state.taskDag,
-    nodes: state.taskDag.nodes.map((n) => (n.id === nodeId ? { ...n, status } : n)),
-  };
-}
 
 /**
  * 结算 tail 的知识授予落账（T-02 / F4）。

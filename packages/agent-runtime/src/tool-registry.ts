@@ -211,11 +211,6 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
     description: "查你自己：属性、生命/咒力/心情、状态、技能、背包与装备。",
     parameters: schemaOf({}, []),
   },
-  "world.clues": {
-    name: "world.clues",
-    description: "查已公开的线索/章节节点（只含玩家已知的部分）。",
-    parameters: schemaOf({}, []),
-  },
   /**
    * 剧情编排：提交一整条分支。参数 schema 刻意只暴露**创作语义**——
    * 触发方式（随机/必然）、条件、事件块、选项去向；槽/队列/权重/DAG 一律不出现。

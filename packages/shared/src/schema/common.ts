@@ -191,6 +191,22 @@ export const ConditionSchema = z.union([
   NpcStateConditionSchema,
 ]);
 
+/** 开放形条件（前向 seam）：引擎不解释，只做结构校验。 */
+export const OpenConditionSchema = z
+  .object({
+    op: z.string().min(1),
+    args: z.record(z.string(), z.unknown()),
+  })
+  .strict();
+export type OpenCondition = z.infer<typeof OpenConditionSchema>;
+
+/**
+ * 触发器 / 知识授予共用的条件联合：声明式扁平 DSL ∪ `{ op, args }` 开放形。
+ * （原先的 guards / completion 条件已随 DAG 子系统一起删除。）
+ */
+export const TaskConditionSchema = z.union([ConditionSchema, OpenConditionSchema]);
+export type TaskCondition = z.infer<typeof TaskConditionSchema>;
+
 // ---------- 效果 DSL（声明式，引擎白名单实现） ----------
 
 export const EffectSchema = z.discriminatedUnion("type", [

@@ -58,8 +58,6 @@ export function createConditionRegistry(
       random: (args, ctx) =>
         ctx.rng() < (typeof args.probability === "number" ? args.probability : 1),
       flagSet: (args, ctx) => ctx.state.flags[String(args.flag)] === (args.value ?? true),
-      nodeCompleted: (args, ctx) =>
-        ctx.state.taskDag.nodes.some((n) => n.id === args.nodeId && n.status === "completed"),
       // 「事件结算后」触发（设计 §3.4 列的第五类）：只认**本轮**结算过的事件，
       // 不查历史 eventFires —— 否则同一条规则会在之后每一轮重复命中。
       eventResolved: (args, ctx) => ctx.resolvedEventIds?.has(String(args.eventId)) ?? false,
@@ -319,10 +317,6 @@ export function evaluateTriggersDetailed(
   };
   for (const t of rules.llmTriggers) collect(t.when);
   for (const g of [...rules.knowledgeGrants, ...rules.inferenceRules]) collect(g.when);
-  for (const n of rules.fallbackDag.nodes) {
-    collect(n.guards);
-    collect(n.completion);
-  }
   return { invocations: evaluateTriggers(state, rules, registry, opts), diagnostics };
 }
 

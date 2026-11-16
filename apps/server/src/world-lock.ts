@@ -43,7 +43,7 @@ export async function withWorldLock<T>(worldId: string, fn: () => Promise<T>): P
 }
 
 /**
- * 结构保存点：**只快照 LLM 能写的四个字段**。
+ * 结构保存点：**只快照 LLM 能写的三个字段**。
  *
  * 刻意不含 `turnIndex` / `worldTime` / `slot` / `history` / `eventFires`：
  * 那些不是 LLM 的写入面，把它们也快照会掩盖真 bug。`slot` 尤其重要 ——
@@ -54,7 +54,6 @@ export interface StructuralSavepoint {
   delayQueue: WorldStateV2["delayQueue"];
   enqueueSeqCounter: WorldStateV2["enqueueSeqCounter"];
   observationLedger: WorldStateV2["observationLedger"];
-  taskDag: WorldStateV2["taskDag"];
 }
 
 /**
@@ -68,7 +67,6 @@ export function captureStructuralSavepoint(state: WorldStateV2): StructuralSavep
     delayQueue: state.delayQueue,
     enqueueSeqCounter: state.enqueueSeqCounter,
     observationLedger: state.observationLedger,
-    taskDag: state.taskDag,
   });
 }
 
@@ -80,5 +78,4 @@ export function restoreStructuralSavepoint(
   state.delayQueue = savepoint.delayQueue;
   state.enqueueSeqCounter = savepoint.enqueueSeqCounter;
   state.observationLedger = savepoint.observationLedger;
-  state.taskDag = savepoint.taskDag;
 }

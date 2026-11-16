@@ -30,8 +30,6 @@ import {
   assignPendingInvocation,
   assignKnowledgeGrants,
   assignTriggerFireLedger,
-  assignDagNodeStatus,
-  assignTaskDagSeed,
   type ToolRegistry,
 } from "../api/engine-api.js";
 import {
@@ -40,7 +38,6 @@ import {
   type ConditionRegistry,
 } from "./condition-evaluator.js";
 import { computeKnowledgeGrants } from "./knowledge-grants.js";
-import { advanceDagProgress } from "./task-dag.js";
 import { createRng, deriveTurnSeed, pickWeighted, type Rng } from "../rng.js";
 import type { RunnerContext } from "./runner-context.js";
 import { evaluateLifeV2 } from "./life-evaluation.js";
@@ -100,11 +97,6 @@ export function createWorldV2(
   template: WorldTemplateV2,
   worldId: string,
   ctx?: RunnerContext,
-  /**
-   * ADR-0037 D1：模板的 `rules.yaml`。有 `fallbackDag.nodes` 时在建世界期种进 `state.taskDag`；
-   * 缺省（无 rules.yaml 的模板，如 jjk-2006）⇒ `taskDag` 逐字段停在空 DAG（IO-10 零回归）。
-   */
-  rules?: Rules,
 ): WorldStateV2 {
   // 保持公开签名兼容：不传 ctx 时沿用原有默认；传入时用注入 rng 派生确定性 seed。
   const seed = input.seed ?? (ctx ? Math.floor(ctx.rng() * 0xffffffff) : Math.floor(Math.random() * 0xffffffff));
@@ -251,7 +243,6 @@ export function createWorldV2(
     archived: false,
     // F3 / F4 新契约状态：建世界期给最小空值，后续由引擎 API（Wave 1B）填充。
     observationLedger: { player: [] },
-    taskDag: { dagId: "initial", version: 0, issuedBy: "template", nodes: [], edges: [] },
   };
   state.player.hp = maxHp(state.player, template);
   state.player.mp = maxMp(state.player, template);
@@ -276,11 +267,6 @@ export function createWorldV2(
       ...(event.trigger.window?.end !== undefined ? { end: event.trigger.window.end } : {}),
       calendar: initCalendar,
     });
-  }
-  // ADR-0037 D1：模板声明的 fallbackDag 在建世界期落进权威状态。
-  // 走 `assignTaskDagSeed`（structuredClone）—— 不许把 `rules` 里的对象引用直接塞进 state。
-  if (rules !== undefined && rules.fallbackDag.nodes.length > 0) {
-    assignTaskDagSeed(state, rules.fallbackDag);
   }
   return state;
 }
@@ -966,44 +952,12 @@ function runSettlementHooks(
   state: WorldStateV2,
   pipeline: TurnPipelineConfig | undefined,
   resolvedEventIds: ReadonlySet<string>,
-  /** ADR-0037 D11：只有真正推进了回合的入口才推进 DAG。 */
+  /** 只有真正推进了回合的入口才唤起 agent（轮内小动作不调 LLM）。 */
   atTurnBoundary: boolean,
 ): void {
   if (pipeline?.rules === undefined) return;
   const registry = pipeline.conditionRegistry ?? createConditionRegistry();
-  /**
-   * ADR-0037 D2 / D8：**DAG 推进 → 知识授予 → 触发器求值**，顺序固定。
-   *
-   * 为什么在最前：本轮刚 `completed` 的节点必须能被同轮的 `nodeCompleted` 看见，
-   * 否则 `chapter.advance` 永远晚一轮。
-   *
-   * 为什么不需要 gateway：推进是引擎权威的确定性事实，与"这轮有没有 LLM 可调"无关。
-   *
-   * D11 的边界门：`useItemV2` 不推进 turnIndex 却会走到这里 —— 不加门就是「喝药推进 DAG」。
-   */
-  if (atTurnBoundary) {
-    const progress = advanceDagProgress(
-      state,
-      pipeline.rules,
-      registry,
-      resolvedEventIds,
-      state.turnIndex,
-    );
-    // 落账按 transitions 顺序（声明序）；写入动作在 api/engine-api.ts（源码守卫据此断言）。
-    for (const t of progress.transitions) assignDagNodeStatus(state, t.nodeId, t.to);
-    // 未注册 guard op 不静默：与 ADR-0036 D3 同一条诊断通道。
-    if (progress.diagnostics.length > 0) {
-      for (const d of progress.diagnostics) {
-        pipeline.callLog?.push({
-          callId: `dag-guard-${d.op}`,
-          tool: "dag.advance",
-          argsHash: `unknown_reference:${d.op}`,
-          outcome: "deferred",
-          code: "unknown_reference",
-        });
-      }
-    }
-  }
+  // 结算 tail 顺序：**知识授予 → 触发器求值**。
   assignKnowledgeGrants(
     state,
     computeKnowledgeGrants(state, pipeline.rules, registry, state.turnIndex),
@@ -1011,8 +965,8 @@ function runSettlementHooks(
   /**
    * **轮内动作不唤起 agent**（2026-11-16 用户实测）：
    * `useItemV2` / `equipV2` / `unequipV2` 这类不占槽、不推进回合的操作，
-   * 传进来的 `atTurnBoundary === false`。原来这个 flag 只挡了 DAG 推进，
-   * 触发器求值照跑 ⇒ "喝瓶药"会真的去调一次 LLM 并等它几十秒。
+   * 传进来的 `atTurnBoundary === false`。若触发器求值照跑 ⇒ "喝瓶药"会真的去调一次
+   * LLM 并等它几十秒。
    *
    * 口径：LLM 参与是**回合级**的稀疏事件，轮内小动作用引擎规则结算即可。
    */
@@ -1022,7 +976,7 @@ function runSettlementHooks(
    * ADR-0036：改用**边沿语义**求值（`fireMode` 缺省 edge）。
    *
    * 旧实现用 `evaluateTriggers`（纯当轮真值）+ `for (inv) assignPendingInvocation`：
-   * ① 持久条件（`flagSet` / `nodeCompleted`）一旦为真就**每轮**调用 LLM，与「稀疏参与」相反；
+   * ① 持久条件（如 `flagSet`）一旦为真就**每轮**调用 LLM，与「稀疏参与」相反；
    * ② 同轮多条命中时后写覆盖前写，前几条静默消失。
    *
    * 现在：ledger 落账所有求值结果（含假值），执行权按 D3 只给**声明序第一条**。

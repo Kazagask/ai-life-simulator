@@ -26,5 +26,4 @@ export * from "./rng.js";
 export * from "./api/engine-api.js";
 export * from "./api/perspective.js";
 export * from "./v2/condition-evaluator.js";
-export * from "./v2/task-dag.js";
 export * from "./v2/knowledge-grants.js";

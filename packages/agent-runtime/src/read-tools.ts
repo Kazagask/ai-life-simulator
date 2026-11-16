@@ -16,7 +16,6 @@ export const READ_TOOL_NAMES = [
   "world.history",
   "world.present",
   "world.self",
-  "world.clues",
 ] as const;
 
 export type ReadToolName = (typeof READ_TOOL_NAMES)[number];
@@ -144,20 +143,6 @@ export function runReadTool(name: string, rawArgs: unknown, deps: ReadToolDeps):
         inventory: player.inventory.map((item) => ({ name: item.name, count: item.count })),
         equipment: (player.equipment ?? []).map((item) => ({ name: item.name, slot: item.slotLabel })),
       };
-    }
-
-    case "world.clues": {
-      // 只出 public 节点：hidden 节点在投影阶段就不该出现，这里再挡一次。
-      const nodes = (state.taskDag?.nodes ?? [])
-        // player 窗口只出 public；world 窗口（GM 全知）出全部，含 hidden。
-        .filter((node) => isOmniscient(deps.perspective) || node.visibility === "public")
-        .map((node) => ({
-          id: node.id,
-          title: node.title,
-          status: node.status,
-          ...(isOmniscient(deps.perspective) ? { visibility: node.visibility } : {}),
-        }));
-      return { nodes };
     }
 
     default:

@@ -68,8 +68,6 @@ export type {
   PerspectiveFactView,
   KnowledgeEntry,
   ObservationLedger,
-  TaskDag,
-  TaskNode,
   LlmTrace,
   ContentBlock,
   AssetManifest,

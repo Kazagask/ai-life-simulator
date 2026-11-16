@@ -109,27 +109,3 @@ export function createLookup(template: WorldTemplateV2): TemplateLookup {
   return new TemplateLookup(template);
 }
 
-/**
- * 模板 ref 全集：所有可被跨实体**字面引用**的 id（事件 / 技能 / 物品 / 状态 / 角色 / 链 / 动作）。
- *
- * 用途：`validateDag` 步骤 6 的 `templateRefs ⊆ lookupRefs`（加载期 DAG 校验）。
- * `fact.enqueueEvent` 已下线，引擎侧不再有「模板事件存在性」这条校验路径。
- *
- * 口径（ADR-0037 / ADR-0038）：
- * - **只取字面 id，不加前缀、不做映射**：模板 id 形态不统一（事件是 `evt:awaken`，
- *   技能是 `sk-demo-strike`，角色是 `npc-mentor`），任何"补命名空间"的推断都会把
- *   合法 id 判死、把非法 id 放行 —— 这与「从标签形状推断语义」是同一类错误。
- * - `chains` / `actions` 是可选集合，缺省按空处理。
- * - 返回只读集合；调用方缓存它（模板加载期算一次），不要每请求重算。
- */
-export function collectRefs(template: WorldTemplateV2): ReadonlySet<string> {
-  const refs = new Set<string>();
-  for (const item of template.events) refs.add(item.id);
-  for (const item of template.skills) refs.add(item.id);
-  for (const item of template.items) refs.add(item.id);
-  for (const item of template.statuses) refs.add(item.id);
-  for (const item of template.characters) refs.add(item.id);
-  for (const item of template.chains ?? []) refs.add(item.id);
-  for (const item of template.actions ?? []) refs.add(item.id);
-  return refs;
-}

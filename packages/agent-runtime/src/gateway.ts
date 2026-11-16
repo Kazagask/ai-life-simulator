@@ -115,7 +115,7 @@ export class AgentGateway implements LlmGateway {
             snapshot: this.deps.engineApi.snapshot(),
             ...(this.deps.engineApi.state !== undefined
               ? { state: this.deps.engineApi.state }
-              : { state: { history: [], taskDag: { nodes: [] } } as never }),
+              : { state: { history: [] } as never }),
           }),
         budget,
         ...(this.deps.templateRef !== undefined ? { templateRef: this.deps.templateRef } : {}),

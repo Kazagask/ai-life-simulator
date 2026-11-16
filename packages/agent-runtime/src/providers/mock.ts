@@ -27,7 +27,7 @@ import {
  * `story.submitBranch` 的编译 / 调度语义与模板 `missWhen`；频率由 ADR-0036 的边沿触发收敛。
  * mock 是**无状态**的（同 invocationId + 同状态 ⇒ 逐字节相同），结构上不做跨回合去重。
  *
- * 文本全部由 `inv.context` 的 facts / dagNodes / recentTurns 与 invocationReason 合成；
+ * 文本全部由 `inv.context` 的 facts / recentTurns 与 invocationReason 合成；
  * 无随机、无时钟：同一 invocationId + 同一世界状态 ⇒ 逐字节相同的输出。
  */
 
@@ -45,11 +45,10 @@ interface MockContextView {
   facts: {
     perspective?: string;
     facts?: MockFactItem[];
-    dagNodes?: Array<{ nodeId: string; status: string }>;
   };
   recentTurns: unknown[];
   contextHints?: string[];
-  /** ADR-0038：本轮允许摆上桌的事件白名单（取 `[0]`）。缺省/空数组 ⇒ 整轮不摆。 */
+  /** ADR-0038：本轮「可写分支」的能力信号。缺省/空数组 ⇒ 整轮不提交分支。 */
   branchEventIds?: string[];
 }
 
@@ -71,11 +70,6 @@ function parseContextView(message: AgentMessage | undefined): MockContextView | 
   const facts = rawFacts.filter(
     (item): item is MockFactItem => isRecord(item) && typeof item.factRef === "string",
   );
-  const rawNodes = Array.isArray(factsView.dagNodes) ? factsView.dagNodes : [];
-  const dagNodes = rawNodes.filter(
-    (n): n is { nodeId: string; status: string } =>
-      isRecord(n) && typeof n.nodeId === "string" && typeof n.status === "string",
-  );
   const perspective = (typeof parsed.perspective === "string" ? parsed.perspective : "player") as Perspective;
   const targetRaw = typeof parsed.targetPerspective === "string" ? parsed.targetPerspective : perspective;
   return {
@@ -83,7 +77,7 @@ function parseContextView(message: AgentMessage | undefined): MockContextView | 
     reason: parsed.reason,
     perspective,
     targetPerspective: targetRaw as Perspective,
-    facts: { facts, dagNodes },
+    facts: { facts },
     recentTurns: Array.isArray(parsed.recentTurns) ? parsed.recentTurns : [],
     ...(Array.isArray(parsed.contextHints)
       ? { contextHints: parsed.contextHints.filter((h): h is string => typeof h === "string") }
@@ -109,16 +103,6 @@ function openerFor(reason: string): string {
   }
   return "此刻，世界安静地向前走了一步。";
 }
-
-const STATUS_LABELS: Record<string, string> = {
-  draft: "尚未展开",
-  active: "进行中",
-  ready: "已就绪",
-  in_progress: "进行中",
-  completed: "已完成",
-  expired: "已错过",
-  cancelled: "已取消",
-};
 
 /** 最近一轮的可读标题（历史条目形状由调用方决定，取第一个可用字段）。 */
 function recentTitle(turns: readonly unknown[]): string | null {
@@ -224,12 +208,6 @@ function visibleFactRefs(view: MockContextView): string[] {
     .map((fact) => fact.factRef);
 }
 
-function activeNode(view: MockContextView): { nodeId: string; status: string } | undefined {
-  return (view.facts.dagNodes ?? []).find(
-    (n) => n.status === "ready" || n.status === "in_progress" || n.status === "active",
-  );
-}
-
 const REASON_LABELS: Array<{ match: string; text: string }> = [
   { match: "chapter", text: "新的篇章" },
   { match: "task", text: "手头这件事" },
@@ -270,11 +248,10 @@ function eventTitle(view: MockContextView): string {
 }
 
 /**
- * 从可见事实 / DAG / 历史合成正文（纯函数、无随机）。
+ * 从可见事实 / 历史合成正文（纯函数、无随机）。
  * 整段在返回前过 `sanitizeProse`；若整段不可用（理论上不会发生），退回 reason 句子。
  */
 function synthesizeNarrative(view: MockContextView): string {
-  const nodes = view.facts.dagNodes ?? [];
   const refs = visibleFactRefs(view);
   const readable = readableValues(view);
   const event = eventTitle(view);
@@ -294,13 +271,6 @@ function synthesizeNarrative(view: MockContextView): string {
       : `「${event}」就在眼前，你得决定怎么应对。`,
   );
 
-  const node = activeNode(view);
-  if (node !== undefined) {
-    sentences.push(`眼下这一步${STATUS_LABELS[node.status] ?? "正在进行"}，你得决定怎么迈出去。`);
-  } else if (nodes.length > 0) {
-    sentences.push("前面的路已经铺开，只差你选一个方向。");
-  }
-
   const title = sanitizeProse(recentTitle(view.recentTurns) ?? undefined);
   if (title !== null) sentences.push(`刚才的事还留着余温：${title}。`);
 
@@ -312,12 +282,9 @@ function synthesizeNarrative(view: MockContextView): string {
   return sanitizeProse(sentences.join("")) ?? reasonSentence(view.reason);
 }
 
-/** 引用只取窗口内出现过的 factRef / 公有 DAG 节点，避免自造 visibility_violation。 */
+/** 引用只取窗口内出现过的 factRef，避免自造 visibility_violation。 */
 function collectRefs(view: MockContextView): string[] {
-  const refs: string[] = [];
-  for (const ref of visibleFactRefs(view).slice(0, 3)) refs.push(ref);
-  for (const node of (view.facts.dagNodes ?? []).slice(0, 2)) refs.push(`dag:${node.nodeId}`);
-  return [...new Set(refs)];
+  return [...new Set(visibleFactRefs(view).slice(0, 3))];
 }
 
 /** 稳定哈希（仅用于确定性地挑选选项顺序，不参与任何权威判定）。 */
@@ -346,7 +313,6 @@ const SAFE_OPTIONS = [
 
 function optionTexts(view: MockContextView): string[] {
   const names = readableValues(view);
-  const node = activeNode(view);
   const refs = visibleFactRefs(view);
   const event = eventTitle(view);
 
@@ -357,7 +323,6 @@ function optionTexts(view: MockContextView): string[] {
 
   const rest: string[] = [];
   if (refs.length > 0) rest.push(`循着「${event}」的线索追下去`);
-  if (node !== undefined) rest.push("继续推进手头这一环，不回头");
   rest.push("先退半步，把四周看清楚");
   rest.push("径直走上前，不再犹豫");
   rest.push("转身回到来路，暂避锋芒");

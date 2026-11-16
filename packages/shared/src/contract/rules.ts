@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { TaskConditionSchema, TaskDagSchema } from "./task-dag.js";
+import { TaskConditionSchema } from "../schema/common.js";
 import {
   ObserverIdSchema,
   PerspectiveSchema,
@@ -12,7 +12,7 @@ import {
  *
  * ⚠ 不并入 apps/server/src/templates.ts 的 TEMPLATE_MERGE_FILES：
  * rules.yaml 走独立加载通道，不与世界模板 yaml 合并，
- * 否则 llmTriggers / inferenceRules / fallbackDag 会污染模板指纹与合并语义。
+ * 否则 rules.yaml 的域会污染模板指纹与合并语义。
  *
  * when / guards / completion 统一复用 TaskConditionSchema（现行扁平 DSL ∪ { op, args } 开放形），
  * 不另立第三套语法、引擎不 switch on op（ConditionRegistry 仅作前向 seam）。
@@ -90,14 +90,13 @@ export type KnowledgeGrant = KnowledgeGrantRule;
 export const InferenceRuleSchema = KnowledgeGrantRuleSchema;
 export type InferenceRule = KnowledgeGrantRule;
 
-/** v2 §3.5 形状：顶层恰为 5 个键；fallbackDag 与 TaskDag 同构。 */
+/** v2 §3.5 形状（4 个顶层键）。 */
 export const RulesSchema = z
   .object({
     llmTriggers: z.array(LlmTriggerSchema),
     toolProfile: ToolProfileSchema,
     knowledgeGrants: z.array(KnowledgeGrantRuleSchema),
     inferenceRules: z.array(KnowledgeGrantRuleSchema),
-    fallbackDag: TaskDagSchema,
   })
   .strict();
 export type Rules = z.infer<typeof RulesSchema>;

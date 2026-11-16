@@ -17,7 +17,6 @@ import type {
   TerminationRecord,
 } from "./schema/index.js";
 import type { ObservationLedger } from "./contract/perspective.js";
-import type { TaskDag } from "./contract/task-dag.js";
 import type { LlmInvocation } from "./contract/llm-invocation.js";
 
 /**
@@ -395,8 +394,6 @@ export interface WorldStateV2 {
   // ---------- F3 / F4 新契约状态（schemaVersion 4 预留；本波旧档不兼容） ----------
   /** 统一观察者知识台账（F4）：玩家与每个 npc:<id> 共用一套。 */
   observationLedger: ObservationLedger;
-  /** 任务 DAG：锚点 / 任务完成 / 权威事实进存档（F3）。 */
-  taskDag: TaskDag;
   /** 进行中的 LLM 调用；回程一律走引擎 API。 */
   pendingInvocation?: LlmInvocation;
   /** 当前占用的媒体资源绑定（存档只留引用，不放叙事正文）。 */
