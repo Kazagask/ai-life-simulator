@@ -4145,3 +4145,22 @@ D1/D2 落地后，若 n1 的 `completion` 仍是 `[always]`，它在**第一轮*
 理由不是洁癖：若分支轮摆的正是链上必然出现的事件，**观察者无法分辨"分支轮生效了"还是"故事自己走到了"** —— 演示点等于零，测试也会假绿（队列里那条既可能是链带来的，也可能是分支带来的）。
 做法：为分支轮单独新增一个只在队列路径出现的事件（如 `evt:rumor`，不出现在任何 `nextEventId` / 不属 `pool`），把 `branchEventIds` 指向它。这样"它出现在槽里"就只有一个原因。
 （这同时是 ADR-0038 §5「事件摆放权威」那个 DEFERRED 议题的最小代价解法：不动权威归属，只让演示不产生二义。）
+
+### 14. `completion` 的判据从 `always` 改为 `eventResolved`（取代 D12 的字面写法，保留其顺序约束）
+
+**D12 原文「模板 `completion: [always]` 与引擎同批上线」只作为上线顺序约束继续有效；其字面语义（用 `always`）作废。**
+
+理由 —— `always` 会**当场撒谎**，不是"先跑通再收紧"：
+
+| 节点 | `completion: [always]` 的后果 |
+|---|---|
+| `n2.trial` | `guards: nodeCompleted n1.awaken` ⇒ n1 一完成，n2 在同一轮或下一轮边界就 `completed`。**玩家还没打试炼**，节点已变绿。 |
+| `n3.hiddenSeed` | 已在模板注释里被作者自己抓到：会在解锁那一轮立刻完成，把「未公开的线索」变成一张空白已完成卡。 |
+
+`n2` 与 `n3` 是同一个病：`always` 表达的是「只要 ready 就算完成」，而节点「完成」的语义应该是**它那张牌打完并结算**。只有 `eventResolved` 能表达后者：`n1 → eventResolved evt:awaken`、`n2 → eventResolved evt:trial`。`n3` 保持 `completion: []`（D7：没有自动完成条件 ⇒ 只作占位）。
+
+**硬前置（否则 A 类改动不许落）**：`eventResolved` 读的是 `ctx.resolvedEventIds`（D6 / D8 / D13：轮边界冻结快照）。若 DAG 完成度求值处拿不到当轮 `resolvedEventIds`，`n1.awaken` **永不完成** ⇒ `chapter.advance` 继续 0 命中 ⇒ 症状与 §12 记录的 P2 一模一样，但原因从「`taskDag` 是空壳」换成「判据拿不到边沿上下文」。**这类静默失效比原 bug 更难查**（DAG 看起来有节点了，只是不动）。故放行前必须实测两个观测点：`evt:awaken` 结算后那一轮 `n1.awaken.status === "completed"`；其后 `chapter.advance` 在 trace 里至少命中一次。任一不成立 ⇒ `n1` 退回 `completion: [{ op: "always" }]` 并单独立项查线程。
+
+**事实纠正**：`n3.hiddenSeed.guards` 是 `[{ op: "nodeCompleted", args: { nodeId: "n2.trial" } }]`（`rules.yaml:75`），不是 `n1.awaken`。改成 `n1.awaken` 会让「未公开的线索」在试炼之前 ready，n3 的存在意义消失。
+
+**连锁效果（比"修 bug"更有价值）**：`chapter.advance` 挂在 `nodeCompleted n1.awaken` 上，而 n1 只完成一次 ⇒ 触发条件从**粘性**变**一次性边沿**。B-41（`missedEvents` 无界增长）与 B-43（`delayQueue` 残留 opening 实例）里「靠 `missWhen` / 触发器条件兜频率」那部分，由此从**内容层补丁**升级为**结构层收敛**：ADR-0036 的边沿语义 + 节点一次性完成，两层叠起来才叫"不重复"；单靠 `missWhen` 是事后擦屁股。
