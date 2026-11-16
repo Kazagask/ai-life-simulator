@@ -1,4 +1,7 @@
 import {
+  isReadTool,
+} from "./read-tools.js";
+import {
   LlmBudgetSchema,
   LlmTraceSchema,
   type ApiCall,
@@ -62,6 +65,8 @@ export interface AgentLoopDeps {
   onDelta?: (chunk: AgentStreamDelta) => void;
   /** 可选：外部取消（如 HTTP 客户端断开）；与每轮 `timeoutMs` 合并，不改变既有时限语义。 */
   signal?: AbortSignal;
+  /** 只读查询入口（world.* 工具）。缺省时读工具会回一条 error，不影响其他路径。 */
+  readWorld?: (name: string, args: Record<string, unknown>) => unknown;
   /** 仅用于测量延迟（不参与任何决策），测试可注入。 */
   now?: () => number;
 }
@@ -189,6 +194,8 @@ export async function runAgentLoop(
   let end: EndState | null = null;
   /** 本轮是否至少有一次写入被引擎接受（决定"自然退出"算完成还是失败）。 */
   let wroteSomething = false;
+  /** 本轮是否发生过只读查询（只读也算"模型真的在推进"，用于终止判定）。 */
+  let readSomething = false;
   /** 模型/脚本是否已显式发过 `agent.submit`（发过就不再补内部提交，避免多一条回执）。 */
   let submittedByModel = false;
 
@@ -250,9 +257,10 @@ export async function runAgentLoop(
        *
        * 判定：本轮只要有过被接受的写入，就算 committed；什么都没写才算失败。
        */
-      end = wroteSomething
-        ? { reason: "completed" }
-        : { reason: "no_tool_calls", detail: "provider 只返回文本、未发起工具调用，且本轮没有任何成功的写入" };
+      end =
+        wroteSomething || readSomething
+          ? { reason: "completed" }
+          : { reason: "no_tool_calls", detail: "provider 只返回文本、未发起工具调用，且本轮没有任何成功的写入" };
       break;
     }
 
@@ -325,30 +333,54 @@ export async function runAgentLoop(
       continue;
     }
 
-    // ---------- 回程：一律 engineApi.dispatch ----------
-    const calls: ApiCall[] = valid.map((call, index) =>
-      toApiCall(call.name, call.arguments, {
-        callId: `${inv.invocationId}:${round}:${index}`,
+    /**
+     * 回程分两路：
+     * - **只读工具**不走 dispatch（它们不改世界），由 `deps.readWorld` 直接给答案；
+     * - 其余一律 `engineApi.dispatch`（唯一权威写入口）。
+     *
+     * 两者都要回一条 tool 消息，且 callId 必须一一对应 —— 模型侧看到的是
+     * "我发了 N 个调用，收到了 N 条结果"，否则下一轮会错位。
+     */
+    const readCalls = valid.filter((call) => isReadTool(call.name));
+    const writeCalls = valid.filter((call) => !isReadTool(call.name));
+
+    // 引擎侧 callId 保持 `inv:round:index` 形状（trace / 测试 / 回放都依赖它），
+    // 再建一张 引擎 callId → provider call.id 的映射，供回填 tool 消息用。
+    const writeEntries = writeCalls.map((call, index) => ({
+      call,
+      engineCallId: `${inv.invocationId}:${round}:${index}`,
+    }));
+    const calls: ApiCall[] = writeEntries.map((entry) =>
+      toApiCall(entry.call.name, entry.call.arguments, {
+        callId: entry.engineCallId,
         targetPerspective: inv.targetPerspective,
       }),
     );
     allCalls.push(...calls);
 
-    const result = deps.engineApi.dispatch(calls, dispatchCtx);
+    const result =
+      calls.length > 0 ? deps.engineApi.dispatch(calls, dispatchCtx) : { receipts: [] };
     receipts.push(...result.receipts);
 
+    const receiptByEngineCallId = new Map(result.receipts.map((receipt) => [receipt.callId, receipt]));
+    const receiptByProviderId = new Map(
+      writeEntries.map((entry) => [entry.call.id, receiptByEngineCallId.get(entry.engineCallId)]),
+    );
     if (result.receipts.some((receipt) => receipt.outcome === "accepted")) wroteSomething = true;
     // 兼容：模型/旧脚本若显式发了 `agent.submit`，就直接收工（它已不在工具面上，
     // 但内部调用与回放仍可能出现）。
     if (
-      result.receipts.some(
-        (receipt, index) => valid[index]?.name === "agent.submit" && receipt.outcome === "accepted",
+      writeCalls.some(
+        (call) =>
+          call.name === "agent.submit" && receiptByProviderId.get(call.id)?.outcome === "accepted",
       )
     ) {
       submittedByModel = true;
       end = { reason: "submitted" };
       break;
     }
+    // 只读查询也算"有产出"（模型确实在推进），但不算写入；单独给一个标记用于终止判定。
+    if (readCalls.length > 0) readSomething = true;
 
     messages.push({
       role: "assistant",
@@ -358,9 +390,23 @@ export async function runAgentLoop(
         arguments: call.arguments,
       })),
     });
-    for (const [index, receipt] of result.receipts.entries()) {
-      const call = valid[index];
-      if (call === undefined) continue;
+    // 每个调用都要有一条 tool 消息，顺序与 assistant.toolCalls 一致。
+    for (const call of valid) {
+      if (isReadTool(call.name)) {
+        const answer =
+          deps.readWorld === undefined
+            ? { error: "本运行时没有挂载只读查询（readWorld 未注入）" }
+            : deps.readWorld(call.name, call.arguments);
+        messages.push({
+          role: "tool",
+          toolCallId: call.id,
+          name: call.name,
+          content: JSON.stringify(answer),
+        });
+        continue;
+      }
+      const receipt = receiptByProviderId.get(call.id);
+      if (receipt === undefined) continue;
       messages.push({
         role: "tool",
         toolCallId: call.id,

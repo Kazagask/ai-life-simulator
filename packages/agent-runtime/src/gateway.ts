@@ -9,6 +9,7 @@ import {
   type RulesTemplate,
 } from "@life-sim/shared";
 import { buildLlmContext } from "./context.js";
+import { runReadTool } from "./read-tools.js";
 import { runAgentLoop, traceRefFor } from "./loop.js";
 import { buildToolDescriptors, type AgentProvider, type AgentStreamDelta } from "./tool-registry.js";
 
@@ -102,6 +103,18 @@ export class AgentGateway implements LlmGateway {
       const { outcome, trace } = await runAgentLoop(enriched, {
         provider: this.deps.provider,
         engineApi: this.deps.engineApi,
+        /**
+         * `world.*` 只读查询的落点：快照是按 invocation 视角裁好的 player 窗口，
+         * state 只用于补投影里没有的派生信息（历史 / 线索）。
+         * 两者都不接受调用方指定视角 —— 视角是唤起时固定的。
+         */
+        readWorld: (name, args) =>
+          runReadTool(name, args, {
+            snapshot: this.deps.engineApi.snapshot(),
+            ...(this.deps.engineApi.state !== undefined
+              ? { state: this.deps.engineApi.state }
+              : { state: { history: [], taskDag: { nodes: [] } } as never }),
+          }),
         budget,
         ...(this.deps.templateRef !== undefined ? { templateRef: this.deps.templateRef } : {}),
         ...(profile !== undefined ? { toolProfile: profile } : {}),

@@ -38,7 +38,18 @@ toolProfile:
   # ③ 写世界只有一条通道：story.submitBranch。fact.enqueueEvent / upsertDagBranch
   #    都已下线（前者是"直接入队"、后者是"往已有 DAG 打补丁"，都是被禁止的写法）。
   gm:
-    ["narrative.write", "narrative.flavor", "story.submitBranch"]
+    [
+      # 只读查询（先查后写：世界是什么样、谁在场、我之前干过什么）
+      "world.now",
+      "world.history",
+      "world.present",
+      "world.self",
+      "world.clues",
+      # 写入：只有叙事与提交分支
+      "narrative.write",
+      "narrative.flavor",
+      "story.submitBranch",
+    ]
 
 knowledgeGrants:
   # 走到分叉点 = 亲眼看见「世界本身被切开」这件事。

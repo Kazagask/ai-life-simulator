@@ -10,6 +10,7 @@ import {
   type RulesTemplate,
   type ToolDescriptor,
 } from "@life-sim/shared";
+import { READ_TOOL_NAMES, isReadTool } from "./read-tools.js";
 
 /**
  * T-03：能力画像 → 工具描述（OpenAI `tools` 结构）+ 第 1 层参数校验 + ApiCall 翻译。
@@ -149,6 +150,7 @@ export const ALL_TOOL_NAMES: readonly string[] = [
   ...CONTENT_TOOL_NAMES_ALL,
   ...CONTROL_TOOL_NAMES,
   ...STORY_TOOL_NAMES,
+  ...READ_TOOL_NAMES,
 ];
 
 const schemaOf = (
@@ -188,6 +190,44 @@ const CONTENT_DESCRIPTORS: Record<string, ToolDescriptor> = {
 };
 
 const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
+  /**
+   * 只读查询（AGENTIC-GM 重构 · 设计 §3）：**一条查询一个工具**。
+   * 视角在调用时固定（player 窗口），**不接受 perspective 参数** —— 看不到的东西
+   * 在数据源上就不存在，不是靠过滤。
+   */
+  "world.now": {
+    name: "world.now",
+    description:
+      "查「此刻」：第几轮、世界时间、当前在演的那一格（事件 id / 标题 / 类型 / 来源 / 玩家可点的选项）。" +
+      "槽为空时 slot 为 null，表示可自由行动。",
+    parameters: schemaOf({}, []),
+  },
+  "world.history": {
+    name: "world.history",
+    description:
+      "查最近发生过什么（按轮次倒序取最近 N 条，默认与上限都是 50）。" +
+      "返回里带 total / truncated：**必须看 truncated** —— 它告诉你还有更早的历史没返回，" +
+      "不要把「只看到 50 条」误当成「世界只发生过 50 件事」。",
+    parameters: schemaOf(
+      { limit: { type: "integer", minimum: 1, description: "要几条，默认 50（上限 50）" } },
+      [],
+    ),
+  },
+  "world.present": {
+    name: "world.present",
+    description: "查在场的角色：名字、是否活着、与你的关系值、你知道的目标、身上的状态。",
+    parameters: schemaOf({}, []),
+  },
+  "world.self": {
+    name: "world.self",
+    description: "查你自己：属性、生命/咒力/心情、状态、技能、背包与装备。",
+    parameters: schemaOf({}, []),
+  },
+  "world.clues": {
+    name: "world.clues",
+    description: "查已公开的线索/章节节点（只含玩家已知的部分）。",
+    parameters: schemaOf({}, []),
+  },
   /**
    * 剧情编排：提交一整条分支。参数 schema 刻意只暴露**创作语义**——
    * 触发方式（随机/必然）、条件、事件块、选项去向；槽/队列/权重/DAG 一律不出现。
@@ -433,6 +473,8 @@ export function validateToolCall(
    * 模型即使幻觉出它也无害 —— 只是标记"我写完了"。
    */
   if (call.name === "agent.submit") return { ok: true, args: call.arguments };
+  // 只读工具：参数由 `runReadTool` 解析（缺省/多余一律容忍，读错不该炸整轮）。
+  if (isReadTool(call.name)) return { ok: true, args: call.arguments };
   if (!allowed.has(call.name)) {
     return { ok: false, code: "unknown_tool", detail: `未授权的工具：${call.name}` };
   }

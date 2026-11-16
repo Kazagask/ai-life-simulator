@@ -122,6 +122,14 @@ export interface EngineApiHandle {
   /** v2 §2.3：同步纯函数。异步只留在 LlmGateway.invoke / agent-runtime。 */
   dispatch(calls: ApiCall[], ctx: DispatchContext): DispatchResult;
   snapshot(): V2Snapshot;
+  /**
+   * 权威状态（**只读**）——仅供 `world.*` 只读工具回答"历史 / 线索"这类问题。
+   *
+   * 为什么不能只靠 `snapshot()`：快照是**投影**，不含 history 与 taskDag。
+   * 但注意：读工具**不得**把这里的东西原样返回 —— 视角裁剪仍以投影为准，
+   * 这个字段只用于补投影里没有、但属于玩家可见范围的派生查询。
+   */
+  readonly state?: WorldStateV2;
   buildFacts(perspective: Perspective): PerspectiveFactView;
   /**
    * 清掉「在飞 invocation」标记（投影的 `llmPending` 读它）。
