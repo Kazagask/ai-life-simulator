@@ -9,12 +9,14 @@
 #              ├─ 向南 → evt:south-cut   → flag ending=south → end-south（原作）
 #              └─ 向北 → evt:north-counter → evt:north-dawn → flag ending=north → end-north（IF）
 #
-# 全部走确定性边（nextEventId），**没有 `source: pool` 事件**：
-# 这一夜是一条被焊死的线，随机性只在开局转盘与战斗骰上，不在"下一幕是什么"上。
+# 边分两种，用途不同：
+# - 首尾相接的**立即边**（nextEventId）：轮盘 → 战斗 → 领域，玩家一秒都不脱手；
+# - 一次**延时边**（enqueueEvent + delay 30 分钟）：领域对撞 → 分叉点，
+#   中间空出 **2 个空槽回合**。那两轮不是装饰 —— 整条链其余部分占满槽位，
+#   「引擎调度上来的分支事件」只有这 2 轮能上桌。谁把这条改回 nextEventId，
+#   分支事件就只能在收场那一瞬挤进来（会抢在结局前面，实测过）。
 #
-# 另外 `evt:whisper` 刻意**不接任何 nextEventId、也不进任何 pool** ——
-# 它只能由 `fact.enqueueEvent`（rules.yaml 的 branchEventIds 白名单）摆上桌，
-# 用来证明分支轮真的能把事件送到玩家面前。
+# 没有 `source: pool` 事件：池子同样只在空槽那一瞬抽取，会和白名单分支抢同一个窗口。
 
 events:
   # ══════════════════════════════════════════════════════════════
@@ -99,6 +101,13 @@ events:
     settle:
       normal:
         options:
+          # ⚠ 这里**刻意不写 nextEventId**，改用 `enqueueEvent` + `delay`：
+          # 下一步（分叉点）要在 **2 个空槽回合之后**才上桌，那两轮是留给
+          # 「引擎调度的分支事件」唯一的落点（整条链其余部分首尾相接，槽永远是满的）。
+          # 算术：一轮 = `world.yaml` 的 defaultStep 10 分钟，延时 30 分钟 ⇒
+          # 结算当轮 +10 / +20 两轮槽为空（玩家可自由行动），+30 那一轮才被取出。
+          # 写成 nextEventId 的话，分叉点会立刻占槽 ⇒ 分支事件没有窗口，
+          # 只能等到收场那一瞬挤进来（实测过，会抢在结局前面）。
           - id: opt-void
             text: 展开「无量空处」，用信息量压死他
             effects:
@@ -106,7 +115,7 @@ events:
               - { type: setFlag, id: domainDone, value: true }
               - { type: adjustMood, value: 8 }
               - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
-            nextEventId: evt:south-north
+              - { type: enqueueEvent, eventId: evt:south-north, delay: { value: 30, unit: minute } }
           - id: opt-outlast
             text: 不跟他对拼，硬吃「伏魔御厨子」
             effects:
@@ -114,7 +123,7 @@ events:
               - { type: setFlag, id: domainDone, value: true }
               - { type: applyStatus, status: st-overload, stacks: 1 }
               - { type: adjustMood, value: -6 }
-            nextEventId: evt:south-north
+              - { type: enqueueEvent, eventId: evt:south-north, delay: { value: 30, unit: minute } }
 
   # ══════════════════════════════════════════════════════════════
   # 四、★ 分叉点 · 向南 / 向北
@@ -162,8 +171,6 @@ events:
             effects:
               - { type: setFlag, id: ending, value: south }
               - { type: setFlag, id: endingReached, value: true }
-              # 顺手掐掉分支轮的低语（它是这一夜唯一可能空槽的时刻，见 evt:whisper 的注释）。
-              - { type: setFlag, id: whisperDone, value: true }
               - { type: adjustMood, value: 2 }
 
   # ---------- 向北（IF） ----------
@@ -205,44 +212,4 @@ events:
             effects:
               - { type: setFlag, id: ending, value: north }
               - { type: setFlag, id: endingReached, value: true }
-              - { type: setFlag, id: whisperDone, value: true }
               - { type: adjustMood, value: 6 }
-
-  # ══════════════════════════════════════════════════════════════
-  # 五、只走队列路径的事件（分支轮演示）
-  # ══════════════════════════════════════════════════════════════
-  #
-  # 没有任何 nextEventId 指向它、也不进 pool ⇒ 全篇唯一的上桌方式是
-  # `fact.enqueueEvent`（rules.yaml 的 branchEventIds: ["evt:whisper"]）。
-  # 带 missWhen：被反复塞回队列时不会二次上桌（`once` 挡不住这条路径，
-  # 因为 `fact.enqueueEvent` 直接调 enqueueScheduled，见 demo-agentic 的同款注释）。
-
-  - id: evt:whisper
-    title: 墙后的低语
-    narrative: 你路过一截塌掉的墙，墙后面有人在低声计数。数到"十九"的时候，声音停了——像是发现你听见了。
-    trigger:
-      source: chain
-      # 闸门只有一个：`whisperDone`。它同时承担两件事 ——
-      # ① 被反复塞回队列时不二次上桌（`once` 挡不住这条路径，因为 `fact.enqueueEvent`
-      #    直接调 enqueueScheduled）；
-      # ② **终局事件的两个终点选项都写它** ⇒ 一旦向南／向北落定，低语立刻永久失效，
-      #    不会在收场那一轮抢在结局前面占槽（实测 seed 4207：不写时它会挡掉结局一拍）。
-      # 注意 `missWhen` 是**与**语义（`checkAllConditions`）—— 写成两条等于"两个都成立才失效"，
-      # 想表达"任一"只能合并成一个 flag。
-      missWhen: [{ flag: whisperDone, eq: true }]
-      missLabel: 墙后的声音已经过去了
-    kind: normal
-    settle:
-      normal:
-        options:
-          - id: opt-listen
-            text: 停下来听清他在数什么
-            effects:
-              - { type: setFlag, id: heardWhisper, value: true }
-              - { type: setFlag, id: whisperDone, value: true }
-              - { type: adjustMood, value: -2 }
-          - id: opt-walk
-            text: 装作没听见，继续往战场走
-            effects:
-              - { type: setFlag, id: whisperedPast, value: true }
-              - { type: setFlag, id: whisperDone, value: true }

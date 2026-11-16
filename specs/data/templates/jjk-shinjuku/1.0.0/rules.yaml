@@ -16,9 +16,10 @@ llmTriggers:
       perspective: "player"
       targetPerspective: "player"
       contextHints: ["battle.tone"]
-      # 能力声明：允许本轮把「墙后的低语」摆上桌。它没有 nextEventId、也不进 pool
-      # （见 events.yaml 的注释）⇒ 队列里出现它只能是分支轮干的。
-      branchEventIds: ["evt:whisper"]
+      # 本轮**不声明** branchEventIds：这一版模板里没有"只可能来自分支"的事件，
+      # 而空声明（或指向链边能放下的 id）在 ADR-0038 的语义下要么被拒、要么测试只能假绿。
+      # 领域对撞 → 分叉点之间有 2 个空槽回合（events.yaml 的延时边），
+      # 下一轮切到 story.submitBranch 后，分支就落在那里。
       toolProfile: "narrative"
 
   # 玩家真的走到分叉点：让 AI 把「这一格不是打不打得赢，而是动不动」写出来。
@@ -57,8 +58,8 @@ knowledgeGrants:
     grant: { observers: ["player"], factRefs: ["fact:shinjuku-arena"], level: "known", source: "rule" }
 
 inferenceRules:
-  # 听见墙后的计数 ⇒ 你会把"有人在数时间"和"这道斩击是预先算好的"联起来。
-  - when: [{ op: "flagSet", args: { flag: "heardWhisper" } }]
+  # 走到分叉点 ⇒ 你会把"这道斩击是算好的"和"宿傩早就在等这一手"联起来。
+  - when: [{ op: "flagSet", args: { flag: "domainDone" } }]
     grant: { observers: ["player"], factRefs: ["fact:counted-cut"], level: "inferred", source: "inferred" }
 
 fallbackDag:

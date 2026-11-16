@@ -33,7 +33,6 @@
       domainDone: false
       endingReached: false
       duelWon: false
-      whisperDone: false
   npcSetup:
     relations:
       - { npcId: npc-yuji, value: 40, source: 同行 }
