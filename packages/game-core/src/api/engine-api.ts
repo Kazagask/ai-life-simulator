@@ -584,6 +584,8 @@ const submitBranch: ToolHandler = {
         kind: "normal",
         // 参与角色随定义编译进去：引擎在**呈现前**复核存活/在场（防诈尸）。
         ...(node.actors !== undefined ? { actors: [...node.actors] } : {}),
+        // `mentions` 只指涉、不校验在场（纪念/缅怀逝者用）。
+        ...(node.mentions !== undefined ? { mentions: [...node.mentions] } : {}),
         /**
          * **只有入口节点（`branch[0]`）参与调度**；下游节点一律 `chain`，
          * 只能由上一节的选项 `goto` 到达。

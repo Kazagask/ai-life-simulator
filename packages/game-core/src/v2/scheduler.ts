@@ -247,8 +247,12 @@ export type EventPremiseVerdict =
  * —— 它们已在入队门控消费，pending 期间再判会把玩家已看到的场景判成不合法。
  */
 /**
- * 角色是否"在场且活着"：`player` 恒真（玩家不会"不在场"），NPC 看 `lifecycle.state`。
+ * 角色是否"在场"：`player` 恒真；NPC 看 `lifecycle.state === "alive"`。
  * 未知 id ⇒ 视为不在场（宁可少演一幕，也不让不存在的人出现在正文里）。
+ *
+ * ⚠ 精确口径：引擎里**没有独立的"死亡"状态**（只有 alive / inactive / unspawned，
+ * 死亡由模板通过 `reasonCode` 表达）。所以这里判的是"在场且 active"——
+ * 死亡、离场、未登场一视同仁，都会让事件错失。要区分"已故"请用 `mentions`。
  */
 function isActorPresent(state: WorldStateV2, actorId: string): boolean {
   if (actorId === "player") return true;

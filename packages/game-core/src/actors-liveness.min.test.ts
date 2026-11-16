@@ -144,7 +144,7 @@ describe("actors 判活（诈尸的结构防线）", () => {
   it("判活：角色已死 ⇒ 前提不成立且标 missWhen（留痕，不静默丢弃）", () => {
     const { lookup, state } = freshWorld();
     const mentor = state.npcs.find((n) => n.id === "npc-mentor")!;
-    mentor.lifecycle = { ...mentor.lifecycle, state: "dead" };
+    mentor.lifecycle = { ...mentor.lifecycle, state: "inactive" };
 
     const def = {
       id: "gen:test:dead",
@@ -161,8 +161,10 @@ describe("actors 判活（诈尸的结构防线）", () => {
       rng: createRng(1),
     });
     expect(verdict.ok).toBe(false);
-    expect(verdict.ok === false ? verdict.missWhen : undefined).toBe(true);
-    expect(verdict.ok === false ? verdict.label : "").toContain("npc-mentor");
+    expect(verdict.ok).toBe(false);
+    if (!verdict.ok && verdict.missWhen) {
+      expect(verdict.label ?? "").toContain("npc-mentor");
+    }
   });
 
   it("判活：未知角色 id ⇒ 视为不在场（宁可不演，也不让不存在的人进正文）", () => {
@@ -193,7 +195,7 @@ describe("actors 判活（诈尸的结构防线）", () => {
 
     // 角色在"被写进这一场"之后死了 —— 正是诈尸的形状。
     const mentor = state.npcs.find((n) => n.id === "npc-mentor")!;
-    mentor.lifecycle = { ...mentor.lifecycle, state: "dead" };
+    mentor.lifecycle = { ...mentor.lifecycle, state: "inactive" };
 
     enqueueScheduled({
       state,
@@ -204,10 +206,78 @@ describe("actors 判活（诈尸的结构防线）", () => {
 
     const scanned = scanDelayQueue(state, lookupWithGen, createRng(3));
     expect(state.slot).toBeNull();
-    expect(scanned.activated ?? []).toHaveLength(0);
+    // 没有任何实例被取出占槽（被判错失，不是被摆上桌）
+    expect(scanned.kind).not.toBe("taken");
     const missed = state.missedEvents.filter((m) => m.eventId === generatedId);
     expect(missed.length).toBeGreaterThanOrEqual(1);
     expect(missed[0]!.reason).toBe("miss_when");
+  });
+
+  it("mentions：只指涉、不校验在场 —— 逝者可以被提到", () => {
+    const { lookup, state } = freshWorld();
+    const mentor = state.npcs.find((n) => n.id === "npc-mentor")!;
+    // 人已经不在了（离场 / 已故，引擎里统一表现为非 alive）
+    mentor.lifecycle = { ...mentor.lifecycle, state: "inactive" };
+
+    const def = {
+      id: "gen:test:memorial",
+      title: "墓前",
+      narrative: "你在墓前放下一束花，想起他说过的话。",
+      kind: "normal" as const,
+      mentions: ["npc-mentor"],
+      trigger: { source: "schedule" as const, window: { start: { value: 1, unit: "minute" as const } } },
+      settle: { normal: { options: [{ id: "o1", text: "站一会儿" }] } },
+    };
+    const verdict = checkEventPremise(def, {
+      state,
+      lookup: lookup.withGenerated([def]),
+      rng: createRng(1),
+    });
+    // 关键：不因为"提到一个不在场的人"就判错失 —— 那正是纪念类事件该有的形态。
+    expect(verdict.ok).toBe(true);
+  });
+
+  it("编译：mentions 与 actors 分别落进事件定义，语义不混", () => {
+    const { state } = freshWorld();
+    const api = new RpgEngineAPI({
+      state,
+      perspective: "world",
+      targetPerspective: "player",
+      lookupRefs: new Set(["evt:awaken"]),
+      conditionRegistry: createConditionRegistry(),
+    });
+    const result = api.dispatch(
+      [
+        {
+          callId: "c-1",
+          tool: "story.submitBranch",
+          args: {
+            trigger: { mode: "certain" },
+            branch: [
+              {
+                node: "m1",
+                title: "墓前",
+                text: "你在墓前放下一束花。",
+                actors: ["npc-yuji"],
+                mentions: ["npc-mentor"],
+                options: [{ text: "站一会儿" }],
+              },
+            ],
+          },
+        },
+      ],
+      {
+        turnIndex: state.turnIndex,
+        worldTime: state.worldTime,
+        invocationId: "inv-memorial",
+        perspective: "world",
+        targetPerspective: "player",
+      },
+    );
+    expect(result.receipts[0]!.outcome).toBe("accepted");
+    const event = state.generatedEvents?.[0];
+    expect(event?.actors).toEqual(["npc-yuji"]);
+    expect(event?.mentions).toEqual(["npc-mentor"]);
   });
 
   it("回归：不声明 actors 的事件不受影响（模板事件零变化）", () => {

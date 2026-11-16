@@ -240,7 +240,9 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
       "直接让事件上桌或占槽。" +
       "要点：① `goto` 只能指向本次提交内的 `node`，跨提交接续既有剧情会被拒；" +
       "② 同一 invocation 内多次提交的分支互相独立；" +
-      "③ 涉及具体角色时在 `actors` 里列 id，引擎会在呈现前复核其存活/在场（防诈尸）；" +
+      "③ 角色分两种写法，别混：`actors` 是「这一幕必须在场的人」（引擎呈现前复核，不在场就跳过这一幕）；" +
+      "`mentions` 是「只在正文里提到的人」，可以是已故的（纪念 / 缅怀 / 遗物 / 墓前这类戏用它，" +
+      "把逝者写进 actors 会让这一幕被判跳过）；" +
       "④ 标记 `mode: \"certain\"` 表示条件满足即发生，`random` 表示有机会发生。" +
       " —— 照下面这个例子写。effects 只有三种扁平形状：{\"flag\":\"名字\",\"value\":true} 置旗标、" +
       "{\"mood\":3} 调心情、{\"hp\":-5}/{\"mp\":-5} 调资源；**不要写 type/op 字段**。" +
@@ -268,7 +270,16 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
               node: { type: "string", description: "本次提交内的局部别名" },
               title: { type: "string" },
               text: { type: "string", description: "玩家在事件区看到的事件正文" },
-              actors: { type: "array", items: { type: "string" } },
+              actors: {
+                type: "array",
+                items: { type: "string" },
+                description: "必须在场的角色 id（不在场 ⇒ 这一幕被跳过）",
+              },
+              mentions: {
+                type: "array",
+                items: { type: "string" },
+                description: "只在正文提到的角色 id，可以是已故的人",
+              },
               options: {
                 type: "array",
                 items: {

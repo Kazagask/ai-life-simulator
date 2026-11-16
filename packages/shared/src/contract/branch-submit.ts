@@ -50,8 +50,16 @@ export const SubmitBranchNodeSchema = z
     title: z.string().min(1).max(40),
     /** 事件正文（玩家在事件区看到的那段） */
     text: z.string().min(1).max(600),
-    /** 参与角色 id：引擎在**呈现前**复核存活/在场，不依赖模型写守卫（防诈尸） */
+    /**
+     * **必须在场**的角色 id：引擎在呈现前复核存活/在场（防诈尸）。
+     * 写进来的人如果已经死了 ⇒ 这一幕判错失，不会以"他还活着"的样子演出来。
+     */
     actors: z.array(z.string().min(1)).max(6).optional(),
+    /**
+     * 仅**在正文里提到**、不要求在場的角色 id（可以是已故的人）。
+     * 用于纪念 / 缅怀 / 遗物 / 墓前一类的戏 —— 逝者不该在场，但你确实要提他。
+     */
+    mentions: z.array(z.string().min(1)).max(6).optional(),
     options: z.array(SubmitBranchOptionSchema).min(1).max(4),
   })
   .strict();
