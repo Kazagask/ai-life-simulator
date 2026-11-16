@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { WorldTemplateV2Schema, type V2Snapshot, type WorldTemplateV2 } from "@life-sim/shared";
+import { WorldTemplateV2Schema, WorldStateV2Schema, type V2Snapshot, type WorldTemplateV2 } from "@life-sim/shared";
 
 import { createActiveWorldV2, makeTestTemplate } from "./v2/test-utils.js";
 import { createLookup } from "./v2/lookup.js";
@@ -59,6 +59,8 @@ function makeTemplate(): WorldTemplateV2 {
           { to: "player", kind: "friend", visibility: "known" },
           // 玩家不该知道的边：解耦只放宽"端点在不在图上"，不放宽边自身可见性
           { to: "npc-secret", kind: "friend", visibility: "hidden" },
+          // 指向**不展示**的人：有实例，但玩家列表里没有他
+          { to: "npc-hidden", kind: "friend", visibility: "known" },
         ],
       },
       {
@@ -112,6 +114,19 @@ function makeTemplate(): WorldTemplateV2 {
         attributes: { cursedEnergy: 5, agility: 1, luck: 0 },
         skills: [],
         public: { personality: "?" },
+        private: {},
+        relationship: 0,
+      },
+      {
+        id: "npc-hidden",
+        isEnemy: false,
+        // 展示门：有实例、活在世上、能被关系引用，但玩家的人物列表里没有他
+        visibility: "hidden",
+        identity: { name: "暗中的人", age: 30, gender: "f" },
+        mood: { value: 50 },
+        attributes: { cursedEnergy: 5, agility: 1, luck: 0 },
+        skills: [],
+        public: { personality: "不露面" },
         private: {},
         relationship: 0,
       },
@@ -256,6 +271,38 @@ describe("B-2 关系解耦：死亡 NPC 的关系不塌", () => {
     const snapshot = projectSnapshotV2(state, template, lookup);
     expect(rowOf(snapshot, "npc-ally", "npc-dead")).toBeDefined();
     expect(rowOf(snapshot, "npc-dead", "npc-ally")).toBeDefined();
+  });
+});
+
+describe("展示门：characters[].visibility = 玩家列表里有没有他", () => {
+  it("hidden 角色有实例，但不上屏（只影响列表）", () => {
+    const { state, snapshot } = freshWorld();
+    const inst = state.npcs.find((n) => n.id === "npc-hidden");
+    expect(inst).toBeDefined();
+    expect(inst!.visibility).toBe("hidden");
+    // 实例活着、照样能跑自主行动
+    expect(inst!.lifecycle.state).toBe("alive");
+    // 但玩家看不到这张卡
+    expect(snapshot.npcs.map((n) => n.id)).not.toContain("npc-hidden");
+  });
+
+  it("指向 hidden 的边仍然上屏，名字正确且标为无卡（关系 ≠ 可见性）", () => {
+    const { snapshot } = freshWorld();
+    const row = rowOf(snapshot, "npc-ally", "npc-hidden");
+    expect(row).toBeDefined();
+    expect(row!.withName).toBe("暗中的人");
+    expect(row!.counterpartVisible).toBe(false);
+  });
+
+  it("模板 visibility 复制到实例；旧档缺字段 ⇒ 加载期补 public", () => {
+    const { state } = freshWorld();
+    const legacy = structuredClone(state);
+    for (const npc of legacy.npcs) delete (npc as { visibility?: string }).visibility;
+    const parsed = WorldStateV2Schema.safeParse(legacy);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.npcs.every((n) => n.visibility === "public")).toBe(true);
+    }
   });
 });
 

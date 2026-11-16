@@ -60,6 +60,12 @@ const V2NpcSchema = CombatantBaseSchema.extend({
   skills: z.array(z.string().min(1)),
   /** 模板 `characters[].isEnemy` 的副本。实例表里**只会**出现 `false` —— 敌人不实例化。 */
   isEnemy: z.boolean(),
+  /**
+   * 展示门（由模板 `characters[].visibility` 复制而来）：`hidden` ⇒ 不进玩家视角的 NPC 列表。
+   * **只影响列表**，不影响实例存在、关系端点、战斗解析与自主行动。
+   * 可选 + 默认 `public`：该字段引入前落盘的存档没有它，加载时补成 public，不升 schemaVersion。
+   */
+  visibility: z.enum(["public", "hidden"]).default("public"),
   inventory: z.record(z.string(), z.number().int().nonnegative()),
   goals: z.array(z.string()),
   traits: z.array(z.string()),

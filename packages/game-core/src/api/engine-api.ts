@@ -629,6 +629,8 @@ function buildGeneratedNpc(
     secrets: [],
     lastActedAtTurn: 0,
     isEnemy: false,
+    // 生成角色一律进玩家列表：模型不能把人藏起来（`character.visibility` 已由引擎固定为 public）
+    visibility: c.visibility,
     lifecycle: { state: "unspawned", sinceTurn: 0, sinceWorldTime: 0 },
   };
   return { character: c, instance };

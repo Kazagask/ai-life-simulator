@@ -2992,6 +2992,16 @@ function NpcCard({
   // 顺序即模板 `attributes.order`（projection 已按 order 构造）：不重排、不过滤，
   // 值为服务端 base 原值——前端不重算、不叠补正。0 是有效值，照常显示。
   const attrEntries = Object.entries(npc.attributes);
+  /**
+   * 关系只展示**出边**（`direction: "out"`，即「这个人怎么看别人」）。
+   *
+   * 2026-11-16 用户裁决：「单边即可…0 卷时五条悟视乙骨为远亲，但是乙骨这边完全可以不要这条边」。
+   * 同一条边的两个方向本来就是同一件事实，两边都渲染等于把同一句话写两遍，
+   * 而且「谁把谁当什么」的不对称语义会互相打架（A 视 B 为远亲 ≠ B 视 A 为远亲）。
+   * 投影仍下发两个方向（契约不砍），将来要做「被谁看重」这类反向视图时，
+   * 在这里改成 `.filter((r) => r.direction === "in")` 或两段分区即可，不用动引擎。
+   */
+  const relationRows = npc.relations.filter((r) => r.direction === "out");
   return (
     <section className={`card npc-card${npc.lifecycle.state === "alive" ? "" : " npc-card-inactive"}`}>
       <div className="row">
@@ -3025,26 +3035,21 @@ function NpcCard({
       )}
       <details className="npc-details">
         <summary>
-          关系 {npc.relations.length} · 状态 {npc.statuses.length} · 属性 {attrEntries.length}
+          关系 {relationRows.length} · 状态 {npc.statuses.length} · 属性 {attrEntries.length}
         </summary>
 
         <div className="npc-block">
           <h3>关系</h3>
-          {npc.relations.length === 0 ? (
+          {relationRows.length === 0 ? (
             <p className="muted">尚无已知的人际关系。</p>
           ) : (
             <ul className="rel-list">
-              {npc.relations.map((rel, i) => {
+              {relationRows.map((rel, i) => {
                 const kindLabel = RELATION_KIND_LABEL[rel.kind] ?? rel.kind;
-                // 关系是独立事实：对方可能没有 NPC 卡（敌人/未登场），
+                // 关系是独立事实：对方可能没有 NPC 卡（敌人/未登场/隐藏），
                 // 投影已给全名字，所以直接用它，不再从列表里反查。
                 const other = rel.withName ?? nameOf(rel.withId);
-                // direction=out：本体 → 对方；direction=in：对方 → 本体。
-                // 两个方向都写成完整句（含双方名字），避免出现「本体」这类只有开发者懂的词。
-                const sentence =
-                  rel.direction === "out"
-                    ? `${npc.name}视${other}为${kindLabel}`
-                    : `${other}视${npc.name}为${kindLabel}`;
+                const sentence = `${npc.name}视${other}为${kindLabel}`;
                 return (
                   <li key={`${rel.withId}-${rel.kind}-${i}`} className="rel-row">
                     <span className="rel-text">{sentence}</span>

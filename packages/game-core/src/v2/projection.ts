@@ -41,21 +41,26 @@ export function projectSnapshotV2(
   // R2.6 / ADR-0014：只投影 known / inferred 边。
   //
   // ADR-0022 补记 D-1：判据是「确知未对玩家可见」，不是「不在上屏列表」——
-  // 下列显式归入 hiddenNodeIds：
-  //   · unspawned（尚未出生/登场，由刷新规则管辖）；
-  //   · 敌人（`isEnemy`，**永不实例化**、本质是战斗对手，不是玩家可见的关系实体）。
   // inactive 必须保留边与称谓（决策 1 反例 2：逝去的祖父依旧是祖父）。
   // player 无 NPC 实例，永不进 hiddenNodeIds（硬保留）。
   // 反例记录（勿改成「投影后 NPC 集合的补集」）：用「不在上屏集合内」会把公开边误杀、并让列表口径静默决定关系可见性；
-  // 因此 hiddenNodeIds 只由上面两条**显式**规则构成，绝不含「投影后的 npc.id 集合」。
+  // 因此 hiddenNodeIds 只由下面几条**显式**规则构成，绝不含「投影后的 npc.id 集合」。
   //
-  // ⚠ 已知缺口（2026-11-16 记录，本期未修）：模板 `characters[].visibility: hidden`
-  // 目前**没有**参与上屏过滤 —— `V2Npc` 不携带该字段，全仓无人消费它。要让它生效，
-  // 得先把字段从模板复制到实例（B-1 曾这么做，但 B-1 已按用户裁决整包回退）。
-  // 在那之前，「不展示某人」只能靠 `unspawned`（刷新规则）或 `isEnemy` 表达。
+  // 三条显式规则（2026-11-16 补齐第三条）：
+  //   · unspawned —— 有定义、没露过面；
+  //   · 敌人 —— 永不实例化；
+  //   · 模板 `characters[].visibility: hidden` —— 有实例，但玩家的人物列表里**没有他**。
+  //     用户裁决口径：「visibility 的语义就是 player 视角 npc 列表是否有他」。
+  //     它只影响「列表 / 有没有卡」，不参与关系上屏判定（B-2 已解耦）。
+  //
+  // ⚠ 与 `npc.ts` 的关系：hidden 角色**照样跑自主行动**（世界不会因为玩家看不见就停摆）。
+  // 目前 `runNpcActionsV2.summaries` 没有被任何投影消费（`postSettleJudgements` 只取
+  // `startedChains`），所以不存在「摘要里冒出隐藏人物」的泄露；一旦将来把 summaries 上屏，
+  // 必须在那一层按 `visibility` 过滤，而不是在这里改行动条件。
   const hiddenNodeIds = new Set<string>([
     ...state.npcs.filter((n) => n.lifecycle.state === "unspawned").map((n) => n.id),
     ...template.characters.filter((c) => c.isEnemy).map((c) => c.id),
+    ...state.npcs.filter((n) => n.visibility === "hidden").map((n) => n.id),
   ]);
   /**
    * 关系面：**只按边自身的可见性收敛**（known / inferred），与「有没有 NPC 卡」无关。

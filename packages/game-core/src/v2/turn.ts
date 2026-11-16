@@ -199,6 +199,8 @@ export function createWorldV2(
         secrets: [...(c.private.secrets ?? [])],
         lastActedAtTurn: 0,
         isEnemy: false,
+        // 展示门：决定"玩家的人物列表里有没有他"。只影响上屏，不影响实例存在与参与规则。
+        visibility: c.visibility,
         // ADR-0022：由刷新规则管辖的角色，世界创建时处于 unspawned（尚未出生/登场）
         ...(spawnRuleByCharacter.has(c.id) ? { spawnRuleId: spawnRuleByCharacter.get(c.id) } : {}),
         // ADR-0012 决策 1 / ADR-0020：缺省在世；模板可在 characters[].lifecycle 声明初始态

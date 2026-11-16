@@ -116,6 +116,9 @@ describe("submitBranch 的 NPC 生成（模板里没有的人）", () => {
     // 定义了 ≠ 登场了
     expect(inst.lifecycle.state).toBe("unspawned");
     expect(inst.name).toBe("穿雨衣的女人");
+    // 模型不能把自己造的人藏起来：展示门由引擎固定为 public，不接受入参指定
+    expect(inst.visibility).toBe("public");
+    expect(def.visibility).toBe("public");
   });
 
   it("登场：选项效果 {spawn: 别名} 编译成 setNpcLifecycle(alive)", () => {

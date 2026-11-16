@@ -148,6 +148,13 @@ export interface V2Npc extends V2CombatantBase {
   skills: string[];
   /** 模板 `characters[].isEnemy` 的副本。实例表里只会出现 `false`（敌人不实例化）。 */
   isEnemy: boolean;
+  /**
+   * 模板 `characters[].visibility` 的副本：**玩家视角「人物列表里有没有他」的唯一门**
+   * （2026-11-16 用户裁决）。`hidden` 的人照样活在世上、照样有卡片之外的一切
+   * （关系端点、战斗解析、自主行动），只是不出现在 NPC 列表里。
+   * 旧档缺字段 ⇒ 加载期补 `public`。
+   */
+  visibility: "public" | "hidden";
   /** NPC 背包（createWorldV2 初始化为空对象；本轮不做 NPC 物品逻辑） */
   inventory: Record<string, number>;
   /** 私有目标标签（效用评分 goalMatch，不进投影） */
