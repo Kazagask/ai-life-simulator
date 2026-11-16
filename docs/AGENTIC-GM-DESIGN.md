@@ -111,6 +111,72 @@ export const LlmContextSchema = z.object({
 
 `stablePrefix` 只由「模板静态部分 + 视角」决定，**不随轮次 / 时间 / 随机变化**。同一世界 + 同一视角的两次 invocation，`stablePrefix` 逐字节相同 ⇒ 可命中 prompt cache。`contextHash = sha256(stableStringify(context))` 仍成立，但 `context` 已收缩为两字段，哈希不再被 `facts` 抖动污染。
 
+### 2.5 压缩记忆 compact
+
+> 用户 2026-11-16 追加：「轮次超常的时候 LLM 做一个归纳总结，注入到上下文」。
+> **一处修正**（team-lead 已与用户确认）：摘要**不进 `stablePrefix` 的字节**——`stablePrefix` 的定义就是跨轮字节不变（prompt cache 与 `contextHash` 归因都挂在它上面），摘要每 N 轮变一次，塞进去会让前缀缓存全失效、`contextHash` 每轮不同。**摘要作为独立一段常驻注入，紧跟 `stablePrefix` 之后，不并入它的字节。**
+
+#### 2.5.1 存储
+
+```ts
+// shared/v2-state.ts（与 generatedEvents 同属 schemaVersion 5）
+compact: z.object({
+  summary: z.string(),                                // 归纳出来的前情摘要
+  coveredThroughTurn: z.number().int().nonnegative(), // 摘要已覆盖到第几轮
+  updatedAtTurn: z.number().int().nonnegative(),      // 上一次压缩发生在第几轮
+}).strict(),
+```
+
+进存档，理由同 `generatedEvents`：**不进档则刷新丢记忆、回放不可复现**。
+
+#### 2.5.2 触发（引擎决定，LLM 不决定）
+
+- 条件：`turnIndex - compact.coveredThroughTurn >= 12` ⇒ 触发一次压缩；无新轮次不压。
+- 阈值先写死 **12**，之后可放模板（如 `eventFlow.compactEveryNTurns`）。
+- **LLM 不能主动要求压缩**：压缩是引擎按轮次阈值发起的独立 invocation，不挂在 `rules.llmTriggers` 上。
+
+#### 2.5.3 两种调用必须分清
+
+| | GM 调用 | compact 调用 |
+|---|---|---|
+| 触发者 | 引擎按 `rules.llmTriggers`（边沿语义） | 引擎按轮次阈值（`>=12`） |
+| 工具面 | 读工具 + `content.writeNarrative` + `story.submitBranch` + `content.submit` | **只有** `story.commitCompact({ summary })` + `content.submit` |
+| 上下文注入 | stablePrefix + `# 前情`（当前摘要）+ 自己查的 | stablePrefix + `# 前情`（旧摘要）+ **上次压缩之后**的轮次原文 |
+| 产出 | 叙事 / 分支 / 记忆块 | 摘要文本 → 写进 `state.compact` |
+
+> compact 调用**没有**读工具、没有写叙事、没有提交编排——它只干一件事：把「上次压缩之后」的轮次压成一段文字。给它读工具会诱导它去查世界、变相变成一次 GM 调用。
+
+#### 2.5.4 事务
+
+compact 写入必须与它所在的那一轮**同一事务**（沿用既有纪律：结构写入在同一回合临界区内落账）。否则会出现「摘要基于旧世界、写进新状态」。
+
+#### 2.5.5 注入位置
+
+GM 每次唤起都带 `# 前情`（当前摘要），**在 stablePrefix 之后、读工具查询结果之前**：
+
+```
+[system]  stablePrefix（字节稳定）
+[system]  # 前情\n{compact.summary}        ← 紧跟 stablePrefix，独立段，不属于其字节
+[user]    invocationReason
+[tool…]   agent 自己用读工具查到的结果
+```
+
+#### 2.5.6 一条硬规则（不可协商）
+
+> **摘要是软记忆，不是事实源。** 它只能让 GM「记得大概发生过什么」；**任何写操作与判活的依据必须来自读工具**。摘要可以写错（模型会编），引擎必须拦（`actors` 在呈现前权威复核，见 §6）。这两条缺一不可：只靠摘要自觉 = 诈尸的另一个入口；只靠引擎拦 = GM 会一直基于错误的记忆写戏。
+
+#### 2.5.7 对已定 §2.2 / §2.3 / §2.4 的同步点（**待 team-lead 确认；本文档未擅自改动已定节**）
+
+本节要求已定节同步三处，否则 `LlmContext` 的 schema 与本节不一致：
+
+1. **§2.2** `LlmContextSchema` 增加一个**可选**字段：
+   ```ts
+   /** 压缩记忆：`# 前情` 段的内容。独立于 stablePrefix 的字节；每 >=12 轮更新一次。 */
+   priorSummary: z.string().optional(),
+   ```
+2. **§2.3** 「明确不放进 stablePrefix 的东西」补一项：**`# 前情` 摘要**（独立段、紧跟 stablePrefix 之后，不进其字节）。
+3. **§2.4** 「`context` 已收缩为两字段」需改为「三字段」，并补一句：`contextHash` 会随 `priorSummary` 更新而变化，但摘要每 ≥12 轮才变一次，**不是每轮变**；`stablePrefix` 字节仍稳定，prompt cache 前缀不受影响。
+
 ---
 
 ## 3. 读工具面
@@ -547,6 +613,18 @@ LLM 生成分支时，场景里那个 NPC 可能：① 已死；② 已离场（
 - **可并行**：9.4（U1/U2）与 9.2/9.3 无强依赖，可先动手。
 - **必须串行**：S1 → S2 → S3/S4/S5 是其余一切的前置；G2 依赖 S1+S2+S4；A1 依赖 G1+G2+G4。
 - **硬卡点**：`G3`（lookup overlay）不做完，`story.submitBranch` 提交的分支**永远调度不上桌**——这是「能跑」的门槛项。
+- **C2（compact）**：依赖 C1（`generatedEvents` + 分支调度）与事务边界就位，**独立排期，不并入 C1**。
+
+### 9.7 C2：压缩记忆 compact（**不并入 C1**）
+
+| # | 任务 | 硬依赖 |
+|---|---|---|
+| C2-1 | `shared`：`WorldStateV2` 加 `compact`（§2.5.1）；`LlmContext` 加 `priorSummary?`（§2.5.7）；新增 `story.commitCompact` args schema | S2、S3 |
+| C2-2 | `game-core`：`story.commitCompact` handler（写 `state.compact`，同一事务）；轮次阈值触发（`turnIndex - coveredThroughTurn >= 12`）产出 compact invocation | G2、事务边界 |
+| C2-3 | `agent-runtime`：compact 专用工具面（只有 `story.commitCompact` + `content.submit`）；`context.ts` 注入 `# 前情` 段（stablePrefix 之后、查询结果之前） | A1、A2 |
+| C2-4 | `game-core` / `agent-runtime`：断言摘要**不参与任何判活 / 写操作**（§2.5.6 硬规则）——`actors` 复核仍以权威状态为准，加一条回归测试 | C2-2、C2-3 |
+
+> **排期约束（team-lead 明文）**：C2 **不得塞进正在跑的 C1**。C1 = `generatedEvents` + 分支调度；C2 依赖 C1 与事务边界同时就位。
 
 ---
 
