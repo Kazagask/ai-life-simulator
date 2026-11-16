@@ -69,9 +69,14 @@ fallbackDag:
   dagId: "demo-agentic.fallback.v1"
   version: 1
   issuedBy: "template"
+  # completion 用 `eventResolved`（ADR-0037 §14，取代 D12 的字面 `always`）：
+  # 「节点完成」= 它代表的那个事件**真的结算过**，不是「这条判据永远为真」。
+  # `always` 不只是空转 —— 实测它会让 n1 在**转盘刚摆出那一轮**就 completed、`chapter.advance`
+  # 同轮 fire（玩家还没看到梦境），ADR-0037 的 fixpoint 落地后更极端：一轮之内把整条 DAG 收干
+  # （n1/n2 全 completed、n3 ready）。判据撒的谎被级联放大，所以这里必须指向事件本身。
   nodes:
-    - { id: "n1.awaken", kind: "opening", title: "苏醒", status: "ready", guards: [], completion: [{ op: "always", args: {} }], templateRefs: ["evt:awaken"], visibility: "public" }
-    - { id: "n2.trial", kind: "trial", title: "初次试炼", status: "draft", guards: [{ op: "nodeCompleted", args: { nodeId: "n1.awaken" } }], completion: [{ op: "always", args: {} }], templateRefs: ["evt:trial"], visibility: "public" }
+    - { id: "n1.awaken", kind: "opening", title: "苏醒", status: "ready", guards: [], completion: [{ op: "eventResolved", args: { eventId: "evt:awaken" } }], templateRefs: ["evt:awaken"], visibility: "public" }
+    - { id: "n2.trial", kind: "trial", title: "初次试炼", status: "draft", guards: [{ op: "nodeCompleted", args: { nodeId: "n1.awaken" } }], completion: [{ op: "eventResolved", args: { eventId: "evt:trial" } }], templateRefs: ["evt:trial"], visibility: "public" }
     - { id: "n3.hiddenSeed", kind: "secret", title: "未公开的线索", status: "draft", guards: [{ op: "nodeCompleted", args: { nodeId: "n2.trial" } }], completion: [], templateRefs: [], visibility: "hidden" }
   edges:
     - { from: "n1.awaken", to: "n2.trial", kind: "unlocks" }
