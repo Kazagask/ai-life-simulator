@@ -1,18 +1,21 @@
 # JJK · 新宿决战 · world.yaml
 #
-# 视角：五条悟第一人称。时间尺度是「一场决战」而不是「一生」——
-# 一轮 ≈ 战场上的几分钟，靠事件推进而不是靠日历。
-# 核心二选一在 ev:south-north：向南（原作）／向北（IF）。
+# 两个开局、两条主线（见 opening.yaml）：
+#   op-gojo —— 你是五条悟，从决战前夜到与宿傩单挑；主线是「能不能改写 236 话那一刀」。
+#   op-yuji —— 你是虎杖悠仁，从五条败北后的残局切入；主线是「收尾，并把伏黑救回来」。
+# 玩家身份（姓名）由建局请求传入；本模板用两个开局的 characterSetup 差异化属性与术式，
+# 因此 playerTemplate 取「中性咒术师」基线，绝不写死某一个主角。
+#
+# 时间尺度是一场决战而非一生：一轮 ≈ 战场上的 10 分钟，靠事件推进，不靠日历。
 
 meta:
   id: jjk-shinjuku
   name: 咒术回战 · 新宿决战
-  description: 2018 年 12 月，新宿。你是五条悟。宿傩在废墟另一头等你，羂索在暗处数着你的死期。这一夜只有两个方向：向南，按原作把命交出去；向北，躲过那道斩击，改写结局。
+  description: 2018 年 12 月 24 日，新宿。五条悟与两面宿傩的「最强对最强」把这座城市打成了废墟。你可以选他，去赌能不能改写那道斩断世界的刀；也可以选虎杖，从五条倒下之后的残局里，把宿傩从伏黑体内拽出来。同一夜，两条命。
   startYear: 2018
   engineProtocol: v2
 
 time:
-  # 一轮 = 战场上的 10 分钟。整场决战横跨一夜，不需要日历粒度。
   defaultStep: { value: 10, unit: minute }
 
 genders:
@@ -39,26 +42,27 @@ statusBar:
 
 attributes:
   order: [cursedEnergy, physique, agility, intellect, luck, reputation]
-  defaults: { cursedEnergy: 40, physique: 20, agility: 20, intellect: 20, luck: 10, reputation: 50 }
-  caps: { cursedEnergy: 300 }
+  # 中性基线：两个开局分别把玩家「调成」五条 / 虎杖（见 opening.yaml characterSetup）
+  defaults: { cursedEnergy: 30, physique: 24, agility: 24, intellect: 24, luck: 14, reputation: 40 }
+  caps: { cursedEnergy: 400 }
   labels: { cursedEnergy: 咒力, physique: 体术, agility: 敏捷, intellect: 咒理, luck: 机缘, reputation: 名声 }
 
-# 五条悟的底子：血厚、咒力池深，所以第一场战斗「打不死」——
-# 目标是把玩家打到能继续演，不是把他打死（见 events.yaml 里 ev:sukuna-duel 的注释）。
+# 共享资源池：上限 = base + perAttribute × 基础属性。
+# 五条（咒力 120）血厚咒深，虎杖（咒力 22）靠体术与技巧周旋 —— 这正是两条线的手感差异。
 resources:
-  hp: { base: 240, perLevel: 0, perAttribute: { cursedEnergy: 1 } }
-  mp: { base: 150, perLevel: 0, perAttribute: { cursedEnergy: 1 } }
+  hp: { base: 100, perLevel: 0, perAttribute: { cursedEnergy: 1 } }
+  mp: { base: 80, perLevel: 0, perAttribute: { cursedEnergy: 1 } }
 
 regen:
-  perTurn: { hp: 3, mp: 4 }
+  perTurn: { hp: 2, mp: 3 }
   actions:
-    focus: { hp: 0, mp: 20 }
+    focus: { hp: 0, mp: 18 }
 
-# 战场上的四个常驻点面：即使本轮没有呈现事件，玩家也必须有东西可点。
+# 战场上常驻的四个自由行动：没有呈现事件时玩家也有事可做。
 actions:
   - id: observe
     label: 观察战场
-    description: 用六眼看穿废墟里的咒力流向，找宿傩下一次出手的方向。
+    description: 用六眼看穿废墟里的咒力流向，判断下一次出手会从哪里来。
     duration: { value: 5, unit: minute }
     effects:
       - { type: adjustFlag, id: observeCount, value: 1 }
@@ -68,7 +72,7 @@ actions:
     description: 停下来把术式回路重新压稳。咒力回得快，但这几分钟里什么都做不了。
     duration: { value: 10, unit: minute }
     effects:
-      - { type: adjustResource, resource: mp, value: 20 }
+      - { type: adjustResource, resource: mp, value: 18 }
   - id: shield
     label: 掩护平民
     description: 把还困在废墟里的人挪出去。会分心，但这是你站在这里的理由。
@@ -81,5 +85,20 @@ actions:
     description: 靠在断墙上，让反转术式慢慢把伤口缝上。
     duration: { value: 10, unit: minute }
     effects:
-      - { type: adjustResource, resource: hp, value: 30 }
+      - { type: adjustResource, resource: hp, value: 25 }
       - { type: adjustMood, value: 1 }
+
+# ── NPC 刷新规则（S1：模板源自动刷人）────────────────────────────
+# 钉崎野蔷薇在「记忆回廊」之后苏醒、回到战场。kugisakiReady 一立，下一轮 tail 自动把她拉上场；
+# 缺省 when ⇒ 永不自动，只能显式 spawnNpc（不影响其它模板）。
+npcSpawnRules:
+  - id: rule-kugisaki-awaken
+    characterRef: npc-kugisaki
+    age: 16
+    when:
+      - { flag: kugisakiReady, eq: true }
+
+# playerTemplate：中性基线。技能留空 —— 由两个开局各自 unlockSkill 授予，避免「两条线都带五条的术式」。
+playerTemplate:
+  identity: { gender: male, age: 20 }
+  attributes: { cursedEnergy: 30, physique: 24, agility: 24, intellect: 24, luck: 14, reputation: 40 }

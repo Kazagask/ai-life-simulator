@@ -1,0 +1,18 @@
+# JJK · 新宿决战 · equipment.yaml
+#
+# 顶层必须是 `equipment:`（合并进 WorldTemplateV2 的 equipment 分域）。
+# 咒具槽：一个通用「咒具」槽，可放武器或符。初始自动装备聚灵护腕；
+# 蚀骨刀 / 疾风符进入背包后可经装备端点穿脱，改变有效属性（这就是「穿脱有意义」）。
+
+equipment:
+  qualities: [common, rare]
+
+  slots:
+    - id: slot-cursed-tool
+      label: 咒具
+      allowedCategories: [weapon, talisman]
+      maxCount: 1
+      panelSide: right
+
+  initialEquipment:
+    - { itemId: item-cursed-bracer }

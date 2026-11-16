@@ -1,0 +1,21 @@
+# JJK · 新宿决战 · assets/manifest.yaml
+#
+# 资产清单（独立声明式文件，AssetManifestSchema .strict()）。LLM 选图工具只接 assetId，不接路径。
+# 立绘来源：jjk-2006 的五条悟 PNG 复制件（IP 素材，仅 demo 占位，正式发布需用户确认授权）。
+
+assets:
+  - assetId: portrait.gojo.calm
+    path: portraits/gojo-calm.png
+    kind: portrait
+    tags: [gojo, calm, player]
+    visibility: public
+    license: demo-placeholder
+    credit: demo
+
+  - assetId: portrait.gojo.grin
+    path: portraits/gojo-grin.png
+    kind: portrait
+    tags: [gojo, grin, player]
+    visibility: public
+    license: demo-placeholder
+    credit: demo

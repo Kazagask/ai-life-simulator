@@ -1,31 +1,57 @@
 # JJK · 新宿决战 · events.yaml
 #
-# 一条主线，一个分叉：
+# 两条独立主线，事件 id 前缀区分（evt:gojo-* / evt:yuji-*），互不连接：
 #
-#   evt:shinjuku-wheel（转盘 · 开局）
-#     → evt:sukuna-duel（combat · 第一场）
-#       → evt:domain-clash（领域对撞 · 2 选项）
-#         → evt:south-north（★ 分叉点 · 向南／向北）
-#              ├─ 向南 → evt:south-cut   → flag ending=south → end-south（原作）
-#              └─ 向北 → evt:north-counter（branch: counter → #dawn） → flag ending=north → end-north（IF）
+# 五条线（op-gojo）：
+#   evt:gojo-open → evt:gojo-wheel（转盘·战况判定，weightBy）
+#     → evt:gojo-duel（对宿傩·三路） → evt:gojo-domain（领域对撞）
+#       → evt:gojo-fork ★向南/向北
+#            ├ 向南 → evt:gojo-south-cut → ending=gojo-south（原作 236 话「向南」）
+#            └ 向北 → evt:gojo-north（branch · 半步之后，goto.after 延迟两小时）→ end:gojo-north（IF）
 #
-# 边分两种，用途不同：
-# - 首尾相接的**立即边**（nextEventId）：轮盘 → 战斗 → 领域，玩家一秒都不脱手；
-# - 一次**延时边**（enqueueEvent + delay 30 分钟）：领域对撞 → 分叉点，
-#   中间空出 **2 个空槽回合**。那两轮不是装饰 —— 整条链其余部分占满槽位，
-#   「引擎调度上来的分支事件」只有这 2 轮能上桌。谁把这条改回 nextEventId，
-#   分支事件就只能在收场那一瞬挤进来（会抢在结局前面，实测过）。
+# 虎杖线（op-yuji）：
+#   evt:yuji-open → evt:yuji-seal（术式封锁 st-sealed）
+#     → evt:yuji-kenjaku-fight（羂索+里梅·多敌+乙骨东堂友军·三路）
+#       → evt:yuji-relay（鹿紫云登场+退场 · 日车·接力）
+#         → evt:yuji-awaken（觉醒「解」· addSecret · 钉崎待命）
+#           → evt:yuji-final（对宿傩残躯 · 钉崎友军 · 三路）
+#             → evt:yuji-megumi（branch · 内心世界 → 救回伏黑 / 独扛）→ ending=yuji-canon / yuji-if
 #
-# 没有 `source: pool` 事件：池子同样只在空槽那一瞬抽取，会和白名单分支抢同一个窗口。
+# 分支用 `branch:`（加载期展开成普通事件）；首个 branch 节点沿用父事件 id。
+# 只有 branch 内的选项能带 `goto`（可 `{node, after}` 制造延迟后继），普通事件用 nextEventId。
 
 events:
-  # ══════════════════════════════════════════════════════════════
-  # 一、开局 · 战场转盘
-  # ══════════════════════════════════════════════════════════════
+  # ════════════════════════════════════════════════════════════════
+  # 五条线
+  # ════════════════════════════════════════════════════════════════
 
-  - id: evt:shinjuku-wheel
-    title: 战场转盘
-    narrative: 你落在新宿站前，鞋底踩碎了一块玻璃。风里有三种味道——血、咒力、还有宿傩身上那股像烧焦的甜。手指无意识地敲了敲，你是在算这一夜能用几次术式。
+  - id: evt:gojo-open
+    title: 决战前夜
+    narrative: 平安夜的新宿比你想的还冷。歌姬在楼下画最后的咒纹，伊地知攥着一沓避难民名单，乐岩寺把「你可能会死」这几个字咽了回去。你系好眼罩，笑了笑——这笑不是给他们的，是给你自己的。
+    trigger: { source: chain }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-prep
+            text: 让他们把咒力叠加做完，200% 的「茈」先手压过去
+            effects:
+              - { type: setFlag, id: gojoOpener, value: 加持 }
+              - { type: adjustAttribute, attribute: cursedEnergy, value: 20 }
+              - { type: adjustMood, value: 5 }
+            nextEventId: evt:gojo-wheel
+          - id: opt-strike
+            text: 不必等，一个人走进去就够了
+            effects:
+              - { type: setFlag, id: gojoOpener, value: 直入 }
+              - { type: setFlag, id: gojoPride, value: true }
+              - { type: adjustMood, value: 2 }
+            nextEventId: evt:gojo-wheel
+
+  # 战况判定：转盘权重随咒力/敏捷浮动 —— 咒力越高越容易抽到「先手」。
+  - id: evt:gojo-wheel
+    title: 战况判定
+    narrative: 废墟在你们之间摊开。你先动，还是他先动？这半秒里，整个战场的天平会往一边沉。
     trigger: { source: chain }
     kind: random
     settle:
@@ -34,36 +60,29 @@ events:
           segments:
             - label: 先手压制
               weight: 2
+              weightBy: { cursedEnergy: 0.02 }
               effects:
-                - { type: setFlag, id: opener, value: 先手 }
+                - { type: setFlag, id: openerWheel, value: 压制 }
                 - { type: adjustAttribute, attribute: cursedEnergy, value: 4 }
                 - { type: adjustMood, value: 5 }
-              nextEventId: evt:sukuna-duel
-            - label: 咒力充盈
+              nextEventId: evt:gojo-duel
+            - label: 势均力敌
               weight: 3
               effects:
-                - { type: setFlag, id: opener, value: 充盈 }
-                - { type: adjustResource, resource: mp, value: 30 }
-              nextEventId: evt:sukuna-duel
-            - label: 带着旧伤
+                - { type: setFlag, id: openerWheel, value: 僵持 }
+              nextEventId: evt:gojo-duel
+            - label: 落入下风
               weight: 2
+              weightBy: { agility: 0.01 }
               effects:
-                - { type: setFlag, id: opener, value: 旧伤 }
+                - { type: setFlag, id: openerWheel, value: 下风 }
                 - { type: applyStatus, status: st-grievous, stacks: 1 }
                 - { type: adjustMood, value: -4 }
-              nextEventId: evt:sukuna-duel
+              nextEventId: evt:gojo-duel
 
-  # ══════════════════════════════════════════════════════════════
-  # 二、第一场 · 对宿傩
-  # ══════════════════════════════════════════════════════════════
-  #
-  # `levelScale: 0.55` 是**刻意压过**的：这一场的目标是"打到能继续演"，不是打赢。
-  # 三路结局（胜／败／逃）都接同一条边 evt:domain-clash —— 战斗只决定状态与心情，
-  # 不决定剧情走哪条路（决定权留在 evt:south-north）。
-
-  - id: evt:sukuna-duel
+  - id: evt:gojo-duel
     title: 第一场 · 宿傩
-    narrative: 他从断楼里走出来，四只手，两张脸，脚步声比他的身体重。你抬起手，空气在你指尖弯了一下。
+    narrative: 他从断楼里走出来，四只手，两张脸，脚步声比他的身体还重。你抬起手，空气在指尖弯了一下——会赢的，你这么想，也这么说。
     trigger: { source: chain }
     kind: combat
     settle:
@@ -77,43 +96,34 @@ events:
             - { type: setFlag, id: duelWon, value: true }
             - { type: adjustMood, value: 6 }
             - { type: adjustAttribute, attribute: cursedEnergy, value: 3 }
-          nextEventId: evt:domain-clash
+          nextEventId: evt:gojo-domain
         onDefeat:
           effects:
             - { type: applyStatus, status: st-grievous, stacks: 1 }
             - { type: adjustMood, value: -8 }
-          nextEventId: evt:domain-clash
+          nextEventId: evt:gojo-domain
         onFlee:
           effects:
             - { type: setFlag, id: duelFled, value: true }
             - { type: adjustMood, value: -5 }
-          nextEventId: evt:domain-clash
+          nextEventId: evt:gojo-domain
 
-  # ══════════════════════════════════════════════════════════════
-  # 三、领域对撞 · 无量空处 vs 伏魔御厨子
-  # ══════════════════════════════════════════════════════════════
-
-  - id: evt:domain-clash
+  - id: evt:gojo-domain
     title: 领域对撞
-    narrative: 你们几乎同时抬手。一边是无穷的信息灌进颅骨，一边是刀锋从四面八方长出。两个领域贴在一起的瞬间，新宿的玻璃全部朝外碎。
+    narrative: 你们几乎同时结印。一边是无穷的信息灌进颅骨，一边是刀锋从四面八方长出。两个领域贴在一起的瞬间，新宿的玻璃全部朝外碎开。
     trigger: { source: chain }
     kind: normal
     settle:
       normal:
         options:
-          # 直链到分叉点：`nextEventId` 立刻占槽，中间**不留空窗**。
-          # 曾经用过 `enqueueEvent + delay 30 分钟` 制造 2 个空槽回合，留给「引擎调度的
-          # 分支事件」——那是为 GM agent 提交分支准备的窗口。但 GM agent 还没落地，
-          # 空窗里没有任何东西会来，玩家只会看到「领域对撞打完 → 突然变自由行动」，
-          # 读起来像剧情断了。所以现在直链，等 `story.submitBranch` 真正可用时再开窗。
           - id: opt-void
-            text: 展开「无量空处」，用信息量压死他
+            text: 展开「无量空处」，用信息量把他压死
             effects:
               - { type: setFlag, id: domainClashWon, value: true }
               - { type: setFlag, id: domainDone, value: true }
               - { type: adjustMood, value: 8 }
               - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
-            nextEventId: "evt:south-north"
+            nextEventId: evt:gojo-fork
           - id: opt-outlast
             text: 不跟他对拼，硬吃「伏魔御厨子」
             effects:
@@ -121,86 +131,288 @@ events:
               - { type: setFlag, id: domainDone, value: true }
               - { type: applyStatus, status: st-overload, stacks: 1 }
               - { type: adjustMood, value: -6 }
-            nextEventId: "evt:south-north"
+            nextEventId: evt:gojo-fork
 
-  # ══════════════════════════════════════════════════════════════
-  # 四、★ 分叉点 · 向南 / 向北
-  # ══════════════════════════════════════════════════════════════
-  #
-  # 这一格不是"打不打得赢"，而是"动不动"。向南 = 按原作站着不动；
-  # 向北 = 侧身半步，把世界斩让到身后。两个选项各自接一条完整的后续，
-  # 各自落不同的 `ending` flag —— 结局由 flag 决定，不由"血条"决定。
-
-  - id: evt:south-north
+  - id: evt:gojo-fork
     title: 向南，还是向北
-    narrative: 空间的边缘开始不对劲。你认得这一手——那不是斩击，是"世界"本身被切开的一道缝。它还没落下，但你已经知道它会从哪里来。半秒钟，够你侧身，也够你想清楚。
+    narrative: 空间边缘开始不对。你认得这一手——那不是斩击，是「世界」本身被切开的一道缝。它还没落下，但你已经知道它会从哪里来。半秒钟，够你侧身，也够你想清楚：站着不动，还是把这条命再拖一会儿。
     trigger: { source: chain }
     kind: normal
     settle:
       normal:
         options:
           - id: opt-south
-            text: 向南 —— 站着不动，把命留给该留的人
+            text: 向南 —— 站着不动，把命留给该留下的人
             effects:
               - { type: setFlag, id: pathSouth, value: true }
               - { type: setFlag, id: direction, value: 向南 }
               - { type: adjustMood, value: 4 }
-            nextEventId: evt:south-cut
+            nextEventId: evt:gojo-south-cut
           - id: opt-north
-            text: 向北 —— 侧身半步，让那道斩击落空
+            text: 向北 —— 侧身半步，让那道斩击落到身后
             effects:
               - { type: setFlag, id: pathNorth, value: true }
               - { type: setFlag, id: direction, value: 向北 }
               - { type: adjustMood, value: 2 }
-            nextEventId: evt:north-counter
+            nextEventId: evt:gojo-north
 
-  # ---------- 向南（原作） ----------
-
-  - id: evt:south-cut
+  - id: evt:gojo-south-cut
     title: 世界斩
-    narrative: 你没有动。那道缝从你的肩头斜着穿过去，世界静了一瞬，然后血才开始流。你听见有人在很远的地方喊你的名字。你想说"别过来"，但更想说的是——剩下的交给你们了。
+    narrative: 你没有动。那道缝从肩头斜着穿过去，世界静了一瞬，血才慢慢流出来。你听见很远的地方有人喊你，你想说「别过来」，更想说的是——剩下的交给你们了。车站的灯亮着，几个老朋友在等你。
     trigger: { source: chain }
     kind: normal
+    mentions: [npc-megumi]
     settle:
       normal:
         options:
           - id: opt-accept
-            text: 合上眼睛
+            text: 合上眼睛，往南走
             effects:
-              - { type: setFlag, id: ending, value: south }
+              - { type: setFlag, id: ending, value: gojo-south }
               - { type: setFlag, id: endingReached, value: true }
+              - { type: setFlag, id: gojoDead, value: true }
               - { type: adjustMood, value: 2 }
 
-  # ---------- 向北（IF） ----------
-
-  # branch 形态的真样例（P1）：首节点沿用 `evt:north-counter`，其余 `<id>#<node>`。
-  - id: evt:north-counter
+  # 分支：半步之后。counter 是首节点（沿用父 id evt:gojo-north），dawn 是 <id>#dawn。
+  # 两个回来的选项都用同一个 goto.after（同一幕只能有一个延迟），制造「两小时后天亮」的间隔。
+  - id: evt:gojo-north
     title: 半步之后
     trigger: { source: chain }
     branch:
       - node: counter
         title: 半步之后
-        text: 你侧过身。那道斩击从鼻尖前面过去，切掉了半条街——但没切到你。宿傩第一次没有笑。他收招的那一瞬间，空隙只有半秒。
+        text: 你侧过身。那道斩击从鼻尖前擦过去，切掉了半条街，但没切到你。宿傩第一次没有笑——他收招的那一瞬间，空隙只有半秒。你得决定，这半秒用来杀，还是用来救人。
         options:
           - text: 就在这半秒里，把「茈」按进去
             effects:
               - { type: setFlag, id: northCountered, value: true }
               - { type: adjustMood, value: 8 }
               - { type: adjustAttribute, attribute: cursedEnergy, value: 3 }
-            goto: dawn
-          - text: 先转身把虎杖他们推出去
+            goto: { node: dawn, after: { value: 2, unit: hour } }
+          - text: 先转身把还站着的同伴推出去
             effects:
               - { type: setFlag, id: savedAllies, value: true }
-              - { type: adjustRelation, npcId: npc-yuji, value: 12 }
-              - { type: adjustRelation, npcId: npc-megumi, value: 8 }
+              - { type: adjustRelation, npcId: npc-yuta, value: 12 }
+              - { type: adjustRelation, npcId: npc-maki, value: 8 }
               - { type: adjustMood, value: 5 }
-            goto: dawn
+            goto: { node: dawn, after: { value: 2, unit: hour } }
       - node: dawn
         title: 天亮之前
-        text: 宿傩退进废墟深处，没有回头。天边泛出一点很淡的颜色，把新宿的玻璃照得像水。你站着，第一次觉得"活着"这件事也需要一点时间去习惯。
+        text: 宿傩退进废墟深处，没有回头。天边泛出一点很淡的颜色，把新宿的玻璃照得像水。你站着，第一次觉得「活着」这件事，也需要一点时间去习惯。
         options:
           - text: 站着，等天亮
             effects:
-              - { type: setFlag, id: ending, value: north }
+              - { type: setFlag, id: ending, value: gojo-north }
               - { type: setFlag, id: endingReached, value: true }
+              - { type: setFlag, id: gojoSurvived, value: true }
               - { type: adjustMood, value: 6 }
+
+  # ════════════════════════════════════════════════════════════════
+  # 虎杖线
+  # ════════════════════════════════════════════════════════════════
+
+  - id: evt:yuji-open
+    title: 残局
+    narrative: 你赶到的时候，五条老师已经不在那里了。废墟中央只剩半截熟悉的校服，和一地还没凉透的咒力。有人在哭，有人在喊疏散，你站在碎玻璃上，喉咙里像塞了一整块铁。现在，得有人接手。
+    trigger: { source: chain }
+    kind: normal
+    mentions: [npc-megumi]
+    settle:
+      normal:
+        options:
+          - id: opt-takeover
+            text: 把指挥权接过来 —— 五条老师不在了，但计划还在
+            effects:
+              - { type: setFlag, id: yujiCommand, value: 接管 }
+              - { type: setFlag, id: gojoDead, value: true }
+              - { type: adjustMood, value: -2 }
+            nextEventId: evt:yuji-seal
+          - id: opt-grieve
+            text: 先在废墟里坐一会儿，再站起来
+            effects:
+              - { type: setFlag, id: yujiCommand, value: 收敛 }
+              - { type: setFlag, id: gojoDead, value: true }
+              - { type: adjustMood, value: -6 }
+            nextEventId: evt:yuji-seal
+
+  - id: evt:yuji-seal
+    title: 羂索的「帐」
+    narrative: 羂索站在更高的断楼上，指尖垂着一层看不见的东西。它落下来的时候没什么声音，只让你的术式回路「哑」了一下——像有人把手按在了开关上。里梅的冰已经在街口结起来了。
+    trigger: { source: chain }
+    kind: normal
+    mentions: [npc-higuruma]
+    settle:
+      normal:
+        options:
+          - id: opt-force
+            text: 硬闯那层「帐」，趁它还薄
+            effects:
+              - { type: setFlag, id: sealed, value: true }
+              - { type: applyStatus, status: st-sealed, stacks: 1 }
+              - { type: adjustMood, value: -3 }
+            nextEventId: evt:yuji-kenjaku-fight
+          - id: opt-detour
+            text: 绕开它，先和乙骨、东堂会合
+            effects:
+              - { type: setFlag, id: sealed, value: false }
+              - { type: adjustMood, value: 2 }
+            nextEventId: evt:yuji-kenjaku-fight
+
+  # 多敌战斗 + 友军 + 三路收场：羂索与里梅；乙骨、东堂自动助战。
+  - id: evt:yuji-kenjaku-fight
+    title: 斩断羂索
+    narrative: 乙骨先到，东堂拍了一次手把站位洗乱。羂索还在笑，里梅的冰从侧翼压过来。你夹在中间，第一次觉得「人多」也可以是一种底气。
+    trigger: { source: chain }
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-kenjaku, levelScale: 0.9 }
+          - { ref: enemy-uraume, levelScale: 0.8 }
+        allies:
+          - { ref: npc-yuta, levelScale: 1 }
+          - { ref: npc-todo, levelScale: 1 }
+        canFlee: true
+        fleeCheck: { preset: opposed, attacker: agility, defender: agility, baseChance: 0.5 }
+        onVictory:
+          effects:
+            - { type: setFlag, id: kenjakuDead, value: true }
+            - { type: cureStatus, status: st-sealed }
+            - { type: adjustMood, value: 8 }
+            - { type: adjustRelation, npcId: npc-yuta, value: 10 }
+          nextEventId: evt:yuji-relay
+        onDefeat:
+          effects:
+            - { type: applyStatus, status: st-grievous, stacks: 1 }
+            - { type: adjustMood, value: -6 }
+          nextEventId: evt:yuji-relay
+        onFlee:
+          effects:
+            - { type: setFlag, id: kenjakuFled, value: true }
+            - { type: adjustMood, value: -3 }
+          nextEventId: evt:yuji-relay
+
+  # NPC 登场（事件级 npcs）+ 退场（setNpcLifecycle）：鹿紫云先上，日车的主意在后面。
+  - id: evt:yuji-relay
+    title: 接力
+    narrative: 鹿紫云从人群里走出来，连寒暄都省了。「下一个，是我。」他没等你回答。日车在后面翻开一本旧笔记，胀相蹲下来看你左手那两根断指——他们都在替你争取时间，用一种你还没来得及学会的方式。
+    trigger: { source: chain }
+    kind: normal
+    npcs: [npc-kashimo]
+    mentions: [npc-higuruma]
+    settle:
+      normal:
+        options:
+          - id: opt-kashimo
+            text: 让鹿紫云先上，你去接住日车留下的审判
+            effects:
+              - { type: setFlag, id: kashimoFell, value: true }
+              - { type: setNpcLifecycle, npcId: npc-kashimo, state: inactive, reasonCode: 幻兽琥珀燃尽，战死 }
+              - { type: cureStatus, status: st-sealed }
+              - { type: adjustMood, value: 2 }
+            nextEventId: evt:yuji-awaken
+          - id: opt-higuruma
+            text: 让日车的「诛罚赐死」先把宿傩拖上审判席
+            effects:
+              - { type: setFlag, id: higurumaFell, value: true }
+              - { type: cureStatus, status: st-sealed }
+              - { type: adjustMood, value: -2 }
+            nextEventId: evt:yuji-awaken
+
+  # 觉醒：学「解·灵魂切割」与「黑闪」；胀相把九相图的秘密交给你（addSecret）；钉崎开始苏醒（kugisakiReady）。
+  - id: evt:yuji-awaken
+    title: 觉醒
+    narrative: 胀相把最后一页笔记推到你面前，说九相图在你体内早就不只是负担。「你不是要杀他，」他说，「你是要把伏黑从他身体里切出来。」你握紧那只缺了指头的手，忽然明白五条老师一直想教你的，从来不是怎么赢。
+    trigger: { source: chain }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-blood
+            text: 把赤血操术与「解」接到一起
+            effects:
+              - { type: unlockSkill, skillId: sk-yuji-dismantle }
+              - { type: unlockSkill, skillId: sk-yuji-blackflash }
+              - { type: setFlag, id: awakened, value: true }
+              - { type: setFlag, id: kugisakiReady, value: true }
+              - { type: addSecret, npcId: npc-choso, text: 胀相知道九相图意味着什么，也猜到宿傩为何偏偏选中伏黑。 }
+            nextEventId: evt:yuji-final
+          - id: opt-soul
+            text: 先把那层「灵魂的界面」摸清楚
+            effects:
+              - { type: unlockSkill, skillId: sk-yuji-dismantle }
+              - { type: setFlag, id: awakened, value: true }
+              - { type: setFlag, id: kugisakiReady, value: true }
+              - { type: adjustMood, value: 4 }
+            nextEventId: evt:yuji-final
+        # 无论选哪个，钉崎都在这之后醒来（模板刷新规则 rule-kugisaki-awaken 由 kugisakiReady 触发；
+        # opt-soul 显式置位，opt-blood 由下面这个 flagSet 兜底不成立 —— 故默认置位放这里更容易。
+    # 注：为保证钉崎必定归队，进入本事件即置 kugisakiReady（放在节点呈现前无法用 flag；
+    # 因此在最终战前的两个选项里都补置一次，见 evt:yuji-final 前。）
+
+  - id: evt:yuji-final
+    title: 最后一刀
+    narrative: 宿傩残了，但还没倒。他站在这具身体的中央，四壁是伏黑的影子。你想起五条老师说过的话，想起钉崎在记忆里翻白眼的样子——然后你把「解」抬了起来。远处，一根钉子正对准他最后一根手指。
+    trigger: { source: chain }
+    mentions: [npc-megumi]
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-sukuna, levelScale: 0.5 }
+        allies:
+          - { ref: npc-kugisaki, levelScale: 1 }
+        canFlee: false
+        onVictory:
+          effects:
+            - { type: setFlag, id: sukunaExpelled, value: true }
+            - { type: setFlag, id: kugisakiReady, value: true }
+            - { type: adjustMood, value: 6 }
+          nextEventId: evt:yuji-megumi
+        onDefeat:
+          effects:
+            - { type: applyStatus, status: st-grievous, stacks: 1 }
+            - { type: setFlag, id: kugisakiReady, value: true }
+            - { type: adjustMood, value: -6 }
+          nextEventId: evt:yuji-megumi
+
+  # 分支：内心世界 → 救回伏黑（canon）/ 独扛（IF）。首节点沿用父 id evt:yuji-megumi。
+  - id: evt:yuji-megumi
+    title: 内心世界
+    trigger: { source: chain }
+    branch:
+      - node: reach
+        title: 内心世界
+        text: 你顺着那一刀切开的缝，走进宿傩的内心。伏黑坐在一片没有光的影子里，头也不抬。「别管我了，」他说，「反正也没差。」你蹲下来，和他平视——你见过太多次这种眼神，在自己镜子里。
+        mentions: [npc-megumi]
+        options:
+          - text: 喊他的名字，一遍，再一遍
+            effects:
+              - { type: setFlag, id: megumiSaved, value: true }
+              - { type: adjustMood, value: 8 }
+            goto: save
+          - text: 不再等他回应，直接用「解」把人撕出来
+            effects:
+              - { type: setFlag, id: megumiSaved, value: false }
+              - { type: adjustResource, resource: hp, value: -40 }
+              - { type: adjustMood, value: -4 }
+            goto: fail
+      - node: save
+        title: 把他拽回来
+        text: 伏黑的影子动了一下。先是一根手指，然后是整片黑暗开始替你让路。他抬头看你，骂了一句很难听的话——你笑了，这骂声说明他回来了。
+        options:
+          - text: 和钉崎一起，借那一声「共鸣」把宿傩彻底剥离
+            effects:
+              - { type: setNpcLifecycle, npcId: npc-megumi, state: alive, reasonCode: 从宿傩体内剥离，获救 }
+              - { type: setFlag, id: ending, value: yuji-canon }
+              - { type: setFlag, id: endingReached, value: true }
+              - { type: addRelationEdge, fromId: player, toId: npc-kugisaki, kind: friend, visibility: known, value: 30 }
+      - node: fail
+        title: 独扛
+        text: 伏黑没有回应。你只能自己把那具身体里的东西一点点剜出来，每一刀都同时割在自己身上。天快亮的时候，宿傩散了，你跪在废墟里，手里什么都没有——也许救回来了，也许没有。
+        options:
+          - text: 把这最后一夜扛下来
+            effects:
+              - { type: setFlag, id: ending, value: yuji-if }
+              - { type: setFlag, id: endingReached, value: true }
+              - { type: adjustMood, value: -6 }

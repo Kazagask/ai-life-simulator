@@ -1,8 +1,11 @@
 # JJK · 新宿决战 · statuses.yaml
 #
-# 两个补正，都为剧情服务：
-# - `st-grievous`（重伤）：领域对撞输了之后挂上，压体术，让后面「向北」那一路更紧；
-# - `st-overload`（咒力过载）：硬撑领域之后挂上，压咒力上限，逼玩家在「放茈」与「稳住」之间选。
+# 三类补正，都为剧情服务：
+# - st-grievous（重伤）：simulation.attributeModifiers 压体术与敏捷；战败或硬吃领域时挂上。
+# - st-overload（咒力过载）：simulation + combat.damageDealt，逼玩家在「放茈」与「稳住」间取舍。
+# - st-sealed（术式封锁）：combat.control = cannot_use_skills。羂索的「无为转变」罩住回路，
+#   战斗里按不出术式 —— 要么硬撑/撤退，要么用解咒符（item-seal-charm）解开。
+
 statuses:
   - id: st-grievous
     name: 重伤
@@ -22,4 +25,15 @@ statuses:
       attributeModifiers: { cursedEnergy: -6 }
     combat:
       damageDealt: -0.08
+    visibility: known
+
+  - id: st-sealed
+    name: 术式封锁
+    description: 一层黏在灵魂表面的「帐」。术式回路暂时哑火，只能靠肉身和道具撑过去。
+    duration: { untilCured: true }
+    stacking: unique
+    combat:
+      control: [cannot_use_skills]
+    cureConditions:
+      - { item: item-seal-charm }
     visibility: known

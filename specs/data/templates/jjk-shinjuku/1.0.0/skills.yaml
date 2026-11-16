@@ -1,18 +1,20 @@
 # JJK · 新宿决战 · skills.yaml
 #
-# 玩家（五条悟）三式：苍 / 赫 / 茈。茈有 2 回合冷却 —— 它是「留着还是现在放」的决策点，
-# 而不是每回合都按的最优解。宿傩两式：解 / 捌。
+# 两条线各有自己的「手感」：
+#   五条 —— 苍 / 赫 / 茈 三段式，伤害随咒力线性放大，茈是压箱底的决胜键；
+#   虎杖 —— 迳庭拳（体术）、黑闪（咒力与肉身同步）、解（切灵魂），不吃高咒力也能打。
 #
-# 属性 id 必须落在 world.yaml 的 `attributes.order` 里（写错会加载期 fail-fast）。
+# 属性 id 必须落在 world.yaml 的 attributes.order（写错加载期 fail-fast）。
 
 skills:
+  # ══════════ 五条悟 ══════════
   - id: sk-limitless-blue
     kind: combat
     name: 术式顺转 · 苍
     description: 指向即引力。把宿傩往你手心里拽，顺手把路上的碎石一起拽过来。
     cost: { mp: 15 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.8 }
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.82 }
     damage:
       - { preset: scaled, base: 18, scaleBy: cursedEnergy, multiplier: 0.35 }
     cooldownTurns: 0
@@ -21,10 +23,10 @@ skills:
   - id: sk-limitless-red
     kind: combat
     name: 术式反转 · 赫
-    description: 与苍相反的斥力。近距离打中时，整面墙会替宿傩接住这一下。
+    description: 与苍相反的斥力。打中时整面墙会替宿傩接住这一下。
     cost: { mp: 30 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.7 }
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.72 }
     damage:
       - { preset: scaled, base: 26, scaleBy: cursedEnergy, multiplier: 0.4 }
     cooldownTurns: 1
@@ -36,12 +38,50 @@ skills:
     description: 苍与赫交叠的那一瞬。不是术式，是把两样东西之间的空隙点着。
     cost: { mp: 60 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.65 }
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.66 }
     damage:
       - { preset: scaled, base: 45, scaleBy: cursedEnergy, multiplier: 0.6 }
     cooldownTurns: 2
     usableInBattle: true
 
+  # ══════════ 虎杖悠仁 ══════════
+  - id: sk-yuji-divergent
+    kind: combat
+    name: 迳庭拳
+    description: 肉身先到、咒力后到，两次冲击砸在同一处。虎杖最朴素也最可靠的一拳。
+    cost: { mp: 8 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: physique, defender: agility, baseChance: 0.85 }
+    damage:
+      - { preset: scaled, base: 14, scaleBy: physique, multiplier: 0.5 }
+    cooldownTurns: 0
+    usableInBattle: true
+
+  - id: sk-yuji-blackflash
+    kind: combat
+    name: 黑闪
+    description: 咒力与物理打击在同一瞬重合。代价是时机，收益是它不跟你讲道理。
+    cost: { mp: 20 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.62 }
+    damage:
+      - { preset: scaled, base: 22, scaleBy: physique, multiplier: 0.6 }
+    cooldownTurns: 2
+    usableInBattle: true
+
+  - id: sk-yuji-dismantle
+    kind: combat
+    name: 解 · 灵魂切割
+    description: 把御厨子的「解」升华为切「受肉灵魂与器之间那层界面」的斩击。这一刀，是留给伏黑的。
+    cost: { mp: 25 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: cursedEnergy, baseChance: 0.6 }
+    damage:
+      - { preset: scaled, base: 20, scaleBy: cursedEnergy, multiplier: 0.5 }
+    cooldownTurns: 1
+    usableInBattle: true
+
+  # ══════════ 两面宿傩 ══════════
   - id: sk-sukuna-dismantle
     kind: combat
     name: 解
@@ -57,11 +97,100 @@ skills:
   - id: sk-sukuna-cleave
     kind: combat
     name: 捌
-    description: 与解成对的那一道。它不追求命中，只追求让你必须动。
+    description: 与解成对的那一道。不追求命中，只追求让你必须动。
     cost: { mp: 0 }
     target: enemy
     hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.5 }
     damage:
       - { preset: scaled, base: 15, scaleBy: cursedEnergy, multiplier: 0.25 }
     cooldownTurns: 1
+    usableInBattle: true
+
+  - id: sk-sukuna-worldcut
+    kind: combat
+    name: 世界斩
+    description: 魔虚罗替他适应了「世界」本身。刀锋切开的不是血肉，是这道缝后面的整片空间。
+    cost: { mp: 0 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.5 }
+    damage:
+      - { preset: scaled, base: 40, scaleBy: cursedEnergy, multiplier: 0.45 }
+    cooldownTurns: 3
+    usableInBattle: true
+
+  # ══════════ 羂索 ══════════
+  - id: sk-kenjaku-seal
+    kind: combat
+    name: 术式封锁 · 无为转变
+    description: 一层黏在灵魂表面的「帐」。被罩住的人，术式回路会暂时哑火。
+    cost: { mp: 20 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: cursedEnergy, baseChance: 0.8 }
+    applyStatus:
+      - { status: st-sealed, chance: 0.9 }
+    cooldownTurns: 2
+    usableInBattle: true
+
+  - id: sk-kenjaku-uzumaki
+    kind: combat
+    name: 咒灵操术 · 漩涡
+    description: 把攒了一千年的咒灵揉成一根螺旋，甩出去。
+    cost: { mp: 30 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.65 }
+    damage:
+      - { preset: scaled, base: 20, scaleBy: cursedEnergy, multiplier: 0.3 }
+    cooldownTurns: 1
+    usableInBattle: true
+
+  # ══════════ 里梅（宿傩的冰之侍从）══════════
+  - id: sk-uraume-ice
+    kind: combat
+    name: 冰凝咒法 · 直瀑
+    description: 整条街的水汽在一瞬间结冰，然后从头顶砸下来。
+    cost: { mp: 10 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.55 }
+    damage:
+      - { preset: scaled, base: 14, scaleBy: cursedEnergy, multiplier: 0.25 }
+    cooldownTurns: 0
+    usableInBattle: true
+
+  # ══════════ 钉崎野蔷薇（终局友军）══════════
+  - id: sk-kugisaki-resonance
+    kind: combat
+    name: 芻灵咒法 · 共鸣
+    description: 一根钉子敲在残存的宿傩手指上。隔着半个战场，痛觉却直接钻进他的灵魂。
+    cost: { mp: 12 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: cursedEnergy, baseChance: 0.7 }
+    damage:
+      - { preset: scaled, base: 16, scaleBy: cursedEnergy, multiplier: 0.4 }
+    cooldownTurns: 1
+    usableInBattle: true
+
+  # ══════════ 乙骨忧太（友军）══════════
+  - id: sk-yuta-copy
+    kind: combat
+    name: 术式模仿 · 里香
+    description: 里香替他把刚见过的术式复刻一遍。像一面会还手的镜子。
+    cost: { mp: 18 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.68 }
+    damage:
+      - { preset: scaled, base: 16, scaleBy: cursedEnergy, multiplier: 0.4 }
+    cooldownTurns: 1
+    usableInBattle: true
+
+  # ══════════ 东堂葵（友军）══════════
+  - id: sk-todo-boogie
+    kind: combat
+    name: 不义游戏 · 改
+    description: 拍一次手，把战场上的位置关系整个洗一遍。
+    cost: { mp: 10 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: physique, defender: agility, baseChance: 0.7 }
+    damage:
+      - { preset: scaled, base: 12, scaleBy: physique, multiplier: 0.4 }
+    cooldownTurns: 0
     usableInBattle: true

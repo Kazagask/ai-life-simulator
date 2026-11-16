@@ -1,7 +1,10 @@
 # JJK · 新宿决战 · items.yaml
 #
-# 只有两件：一样回血、一样回咒力。决战之夜没有商店，捡到什么用什么。
+# 消耗品：战斗内外都能用（回血 / 回咒力 / 解术式封锁）。
+# 装备（咒具）：走 equipment.yaml 的槽位，穿脱改变有效属性 —— 见 slot:cursed-tool。
+
 items:
+  # ── 消耗品 ──
   - id: item-ration
     type: consumable
     name: 压缩口粮
@@ -15,9 +18,57 @@ items:
   - id: item-shard
     type: consumable
     name: 咒力碎片
-    description: 从咒灵身上剥下来的一小块凝结咒力。捏碎它，回路会短暂地宽一点。
+    description: 从咒灵身上剥下的一小块凝结咒力。捏碎它，回路会短暂地宽一点。
     stackable: true
     usableInBattle: true
     usableOutsideBattle: true
     use:
       - { type: adjustResource, resource: mp, value: 60 }
+
+  - id: item-seal-charm
+    type: consumable
+    name: 解咒符
+    description: 家入硝子塞给你的东西。撕开它，贴在皮肤上，被「术式封锁」罩住的回路会重新亮起来。
+    stackable: true
+    usableInBattle: true
+    usableOutsideBattle: true
+    use:
+      - { type: cureStatus, status: st-sealed }
+      - { type: adjustMood, value: 2 }
+
+  # ── 装备 · 咒具（type: equipment）──
+  - id: item-cursed-bracer
+    type: equipment
+    name: 咒具 · 聚灵护腕
+    description: 内侧刻着一圈聚咒纹。戴上它，咒力上限会悄悄抬高一点。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: slot-cursed-tool
+    category: talisman
+    quality: common
+    dynamicModifier: { attribute: cursedEnergy, preset: fixed, params: { value: 6 } }
+
+  - id: item-cursed-blade
+    type: equipment
+    name: 咒具 · 蚀骨刀
+    description: 刃口吞咒力也吞体力。体术越强，这一刀越沉。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: slot-cursed-tool
+    category: weapon
+    quality: rare
+    dynamicModifier: { attribute: physique, preset: scaled, params: { base: 4, scaleBy: physique, multiplier: 0.15 } }
+
+  - id: item-flame-talisman
+    type: equipment
+    name: 咒具 · 疾风符
+    description: 贴在鞋跟上的旧符。让身体先于判断动起来。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: slot-cursed-tool
+    category: talisman
+    quality: common
+    dynamicModifier: { attribute: agility, preset: fixed, params: { value: 4 } }

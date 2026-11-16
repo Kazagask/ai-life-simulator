@@ -1,68 +1,89 @@
 # JJK · 新宿决战 · rules.yaml
 #
-# 独立声明式文件：触发 / 工具画像 / 知识授权 / 推断 / fallbackDag。
-# 不并入 TEMPLATE_MERGE_FILES、不是 world.yaml 顶层键（WorldTemplateV2Schema 为 .strict()）。
-# when / guards / completion 统一 { op, args } 开放形（v2 §3.5 口径）。
+# 独立声明式文件（4 个顶层键，RulesSchema .strict()）：llmTriggers / toolProfile /
+# knowledgeGrants / inferenceRules。不并入 TEMPLATE_MERGE_FILES、不是 world.yaml 顶层键。
 #
-# `contextHints` 只是给模型的**上下文标签**，引擎侧对其内容**零解释**。
-# 「把某个事件摆上桌」只能由结构化字段表达（`invoke.branchEventIds`，ADR-0038）。
+# 触发器分线：五条线的节点与虎杖线的节点互不重叠，且每条只在「对应事件结算的那一轮」
+# 由假变真（默认 fireMode: edge），因此同一轮绝不会有多条同时命中 —— 不会出现
+# 「两条同轮、第一条吃掉唯一名额、第二条被记成已触发却从没执行」的撞车。
 
 llmTriggers:
-  # ⚠ 全文件**只有这一条**。不是精简，是必须：
-  # 「每轮最多执行一条」的规则下，如果两条触发器在**同一轮**由假变真，只有声明序第一条
-  # 会执行，而被挤掉的那条**照样记成已触发**（`triggerFireLedger` 落 `hit: true`）——
-  # 账本说它跑过，实际一次没执行，且此后永不重发。
-  # 之前 `flagSet domainDone` 与 `nodeCompleted n2.domain` 就是这样同轮撞车，
-  # 等于用一条假保险丝换掉了唯一一次 AI 旁白机会。
-  #
-  # 为什么挂在「分叉点结算之后」而不是「领域对撞结算时」：
-  # 领域对撞那一轮，分叉还没发生，模型只能预告「你即将向南或向北」——那正是玩家反馈的
-  # 「事件描述被写到叙事区、还说早了」。挂到 `eventResolved evt:south-north` 之后，
-  # 它写的是**刚做的选择的后果**，才对得上玩家此刻看见的东西。
-  - when: [{ op: "eventResolved", args: { eventId: "evt:south-north" } }]
+  # 五条线 · 分叉点之后：让 AI 补「你刚做的这个选择的重量」，而不是预告。
+  - id: lt.gojo-fork
+    when: [{ op: "eventResolved", args: { eventId: "evt:gojo-fork" } }]
     invoke:
-      reason: "after.fork"
-      # GM 是全知的叙事者：facts / 读工具都按 world 窗口给。
-      # 写入窗口仍是 player（targetPerspective）—— 它写的东西要给玩家看。
+      reason: "gojo.fork"
       perspective: "world"
       targetPerspective: "player"
-      contextHints: ["fork.tone"]
-      # GM 画像（AGENTIC-GM 重构）：只给「写叙事 + 提交分支 + 结束」。
-      # 不给选项工具 —— 选项属于事件块的 settle，由 story.submitBranch 一并提交。
+      contextHints: ["fork.tone", "facts"]
+      toolProfile: "gm"
+
+  # 五条线 · 向南（原作）：这一刀落下时，五条在想什么。
+  - id: lt.gojo-fall
+    when: [{ op: "eventResolved", args: { eventId: "evt:gojo-south-cut" } }]
+    invoke:
+      reason: "gojo.fall"
+      perspective: "world"
+      targetPerspective: "player"
+      contextHints: ["death.tone", "mentions"]
+      toolProfile: "gm"
+
+  # 虎杖线 · 觉醒：术式第一次成形的那一刻。
+  - id: lt.yuji-awaken
+    when: [{ op: "eventResolved", args: { eventId: "evt:yuji-awaken" } }]
+    invoke:
+      reason: "yuji.awaken"
+      perspective: "world"
+      targetPerspective: "player"
+      contextHints: ["awaken.tone", "facts"]
+      toolProfile: "gm"
+
+  # 虎杖线 · 救回伏黑：把「救回来了」这件事写成感受，不复述流程。
+  - id: lt.yuji-rescue
+    when: [{ op: "eventResolved", args: { eventId: "evt:yuji-megumi" } }]
+    invoke:
+      reason: "yuji.rescue"
+      perspective: "world"
+      targetPerspective: "player"
+      contextHints: ["rescue.tone", "facts", "secrets"]
       toolProfile: "gm"
 
 toolProfile:
-  # 能力画像 = 本次 invocation 允许的工具面（模板给的是**能力上限**，
-  # 实际下发由引擎按槽状态求交：槽被占时去掉 story.submitBranch；combat 不唤起）。
-  # ① 工具名必须**两处注册表都认识**（game-core 的 defaultToolRegistry 与
-  #    agent-runtime 的 ALL_TOOL_NAMES），少一处就会被静默过滤或吃 unknown_tool。
-  # ② **不需要**提交工具：终止由运行时判定（模型不再发 tool call 即完成）。
-  # ③ 写世界只有一条通道：story.submitBranch。fact.enqueueEvent / upsertDagBranch
-  #    都已下线（前者是"直接入队"、后者是"往已有 DAG 打补丁"，都是被禁止的写法）。
+  # GM 画像：先查后写；写入只有叙事与提交分支（fact.enqueueEvent / upsertDagBranch 已下线）。
+  # 注：叙事正文的承载方式正在切换（<narrative-content> 标签），此画像暂沿用现行写法，
+  #     由团队统一调整，模板侧不另造。
   gm:
     [
-      # 只读查询（先查后写：世界是什么样、我在哪、谁在场、我之前干过什么）
-      # 注意：`world.clues` 已随 taskDag 子系统一起删除（它只读 DAG 节点），
-      # 别再写回画像 —— 画像里列未注册的工具会被静默过滤，模型永远看不到。
       "world.now",
       "world.history",
       "world.present",
       "world.self",
-      # 写入：只有叙事与提交分支
       "narrative.write",
       "narrative.flavor",
       "story.submitBranch",
     ]
 
 knowledgeGrants:
-  # 走到分叉点 = 亲眼看见「世界本身被切开」这件事。
-  - when: [{ op: "eventResolved", args: { eventId: "evt:south-north" } }]
+  # 走到分叉点 = 亲眼看见「世界本身被切开」。
+  - when: [{ op: "eventResolved", args: { eventId: "evt:gojo-fork" } }]
     grant: { observers: ["player"], factRefs: ["fact:cut-truth"], level: "known", source: "witness" }
   # 战场常识：一开局就成立。
   - when: [{ op: "always", args: {} }]
     grant: { observers: ["player"], factRefs: ["fact:shinjuku-arena"], level: "known", source: "rule" }
+  # 觉醒 = 你摸到了「切灵魂」这件事。
+  - when: [{ op: "eventResolved", args: { eventId: "evt:yuji-awaken" } }]
+    grant: { observers: ["player"], factRefs: ["fact:soul-cut"], level: "known", source: "witness" }
+  # 救回伏黑 = 你确认那具身体里还有人活着。
+  - when: [{ op: "eventResolved", args: { eventId: "evt:yuji-megumi" } }]
+    grant: { observers: ["player"], factRefs: ["fact:megumi-alive"], level: "known", source: "witness" }
 
 inferenceRules:
-  # 走到分叉点 ⇒ 你会把"这道斩击是算好的"和"宿傩早就在等这一手"联起来。
+  # 走过领域对撞 ⇒ 你会把「这道斩击是算好的」和「宿傩早就在等这一手」联起来。
   - when: [{ op: "flagSet", args: { flag: "domainDone" } }]
     grant: { observers: ["player"], factRefs: ["fact:counted-cut"], level: "inferred", source: "inferred" }
+  # 觉醒 + 胀相的隐秘（addSecret）⇒ 你推断出九相图与宿傩选伏黑有关。
+  - when: [{ op: "flagSet", args: { flag: "awakened" } }]
+    grant: { observers: ["player"], factRefs: ["fact:choso-secret"], level: "inferred", source: "inferred" }
+  # 斩了羂索 ⇒ 你拼出他这一千年真正想要的东西。
+  - when: [{ op: "flagSet", args: { flag: "kenjakuDead" } }]
+    grant: { observers: ["player"], factRefs: ["fact:kenjaku-plan"], level: "inferred", source: "inferred" }

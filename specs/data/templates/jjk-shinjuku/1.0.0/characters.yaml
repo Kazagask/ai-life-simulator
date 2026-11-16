@@ -1,63 +1,199 @@
 # JJK · 新宿决战 · characters.yaml
 #
-# 玩家 = 五条悟。`playerTemplate.skills` 是他在战斗面板上真正能按的三个键
-# （苍 / 赫 / 茈）—— 没有战斗技能就打不完整场，详见 skills.yaml 的说明。
+# 玩家 = 所选开局的主角（五条悟 / 虎杖悠仁），身份由建局请求 + opening.characterSetup 决定，
+# 因此这里**不设** npc-gojo / npc-yuji（否则会与玩家角色重复）。
+# 其余参战者与敌人在两条线间共享；由事件里的 actors / mentions / npcs 决定谁在哪一幕登场。
 #
-# `enemy-sukuna` 是战斗实体：`settle.combat.enemies[].ref` 按**角色 id** 解析，
-# 所以必须写在本文件、`isEnemy: true`、且不带 lifecycle（缺省 = 在世，
-# 否则引擎会走 SKIP_ALL_ENEMIES_INACTIVE 把整条战斗跳过）。
+# 关键：宿傩已受肉伏黑惠。`enemy-sukuna` 是这具身体（战斗实体）；
+# `npc-megumi` 是被压进内心世界的灵魂，初始 `inactive` —— 救回他 = setNpcLifecycle alive。
 
 characters:
-  - id: npc-yuji
-    isEnemy: false
-    identity: { name: 虎杖悠仁, age: 15, gender: male }
-    visibility: public
-    mood: { value: 55 }
-    attributes: { cursedEnergy: 22, physique: 30, agility: 24, intellect: 12, luck: 14, reputation: 20 }
-    public:
-      personality: 直率、扛事
-      knownGoals: [把宿傩从这具身体里赶出去]
-    private:
-      goals: [protect-others]
-      traits: [reckless, loyal]
-    relationship: 40
-
+  # ── 被夺舍的伏黑（灵魂）─────────────────────────────
   - id: npc-megumi
     isEnemy: false
     identity: { name: 伏黑惠, age: 15, gender: male }
     visibility: public
-    mood: { value: 45 }
+    lifecycle: { state: inactive, reasonCode: 被宿傩夺舍，灵魂沉在内心世界 }
+    mood: { value: 20 }
     attributes: { cursedEnergy: 25, physique: 20, agility: 26, intellect: 22, luck: 12, reputation: 18 }
     public:
-      personality: 冷静、少话
-      knownGoals: [判断该救谁]
+      personality: 冷静、少话，习惯把「救谁」当成一道必须自己算完的题
+      knownGoals: [从宿傩手里把身体夺回来]
     private:
+      secrets: ["secret:megumi-despair"]
       goals: [make-the-right-call]
-      traits: [cautious]
+      traits: [cautious, self-blaming]
     relationship: 35
 
+  # ── 高专一方（友军，可参战）─────────────────────────
+  - id: npc-yuta
+    isEnemy: false
+    identity: { name: 乙骨忧太, age: 17, gender: male }
+    visibility: public
+    mood: { value: 60 }
+    attributes: { cursedEnergy: 80, physique: 30, agility: 30, intellect: 30, luck: 20, reputation: 40 }
+    skills: [sk-yuta-copy]
+    public:
+      personality: 温和，但在该动手时比谁都干脆
+      knownGoals: [替五条老师收尾]
+    private:
+      combatHints:
+        skillWeights: { sk-yuta-copy: 3 }
+    relationship: 20
+    relations:
+      - { to: npc-todo, kind: friend, visibility: known, value: 40 }
+      - { to: npc-maki, kind: colleague, visibility: unknown, value: 10 }
+
+  - id: npc-todo
+    isEnemy: false
+    identity: { name: 东堂葵, age: 18, gender: male }
+    visibility: public
+    mood: { value: 65 }
+    attributes: { cursedEnergy: 40, physique: 45, agility: 30, intellect: 22, luck: 18, reputation: 30 }
+    skills: [sk-todo-boogie]
+    public:
+      personality: 豪爽，认定了的兄弟就绝不含糊
+      knownGoals: [和乙骨一起把羂索按死]
+    private:
+      combatHints:
+        skillWeights: { sk-todo-boogie: 3 }
+    relationship: 15
+
+  - id: npc-maki
+    isEnemy: false
+    identity: { name: 禅院真希, age: 17, gender: female }
+    visibility: public
+    mood: { value: 55 }
+    attributes: { cursedEnergy: 10, physique: 60, agility: 45, intellect: 25, luck: 15, reputation: 25 }
+    public:
+      personality: 锋利，话不多
+      knownGoals: [断后，别让更多人死]
+    private:
+      traits: [blunt]
+    relationship: 15
+
+  - id: npc-hakari
+    isEnemy: false
+    identity: { name: 秤金次, age: 19, gender: male }
+    visibility: public
+    mood: { value: 70 }
+    attributes: { cursedEnergy: 50, physique: 30, agility: 25, intellect: 20, luck: 40, reputation: 20 }
+    public:
+      personality: 赌徒，越到绝境越笑得出来
+      knownGoals: [撑到庄家通吃的那一刻]
+    private:
+      traits: [gambler]
+    relationship: 10
+
+  - id: npc-kashimo
+    isEnemy: false
+    identity: { name: 鹿紫云一, age: 40, gender: male }
+    visibility: public
+    lifecycle: { state: unspawned }
+    mood: { value: 75 }
+    attributes: { cursedEnergy: 70, physique: 35, agility: 40, intellect: 25, luck: 10, reputation: 30 }
+    public:
+      personality: 只对「和强者打一场」感兴趣
+      knownGoals: [与完全体的宿傩一战]
+    private:
+      traits: [battle-hungry]
+    relationship: 0
+
+  - id: npc-higuruma
+    isEnemy: false
+    identity: { name: 日车宽见, age: 30, gender: male }
+    visibility: public
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 45, physique: 20, agility: 22, intellect: 45, luck: 10, reputation: 25 }
+    public:
+      personality: 律师出身，习惯在开口前先把罪名想清楚
+      knownGoals: [让宿傩接受一次审判]
+    private:
+      traits: [judicious]
+    relationship: 0
+
+  - id: npc-choso
+    isEnemy: false
+    identity: { name: 胀相, age: 150, gender: male }
+    visibility: public
+    mood: { value: 55 }
+    attributes: { cursedEnergy: 55, physique: 40, agility: 30, intellect: 28, luck: 12, reputation: 15 }
+    public:
+      personality: 慢条斯理，把虎杖当弟弟
+      knownGoals: [帮虎杖把术式练成]
+    private:
+      secrets: ["secret:choso-bloodline"]
+      goals: [protect-yuji]
+      traits: [loyal]
+    relationship: 10
+
+  - id: npc-kugisaki
+    isEnemy: false
+    identity: { name: 钉崎野蔷薇, age: 16, gender: female }
+    visibility: public
+    lifecycle: { state: unspawned }
+    mood: { value: 60 }
+    attributes: { cursedEnergy: 28, physique: 22, agility: 26, intellect: 24, luck: 16, reputation: 15 }
+    skills: [sk-kugisaki-resonance]
+    public:
+      personality: 嘴上从不饶人，动手比谁都狠
+      knownGoals: [把那根破手指钉穿]
+    private:
+      combatHints:
+        skillWeights: { sk-kugisaki-resonance: 3 }
+    relationship: 30
+
+  # ── 敌方 ──────────────────────────────────────────
   - id: enemy-sukuna
     isEnemy: true
     identity:
       name: 两面宿傩
       age: 1000
       gender: male
-      description: 四只手，两张脸，站在废墟中央像一根烧不化的柱子。他看着你，像在看一件终于值得拆开的玩具。
+      description: 四只手，两张脸，站在废墟中央像一根烧不化的柱子。这具身体本该属于伏黑惠 —— 现在它姓宿傩。他看着你，像在看一件终于值得拆开的玩具。
     visibility: public
-    mood: { value: 80 }
+    mood: { value: 85 }
     attributes: { cursedEnergy: 90, physique: 60, agility: 55, intellect: 50, luck: 20, reputation: 100 }
-    skills: [sk-sukuna-dismantle, sk-sukuna-cleave]
+    skills: [sk-sukuna-dismantle, sk-sukuna-cleave, sk-sukuna-worldcut]
     public:
-      personality: 傲慢、愉悦
-      knownGoals: [把五条悟拆开看看]
+      personality: 傲慢、愉悦，把一切都当成取乐的赌局
+      knownGoals: [把这具身体用到底]
     private:
       combatHints:
-        skillWeights: { sk-sukuna-dismantle: 3, sk-sukuna-cleave: 2 }
+        skillWeights: { sk-sukuna-dismantle: 3, sk-sukuna-cleave: 2, sk-sukuna-worldcut: 1 }
+    relationship: -90
+
+  - id: enemy-kenjaku
+    isEnemy: true
+    identity:
+      name: 羂索
+      age: 1000
+      gender: male
+      description: 顶着夏油杰的脸，笑得很得体。这一千年来，他一直在为「有趣」这个词做实验。
+    visibility: public
+    mood: { value: 70 }
+    attributes: { cursedEnergy: 70, physique: 30, agility: 35, intellect: 80, luck: 30, reputation: 60 }
+    skills: [sk-kenjaku-seal, sk-kenjaku-uzumaki]
+    public:
+      personality: 温文尔雅，眼里没有一点活人的温度
+      knownGoals: [让这场实验有个漂亮的结果]
+    private:
+      secrets: ["secret:kenjaku-plan"]
+      combatHints:
+        skillWeights: { sk-kenjaku-uzumaki: 2, sk-kenjaku-seal: 2 }
     relationship: -80
 
-playerTemplate:
-  identity: { gender: male, age: 28 }
-  # 六眼 + 无下限：咒力与敏捷远高于常人，所以 ev:sukuna-duel 的 levelScale 压到 0.55
-  # 之后仍然打得下来（实测 5 回合内见分晓）。
-  attributes: { cursedEnergy: 120, physique: 34, agility: 42, intellect: 40, luck: 28, reputation: 95 }
-  skills: [sk-limitless-blue, sk-limitless-red, sk-hollow-purple]
+  - id: enemy-uraume
+    isEnemy: true
+    identity: { name: 里梅, age: 100, gender: male }
+    visibility: public
+    mood: { value: 60 }
+    attributes: { cursedEnergy: 55, physique: 25, agility: 30, intellect: 30, luck: 15, reputation: 40 }
+    skills: [sk-uraume-ice]
+    public:
+      personality: 冷淡，只忠于宿傩
+      knownGoals: [替宿傩清场]
+    private:
+      combatHints:
+        skillWeights: { sk-uraume-ice: 3 }
+    relationship: -60

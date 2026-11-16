@@ -1,17 +1,15 @@
 # JJK · 新宿决战 · endings.yaml
 #
-# 判据纪律：终止与死亡只看声明式 flag 与 battleDefeat 信号，
-# **不得以 HP 数值 / HP 归零为判据**（R-EN-07 / P9，加载期会拒绝）。
+# 终止只看声明式 flag 与 battleDefeat 信号，绝不以 HP 数值 / HP 归零为判据（加载期会拒）。
+# 两条线各自的结局集，靠 `ending` flag 区分；互不串线（flag 值不同）。
 #
-# 这一夜只有两个真正的收束：
-#   ending=south → end-south（原作：向南，死于世界斩）
-#   ending=north → end-north（IF：向北，躲过世界斩）
-# 两条都由「终局事件写 flag → worldState 终止条件命中」驱动，
-# 不靠时间跑完，也不靠战败 —— 第一场战斗战败不会结束这一局，
-# 它只挂 `st-grievous` 并把剧情推给领域对撞（见 events.yaml）。
+#   ending=gojo-south → end-gojo-south（原作 236 话「向南」：五条身亡）
+#   ending=gojo-north → end-gojo-north（IF：向北，五条存活）
+#   ending=yuji-canon → end-yuji-canon（原作向：宿傩消灭，伏黑获救）
+#   ending=yuji-if    → end-yuji-if   （IF：独扛，代价惨重）
+# 兜底 end-fallback 承接「既没到分叉也没收束」的拖局。
 
 terminationConditions:
-  # 终局事件落 `endingReached=true` 就地收束：不再回日常、不再多走一轮。
   - type: worldState
     params:
       conditions:
@@ -25,50 +23,68 @@ terminationConditions:
     combinator: AND
     terminationMode: afterSettle
 
-  # 兜底：玩家一直拖着不打（最多两夜），按时间收束到 fallback 结局。
+  # 拖太久（三夜）按时间收束到 fallback。
   - type: timeReached
     params:
       conditions:
-        - { time: { gte: { value: 2, unit: day } } }
+        - { time: { gte: { value: 3, unit: day } } }
     combinator: AND
     terminationMode: afterSettle
 
 endings:
-  # ---------- 向南 · 原作 ----------
-
-  - endingId: end-south
+  # ── 五条线 · 向南（原作）──
+  - endingId: end-gojo-south
     name: 向南
     description: 你没有躲。世界斩落下，新宿的夜里少了一个人。
-    # 只有走过领域对撞的人才有资格进候选集 —— 没打到这里就谈结局是不成立的。
-    unlockConditions:
-      - { flag: domainDone, eq: true }
     triggerConditions:
-      - { flag: ending, eq: south }
-    priority: 80
+      - { flag: ending, eq: gojo-south }
+    priority: 70
     endingType: sacrifice
     narrativeConfig:
       source: template
       title: 向南
-      summary: 你站着没动，因为身后还有人。那道斩击穿过你的时候，你想起的不是战场，是教室里某个下午，有人问「最强的咒术师是什么样」，你随口答「大概是很孤单的那个吧」。后来你替所有人挡了一次，孤单这件事就没那么重要了。
+      summary: 你站着没动，因为身后还有人。那道斩击穿过你的时候，你想起的不是战场，是教室里某个下午，有人问「最强的咒术师是什么样」，你随口答「大概是很孤单的那个吧」。后来你替所有人挡了一次，孤单这件事，好像就没那么重要了。车站的灯亮着，他们都在。
 
-  # ---------- 向北 · IF ----------
-
-  - endingId: end-north
+  # ── 五条线 · 向北（IF）──
+  - endingId: end-gojo-north
     name: 向北
     description: 你侧身半步，让世界斩落空。这一夜，你活着走出新宿。
-    unlockConditions:
-      - { flag: domainDone, eq: true }
     triggerConditions:
-      - { flag: ending, eq: north }
-    priority: 80
+      - { flag: ending, eq: gojo-north }
+    priority: 70
     endingType: glory
     narrativeConfig:
       source: template
       title: 向北
-      summary: 半步。就差这半步，历史拐了个弯。天快亮的时候你坐在断墙上，虎杖在旁边问你疼不疼，你说不疼——其实疼，但你已经很久没有回答过这种问题了。向北的意思不是逃，是"还没到该结束的时候"。
+      summary: 半步。就差这半步，历史拐了个弯。天快亮的时候你坐在断墙上，虎杖在旁边问你疼不疼，你说不疼——其实疼，但你已经很久没有回答过这种问题了。向北不是逃，是「还没到该结束的时候」。
 
-  # ---------- 兜底 ----------
+  # ── 虎杖线 · 原作向 ──
+  - endingId: end-yuji-canon
+    name: 破晓
+    description: 宿傩从伏黑的体内被剥离、熄灭。天亮了，你们都还活着。
+    triggerConditions:
+      - { flag: ending, eq: yuji-canon }
+    priority: 70
+    endingType: salvation
+    narrativeConfig:
+      source: template
+      title: 破晓
+      summary: 钉崎那一根钉子敲下去的时候，你手里正好按着「解」。宿傩先是不信，然后是愤怒，最后什么表情都没有了，在你掌心散成一捧灰。伏黑睁开眼，第一句话是骂你——你笑得差点站不住。医院的天花板很白，五条老师留了两封信，你说等你有力气了再拆。
 
+  # ── 虎杖线 · IF ──
+  - endingId: end-yuji-if
+    name: 独扛的一夜
+    description: 你一个人把那一刀扛了下来。活下来了，但有些东西留在了那具身体里。
+    triggerConditions:
+      - { flag: ending, eq: yuji-if }
+    priority: 60
+    endingType: tragedy
+    narrativeConfig:
+      source: template
+      title: 独扛的一夜
+      summary: 宿傩散了，废墟安静得吓人。你跪在那具没醒过来的身体旁边，手上全是自己的血。也许再早一点、再快一点，结局会不一样。你对自己说这句话说了很多遍，天亮了也没停下来。
+
+  # ── 兜底 ──
   - endingId: end-fallback
     name: 未写完的一夜
     description: 这一夜没有走到该有的地方。
@@ -78,6 +94,6 @@ endings:
     narrativeConfig:
       source: template
       title: 未写完的一夜
-      summary: 新宿的废墟还在，风还在吹，但你既没有向南，也没有向北。有些夜里，最糟的不是死，是停在原地。
+      summary: 新宿的废墟还在，风还在吹，但你既没有走到分叉，也没有收束。有些夜里，最糟的不是死，是停在原地。
 
 fallback: end-fallback
