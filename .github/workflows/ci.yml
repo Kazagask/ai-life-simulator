@@ -3,10 +3,14 @@ name: CI
 # 门禁目标：把 AGENTS.md §0.3 / §4 与 docs/CLOUD_DEV.md §3 的本地命令，
 # 原样变成 GitHub 上必过的检查项。命令与本地一致，不另发明一套。
 #
+# 2026-11-16 校正：L2 / L2b 曾与代码脱节 —— L2 注释写"game-core 全量"实际只跑四包
+# min 集（漏了 apps/server），L2b 指向已迁入 legacy-tests 的旧文件（必然 No test files
+# found ⇒ exit 1）。现在两条都对齐到**当前唯一验收基线**（`*.min.test.ts`）。
+#
 #   L0  pnpm typecheck                                   类型 0 错
-#   L1  pnpm --filter @life-sim/shared test               schema / opening 解析
-#   L2  pnpm test                                         game-core 全量
-#   L2b playthrough（--no-file-parallelism）              6 种子 × 2 开局自动通关
+#   L1  pnpm --filter @life-sim/shared test              契约 / schema
+#   L2  pnpm test                                        五包 min 集（含 apps/server）
+#   L2b pnpm test:playthrough                            6 种子整局回归（串行，最易暴雷）
 #   L4  pnpm --filter @life-sim/web build                前端构建
 #   L5  apps/server/smoke/cloud.smoke.mjs                可移植冒烟（新建世界，零 LLM）
 
@@ -56,12 +60,13 @@ jobs:
       - name: L1 shared schema
         run: pnpm --filter @life-sim/shared test
 
-      - name: L2 game-core
+      - name: L2 全包单元测试（min 集，含 apps/server）
         run: pnpm test
 
-      # 最容易暴雷的一关，串行跑，单独给一条状态
+      # 最容易暴雷的一关，串行跑，单独给一条状态。
+      # 打的是 demo-agentic（新验收基线），不是已迁入 legacy-tests 的旧 jjk-2006 剧本回归。
       - name: L2b playthrough regression
-        run: pnpm --filter @life-sim/game-core exec vitest run --no-file-parallelism src/v2/playthrough.test.ts
+        run: pnpm test:playthrough
 
       - name: L4 web build
         run: pnpm --filter @life-sim/web build
