@@ -180,18 +180,35 @@ const TERMINAL_STATUSES: ReadonlySet<TaskStatus> = new Set(["completed", "expire
  * | `ready` / `active` / `in_progress` | `completion` **非空**且全真 | `completed` |
  * | `completed` / `expired` / `cancelled` | — | 不动（终态） |
  *
+ * ## 同轮跑到不动点（fixpoint，D13 修订）
+ *
+ * 单趟「先 guards 再 completion」有一个致命的顺序洞：本趟刚 `draft→ready` 的节点
+ * **不参与本趟的 completion 求值**。用 `eventResolved` 做完成判据时这不是"晚一拍"，
+ * 而是**永久错过** —— `resolvedEventIds` 只含**本轮**结算的事件（`turn.ts`
+ * `new Set(result.triggered.map(...))`），下一轮集合里已经没有那个事件，节点永远停在
+ * `ready`。同理 `guards: nodeCompleted n1` 也会晚一拍，`draft→ready` 的迟到会继续
+ * 往链尾传。
+ *
+ * 所以本函数在**同一个 turn boundary** 内循环「guards → completion → 再 guards …」
+ * 直到没有任何新迁移。级联三步（n1 completed ⇒ n2 ready ⇒ n2 用同一份快照求 completion
+ * ⇒ n2 completed）必须同轮完成。
+ *
  * 三条硬约束：
- * 1. **一轮一节点至多一格**：`if/else` 分支互斥，`draft` 本轮只可能到 `ready`。
- * 2. **冻结快照求值（D13）**：本函数只收集 `transitions`，遍历期间不写 state，
- *    所以 `nodeCompleted` 读到的是**本轮开始时**的状态。否则 n1 完成 ⇒ n2 的 guard
- *    同轮为真 ⇒ 一轮吃掉一条边，正是 ADR 要防的"故事节奏被吞掉"。
- * 3. **`completion: []` ⇒ 不可自动完成**：`[].every(...) === true`，不特判会让所有
+ * 1. **`resolvedEventIds` 全程同一份冻结快照**：循环里不重算、不换集合。这是 D13 的
+ *    真正落点 —— 冻结的不是"节点状态"（那正是要级联的），而是**事件判据**。
+ * 2. **`completion: []` ⇒ 不可自动完成**：`[].every(...) === true`，不特判会让所有
  *    占位节点（如 `n3.hiddenSeed`）瞬间 `completed`。
+ * 3. **有界**：一个节点一轮最多走两步（`draft→ready→completed`），故 `2 * nodes.length`
+ *    次迭代必达不动点；再 +1 次用于确认"本轮无新迁移"。作者写出判据互相喂养的环时，
+ *    上限截断（终态节点不参与，正常模板远达不到）。
  *
- * `resolvedEventIds`（D6）必须由调用方按"本轮真正结算过的事件"传进来，否则
- * `eventResolved` 型 `completion` 恒假，节点会卡在半路（比不动更难查）。
+ * 求值用的"状态视图"每轮按 `projected` 状态重投影（`nodeCompleted` 据此看见同轮
+ * 已完成的节点），而 `state` 本身**全程不写** —— 写入仍由调用方按返回的 `transitions`
+ * 落账，源码守卫（`wave1b.min.test.ts`）继续成立。
  *
- * 确定性：遍历顺序 = `state.taskDag.nodes` 的声明序；不使用 `Object.keys` / `Set` 遍历。
+ * 确定性：节点遍历顺序 = `state.taskDag.nodes` 的声明序；每轮用**同一派生种子**
+ * 新建 RNG（`random` 型判据在每轮读到同一序列，不会因迭代次数改变结果）；
+ * 输出按声明序、每节点最多一条净迁移（`from` = 入口状态，`to` = 收敛状态）。
  */
 export function advanceDagProgress(
   state: WorldStateV2,
@@ -203,33 +220,69 @@ export function advanceDagProgress(
   // IO-10：无 rules（模板没有 rules.yaml）⇒ 整段 no-op。
   if (rules === undefined) return { transitions: [], diagnostics: [] };
 
-  const ctx = {
-    state,
-    rng: createRng(deriveTurnSeed(state.seed + DAG_RNG_SALT, turnIndex)),
-    turnIndex,
-    resolvedEventIds,
-  };
+  const nodes = state.taskDag.nodes;
+  if (nodes.length === 0) return { transitions: [], diagnostics: [] };
+
+  const rngSeed = deriveTurnSeed(state.seed + DAG_RNG_SALT, turnIndex);
+  /** 入口状态（落账时的 `from`）与收敛状态（`to`）分开存，输出净迁移。 */
+  const entry = new Map<string, TaskStatus>(nodes.map((n) => [n.id, n.status]));
+  const projected = new Map<string, TaskStatus>(entry);
   const transitions: DagNodeTransition[] = [];
   const rawDiagnostics: ConditionDiagnostic[] = [];
 
-  for (const node of state.taskDag.nodes) {
-    if (TERMINAL_STATUSES.has(node.status)) continue;
-    if (node.status === "draft") {
-      // 空 guards = 没有前置条件 ⇒ 首轮即 ready（D13 的显式口径）。
-      if (evaluateAll(node.guards, ctx, registry, rawDiagnostics)) {
-        transitions.push({ nodeId: node.id, from: node.status, to: "ready" });
+  // 每轮按 projected 重投影一个只读视图；`state` 本身不写（纯函数契约）。
+  const viewState = (): WorldStateV2 => ({
+    ...state,
+    taskDag: {
+      ...state.taskDag,
+      nodes: nodes.map((n) => {
+        const status = projected.get(n.id) ?? n.status;
+        return status === n.status ? n : { ...n, status };
+      }),
+    },
+  });
+
+  const MAX_ITERATIONS = 2 * nodes.length + 1;
+  for (let iteration = 0; iteration < MAX_ITERATIONS; iteration += 1) {
+    // 同一派生种子 ⇒ `random` 判据每轮读到同一序列（迭代次数不影响结果）。
+    const ctx = {
+      state: viewState(),
+      rng: createRng(rngSeed),
+      turnIndex,
+      resolvedEventIds,
+    };
+    let changed = false;
+
+    for (const node of nodes) {
+      const current = projected.get(node.id) ?? node.status;
+      if (TERMINAL_STATUSES.has(current)) continue;
+
+      if (current === "draft") {
+        // 空 guards = 没有前置条件 ⇒ 可 ready（D13 显式口径）。
+        if (evaluateAll(node.guards, ctx, registry, rawDiagnostics)) {
+          projected.set(node.id, "ready");
+          changed = true;
+        }
+        continue;
       }
-      continue;
-    }
-    if (node.status === "ready" || node.status === "active" || node.status === "in_progress") {
-      // 空 completion ≠ 已完成：占位节点只能由外部推动。
+
+      // ready / active / in_progress：空 completion ≠ 已完成（占位节点只能外部推动）。
       if (
         node.completion.length > 0 &&
         evaluateAll(node.completion, ctx, registry, rawDiagnostics)
       ) {
-        transitions.push({ nodeId: node.id, from: node.status, to: "completed" });
+        projected.set(node.id, "completed");
+        changed = true;
       }
     }
+
+    if (!changed) break;
+  }
+
+  // 净迁移：仅保留状态真的变了的节点，按声明序输出（每节点至多一条）。
+  for (const node of nodes) {
+    const to = projected.get(node.id) ?? node.status;
+    if (to !== node.status) transitions.push({ nodeId: node.id, from: node.status, to });
   }
 
   // 同一个未注册 op 只报一次（与 evaluateTriggersDetailed 同口径），保持首次出现顺序。
