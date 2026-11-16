@@ -64,24 +64,24 @@ export const LlmTraceSchema = z
      */
     contentBlocks: z.array(ContentBlockSchema).optional(),
     /**
-     * 本次 invocation 里模型发起的**工具调用原文**（名称 + 参数 JSON，已截断）。
+     * 本次 invocation 模型实际发出的工具调用（按发出顺序）。
      *
      * 为什么必须落盘：验收时要回答"模型到底传了什么"，而 `callsHash` 只是哈希、
      * 回执只有结果码。没有这一项，`story.submitBranch` 到底提交了什么只能靠
      * 反编译 `generatedEvents` 猜，而那是**编译后**的形态、不是模型的原始输入。
      *
-     * 只存前 4000 字符（一条 3 节分支约 2-3KB）；它是取证通道，不是权威状态。
+     * `args` 是 provider 解析后的对象（不是 JSON 字符串），测试的 mock 可直接回放。
+     * **必填**：没调工具时写 `[]`，强制每次 invocation 都把这一通道写全。
      */
     calls: z
       .array(
         z
           .object({
-            name: z.string().min(1),
-            args: z.string(),
+            tool: z.string().min(1),
+            args: z.unknown(),
           })
           .strict(),
-      )
-      .optional(),
+      ),
   })
   .strict();
 export type LlmTrace = z.infer<typeof LlmTraceSchema>;

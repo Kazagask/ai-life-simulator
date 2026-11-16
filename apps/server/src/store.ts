@@ -192,7 +192,7 @@ export function appendTrace(worldId: string, trace: LlmTrace): void {
      * （`calls` 就踩过这个坑：agent-runtime 明明写了，落盘却看不到）。
      * 之所以不用 spread：contentBlock / factsHint 需要脱敏与白名单。
      */
-    ...(trace.calls !== undefined ? { calls: trace.calls.map((call) => ({ ...call })) } : {}),
+    calls: trace.calls.map((call) => ({ ...call })),
   };
   const parsed = LlmTraceSchema.parse(sanitized);
   const file = traceFile(worldId);

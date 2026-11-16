@@ -325,5 +325,7 @@ export function buildContentTrace(
     latencyMs: 0,
     outcome: "committed",
     contentBlocks: sink.list(),
+    /** 服务端直写正文不经过模型工具面；`calls` 必填，显式写空数组。 */
+    calls: [],
   };
 }
