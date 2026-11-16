@@ -4205,3 +4205,36 @@ D1/D2 落地后，若 n1 的 `completion` 仍是 `[always]`，它在**第一轮*
 2. **「更正」本身也必须挂在一个新的读取上。** 没有新读取的"更正"不许发 —— 它会把一条正确的记录改坏，方向是"越改越错"，比原文错更难恢复。
 3. 引用 hash / 行号 / 字段值时**当场读**，不用上一轮的输出。
 4. **ADR 正文里禁止用行号指针指向模板文件**（如 `rules.yaml:75`）。模板免 ADR、改动频繁，行号必然漂：§13 与 §14 里两处 `rules.yaml:NN` 在 2026-11-16 一天内就因新增 `evt:rumor` 与其后两次模板改动而全部失效。改写成**结构定位**——`fallbackDag.nodes` 里 id 为 `X` 的那一行、`invoke.branchEventIds`、`toolProfile.narrative`——代码文件路径 + 符号名可以留（改动需走 ADR，天然受控），模板行号不可以。历史叙述用过去时标注「撰写时」。
+
+## ADR-0039 章节 / DAG 进度进事件区（player 窗口投影 `chapter`）
+
+**背景**：ADR-0037 让 DAG 真正开工了（种子 / 引擎推进 / 增量续写），但玩家端**看不见**它 —— `V2Snapshot` 里没有 `taskDag`，DAG 只存在于 `PerspectiveFactView.dagNodes`（那是 LLM 上下文的结构，不是展示契约）。BACKLOG B-47 登记了这个缺口。2026-11-16 用户当面裁定：**「ai 注入事件 / 事件块 / dag 应该展示在事件区」**，并要求叙事区不再混入选项（那是同一轮的另一件事，纯展示层，不涉协议）。
+
+### 1. 决定
+
+- **D1** `V2Snapshot` 增加**可选**字段 `chapter?: { dagId: string; nodes: Array<{ nodeId: string; title: string; kind: string; status: string }> }`。可选 + 不 bump `schemaVersion`（旧档可直载；无 DAG 的世界缺省该字段，前端据此不渲染）。
+- **D2** 过滤判据**复用引擎既有的 `visibleDagNodeIds(state, "player")`**（`packages/game-core/src/api/perspective.ts`），不另写一套。它就是 F4 窗口在 player 轴上的既有实现（只放 `visibility === "public"` 的节点）。**hidden 节点（如 `n3.hiddenSeed`）绝不出现** —— 这是 ADR-0026 那条红线，新投影口不许重犯。
+- **D3** 只下发展示必需的四个字段。**不下发** `visibility`（过滤后恒为 public，留着等于把窗口的实现细节写进契约）、**不下发** `templateRefs`（那是"这个节点该摆哪些事件"，属于玩法提示，不是进度）、**不下发** `edges`（见 §5）。
+- **D4** 位置由用户裁定在**事件区**，形态是**一条节点序列**（标题 + 状态），不做章节树 / 不做图形 DAG。演示期只需要回答「现在走到哪、下一步是什么」，不需要给玩家看拓扑。
+- **D5** `status` 用引擎值原样透传（`draft` / `ready` / `active` / `completed`），前端只做样式映射，**不解释语义**（不得把 `ready` 说成"进行中"之类，措辞归模板 / 文案层）。
+
+### 2. 不变量（实现必须逐条成立）
+
+1. `chapter.nodes` 的 id 序列**逐项等于** `visibleDagNodeIds(state, "player")`，顺序为 `taskDag.nodes` 的声明序（不得排序、不得按状态分组）。
+2. 投影对象里**不出现** `visibility` / `templateRefs` / `edges` 三个键（用拒绝式断言，不是"存在但不展示"）。
+3. `chapter` 缺省 ⇔ `taskDag.nodes.length === 0`（`jjk-2006` 这类无 `rules.yaml` 的模板必须缺省，零回归）。
+4. `storyChapter`（既有字段，取 `flags.chapter` 的数字）与 `chapter`（新字段，DAG 节点序列）**并存且互不替代**：前者是模板自定义的章节计数，后者是引擎 DAG 的推进事实。不许为了"看起来统一"把两者合并。
+
+### 3. 被否的方案
+
+- **把 `PerspectiveFactView.dagNodes` 直接塞进响应**：它带 `visibility` 与 `templateRefs`，而且它的 `nodeId` 集合是按窗口算的 —— 直接下发等于把「窗口怎么实现」变成前端契约，以后改窗口就得改前端。
+- **做 Canvas / SVG 的图形 DAG**：演示期收益为零，成本是一个新渲染器和一套布局算法。
+- **为了省一个字段把 `chapter` 塞进 `labels`**：`labels` 是展示名解析结果，塞结构数据会让它的语义变浑。
+
+### 4. 影响面
+
+`packages/shared/src/v2.ts`（接口加可选字段）→ `packages/game-core/src/v2/projection.ts`（`projectSnapshotV2` 产出）→ `packages/shared/src/contract/view-model.ts`（`ViewModel` 承接）→ `packages/rpg-ui`（新展示件，放在事件区）→ `apps/web/src/main.tsx`（编排）。属**协议面**（投影契约），故本条 ADR 先行。
+
+### 5. 明确不做（另立条目再议）
+
+**节点之间的边**。`edges` 一旦下发，玩家就能从"哪两个 public 节点相连"反推结构；而 hidden 节点被过滤后，边会暴露"有一个看不见的节点接在这里"（端点缺失本身就是信息）。要做得先回答"缺端点要不要补占位"这个侧信道问题，不在本轮。
