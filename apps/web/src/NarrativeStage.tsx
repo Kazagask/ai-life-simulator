@@ -30,18 +30,25 @@ export function NarrativeStage({
 }: {
   view: ViewModel;
   onAct?: ActHandler;
-  /** 回结算中：叙事流选项同步置灰（引擎侧 busy 锁兜底，视觉也要一致）。 */
+  /**
+   * 回结算中（请求在飞）：叙事流选项同步置灰（引擎侧 busy 锁兜底，视觉也要一致），
+   * 头部同时显示「AI 书写中…」。
+   *
+   * 这是进行中提示的**主信号**：服务端三条写路径都在回合事务里同步 `await` 完 LLM 才
+   * `projectWorld`，所以响应投影里的 `llmPending` 恒为缺省 —— 只有「请求在飞」能代表在写。
+   */
   busy?: boolean;
 }) {
   const portraits = portraitsOf(view.media);
   const inlineCg = firstInlineCgBlock(view);
   const bannerMedia = inlineCg === undefined ? view.media : [];
+  const writing = busy || view.llmPending === true;
 
   return (
     <section className="card narrative-card">
       <header className="narrative-card__head">
         <span className="slot-label">叙事</span>
-        {view.llmPending === true && <span className="tag ai-narrative-tag">AI 书写中…</span>}
+        {writing && <span className="tag ai-narrative-tag">AI 书写中…</span>}
       </header>
       <div className="narrative-card__body">
         <CgStage media={bannerMedia} />
