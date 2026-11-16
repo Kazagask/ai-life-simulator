@@ -4097,7 +4097,7 @@ assignPendingInvocation(state, inv)            // turn.ts：先写上 pendingInv
 ⇒ 决策：`runSettlementHooks` 增加显式 `atTurnBoundary: boolean`，`useItem` 传 `false`，其余传 `true`；DAG 推进只在 `true` 时执行。**不引入**「上次推进的 turnIndex」这类持久字段 —— 那是把调用点的意图藏进状态，下一次加钩子还会错。
 
 **D12 【必须同时发】模板 `completion: [always]` 必须与 D1/D2 同批改成 `eventResolved`。**
-`rules.yaml:68` 的 `n2.trial.completion` 仍是 `[{ op: "always" }]`。D2 上线后，`n2` 会在第二轮 `draft→ready`、第三轮 `ready→completed`，**与 `evt:trial` 是否跑过无关**。只发 D1/D2 会得到一条会撒谎的时间线。
+`fallbackDag.nodes` 里 `n2.trial` 的 `completion`（撰写时）仍是 `[{ op: "always" }]`。D2 上线后，`n2` 会在第二轮 `draft→ready`、第三轮 `ready→completed`，**与 `evt:trial` 是否跑过无关**。只发 D1/D2 会得到一条会撒谎的时间线。
 ⇒ 模板侧改写属于同一波，不得拆开。
 
 **D13 一轮一节点一格，必须靠"冻结快照求值"，不能只靠 per-node 判断。**
@@ -4161,7 +4161,7 @@ D1/D2 落地后，若 n1 的 `completion` 仍是 `[always]`，它在**第一轮*
 
 **硬前置（否则 A 类改动不许落）**：`eventResolved` 读的是 `ctx.resolvedEventIds`（D6 / D8 / D13：轮边界冻结快照）。若 DAG 完成度求值处拿不到当轮 `resolvedEventIds`，`n1.awaken` **永不完成** ⇒ `chapter.advance` 继续 0 命中 ⇒ 症状与 §12 记录的 P2 一模一样，但原因从「`taskDag` 是空壳」换成「判据拿不到边沿上下文」。**这类静默失效比原 bug 更难查**（DAG 看起来有节点了，只是不动）。故放行前必须实测两个观测点：`evt:awaken` 结算后那一轮 `n1.awaken.status === "completed"`；其后 `chapter.advance` 在 trace 里至少命中一次。任一不成立 ⇒ `n1` 退回 `completion: [{ op: "always" }]` 并单独立项查线程。
 
-**事实纠正**：`n3.hiddenSeed.guards` 是 `[{ op: "nodeCompleted", args: { nodeId: "n2.trial" } }]`（`rules.yaml:75`），不是 `n1.awaken`。改成 `n1.awaken` 会让「未公开的线索」在试炼之前 ready，n3 的存在意义消失。
+**事实纠正**：`fallbackDag.nodes` 里 `n3.hiddenSeed` 的 `guards` 是 `[{ op: "nodeCompleted", args: { nodeId: "n2.trial" } }]`，不是 `n1.awaken`。改成 `n1.awaken` 会让「未公开的线索」在试炼之前 ready，n3 的存在意义消失。
 
 **连锁效果（比"修 bug"更有价值）**：`chapter.advance` 挂在 `nodeCompleted n1.awaken` 上，而 n1 只完成一次 ⇒ 触发条件从**粘性**变**一次性边沿**。B-41（`missedEvents` 无界增长）与 B-43（`delayQueue` 残留 opening 实例）里「靠 `missWhen` / 触发器条件兜频率」那部分，由此从**内容层补丁**升级为**结构层收敛**：ADR-0036 的边沿语义 + 节点一次性完成，两层叠起来才叫"不重复"；单靠 `missWhen` 是事后擦屁股。
 
@@ -4204,3 +4204,4 @@ D1/D2 落地后，若 n1 的 `completion` 仍是 `[always]`，它在**第一轮*
 1. 任何断言前，先写一句它在**哪一次本次会话内新执行的读取**上成立（`sed -n` / `git show` / `vitest` 的哪一行输出）；写不出那一句就不许断言。
 2. **「更正」本身也必须挂在一个新的读取上。** 没有新读取的"更正"不许发 —— 它会把一条正确的记录改坏，方向是"越改越错"，比原文错更难恢复。
 3. 引用 hash / 行号 / 字段值时**当场读**，不用上一轮的输出。
+4. **ADR 正文里禁止用行号指针指向模板文件**（如 `rules.yaml:75`）。模板免 ADR、改动频繁，行号必然漂：§13 与 §14 里两处 `rules.yaml:NN` 在 2026-11-16 一天内就因新增 `evt:rumor` 与其后两次模板改动而全部失效。改写成**结构定位**——`fallbackDag.nodes` 里 id 为 `X` 的那一行、`invoke.branchEventIds`、`toolProfile.narrative`——代码文件路径 + 符号名可以留（改动需走 ADR，天然受控），模板行号不可以。历史叙述用过去时标注「撰写时」。
