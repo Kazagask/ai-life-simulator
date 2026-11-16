@@ -5,7 +5,7 @@
 # 五条线（op-gojo）：
 #   evt:gojo-open → evt:gojo-wheel（转盘·战况判定，weightBy）
 #     → evt:gojo-duel（对宿傩·三路） → evt:gojo-domain（领域对撞）
-#       → evt:gojo-fork ★向南/向北
+#       → evt:gojo-fork ★走马灯（236 话）：候机厅 → 向南（原作·接受）/ 向北（IF·拒绝）
 #            ├ 向南 → evt:gojo-south-cut → ending=gojo-south（原作 236 话「向南」）
 #            └ 向北 → evt:gojo-north（branch · 半步之后，goto.after 延迟两小时）→ end:gojo-north（IF）
 #
@@ -133,32 +133,61 @@ events:
               - { type: adjustMood, value: -6 }
             nextEventId: evt:gojo-fork
 
+  # ★ 236 话「向南」：走马灯（机场候机厅）。
+  #   原作顺序是「被腰斩 → 走马灯」，这里把走马灯提到**决策点**——玩家要选，戏就得先停一下。
+  #   南 / 北的语义按七海那句台词：「想成为崭新的自己，就往北；想找回过去的自己，就往南。」
+  #   五条在原作里**毫不犹豫选了南**，于是得到那一刀；选北是本剧本的 IF。
+  #   这一幕刻意不写 actors：候机厅里的人是记忆里的人（天内 / 灰原 / 七海），
+  #   不是在场的人；写进 actors 会被出队前的活性复核判死，反而演不出来。
   - id: evt:gojo-fork
-    title: 向南，还是向北
-    narrative: 空间边缘开始不对。你认得这一手——那不是斩击，是「世界」本身被切开的一道缝。它还没落下，但你已经知道它会从哪里来。半秒钟，够你侧身，也够你想清楚：站着不动，还是把这条命再拖一会儿。
+    title: 候机厅
     trigger: { source: chain }
-    kind: normal
-    settle:
-      normal:
+    branch:
+      - node: airport
+        title: 候机厅
+        text: |
+          你睁开眼时，正坐在一排塑料椅上。
+          落地窗外是停机坪，一架飞机的舱门还开着，舷梯没撤。广播在念一个你听不清的航班号，空调声低得像有人贴着耳朵呼吸。
+          天内理子把脚翘在对面椅子上；灰原雄蹲在自动贩卖机前挑饮料；七海坐在你左手边，杯子里的黑咖啡已经凉了。
+          「想变成崭新的人，就往北。」七海看着窗外说，「想找回以前的自己，就往南。」
+          他停了一下，补上后半句：「我不太推荐北边。不过你大概也不会听。」
         options:
-          - id: opt-south
-            text: 向南 —— 站着不动，把命留给该留下的人
+          - text: 向南 ——「我还是我。」坐回椅子上，等飞机起飞
             effects:
               - { type: setFlag, id: pathSouth, value: true }
               - { type: setFlag, id: direction, value: 向南 }
               - { type: adjustMood, value: 4 }
-            nextEventId: evt:gojo-south-cut
-          - id: opt-north
-            text: 向北 —— 侧身半步，让那道斩击落到身后
+            goto: south
+          - text: 向北 ——「这一次，我想换一种活法。」
             effects:
               - { type: setFlag, id: pathNorth, value: true }
               - { type: setFlag, id: direction, value: 向北 }
               - { type: adjustMood, value: 2 }
+            goto: north
+      - node: south
+        title: 南
+        text: |
+          「南。」你说。
+          七海没劝。他把杯子往你这边推了推——像高专那几年，每次懒得跟你争的时候那样。
+          你靠回椅背。飞机开始滑行，舷窗外的灯一盏一盏往后退，一直退到那个有蝉鸣、有暑气、有夏油杰在走廊尽头等你的夏天。
+          眼罩拉下来一点，你听见自己说：真希望这不是幻觉。
+        options:
+          - text: 闭上眼，让这一程飞完
+            nextEventId: evt:gojo-south-cut
+      - node: north
+        title: 北
+        text: |
+          「北。」你说。
+          七海抬了下眼，没接话。天内的脚落回地面，灰原从贩卖机前直起身，走廊尽头的夏油朝你抬了抬下巴——像在说「去吧」。
+          灯管一根接一根地灭。广播散成风声，椅子、咖啡杯、那架没起飞的飞机，全都碎成很薄的光。
+          你睁开眼。那道缝已经贴到睫毛上。
+        options:
+          - text: 睁眼 ——侧身半步
             nextEventId: evt:gojo-north
 
   - id: evt:gojo-south-cut
     title: 世界斩
-    narrative: 你没有动。那道缝从肩头斜着穿过去，世界静了一瞬，血才慢慢流出来。你听见很远的地方有人喊你，你想说「别过来」，更想说的是——剩下的交给你们了。车站的灯亮着，几个老朋友在等你。
+    narrative: 再睁眼时，候机厅已经不在了。那道缝从肩头斜着穿过去，世界静了一瞬，血才慢慢流出来。你听见很远的地方有人喊你，你想说「别过来」，更想说的是——剩下的交给你们了。车站的灯亮着，几个老朋友还在等你。
     trigger: { source: chain }
     kind: normal
     mentions: [npc-megumi]

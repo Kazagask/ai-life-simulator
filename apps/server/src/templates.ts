@@ -371,9 +371,27 @@ const TemplateBranchNodeSchema = z
           .object({
             text: z.string().min(1).max(120),
             effects: z.array(EffectSchema).max(4).optional(),
+            /** 分支内跳转：只能指本 branch 的节点。 */
             goto: TemplateBranchGotoSchema.optional(),
+            /**
+             * **跳出分支**、回到模板主线：直接写目标事件 id（可以是任何模板事件）。
+             * 存在性由展开后的 `WorldTemplateV2Schema` superRefine 校验（展开在前、parse 在后）。
+             *
+             * 与 `goto` 互斥：一个选项要么在分支内继续走，要么离开分支 ——
+             * 两个都写等于没说清"这一幕结束后去哪"，直接拒载。
+             */
+            nextEventId: z.string().min(1).optional(),
           })
-          .strict(),
+          .strict()
+          .superRefine((option, ctx) => {
+            if (option.goto !== undefined && option.nextEventId !== undefined) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ["nextEventId"],
+                message: "goto（分支内跳转）与 nextEventId（跳出分支）互斥，只能写一个",
+              });
+            }
+          }),
       )
       .min(1)
       .max(4),
@@ -503,7 +521,10 @@ function expandTemplateEvents(rawEvents: readonly unknown[]): unknown[] {
                       typeof option.goto === "string" ? option.goto : option.goto.node,
                     ),
                   }
-                : {}),
+                : option.nextEventId !== undefined
+                  ? // 跳出分支：目标在模板主线里，原样透传（存在性由 parse 的 superRefine 校验）
+                    { nextEventId: option.nextEventId }
+                  : {}),
             })),
           },
         },
