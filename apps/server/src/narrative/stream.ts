@@ -29,6 +29,11 @@ import { worldStore } from "../store.js";
 const HEARTBEAT_MS = 15_000;
 /** 兜底上限：真挂了也不能把连接吊死（正常路径由 loop 的预算超时收束）。 */
 const MAX_STREAM_MS = 180_000;
+/**
+ * 并发订阅的等待窗：前端「先开流、再发 turn」时，turn 的 `pendingInvocation` 可能晚
+ * 几百毫秒才写入。窗口必须覆盖前端正常调用顺序（300ms 级），否则会误判 `idle`。
+ */
+const PENDING_WAIT_MS = 3_000;
 
 export interface NarrativeStreamDone {
   /** 与 trace 的 outcome 同源（loop 实际只会给 committed / fallback）。 */
@@ -46,7 +51,7 @@ export type NarrativeStreamEvent =
 export interface NarrativeInvocationStream {
   /** 外部取消（客户端断开）。gateway → loop → provider 逐层透传。 */
   readonly signal: AbortSignal;
-  /** 正文碎片（空串忽略）。 */
+  /** provider 的原始 content 碎片；写入频道前会剥掉 `<narrative-content>` 标签。 */
   delta(text: string): void;
   /** 收尾：由 `onTrace` 调用，携带 loop 产出的真实 outcome / 诊断。 */
   done(trace: LlmTrace): void;
@@ -82,6 +87,84 @@ function emit(channel: Channel, event: NarrativeStreamEvent): void {
   }
 }
 
+const OPEN_TAG = "<narrative-content>";
+const CLOSE_TAG = "</narrative-content>";
+
+/**
+ * 增量标签扫描器（服务端剥标签，SSE 是玩家面通道，不能把 `<narrative-content>` 原样下发）。
+ *
+ * 与 loop 收尾的 `extractNarrativeContent` 用**同一套边界规则**：
+ * - 只输出标签内文字；标签外一个字符都不输出；
+ * - 多块按出现顺序 `\n\n` 拼接；每块 `trim`（首尾空白丢弃，块内保留）；
+ * - 跨帧的半截开/闭标签缓冲在 `buffer` 里，等后续帧凑齐再判断；
+ * - 未闭合的开标签：已流出的内容不回收（收尾按 fallback 清草稿），但不会有落盘正文块。
+ */
+export function createNarrativeTagFilter(): { push(chunk: string): string } {
+  let buffer = "";
+  let inside = false;
+  let blockStarted = false;
+  let pendingWhitespace = "";
+  let emittedBlocks = 0;
+  let out = "";
+
+  const emitInside = (text: string): void => {
+    for (const ch of text) {
+      if (!blockStarted) {
+        if (/\s/.test(ch)) continue;
+        blockStarted = true;
+        if (emittedBlocks > 0) out += "\n\n";
+        out += ch;
+      } else if (/\s/.test(ch)) {
+        pendingWhitespace += ch;
+      } else {
+        out += pendingWhitespace + ch;
+        pendingWhitespace = "";
+      }
+    }
+  };
+
+  return {
+    push(chunk: string): string {
+      buffer += chunk;
+      for (;;) {
+        if (!inside) {
+          const open = buffer.indexOf(OPEN_TAG);
+          if (open < 0) {
+            // 保留可能是半截开标签的后缀，其余标签外内容直接丢。
+            const keep = OPEN_TAG.length - 1;
+            if (buffer.length > keep) buffer = buffer.slice(-keep);
+            break;
+          }
+          buffer = buffer.slice(open + OPEN_TAG.length);
+          inside = true;
+          blockStarted = false;
+          pendingWhitespace = "";
+          continue;
+        }
+
+        const close = buffer.indexOf(CLOSE_TAG);
+        if (close < 0) {
+          // 不能把可能是半截闭标签的后缀吐出去。
+          const cut = Math.max(0, buffer.length - (CLOSE_TAG.length - 1));
+          emitInside(buffer.slice(0, cut));
+          buffer = buffer.slice(cut);
+          break;
+        }
+        emitInside(buffer.slice(0, close));
+        buffer = buffer.slice(close + CLOSE_TAG.length);
+        // 块尾空白丢弃（与 `match[1].trim()` 一致）；空块不产分隔符。
+        if (blockStarted) emittedBlocks += 1;
+        inside = false;
+        blockStarted = false;
+        pendingWhitespace = "";
+      }
+      const visible = out;
+      out = "";
+      return visible;
+    },
+  };
+}
+
 /**
  * 开启一次 invocation 的频道（在 `pipelineForTurn` 构造 gateway 时调用）：
  * 重置上一轮的正文 / 收尾 / 取消控制器，得到本次调用的写入句柄。
@@ -91,12 +174,14 @@ export function beginNarrativeInvocation(worldId: string): NarrativeInvocationSt
   channel.text = "";
   channel.done = null;
   channel.controller = new AbortController();
+  const tagFilter = createNarrativeTagFilter();
   return {
     signal: channel.controller.signal,
     delta: (text: string) => {
-      if (text.length === 0) return;
-      channel.text += text;
-      emit(channel, { type: "delta", text });
+      const visible = tagFilter.push(text);
+      if (visible.length === 0) return;
+      channel.text += visible;
+      emit(channel, { type: "delta", text: visible });
     },
     done: (trace: LlmTrace) => {
       const done: NarrativeStreamDone = {
@@ -123,7 +208,7 @@ function abortIfUnwatched(worldId: string, channel: Channel): void {
 
 /**
  * 前端与 turn **并发**订阅时的抢跑窗口：turn 的 `pendingInvocation` 可能在 SSE 路由
- * 到达后几十毫秒才写入。短等一小会儿，避免把一次正常结算误判成 `idle`。
+ * 到达后几百毫秒才写入。给 `PENDING_WAIT_MS` 的窗口，避免把一次正常结算误判成 `idle`。
  */
 async function waitForInvocation(worldId: string, ms: number): Promise<void> {
   const deadline = Date.now() + ms;
@@ -190,7 +275,7 @@ export async function registerNarrativeStreamRoute(app: FastifyInstance): Promis
       record.state.pendingInvocation === undefined &&
       channel.text.length === 0
     ) {
-      await waitForInvocation(id, 500);
+      await waitForInvocation(id, PENDING_WAIT_MS);
     }
     if (finished) return; // 等待期间客户端断开
 

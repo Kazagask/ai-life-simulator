@@ -44,28 +44,6 @@ import { NarrativeStage } from "./NarrativeStage";
 
 // ---------- 工具 ----------
 
-/**
- * 从 SSE 原始草稿里**只取** `<narrative-content>` 内的文字。
- *
- * 用户裁决：标签外的流（思维链 / 工具调用报错）一律不渲染。未闭合时显示最后一个开标签
- * 之后的内容（正在流），并剥掉可能半截的闭标签。
- */
-function narrativeDraftText(raw: string): string {
-  const re = /<narrative-content>([\s\S]*?)<\/narrative-content>/g;
-  const blocks: string[] = [];
-  for (let match = re.exec(raw); match !== null; match = re.exec(raw)) {
-    const text = match[1]?.trim() ?? "";
-    if (text.length > 0) blocks.push(text);
-  }
-  if (blocks.length > 0) return blocks.join("\n\n");
-  const open = raw.lastIndexOf("<narrative-content>");
-  if (open < 0) return "";
-  return raw
-    .slice(open + "<narrative-content>".length)
-    .replace(/<\/?narrative-content>?$/, "")
-    .trim();
-}
-
 const UNIT_NAMES: Record<string, string> = {
   minute: "分钟",
   hour: "小时",
@@ -239,7 +217,7 @@ function App() {
    */
   const [narrative, setNarrative] = useState<ContentBlockVM[]>([]);
   /**
-   * 流式草稿：SSE 增量里**只**显示 `<narrative-content>` 内的正文。
+   * 流式草稿：SSE 增量（**服务端已剥标签**，只含玩家可见正文）。
    * 收尾（turn 响应 + 正式块拉回）后清空，避免与正式块双份。
    */
   const [narrativeDraft, setNarrativeDraft] = useState("");
@@ -411,18 +389,15 @@ function App() {
       setError(null);
 
       // 先开 SSE 再发 turn：服务端在锁内 await LLM，订阅必须与 turn 并发才能看到增量。
-      // 服务端路由会给「刚发出的 turn」留一个短暂的 pendingInvocation 等待窗口。
+      // 服务端路由会给「刚发出的 turn」留 3s 的 pendingInvocation 等待窗口。
       const wid = worldIdRef.current;
-      let rawDraft = "";
       const streamAbort = wid ? new AbortController() : null;
       const streamDone = wid
         ? streamNarrative(
             wid,
             {
-              onDelta: (text) => {
-                rawDraft += text;
-                setNarrativeDraft(narrativeDraftText(rawDraft));
-              },
+              // 服务端 SSE 已剥掉叙事标签，这里直接追加即可。
+              onDelta: (text) => setNarrativeDraft((prev) => prev + text),
               onDone: (info) => {
                 if (info.outcome === "fallback") setNarrativeDraft("");
               },
@@ -1402,7 +1377,7 @@ function LifeTab({
   lastResult: LastResult | null;
   /** 槽内这枚转盘是刚掷出的（true，播动画）还是从存档恢复的（false，直接落定） */
   wheelsFresh: boolean;
-  /** SSE 草稿（只含 `<narrative-content>` 内的文字）；收尾后由正式块替换。 */
+  /** SSE 草稿（服务端已剥标签，只含玩家可见正文）；收尾后由正式块替换。 */
   draft?: string;
   /** 已登录 WorkBuddy 账号：只影响结算页那行「存进人生档案」的提示 */
   signedIn: boolean;

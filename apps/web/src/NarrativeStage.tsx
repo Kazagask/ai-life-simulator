@@ -42,8 +42,8 @@ export function NarrativeStage({
    */
   busy?: boolean;
   /**
-   * SSE 草稿（只含 `<narrative-content>` 内的文字）。收尾后由正式 trace 块替换。
-   * 独立于 `view.content`：草稿不出现在 `ViewModel`，不参与任何投影 / 交互判定。
+   * SSE 草稿（服务端已剥标签，只含玩家可见正文）。
+   * 收尾后由正式 trace 块替换。独立于 `view.content`：不参与任何投影 / 交互判定。
    */
   draft?: string;
 }) {
