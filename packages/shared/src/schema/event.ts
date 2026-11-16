@@ -203,6 +203,18 @@ const EventBase = z
      * 反过来若什么都不写，又和"漏写 actors"无法区分。所以给一个显式的第三种表达。
      */
     mentions: z.array(z.string().min(1)).max(8).optional(),
+    /**
+     * 这一幕要**拉上场**的人（角色 id 或刷新规则 id）。
+     *
+     * 与 `actors` / `mentions` 的第三层区分：
+     * - `actors`   = 这一幕**必须在场**（已在世，出队前复核存活，不符判错失）；
+     * - `mentions` = 只在正文提到（可在场、可已故）；
+     * - `npcs`     = **这一幕把这些还没登场的人拉上场**（事件占槽呈现时执行，`alive` 幂等）。
+     *
+     * 语义是"供给来源"，不是"在场要求"：`npcs` 与 `actors` 可以重叠（既拉上场又要求在場），
+     * 但只写 `npcs` 不写 `actors` 时，引擎不额外做活性判死。
+     */
+    npcs: z.array(z.string().min(1)).max(8).optional(),
   })
   .strict();
 

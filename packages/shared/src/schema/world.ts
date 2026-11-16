@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EffectSchema, LifeStageSchema, TimeAmountSchema } from "./common.js";
+import { ConditionSchema, EffectSchema, LifeStageSchema, TimeAmountSchema } from "./common.js";
 import { CharacterSchema, GenderDefSchema } from "./character.js";
 import { PLAYER_ID } from "./relation.js";
 import { SkillSchema } from "./skill.js";
@@ -123,9 +123,12 @@ export const CalendarConfigSchema = z
  * NPC 刷新规则（ADR-0010 决策 4 / R-LM-04 / ADR-0022 落地）。
  *
  * 配置层只声明「将来会有这个角色」；世界创建时把每条规则**实例化**为
- * `SpawnRuleInstance`（实例层、进存档），事件效果 `spawnNpc(ruleId)` 才真正建出 NPC。
- * **不提供 `spawnAt`**：R-LM-04 明确「spawn 不得由已有某事实（含时间到达）自动触发」，
- * 触发权在模板的事件效果里，否则规则会变成一套隐式调度器。
+ * `SpawnRuleInstance`（实例层、进存档），事件效果 `spawnNpc(ruleId)` / 事件 `npcs`
+ * / 选项 `{spawn}` 才真正把人拉上场。
+ *
+ * **自动只能由 `when` 显式声明触发**：缺省（无 `when`）⇒ 永不自动，只能由显式
+ * `spawnNpc` 效果拉起（jjk-2006 的 `rule-yuta-arrival` 依赖这条零回归约束）。
+ * 每轮 tail 求值一次；求值必须是确定性的（注入 rng，不用墙钟 / 单调时间戳）。
  */
 export const NpcSpawnRuleSchema = z
   .object({
@@ -134,6 +137,11 @@ export const NpcSpawnRuleSchema = z
     characterRef: z.string().min(1),
     /** 出生/登场时的年龄；缺省沿用 `characterRef.identity.age`。0 = 新生儿 */
     age: z.number().int().nonnegative().optional(),
+    /**
+     * 自动刷新条件（**可选**）：每轮 tail 求值一次，全部满足即走 `spawnNpc` 路径。
+     * 缺省 ⇒ 该规则**永不自动**（零回归：旧模板无此字段，行为与改前逐字段一致）。
+     */
+    when: z.array(ConditionSchema).min(1).optional(),
   })
   .strict();
 
@@ -511,7 +519,7 @@ export const WorldTemplateV2Schema = z
       }
       // 通用效果里的 chain / attribute 引用
       const walkEffects = (
-        effects: { type: string; chainId?: string; attribute?: string; eventId?: string }[] | undefined,
+        effects: { type: string; chainId?: string; attribute?: string; eventId?: string; npcId?: string }[] | undefined,
         path: (string | number)[],
       ) => {
         (effects ?? []).forEach((eff, j) => {
@@ -524,6 +532,15 @@ export const WorldTemplateV2Schema = z
           // R2.5：enqueueEvent 是延时入队的唯一声明式通道，目标事件必须存在
           if (eff.type === "enqueueEvent" && eff.eventId && !eventIds.has(eff.eventId)) {
             add([...path, j], `未知事件：${eff.eventId}（enqueueEvent 目标）`);
+          }
+          // S3：addSecret 的目标必须是已声明角色（`__self__` 之外）。
+          if (
+            eff.type === "addSecret" &&
+            eff.npcId !== undefined &&
+            eff.npcId !== "__self__" &&
+            !characterIds.has(eff.npcId)
+          ) {
+            add([...path, j], `未知角色：${eff.npcId}`);
           }
         });
       };
@@ -627,6 +644,15 @@ export const WorldTemplateV2Schema = z
       }
     });
 
+    // 事件级 `npcs`（S1）：把还没登场的人拉上场。引用必须是已声明角色或刷新规则 id。
+    w.events.forEach((e, i) => {
+      (e.npcs ?? []).forEach((ref, j) => {
+        if (!characterIds.has(ref) && !spawnRuleIds.has(ref)) {
+          add(["events", i, "npcs", j], `未知角色/刷新规则：${ref}`);
+        }
+      });
+    });
+
     // NPC 行动效果引用完整性
     (w.npcActions ?? []).forEach((action, i) => {
       (action.effects ?? []).forEach((eff, j) => {
@@ -679,6 +705,9 @@ export const WorldTemplateV2Schema = z
           if (eff.toId !== PLAYER_ID && !characterIds.has(eff.toId)) {
             add(path, `未知关系目标：${eff.toId}`);
           }
+        }
+        if (eff.type === "addSecret" && eff.npcId !== "__self__" && !characterIds.has(eff.npcId)) {
+          add(path, `未知角色：${eff.npcId}`);
         }
         if (eff.type === "freezeRelationsOnDeath" && eff.npcId !== "__self__" && !characterIds.has(eff.npcId)) {
           add(path, `未知角色：${eff.npcId}`);

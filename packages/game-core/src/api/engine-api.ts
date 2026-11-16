@@ -30,6 +30,7 @@ import {
   type TaskEdge,
   type TaskNode,
   type TaskStatus,
+  type TemplateLookup,
   type V2Snapshot,
   type WorldStateV2,
 } from "@life-sim/shared";
@@ -132,6 +133,12 @@ export interface ToolRunEnv {
   registry?: ConditionRegistry;
   lookupRefs?: ReadonlySet<string>;
   sink: ContentSink;
+  /**
+   * 模板纯函数查表（可选）。`story.submitBranch` 的节点级 `npcs` 需要把
+   * alias → 角色 id → 刷新规则 id 三选一解析并拒掉未知引用；缺省时退化为
+   * 「只解析 alias，其余原样透传」，由占槽呈现期的 `materializeEventNpcs` 兜底解析。
+   */
+  lookup?: TemplateLookup;
 }
 
 export interface ToolHandler {
@@ -558,6 +565,22 @@ function toCanonicalEffects(
       const target = npcIdByAlias.get(effect.relation.with) ?? effect.relation.with;
       return { type: "adjustRelation", npcId: target, value: effect.relation.to };
     }
+    if ("relationEdge" in effect) {
+      // 端点解析：本次提交别名 → 其余原样（`player` / 模板角色 id 由引擎侧判活处理）。
+      const from = npcIdByAlias.get(effect.relationEdge.from) ?? effect.relationEdge.from;
+      const to = npcIdByAlias.get(effect.relationEdge.to) ?? effect.relationEdge.to;
+      return {
+        type: "addRelationEdge",
+        fromId: from,
+        toId: to,
+        kind: effect.relationEdge.kind,
+        visibility: effect.relationEdge.visibility,
+      };
+    }
+    if ("secret" in effect) {
+      const npc = npcIdByAlias.get(effect.secret.npc) ?? effect.secret.npc;
+      return { type: "addSecret", npcId: npc, text: effect.secret.text };
+    }
     const target = npcIdByAlias.get(effect.lifecycle.npc) ?? effect.lifecycle.npc;
     return { type: "setNpcLifecycle", npcId: target, state: effect.lifecycle.state };
   });
@@ -637,7 +660,7 @@ function buildGeneratedNpc(
 }
 
 const submitBranch: ToolHandler = {
-  run(state, args, ctx) {
+  run(state, args, ctx, env) {
     // 结构写入必须与本回合同事务（与 fact.* 同一条守卫）。
     const violation = crossTurnViolation(state, ctx);
     if (violation !== null) return violation;
@@ -692,6 +715,30 @@ const submitBranch: ToolHandler = {
     const prefix = `gen:${ctx.invocationId}:`;
     const compiled: EventV2[] = [];
     for (const [index, node] of branch.entries()) {
+      /**
+       * 节点级 `npcs` 解析（S1 的 LLM 源）：本次提交 alias → 模板角色 id → 刷新规则 id。
+       * alias 命中生成角色（换成引擎分配的全局 id）；其余原样保留，由占槽呈现期的
+       * `materializeEventNpcs` 统一判活/拉起。注入了 `lookup` 时，三者都不是 ⇒ 整条拒绝。
+       */
+      const resolvedNpcs: string[] = [];
+      for (const ref of node.npcs ?? []) {
+        const alias = npcIdByAlias.get(ref);
+        if (alias !== undefined) {
+          resolvedNpcs.push(alias);
+          continue;
+        }
+        const isRule = state.spawnRules.some((r) => r.ruleId === ref);
+        const isCharacter = env.lookup?.character(ref) !== undefined;
+        if (env.lookup !== undefined && !isRule && !isCharacter) {
+          return rejected(
+            "unknown_reference",
+            `节点 ${node.node} 的 npcs 引用未知角色/刷新规则：${ref}`,
+          );
+        }
+        // 未注入 lookup 时原样透传（呈现期兜底解析），保证不误拒。
+        resolvedNpcs.push(ref);
+      }
+
       const event: EventV2 = {
         id: `${prefix}${node.node}`,
         title: node.title,
@@ -701,6 +748,8 @@ const submitBranch: ToolHandler = {
         ...(node.actors !== undefined ? { actors: [...node.actors] } : {}),
         // `mentions` 只指涉、不校验在场（纪念/缅怀逝者用）。
         ...(node.mentions !== undefined ? { mentions: [...node.mentions] } : {}),
+        // 节点级 `npcs`（已解析）：占槽呈现时把人拉上场（alive 幂等）。
+        ...(resolvedNpcs.length > 0 ? { npcs: resolvedNpcs } : {}),
         /**
          * **只有入口节点（`branch[0]`）参与调度**；下游节点一律 `chain`，
          * 只能由上一节的选项 `goto` 到达。
@@ -857,6 +906,8 @@ export interface EngineApiDeps {
   conditionRegistry?: ConditionRegistry;
   /** templateRefs 合法集合（DAG 步 6）。 */
   lookupRefs?: ReadonlySet<string>;
+  /** 模板纯函数查表（供 submitBranch 节点级 npcs 解析；可选）。 */
+  lookup?: TemplateLookup;
   sink?: ContentSink;
   /** 注入完整投影（Wave 2 server 注入 projectSnapshotV2）；缺省用 player 窗口最小投影。 */
   projectSnapshot?: (state: WorldStateV2) => V2Snapshot;
@@ -888,6 +939,7 @@ export class RpgEngineAPI implements EngineApiHandle {
     this.env = {
       ...(deps.conditionRegistry ? { registry: deps.conditionRegistry } : {}),
       ...(deps.lookupRefs ? { lookupRefs: deps.lookupRefs } : {}),
+      ...(deps.lookup ? { lookup: deps.lookup } : {}),
       sink: this.sink,
     };
   }

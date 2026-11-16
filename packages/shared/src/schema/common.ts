@@ -243,6 +243,18 @@ export const EffectSchema = z.discriminatedUnion("type", [
       gap: z.boolean().optional(),
     })
     .strict(),
+  /**
+   * 往某个 NPC 的 `secrets` 追加一条隐秘（append-only）。
+   * `npcId` 支持 `__self__`（当前行动的 NPC）；引擎按**文本**去重，重复追加静默跳过
+   * （同一效果可能被模板多处命中，不该堆出重复隐秘）。
+   */
+  z
+    .object({
+      type: z.literal("addSecret"),
+      npcId: z.string().min(1),
+      text: z.string().min(1),
+    })
+    .strict(),
   /** 角色死亡时冻结与之相连的关系边（仍参与称谓推导，但不再被改动）。 */
   z.object({ type: z.literal("freezeRelationsOnDeath"), npcId: z.string().min(1) }).strict(),
   /**

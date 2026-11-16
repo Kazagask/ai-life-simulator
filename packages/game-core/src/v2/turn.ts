@@ -3,6 +3,7 @@ import type {
   CallLogEntry,
   ChooseOptionCommand,
   CombatSkill,
+  Effect,
   EndingConfig,
   EquipmentInstance,
   EvaluationConfig,
@@ -745,6 +746,27 @@ function enqueueGeneratedCertain(
   }
 }
 
+/**
+ * 刷新规则自动求值（S4）：每轮 tail 遍历 `status === "pending"` 且规则声明了 `when`
+ * 的实例，条件全满足即走**现有** `spawnNpc` 路径（幂等、写 spawnLog、规则转 spawned）。
+ *
+ * 零回归：**无 `when` 的规则永不自动**（jjk-2006 的 `rule-yuta-arrival` 依赖这条，
+ * 只能由显式 `spawnNpc` / 事件 `npcs` 拉起）。条件求值用独立派生流（`scanStream`），
+ * 每条规则各自一条流，互不串扰、也不扰动主轮 RNG。
+ */
+function evaluateSpawnRules(state: WorldStateV2, lookup: TemplateLookup): void {
+  const defs = new Map((lookup.template.npcSpawnRules ?? []).map((r) => [r.id, r]));
+  for (const inst of state.spawnRules) {
+    if (inst.status !== "pending") continue;
+    const def = defs.get(inst.ruleId);
+    if (def?.when === undefined || def.when.length === 0) continue;
+    if (!checkAllConditions(def.when, { state, lookup, rng: scanStream(state) })) continue;
+    applyEffectsV2({ state, lookup, rng: scanStream(state) }, [
+      { type: "spawnNpc", ruleId: inst.ruleId },
+    ]);
+  }
+}
+
 function postSettleJudgements(
   state: WorldStateV2,
   template: WorldTemplateV2,
@@ -755,6 +777,45 @@ function postSettleJudgements(
   enqueueChainStarts(state, lookup, npcResult.startedChains);
   enqueueGeneratedCertain(state, lookup, rng);
   resolvePoolV2(state, template, lookup, rng);
+  // S4：刷新规则自动求值（每轮 tail 一次；无 `when` 的规则不自动）。
+  evaluateSpawnRules(state, lookup);
+}
+
+/**
+ * 事件级 `npcs`（S1）：事件**占槽呈现时**把这些人拉上场（`alive` 幂等）。
+ *
+ * 覆盖的占槽来源：`successor` / `hook` / `queueTake` 以及任何已存在的槽 —— 统一在
+ * `nextTurn` 的「复核通过、按 kind 呈现之前」这一个汇合点执行（槽被 revalidate 丢弃时
+ * 不执行，避免给一场不会上演的戏拉人）。写入走 `applyEffectsV2`，不另立 spawn 实现：
+ * - 命中刷新规则 id ⇒ `spawnNpc`（幂等、写 spawnLog、规则转 spawned）；
+ * - 命中角色 id ⇒ `setNpcLifecycle alive`（已登场则跳过，不刷 sinceTurn）；
+ * - 未知引用 ⇒ 静默跳过（加载期 / 提交期已校验；呈现路径不能因配置错误炸掉整轮）。
+ */
+function materializeEventNpcs(
+  state: WorldStateV2,
+  lookup: TemplateLookup,
+  def: EventV2,
+): void {
+  const refs = def.npcs;
+  if (refs === undefined || refs.length === 0) return;
+  const effects: Effect[] = [];
+  for (const ref of refs) {
+    const rule = state.spawnRules.find((r) => r.ruleId === ref);
+    if (rule !== undefined) {
+      if (rule.status === "pending") effects.push({ type: "spawnNpc", ruleId: ref });
+      continue;
+    }
+    const npc = state.npcs.find((n) => n.id === ref);
+    if (npc !== undefined) {
+      if (npc.lifecycle.state !== "alive") {
+        effects.push({ type: "setNpcLifecycle", npcId: ref, state: "alive" });
+      }
+      continue;
+    }
+    // 未知引用：加载期 / 提交期已拦，这里静默跳过（不臆造 NPC）。
+  }
+  if (effects.length === 0) return;
+  applyEffectsV2({ state, lookup, rng: scanStream(state) }, effects);
 }
 
 /**
@@ -788,6 +849,8 @@ function nextTurn(
         recordDroppedPending(result, dropped);
         continue;
       }
+      // S1：事件级 `npcs` 在呈现前把人拉上场（`alive` 幂等；所有占槽来源在此汇合）。
+      materializeEventNpcs(state, lookup, def);
       if (def.kind === "random") {
         presentRandomSlot(state, lookup, result, def);
         return; // 停在呈现，等「转盘确认」（ADR-0034 §2 步 2）

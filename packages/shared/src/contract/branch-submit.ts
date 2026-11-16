@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RelationKindSchema, RelationVisibilitySchema } from "../schema/relation.js";
 
 /**
  * `story.submitBranch` 的入参（AGENTIC-GM 重构 · 设计 §4.2）。
@@ -82,6 +83,37 @@ export const BranchEffectSchema = z.union([
         .strict(),
     })
     .strict(),
+  /**
+   * 建立一条**关系边**（npc↔npc 或 npc↔player）。`from`/`to` 支持本次提交别名 /
+   * `player` / 模板角色 id。`visibility` 语义与模板关系边一致：
+   * known（明确相识）/ inferred（推断）/ unknown（默认不认识）/ hidden（对玩家隐藏）。
+   *
+   * 与 `{relation:{with,to}}` 的区别：那个只调 NPC→玩家**标量**，这个能建带 kind、
+   * 带可见性的**有向边**，是关系图（ADR-0014）的主通道。
+   */
+  z
+    .object({
+      relationEdge: z
+        .object({
+          from: z.string().min(1),
+          to: z.string().min(1),
+          kind: RelationKindSchema,
+          visibility: RelationVisibilitySchema,
+        })
+        .strict(),
+    })
+    .strict(),
+  /** 往某个 NPC 的 `secrets` 追加一条隐秘（引擎按文本去重）。 */
+  z
+    .object({
+      secret: z
+        .object({
+          npc: z.string().min(1),
+          text: z.string().min(1),
+        })
+        .strict(),
+    })
+    .strict(),
 ]);
 
 export type BranchEffect = z.infer<typeof BranchEffectSchema>;
@@ -114,6 +146,12 @@ export const SubmitBranchNodeSchema = z
      * 用于纪念 / 缅怀 / 遗物 / 墓前一类的戏 —— 逝者不该在场，但你确实要提他。
      */
     mentions: z.array(z.string().min(1)).max(6).optional(),
+    /**
+     * 这一幕要**拉上场**的人（SP1 的 LLM 源）：本次提交 alias / 模板角色 id /
+     * 刷新规则 id 三选一。引擎在节点占槽呈现时执行（`alive` 幂等），与 `actors`
+     * 的"必须在场"语义正交 —— 只拉上场，不额外判活。
+     */
+    npcs: z.array(z.string().min(1)).max(6).optional(),
     options: z.array(SubmitBranchOptionSchema).min(1).max(4),
   })
   .strict();

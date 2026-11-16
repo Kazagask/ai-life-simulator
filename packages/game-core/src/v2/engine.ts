@@ -424,6 +424,20 @@ export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefin
         });
         break;
       }
+      case "addSecret": {
+        const npcId = effect.npcId === "__self__" ? ctx.selfNpcId : effect.npcId;
+        if (npcId === undefined) {
+          throw new Error("addSecret 的 npcId 无法解析（__self__ 时须有当前 NPC）");
+        }
+        const npc = state.npcs.find((n) => n.id === npcId);
+        if (!npc) {
+          // 引用不存在的 NPC 属配置错误：抛可诊断错误，不静默跳过
+          throw new Error(`addSecret 指向未知 NPC：${npcId}`);
+        }
+        // append-only + 文本去重：同一效果重复命中不堆重复隐秘
+        if (!npc.secrets.includes(effect.text)) npc.secrets.push(effect.text);
+        break;
+      }
       case "freezeRelationsOnDeath": {
         const npcId = effect.npcId === "__self__" ? ctx.selfNpcId : effect.npcId;
         if (npcId === undefined) {
