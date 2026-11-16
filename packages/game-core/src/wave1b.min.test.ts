@@ -85,7 +85,7 @@ const INVOKE = {
 function baseRules(llmTriggers: Rules["llmTriggers"]): Rules {
   return {
     llmTriggers,
-    toolProfile: { narrative: ["content.writeNarrative"] },
+    toolProfile: { narrative: ["narrative.write"] },
     knowledgeGrants: [],
     inferenceRules: [],
     fallbackDag: { dagId: "d", version: 1, issuedBy: "template", nodes: [], edges: [] },
@@ -204,7 +204,7 @@ describe("判据3 F4 越窗拦下（visibility_violation）+ 整块不下发", (
     const api = new RpgEngineAPI({ state });
     const call: ApiCall = {
       callId: "c1",
-      tool: "content.writeNarrative",
+      tool: "narrative.write",
       args: {
         blockId: "b1",
         kind: "narrative",
@@ -230,7 +230,7 @@ describe("判据3 F4 越窗拦下（visibility_violation）+ 整块不下发", (
     const api = new RpgEngineAPI({ state });
     const call: ApiCall = {
       callId: "c2",
-      tool: "content.writeNarrative",
+      tool: "narrative.write",
       args: {
         blockId: "b2",
         kind: "narrative",

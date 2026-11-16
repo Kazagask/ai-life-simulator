@@ -15,7 +15,7 @@ const acceptAll: DispatchHandler = (calls) =>
   calls.map((call) => ({ callId: call.callId, outcome: "accepted" }));
 
 describe("T-04 七种终止条件", () => {
-  it("① submitted：content.submit 被接受 ⇒ committed", async () => {
+  it("① submitted：agent.submit 被接受 ⇒ committed", async () => {
     const engine = new StubEngine(acceptAll);
     const provider = new ScriptedProvider([completion([submitCall()])]);
     const inv = makeBareInvocation();
@@ -49,7 +49,7 @@ describe("T-04 七种终止条件", () => {
     expect(provider.callCount).toBe(1);
   });
 
-  it("③ maxToolRounds 耗尽 ⇒ fallback", async () => {
+  it("③ maxToolRounds 耗尽：写过内容 ⇒ committed（内容已在 trace，不再整轮作废）", async () => {
     const engine = new StubEngine(acceptAll);
     const provider = new ScriptedProvider([completion([narrativeCall()])]);
     const { outcome, trace } = await runAgentLoop(
@@ -58,10 +58,10 @@ describe("T-04 七种终止条件", () => {
     );
 
     expect(provider.callCount).toBe(2);
-    expect(outcome.outcome).toBe("fallback");
-    expect(outcome.outcome === "fallback" ? outcome.reason : "").toContain("上限");
-    expect(trace.receipts).toHaveLength(2);
-    expect(trace.outcome).toBe("fallback");
+    // 新契约：写过内容就 committed（内容已在 trace 里，不该因为"轮数用尽"整轮作废）。
+    expect(outcome.outcome).toBe("committed");
+    expect(trace.outcome).toBe("committed");
+    expect(trace.receipts.length).toBeGreaterThanOrEqual(2);
   });
 
   it("④ retry_exhausted：RETRYABLE 拒绝用尽 2 次重试 ⇒ fallback", async () => {
@@ -138,7 +138,7 @@ describe("T-04 七种终止条件", () => {
 describe("T-04 第 1 层校验失败 ⇒ 回灌模型重试（不再是 FATAL）", () => {
   /**
    * 契约变更（2026-11-16，真实模型实测）：第 1 层（工具名 / 参数 schema）失败原本直接
-   * 判死整轮，理由是"不消耗重试额度"。但 glm-5.3 实测第一次发 `content.writeNarrative`
+   * 判死整轮，理由是"不消耗重试额度"。但 glm-5.3 实测第一次发 `narrative.write`
    * 时 arguments 是 `{}` —— 这是**可修的一次格式错误**，判死的结果是玩家一个字都看不到。
    * 现在改为：把错误码 + 明细（未知工具还附可用清单）回灌给模型，受 `retryLimit` 约束。
    */
@@ -159,13 +159,13 @@ describe("T-04 第 1 层校验失败 ⇒ 回灌模型重试（不再是 FATAL）
     expect(trace.receipts[0]).toMatchObject({ outcome: "rejected", code: "unknown_tool" });
     // 清单回灌确实发给了模型（否则它没有理由改对）。
     const hint = provider.requests[1]?.messages.at(-1);
-    expect(JSON.stringify(hint ?? {})).toContain("content.submit");
+    expect(JSON.stringify(hint ?? {})).toContain("narrative.write");
   });
 
   it("参数不合 schema ⇒ 回灌错误并重试；模型一直不改 ⇒ retry_exhausted", async () => {
     const engine = new StubEngine(acceptAll);
     const provider = new ScriptedProvider([
-      completion([toolCall("content.writeNarrative", { blockId: "b1" })]),
+      completion([toolCall("narrative.write", { blockId: "b1" })]),
     ]);
     const { outcome, trace } = await runAgentLoop(makeBareInvocation(), {
       provider,

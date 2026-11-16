@@ -59,7 +59,7 @@ export const completion = (
 export const narrativeCall = (
   overrides?: { targetPerspective?: string; refs?: string[]; text?: string; blockId?: string },
 ): ToolCallRequest =>
-  toolCall("content.writeNarrative", {
+  toolCall("narrative.write", {
     blockId: overrides?.blockId ?? "blk-1",
     text: overrides?.text ?? "风穿过门廊，你听见远处的钟声。",
     refs: overrides?.refs ?? [],
@@ -67,4 +67,4 @@ export const narrativeCall = (
   });
 
 export const submitCall = (blockIds: string[] = ["blk-1"]): ToolCallRequest =>
-  toolCall("content.submit", { blockIds });
+  toolCall("agent.submit", { blockIds });

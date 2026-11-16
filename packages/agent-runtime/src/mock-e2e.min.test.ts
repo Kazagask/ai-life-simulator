@@ -43,21 +43,11 @@ describe("零 key 端到端：真引擎 + mock provider", () => {
     expect(CJK.test(text)).toBe(true);
     expect(narrative[0]!.targetPerspective).toBe("player");
 
-    // 产品裁决「点击为主」：决策点必须给出 2-3 个可点击选项，且排在叙事之后。
+    // 重设计（2026-11-16）：选项不再由 LLM 写（`content.writeOption` 已从函数层删除）。
+    // 想给玩家选择，必须 `story.submitBranch` 提交带 options 的事件块，由引擎呈现。
     const kinds = blocks.map((block) => block.kind);
     expect(kinds[0]).toBe("narrative");
-    const optionIndex = kinds.indexOf("option");
-    expect(optionIndex).toBeGreaterThan(0);
-    const options = blocks.filter((block) => block.kind === "option");
-    expect(options.length).toBeGreaterThanOrEqual(2);
-    expect(options.length).toBeLessThanOrEqual(3);
-    for (const option of options) {
-      expect((option.text ?? "").length).toBeGreaterThan(3);
-      expect(CJK.test(option.text ?? "")).toBe(true);
-      // 第二人称、动词开头的动作短语，而不是「选项 A」这类描述。
-      expect(option.text ?? "").toMatch(/^(向|按|先|径直|转身|走上前|走近|循着|放慢|继续)/);
-      expect(option.refs.length).toBeGreaterThan(0);
-    }
+    expect(kinds).not.toContain("option");
 
     // F3：正文唯一落点是 trace；存档只留 traceRef。
     expect(fixture.state.traceRef).toBe("trace:inv-mock-e2e");
@@ -69,7 +59,7 @@ describe("零 key 端到端：真引擎 + mock provider", () => {
     expect(fixture.engine.buildFacts("player").facts.length).toBe(factsBefore);
   });
 
-  it("每一回合都有点击面：叙事之后必有 ≥2 个可点选项（含 random.flavor）", async () => {
+  it("每一回合都有正文：叙事在场且不再由 LLM 产出选项（含 random.flavor）", async () => {
     const fixture = loadDemoFixture();
     const traces: LlmTrace[] = [];
     const gateway = new AgentGateway({
@@ -90,17 +80,8 @@ describe("零 key 端到端：真引擎 + mock provider", () => {
     const narrativeIndex = blocks.findIndex((block) => block.kind === "narrative");
     expect(narrativeIndex).toBe(0);
 
-    const options = blocks.filter((block) => block.kind === "option");
-    expect(options.length).toBeGreaterThanOrEqual(2);
-    expect(options.length).toBeLessThanOrEqual(3);
-    // 每个选项都必须排在第一段叙事之后，且文案非空、可点击。
-    const firstOptionIndex = blocks.findIndex((block) => block.kind === "option");
-    expect(firstOptionIndex).toBeGreaterThan(narrativeIndex);
-    for (const option of options) {
-      expect((option.text ?? "").trim().length).toBeGreaterThan(3);
-      expect(CJK.test(option.text ?? "")).toBe(true);
-      expect(blocks.indexOf(option)).toBeGreaterThan(narrativeIndex);
-    }
+    // 重设计：LLM 不再产选项块（选项属于事件块）。这一轮只应有叙事（+ 可选旁注）。
+    expect(blocks.filter((block) => block.kind === "option")).toEqual([]);
 
     // 正文仍只活在 trace：权威状态里没有任何叙事文本。
     const narrativeText = blocks[narrativeIndex]!.text ?? "";
@@ -153,7 +134,7 @@ describe("零 key 端到端：真引擎 + mock provider", () => {
     }
   });
 
-  it("factRef / value 是机器 id 时，正文与选项都不含机器 id 前缀", async () => {
+  it("factRef / value 是机器 id 时，正文不含机器 id 前缀", async () => {
     const texts = await mockTextsFromFacts([
       { factRef: "infoVisibility:npc-mentor", value: "infoVisibility:npc-mentor", level: "known" },
       { factRef: "flag:took-right", value: true, level: "known" },
@@ -176,7 +157,7 @@ describe("零 key 端到端：真引擎 + mock provider", () => {
     expect(texts.some((text) => text.includes("引路人"))).toBe(true);
   });
 
-  it("叙事与选项不泄漏机器 id / 哨兵值（unknown 旗标不进正文）", async () => {
+  it("叙事不泄漏机器 id / 哨兵值（unknown 旗标不进正文）", async () => {
     const fixture = loadDemoFixture();
     // 复刻真实存档里的噪声：world.yaml 把初始旗标写成字符串 "unknown"，键是机器 id。
     fixture.state.flags["infoVisibility:npc-mentor"] = "unknown";
@@ -221,8 +202,9 @@ describe("零 key 端到端：真引擎 + mock provider", () => {
     expect(refs).toContain("flag:infoVisibility:npc-mentor");
   });
 
-  it("选项确定性：同一 invocationId 逐字复现，不同 invocationId 不逐字重复", async () => {
-    const run = async (invocationId: string): Promise<string[]> => {
+  it("叙事确定性：同一 invocationId 逐字复现，不同上下文不逐字重复", async () => {
+    // 原用例验的是"选项组合"的确定性；选项已不再由 LLM 产生，改为验正文。
+    const run = async (invocationId: string, history: Array<{ title: string }>): Promise<string[]> => {
       const fixture = loadDemoFixture();
       const traces: LlmTrace[] = [];
       const gateway = new AgentGateway({
@@ -231,27 +213,23 @@ describe("零 key 端到端：真引擎 + mock provider", () => {
         templateRef: "demo-agentic@1.0.0",
         rules: fixture.rules,
         toolProfile: "narrative",
-        history: [{ title: "苏醒" }],
+        history,
         onTrace: (trace) => traces.push(trace),
       });
       const outcome = await gateway.invoke(makeInvocation(fixture, { invocationId }));
       expect(outcome.outcome).toBe("committed");
       return (traces[0]!.contentBlocks ?? [])
-        .filter((block) => block.kind === "option")
+        .filter((block) => block.kind === "narrative")
         .map((block) => block.text ?? "");
     };
 
-    const a1 = await run("inv-opt-same");
-    const a2 = await run("inv-opt-same");
-    expect(a1).toHaveLength(3);
+    const a1 = await run("inv-narr-same", [{ title: "苏醒" }]);
+    const a2 = await run("inv-narr-same", [{ title: "苏醒" }]);
+    expect(a1.length).toBeGreaterThan(0);
     expect(a2).toEqual(a1);
 
-    // 连续回合不应逐字重复：扫若干 id，至少出现两种不同的选项组合。
-    const variants = new Set<string>();
-    for (const id of ["inv-opt-a", "inv-opt-b", "inv-opt-c", "inv-opt-d", "inv-opt-e"]) {
-      variants.add((await run(id)).join("|"));
-    }
-    expect(variants.size).toBeGreaterThan(1);
+    // 上下文不同 ⇒ 正文不应逐字重复。
+    expect(await run("inv-narr-a", [{ title: "初次试炼" }])).not.toEqual(a1);
   });
 
   it("同一 seed / 同一上下文 ⇒ 同一段叙事（确定性）", async () => {
@@ -339,10 +317,10 @@ describe("分支轮 × 真引擎：分支事件真的上桌", () => {
     expect(enqueued[0]!.origin).toMatchObject({ kind: "effect", id: "evt:rumor" });
     expect(fixture.state.delayQueue.length).toBe(queueBefore + 1);
 
-    // 一次 invocation 内三件事都发生了：叙事 / 分支上桌 / 可点选项。
+    // 一次 invocation 内两件事：叙事 + 分支上桌。选项来自事件块，不再由 LLM 写。
     const blocks = traces[0]?.contentBlocks ?? [];
     const kinds = blocks.map((block) => block.kind);
     expect(kinds).toContain("narrative");
-    expect(kinds.filter((kind) => kind === "option").length).toBeGreaterThanOrEqual(2);
+    expect(kinds).not.toContain("option");
   });
 });

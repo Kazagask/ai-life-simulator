@@ -13,10 +13,10 @@ import {
  *
  * 产品口径（用户裁决）：「点击为主，打字输入为辅」——**每一回合**都要给出可点动作；
  * 只产出散文的一回合等于坏回合。回合内按 loop 的 dispatch 轮次推进：
- *   ① 叙事（content.writeNarrative，必要时 content.referenceAsset）
+ *   ① 叙事（narrative.write，必要时 content.referenceAsset）
  *   ② 分支（可选：fact.enqueueEvent —— 把 DAG 分支上的模板事件上桌）
- *   ③ 选项（2-3 条 content.writeOption，必要时 content.writeFlavor）
- *   ④ 提交（content.submit）
+ *   ③ 选项（2-3 条 content.writeOption，必要时 narrative.flavor）
+ *   ④ 提交（agent.submit）
  * 因此 `contentBlocks` 顺序恒为 narrative → option → flavor，前端可直接按序渲染。
  *
  * ② 只在调用上下文声明了**分支白名单**（`branchEventIds`）时才发生：取 `[0]`，
@@ -458,7 +458,7 @@ function submitted(messages: readonly AgentMessage[]): boolean {
   return messages.some(
     (m) =>
       m.role === "assistant" &&
-      (m.toolCalls ?? []).some((call) => call.name === "content.submit"),
+      (m.toolCalls ?? []).some((call) => call.name === "agent.submit"),
   );
 }
 
@@ -498,10 +498,10 @@ function isFactRejection(name: string | undefined): boolean {
 function narrativeCalls(view: MockContextView, available: Set<string>): ToolCallRequest[] {
   const calls: ToolCallRequest[] = [];
   const refs = collectRefs(view);
-  if (available.has("content.writeNarrative")) {
+  if (available.has("narrative.write")) {
     calls.push({
       id: `${view.invocationId}:call:narrative`,
-      name: "content.writeNarrative",
+      name: "narrative.write",
       arguments: {
         blockId: `${view.invocationId}:narrative`,
         text: synthesizeNarrative(view),
@@ -510,50 +510,28 @@ function narrativeCalls(view: MockContextView, available: Set<string>): ToolCall
       },
     });
   }
-  const assetId = assetIdFrom(view);
-  if (assetId !== null && available.has("content.referenceAsset")) {
-    calls.push({
-      id: `${view.invocationId}:call:asset`,
-      name: "content.referenceAsset",
-      arguments: {
-        blockId: `${view.invocationId}:asset`,
-        assetId,
-        slot: "scene",
-        refs: [`asset:${assetId}`],
-      },
-    });
-  }
+  // `content.referenceAsset` 已从函数层删除：媒体挂载不是叙事，将来要接资产应作为
+  // `narrative.write` 的可选参数（assetId），而不是独立工具。mock 不再发资产块。
   return calls;
 }
 
-/** ② 选项轮：2-3 条可点动作（+ 可选 flavor）。必须排在叙事之后。 */
+/**
+ * ② 旁注轮：只发 flavor（确实是叙事文本）。
+ *
+ * `content.writeOption` 已从函数层删除（AGENTIC-GM 重构）——"写一个选项"在语义上就是错的：
+ * 选项是事件块里的 `options`，由引擎分配 id、由事件面板呈现。想给玩家选择，正确做法是
+ * `story.submitBranch` 提交一条带 options 的分支。
+ */
 function optionCalls(view: MockContextView, available: Set<string>): ToolCallRequest[] {
   const calls: ToolCallRequest[] = [];
-  if (!available.has("content.writeOption")) return calls;
-  const refs = collectRefs(view);
-  optionTexts(view).forEach((text, index) => {
-    calls.push({
-      id: `${view.invocationId}:call:opt${index}`,
-      name: "content.writeOption",
-      arguments: {
-        blockId: `${view.invocationId}:opt${index}`,
-        optionId: `${view.invocationId}:opt${index}`,
-        text,
-        refs,
-      },
-    });
-  });
+  if (!available.has("narrative.flavor")) return calls;
   const title = sanitizeProse(recentTitle(view.recentTurns) ?? undefined);
   const flavor = title === null ? null : sanitizeProse(`${title}的余韵还没散去，空气里有细微的变动。`);
-  if (flavor !== null && available.has("content.writeFlavor")) {
+  if (flavor !== null) {
     calls.push({
       id: `${view.invocationId}:call:flavor`,
-      name: "content.writeFlavor",
-      arguments: {
-        blockId: `${view.invocationId}:flavor`,
-        text: flavor,
-        refs,
-      },
+      name: "narrative.flavor",
+      arguments: { text: flavor },
     });
   }
   return calls;
@@ -596,7 +574,7 @@ export class MockAgentProvider implements AgentProvider {
     const rewritable =
       rejection !== null &&
       !isFactRejection(rejection.name) &&
-      (rejection.name === "content.writeOption" || rejection.name === "content.writeNarrative");
+      rejection.name === "narrative.write";
 
     if (done) {
       // 已有 submit，不再产出（loop 正常情况下已在此前终止）。
@@ -607,23 +585,10 @@ export class MockAgentProvider implements AgentProvider {
         typeof rejection!.factsHint?.targetPerspective === "string"
           ? (rejection!.factsHint.targetPerspective as Perspective)
           : view.targetPerspective;
-      if (rejection!.name === "content.writeOption" && available.has("content.writeOption")) {
-        optionTexts(view).forEach((text, index) => {
-          toolCalls.push({
-            id: `${view.invocationId}:call:opt-retry${index}`,
-            name: "content.writeOption",
-            arguments: {
-              blockId: `${view.invocationId}:opt${index}`,
-              optionId: `${view.invocationId}:opt${index}`,
-              text,
-              refs: [],
-            },
-          });
-        });
-      } else if (available.has("content.writeNarrative")) {
+      if (available.has("narrative.write")) {
         toolCalls.push({
           id: `${view.invocationId}:call:retry`,
-          name: "content.writeNarrative",
+          name: "narrative.write",
           arguments: {
             blockId: `${view.invocationId}:narrative`,
             text: synthesizeNarrative(view),
@@ -632,31 +597,23 @@ export class MockAgentProvider implements AgentProvider {
           },
         });
       }
-    } else if (!emitted.has("content.writeNarrative") && !emitted.has("content.writeOption")) {
+    } else if (!emitted.has("narrative.write")) {
       toolCalls.push(...narrativeCalls(view, available));
     } else if (branch.length > 0 && !emitted.has(BRANCH_TOOL)) {
       // ② 分支轮：把分支事件上桌（只入队、不占槽）。`branch` 已按「画像 + 显式分支指令」筛过，
       // 为空则整段跳过，不改变原有三阶段节奏。
       toolCalls.push(...branch);
-    } else if (!emitted.has("content.writeOption")) {
-      // 有叙事但还没有点击面 ⇒ 本回合继续产出选项（每条回合都必须可点）。
-      toolCalls.push(...optionCalls(view, available));
-    } else if (available.has("content.submit")) {
-      const produced = req.messages
-        .filter((m) => m.role === "assistant")
-        .flatMap((m) => m.toolCalls ?? [])
-        .filter((call) => call.name !== "content.submit")
-        .map((call) => call.arguments.blockId)
-        .filter((id): id is string => typeof id === "string");
-      toolCalls.push({
-        id: `${view.invocationId}:call:submit`,
-        name: "content.submit",
-        arguments: {
-          blockIds:
-            produced.length > 0 ? [...new Set(produced)] : [`${view.invocationId}:narrative`],
-        },
-      });
+    } else if (!emitted.has("narrative.flavor")) {
+      // 有叙事但还没有旁注 ⇒ 补一句环境描写（选项已不再由 LLM 产生）。
+      // ⚠ 旁注可能产不出来（没有可依据的标题/上下文）。此时必须**继续走到 submit**，
+      // 否则这里会一直返回空 toolCalls ⇒ 循环以 no_tool_calls 收场、整轮 fallback。
+      const extra = optionCalls(view, available);
+      if (extra.length > 0) {
+        toolCalls.push(...extra);
+      }
     }
+    // 末轮：不再发 `agent.submit`（已从工具面移除）。返回空 toolCalls ⇒ 循环自然退出、
+    // 由运行时补一次内部提交做记账。
 
     const text = toolCalls.length === 0 ? "本回合没有更多可写的内容。" : undefined;
     const outputPayload = JSON.stringify(toolCalls);

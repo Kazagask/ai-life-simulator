@@ -169,7 +169,7 @@ describe("ADR-0035 IO-1：结构写入不得跨回合", () => {
       [
         {
           callId: "c-prose",
-          tool: "content.writeNarrative" as const,
+          tool: "narrative.write" as const,
           args: {
             blockId: "b-late",
             kind: "narrative",
@@ -202,7 +202,7 @@ describe("ADR-0035 D2：deferInvocation 只提案不执行", () => {
         },
       },
     ],
-    toolProfile: { narrative: ["content.writeNarrative", "content.submit"] },
+    toolProfile: { narrative: ["narrative.write", "agent.submit"] },
     knowledgeGrants: [],
     inferenceRules: [],
     fallbackDag: { dagId: "d", version: 1, issuedBy: "template" as const, nodes: [], edges: [] },

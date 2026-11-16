@@ -85,14 +85,14 @@ describe("mock 分支轮：只认结构化白名单 branchEventIds", () => {
   const fixture = loadDemoFixture();
   const tools = buildToolDescriptors(fixture.rules, "narrative");
 
-  it("锁 1：branchEventIds: [\"evt:trial\"] ⇒ 叙事之后、选项之前恰好一次 enqueue", async () => {
+  it("锁 1：branchEventIds: [\"evt:trial\"] ⇒ 叙事之后恰好一次 enqueue（选项已不由 LLM 产出）", async () => {
     const rounds = await runRounds(
       makeView({ contextHints: ["chapter.tone"], branchEventIds: ["evt:trial"] }),
       tools,
     );
 
     // ① 叙事
-    expect(names(rounds[0]!)).toEqual(["content.writeNarrative"]);
+    expect(names(rounds[0]!)).toEqual(["narrative.write"]);
     // ② 分支轮：恰好一条，eventId 逐字取自白名单
     expect(rounds[1]).toHaveLength(1);
     expect(rounds[1]![0]).toMatchObject({
@@ -100,23 +100,15 @@ describe("mock 分支轮：只认结构化白名单 branchEventIds", () => {
       arguments: { eventId: "evt:trial" },
     });
     expect(rounds[1]![0]!.id).toBe("inv-branch:call:branch");
-    // ③ 选项仍在分支之后
-    const options = rounds[2]!;
-    expect(options.length).toBeGreaterThanOrEqual(2);
-    expect(options.every((call) => call.name === "content.writeOption")).toBe(true);
-    // ④ 提交：blockIds 只收 content 块，分支调用不占 blockId
-    const submit = rounds[3]!;
-    expect(names(submit)).toEqual(["content.submit"]);
-    const blockIds = submit[0]!.arguments.blockIds as string[];
-    expect(blockIds).toContain("inv-branch:narrative");
-    expect(blockIds.some((id) => id.includes("opt"))).toBe(true);
-    expect(blockIds).not.toContain("inv-branch:call:branch");
+    // ③ 之后没有"选项轮"也没有"提交轮"：mock 收尾返回空 toolCalls，由运行时判定完成。
+    expect(rounds.flatMap((calls) => names(calls))).not.toContain("agent.submit");
   });
 
   it("锁 2：未声明白名单 ⇒ 即使 contextHints 提到 evt:trial 也 0 次", async () => {
     const rounds = await runRounds(makeView({ contextHints: ["chapter.tone", "evt:trial"] }), tools);
     expect(branchCalls(rounds)).toHaveLength(0);
-    expect(rounds.flatMap((calls) => names(calls))).toContain("content.submit");
+    // 终止由运行时判定：mock 不再产 submit，"没有更多 tool call" 就是写完。
+    expect(rounds.flatMap((calls) => names(calls))).not.toContain("agent.submit");
   });
 
   it("锁 4a：显式空数组 ⇒ 0 次（空 ≠ 不限制）", async () => {
@@ -175,15 +167,20 @@ describe("mock 分支轮：只认结构化白名单 branchEventIds", () => {
     const ohneBranch = tools.filter((tool) => tool.name !== "fact.enqueueEvent");
     const rounds = await runRounds(makeView({ branchEventIds: ["evt:trial"] }), ohneBranch);
     expect(branchCalls(rounds)).toHaveLength(0);
-    expect(rounds.flatMap((calls) => names(calls))).toContain("content.submit");
+    // 终止由运行时判定：mock 不再产 submit，"没有更多 tool call" 就是写完。
+    expect(rounds.flatMap((calls) => names(calls))).not.toContain("agent.submit");
   });
 
   it("单次性：一次 invocation 内恰好一次，且分支调用只带 eventId", async () => {
     const rounds = await runRounds(makeView({ branchEventIds: ["evt:trial"] }), tools);
     expect(branchCalls(rounds)).toHaveLength(1);
     expect(rounds[1]![0]!.arguments).toEqual({ eventId: "evt:trial" });
-    const submit = rounds.at(-2)!;
-    expect(submit[0]!.arguments.blockIds).not.toContain("inv-branch:call:branch");
+    // 分支调用不占 blockId：blockId 只在 narrative/flavor 上出现。
+    const blockIds = rounds
+      .flat()
+      .map((call) => call.arguments.blockId)
+      .filter((id): id is string => typeof id === "string");
+    expect(blockIds).not.toContain("inv-branch:call:branch");
   });
 
   it("确定性：同一 invocationId + 同一状态 ⇒ 逐字节相同", async () => {
@@ -254,7 +251,7 @@ describe("分支轮契约：mock ↔ loop ↔ 真引擎", () => {
     expect(["committed", "fallback"]).toContain(outcome.outcome);
   });
 
-  it("经 runAgentLoop：白名单那条被 dispatch 且回执 accepted，顺序在叙事与选项之间", async () => {
+  it("经 runAgentLoop：白名单那条被 dispatch 且回执 accepted，顺序在叙事之后", async () => {
     const dispatched: string[] = [];
     const engine = new StubEngine((calls) => {
       for (const call of calls) dispatched.push(call.tool);
@@ -285,11 +282,10 @@ describe("分支轮契约：mock ↔ loop ↔ 真引擎", () => {
     expect(outcome.outcome).toBe("committed");
     expect(dispatched.filter((tool) => tool === "fact.enqueueEvent")).toHaveLength(1);
     expect(dispatched.indexOf("fact.enqueueEvent")).toBeGreaterThan(
-      dispatched.indexOf("content.writeNarrative"),
+      dispatched.indexOf("narrative.write"),
     );
-    expect(dispatched.indexOf("fact.enqueueEvent")).toBeLessThan(
-      dispatched.indexOf("content.writeOption"),
-    );
+    // 选项已不由 LLM 产（`content.writeOption` 从函数层删除），顺序只要求"叙事 → 分支"。
+    expect(dispatched).not.toContain("content.writeOption");
     // 回执按 callId 定位（CallReceipt 不带 tool 字段）
     const branchReceipt = trace.receipts.find(
       (receipt) => receipt.callId === "inv-loop-branch:1:0",
@@ -341,6 +337,7 @@ describe("分支轮契约：mock ↔ loop ↔ 真引擎", () => {
     const blocks = traces[0]?.contentBlocks ?? [];
     const kinds = blocks.map((block) => block.kind);
     expect(kinds).toContain("narrative");
-    expect(kinds.filter((kind) => kind === "option").length).toBeGreaterThanOrEqual(2);
+    // 选项已不由 LLM 产生（属于事件块），这一轮只应有叙事/旁注。
+    expect(kinds).not.toContain("option");
   });
 });

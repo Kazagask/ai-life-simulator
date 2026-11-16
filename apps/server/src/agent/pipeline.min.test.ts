@@ -106,7 +106,7 @@ describe("pipelineForTurn", () => {
     expect(pipeline.evaluationConfig).toBe(entry.pipeline.evaluationConfig);
   });
 
-  it("mock 网关：flagSet 触发产出 invocation，正文/选项落 trace 且被 narrative 端点读回", async () => {
+  it("mock 网关：flagSet 触发产出 invocation，正文落 trace 且被 narrative 端点读回", async () => {
     const world = worldStore.create({ templateId: "demo-agentic", playerName: "阿触", seed: 11 }, entry);
     // 模板 task.completed 触发条件：flag "took-right"（rules.yaml 第 3 条）。
     world.flags["took-right"] = true;
@@ -130,7 +130,8 @@ describe("pipelineForTurn", () => {
     const blocks = readNarrativeBlocks(world.id, world);
     expect(blocks.length).toBeGreaterThan(0);
     expect(blocks.some((b) => b.kind === "narrative")).toBe(true);
-    expect(blocks.some((b) => b.kind === "option")).toBe(true);
+    // 选项不再由 LLM 写（属于事件块），正文与旁注仍是 LLM 的产出。
+    expect(blocks.some((b) => b.kind === "option")).toBe(false);
   });
 
   it("同种子两局：无 gateway 的结算结果与基线逐字段相等", () => {

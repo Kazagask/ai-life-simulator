@@ -41,20 +41,16 @@ toolProfile:
   # 能力画像 = 本次 invocation 允许的工具面。三项硬约束：
   # 1) 只能列 game-core 工具注册表里真实存在的工具（engine-api.ts: defaultToolRegistry）。
   #    列了未注册的工具 ⇒ 模型一 emit 就吃 unknown_tool（FATAL，不消耗重试）。
-  # 2) 必须含 content.submit，否则本次 invocation 无法到达 committed 终止态。
+  # 2) **不需要**提交工具：终止是运行时责任（模型不再发 tool call 即视为写完）。
   # 3) **必须包含写世界的工具**：设计 §3.4 的口径是「LLM 命中节点后 (a) 写叙事 / (b) 上桌事件
   #    / (c) 推进 DAG」，只有 content.* 的画像是「LLM 只能写散文」——那等于把 DAG 分支
   #    整条链路废掉。因此 fact.advanceDag（发布/续写分支）与 fact.enqueueEvent（把分支上的
   #    事件实例化进 delayQueue）必须同时在画像里。
+  # 已按新命名空间收敛（content.* → narrative.*，且删除 writeOption/referenceAsset）：
+  # 选项属于事件块的 options，媒体挂载将来作为 narrative.write 的可选参数，
+  # 两者都不该是独立工具。fact.advanceDag 一并去掉（整份覆盖 DAG 属违规写法）。
   narrative:
-    [
-      "content.writeNarrative",
-      "content.writeOption",
-      "content.referenceAsset",
-      "fact.advanceDag",
-      "fact.enqueueEvent",
-      "content.submit",
-    ]
+    ["narrative.write", "narrative.flavor", "fact.enqueueEvent"]
 knowledgeGrants:
   - when: [{ op: "eventResolved", args: { eventId: "evt:trial" } }]
     grant: { observers: ["player"], factRefs: ["fact:trial-result"], level: "known", source: "witness" }

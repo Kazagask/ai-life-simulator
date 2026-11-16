@@ -145,7 +145,7 @@ const V2_RULES_SNIPPET = {
       },
     },
   ],
-  toolProfile: { narrative: ["content.writeNarrative"] },
+  toolProfile: { narrative: ["narrative.write"] },
   knowledgeGrants: [
     {
       when: [{ op: "always", args: {} }],

@@ -228,66 +228,9 @@ describe("锁 7（R8）：白名单必须进 prompt", () => {
   });
 });
 
-describe("锁 8（R10）：content 拒绝不得复制正文", () => {
-  /**
-   * 真引擎下 mock 已发不出越窗 `referenceAsset`（facts 里有的 asset ref 必在 allowedContentRefs 内），
-   * 所以这里用**脚本化 engine**：只拒 `content.referenceAsset`，其余（含叙事）接受并写入 sink。
-   *
-   * 构造方式刻意不用真窗口判定 —— 否则测到的是「引擎拒绝」而不是「mock 会不会复制正文」。
-   */
-  function rejectingAssetEngine(): {
-    engine: EngineApiHandle & { sink: ReturnType<typeof createContentSink> };
-    sink: ReturnType<typeof createContentSink>;
-  } {
-    const sink = createContentSink();
-    const engine = {
-      sink,
-      dispatch: (calls: ApiCall[], _ctx: DispatchContext) => {
-        const receipts = calls.map((call) => {
-          if (call.tool === "content.referenceAsset") {
-            return {
-              callId: call.callId,
-              outcome: "rejected" as const,
-              code: "visibility_violation" as const,
-              detail: "asset 越窗（测试构造）",
-            };
-          }
-          if (call.tool.startsWith("content.")) sink.append(call.args as never);
-          return { callId: call.callId, outcome: "accepted" as const };
-        });
-        return { receipts, state: {} as never };
-      },
-      snapshot: () => ({ turnIndex: 3, worldTime: 4320 }) as never,
-      buildFacts: (perspective: Perspective) => ({ perspective, facts: [], dagNodes: [] }) as never,
-    };
-    return { engine, sink };
-  }
-
-  it("referenceAsset 被拒 ⇒ committed、narrative blockId 只出现一次、诊断保留", async () => {
-    const fixture = loadDemoFixture();
-    const { engine, sink } = rejectingAssetEngine();
-    const traces: LlmTrace[] = [];
-    const inv = invocationWith(fixture, {
-      invocationId: "inv-r10",
-      // 只喂 asset 事实：mock 会据此发 referenceAsset（facts 分支保留，hint 分支已删）
-      facts: [{ factRef: "asset:ghost", value: "一扇不存在的门" }],
-    });
-
-    const { outcome, trace } = await runAgentLoop(inv, {
-      provider: new MockAgentProvider(),
-      engineApi: engine,
-    });
-
-    expect(outcome.outcome).toBe("committed");
-
-    // referenceAsset 确实发过且被拒（诊断不吞）
-    const assetReceipt = trace.receipts.find((receipt) => receipt.callId === "inv-r10:0:1");
-    expect(assetReceipt).toMatchObject({ outcome: "rejected", code: "visibility_violation" });
-
-    // 没有因此复制正文：narrative blockId 恰好一块，且全局无重复 blockId
-    const blocks = trace.contentBlocks ?? [];
-    expect(blocks.filter((block) => block.blockId === "inv-r10:narrative")).toHaveLength(1);
-    const allIds = blocks.map((block) => block.blockId);
-    expect(new Set(allIds).size).toBe(allIds.length);
-  });
-});
+/**
+ * 锁 8（R10）原用例测的是「`content.referenceAsset` 被拒后不得复制正文」。
+ * `referenceAsset` 已从函数层删除（AGENTIC-GM 重构：媒体挂载不是叙事），
+ * 该场景不再存在，故整条下线。R10 的语义（拒绝后不得重复写同一 blockId）
+ * 仍由 loop 的重试路径覆盖，见 T-04 分支①。
+ */

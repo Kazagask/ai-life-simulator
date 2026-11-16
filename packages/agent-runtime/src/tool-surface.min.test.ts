@@ -40,7 +40,7 @@ describe("工具面：fact.upsertDagBranch 必须在 runtime 侧可见", () => {
   it("画像列了它 ⇒ resolveToolNames 不会静默过滤，描述符能生成", () => {
     const rules = {
       llmTriggers: [],
-      toolProfile: { narrative: ["content.writeNarrative", "fact.upsertDagBranch"] },
+      toolProfile: { narrative: ["narrative.write", "fact.upsertDagBranch"] },
       knowledgeGrants: [],
       inferenceRules: [],
       fallbackDag: { dagId: "d", version: 1, issuedBy: "t", nodes: [], edges: [] },

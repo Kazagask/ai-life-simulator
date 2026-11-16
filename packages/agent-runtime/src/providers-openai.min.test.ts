@@ -14,7 +14,7 @@ function fetchReturning(body: unknown, status = 200): typeof fetch {
 
 const request = {
   messages: [{ role: "user" as const, content: "{}" }],
-  tools: [{ name: "content.writeNarrative", parameters: { type: "object" } }],
+  tools: [{ name: "narrative.write", parameters: { type: "object" } }],
   timeoutMs: 1000,
 };
 
@@ -27,7 +27,7 @@ const toolCallBody = {
             id: "call_1",
             type: "function",
             function: {
-              name: "content.writeNarrative",
+              name: "narrative.write",
               arguments: JSON.stringify(narrativeCall().arguments),
             },
           },
@@ -61,7 +61,7 @@ describe("OpenAiCompatibleProvider（结构化 tool_calls）", () => {
     expect(seenUrl).toBe("https://llm.example/v1/chat/completions");
     expect(JSON.parse(seenBody)).toMatchObject({ model: "m", tool_choice: "auto" });
     expect(result.toolCalls).toHaveLength(1);
-    expect(result.toolCalls[0]).toMatchObject({ id: "call_1", name: "content.writeNarrative" });
+    expect(result.toolCalls[0]).toMatchObject({ id: "call_1", name: "narrative.write" });
     expect(result.toolCalls[0]!.arguments.blockId).toBe("blk-1");
     expect(result.inputTokens).toBe(12);
     expect(result.outputTokens).toBe(34);
@@ -80,7 +80,7 @@ describe("OpenAiCompatibleProvider（结构化 tool_calls）", () => {
               tool_calls: [
                 {
                   id: "c",
-                  function: { name: "content.writeNarrative", arguments: "{not-json" },
+                  function: { name: "narrative.write", arguments: "{not-json" },
                 },
               ],
             },

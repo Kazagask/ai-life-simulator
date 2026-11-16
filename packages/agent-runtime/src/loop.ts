@@ -67,6 +67,11 @@ export interface AgentLoopDeps {
 }
 
 export type LoopEndReason =
+  /**
+   * `completed` = **自然退出**：模型不再发 tool call，且本轮有过成功写入。
+   * 这是现在唯一的"正常完成"路径（`submitted` 保留只为兼容旧 trace）。
+   */
+  | "completed"
   | "submitted"
   | "no_tool_calls"
   | "max_tool_rounds"
@@ -182,6 +187,10 @@ export async function runAgentLoop(
   let outputTokens = 0;
   let retries = 0;
   let end: EndState | null = null;
+  /** 本轮是否至少有一次写入被引擎接受（决定"自然退出"算完成还是失败）。 */
+  let wroteSomething = false;
+  /** 模型/脚本是否已显式发过 `agent.submit`（发过就不再补内部提交，避免多一条回执）。 */
+  let submittedByModel = false;
 
   const record = (code: DiagnosticCode): void => {
     if (!diagnostics.includes(code)) diagnostics.push(code);
@@ -232,7 +241,18 @@ export async function runAgentLoop(
     }
 
     if (completion.toolCalls.length === 0) {
-      end = { reason: "no_tool_calls", detail: "provider 只返回文本，未发起工具调用" };
+      /**
+       * **自然退出即完成**（2026-11-16 重设计，取消 `agent.submit` 工具）。
+       *
+       * 模型不再发 tool call ⇒ 它没有更多要写的了，这就是最可靠的终止信号。
+       * 以前要求模型显式调 `content.submit`，于是多出一个真实故障模式：
+       * 正文写好了但忘了提交 ⇒ 整轮作废。终止是**运行时的责任**，不是模型的责任。
+       *
+       * 判定：本轮只要有过被接受的写入，就算 committed；什么都没写才算失败。
+       */
+      end = wroteSomething
+        ? { reason: "completed" }
+        : { reason: "no_tool_calls", detail: "provider 只返回文本、未发起工具调用，且本轮没有任何成功的写入" };
       break;
     }
 
@@ -270,7 +290,7 @@ export async function runAgentLoop(
       /**
        * 第 1 层失败**回灌给模型自己修**，不再直接判死。
        *
-       * 理由（真实模型实测）：`glm-5.3` 第一次发 `content.writeNarrative` 时 arguments 是
+       * 理由（真实模型实测）：`glm-5.3` 第一次发 `narrative.write` 时 arguments 是
        * `{}`（空对象）——这不是"模型不会用工具"，而是**可修的一次格式错误**。原实现把它
        * 当 FATAL，结果是整轮 invocation 作废、玩家一个字都看不到；而模型只要看到
        * "缺 text" 就能立刻补上。
@@ -317,10 +337,15 @@ export async function runAgentLoop(
     const result = deps.engineApi.dispatch(calls, dispatchCtx);
     receipts.push(...result.receipts);
 
-    const submitted = result.receipts.some(
-      (receipt, index) => valid[index]?.name === "content.submit" && receipt.outcome === "accepted",
-    );
-    if (submitted) {
+    if (result.receipts.some((receipt) => receipt.outcome === "accepted")) wroteSomething = true;
+    // 兼容：模型/旧脚本若显式发了 `agent.submit`，就直接收工（它已不在工具面上，
+    // 但内部调用与回放仍可能出现）。
+    if (
+      result.receipts.some(
+        (receipt, index) => valid[index]?.name === "agent.submit" && receipt.outcome === "accepted",
+      )
+    ) {
+      submittedByModel = true;
       end = { reason: "submitted" };
       break;
     }
@@ -380,11 +405,32 @@ export async function runAgentLoop(
     }
   }
 
-  if (end === null) {
-    end = { reason: "max_tool_rounds", detail: `达到 ${budget.maxToolRounds} 轮上限` };
+  /**
+   * 收尾：把"提交"作为**运行时内部动作**补上（`agent.submit` 已不在模型的工具面上）。
+   *
+   * 它的职责只剩引擎侧记账：写 `state.traceRef`、清 `pendingInvocation`。
+   * 模型不需要知道这件事存在 —— 这正是"终止是运行时责任"的落点。
+   */
+  if (wroteSomething && !submittedByModel) {
+    const submitCall = {
+      callId: `${inv.invocationId}:auto-submit`,
+      tool: "agent.submit",
+      args: { blockIds: [] },
+    };
+    allCalls.push(submitCall);
+    const submitted = deps.engineApi.dispatch([submitCall], dispatchCtx);
+    receipts.push(...submitted.receipts);
   }
 
-  const outcome: "committed" | "fallback" = end.reason === "submitted" ? "committed" : "fallback";
+  if (end === null) {
+    // 达到轮数上限：写过东西就算完成（内容已经在 trace 里），什么都没写才算失败。
+    end = wroteSomething
+      ? { reason: "completed" }
+      : { reason: "max_tool_rounds", detail: `达到 ${budget.maxToolRounds} 轮上限` };
+  }
+
+  const outcome: "committed" | "fallback" =
+    end.reason === "completed" || end.reason === "submitted" ? "committed" : "fallback";
   const latencyMs = Math.max(0, now() - startedAt);
   const base = buildContentTrace(sink, {
     invocationId: inv.invocationId,

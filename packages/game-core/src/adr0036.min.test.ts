@@ -43,7 +43,7 @@ function freshState(): WorldStateV2 {
 function makeRules(triggers: Rules["llmTriggers"]): Rules {
   return {
     llmTriggers: triggers,
-    toolProfile: { narrative: ["content.writeNarrative"] },
+    toolProfile: { narrative: ["narrative.write"] },
     knowledgeGrants: [],
     inferenceRules: [],
     fallbackDag: { dagId: "d", version: 1, issuedBy: "template", nodes: [], edges: [] },

@@ -62,7 +62,7 @@ function rules(
         },
       },
     ],
-    toolProfile: { narrative: ["content.writeNarrative", "content.submit"] },
+    toolProfile: { narrative: ["narrative.write", "agent.submit"] },
     knowledgeGrants: [],
     inferenceRules: [],
     fallbackDag: {

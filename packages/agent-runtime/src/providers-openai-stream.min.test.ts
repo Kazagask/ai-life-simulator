@@ -26,7 +26,7 @@ const DONE = "data: [DONE]\n\n";
 
 const request = {
   messages: [{ role: "user" as const, content: "{}" }],
-  tools: [{ name: "content.writeNarrative", parameters: { type: "object" } }],
+  tools: [{ name: "narrative.write", parameters: { type: "object" } }],
   timeoutMs: 1000,
 };
 
@@ -57,7 +57,7 @@ describe("OpenAiCompatibleProvider（SSE 流式）", () => {
                     index: 0,
                     id: "call_1",
                     type: "function",
-                    function: { name: "content.writeNarrative", arguments: '{"bl' },
+                    function: { name: "narrative.write", arguments: '{"bl' },
                   },
                 ],
               },
@@ -88,7 +88,7 @@ describe("OpenAiCompatibleProvider（SSE 流式）", () => {
     expect(deltas).toEqual(["你", "好"]);
     expect(result.text).toBe("你好");
     expect(result.toolCalls).toEqual([
-      { id: "call_1", name: "content.writeNarrative", arguments: { blockId: "b1", text: "x" } },
+      { id: "call_1", name: "narrative.write", arguments: { blockId: "b1", text: "x" } },
     ]);
     expect(result.finishReason).toBe("tool_calls");
     expect(result.inputTokens).toBe(7);
@@ -103,8 +103,8 @@ describe("OpenAiCompatibleProvider（SSE 流式）", () => {
             {
               delta: {
                 tool_calls: [
-                  { index: 0, id: "a", function: { name: "content.writeNarrative", arguments: "{" } },
-                  { index: 1, function: { name: "content.submit", arguments: "" } },
+                  { index: 0, id: "a", function: { name: "narrative.write", arguments: "{" } },
+                  { index: 1, function: { name: "agent.submit", arguments: "" } },
                 ],
               },
             },
@@ -122,8 +122,8 @@ describe("OpenAiCompatibleProvider（SSE 流式）", () => {
     const result = await provider.chat({ ...request, onDelta: () => {} });
 
     expect(result.toolCalls.map((c) => c.name)).toEqual([
-      "content.writeNarrative",
-      "content.submit",
+      "narrative.write",
+      "agent.submit",
     ]);
     expect(result.toolCalls[1]).toMatchObject({ id: "tool-1", arguments: { blockIds: [] } });
   });
@@ -138,7 +138,7 @@ describe("OpenAiCompatibleProvider（SSE 流式）", () => {
             {
               delta: {
                 tool_calls: [
-                  { index: 0, id: "c", function: { name: "content.writeNarrative", arguments: '{"bl' } },
+                  { index: 0, id: "c", function: { name: "narrative.write", arguments: '{"bl' } },
                 ],
               },
             },

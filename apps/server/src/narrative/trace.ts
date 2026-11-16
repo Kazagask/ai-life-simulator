@@ -19,13 +19,13 @@ import { appendTrace, worldStore } from "../store.js";
  * 送进 `ContentSink` → `LlmTrace` → append-only `<worldId>.trace.jsonl`。
  *
  * 为什么必须走 `RpgEngineAPI.dispatch` 而不是直接 `appendTrace`：
- * - `content.writeNarrative` 是唯一的正文写入口，窗口校验（`allowedContentRefs`）在引擎内完成，
+ * - `narrative.write` 是唯一的正文写入口，窗口校验（`allowedContentRefs`）在引擎内完成，
  *   server 不能自建可见性判据（F4）；
  * - 回程对象（`sink`）由引擎持有，`buildContentTrace(sink, base)` 才能拿到真正的内容块。
  *
  * 硬不变量：
  * - 正文**只**进 trace，`WorldStateV2` 只留下 `traceRef`（`trace:${invocationId}`）；
- * - `traceRef` 只在 `recordNarrative` 里铸造一次（不调 `content.submit`，避免第二处写入点）；
+ * - `traceRef` 只在 `recordNarrative` 里铸造一次（不调 `agent.submit`，避免第二处写入点）；
  * - 没有块落进 sink（例如全部被窗口拒收）⇒ 不写空 trace、不铸造 traceRef。
  */
 
@@ -66,7 +66,7 @@ export function recordNarrative(
     targetPerspective: "player",
   });
 
-  // 写侧也过滤一遍 refs：`content.writeNarrative` 会以 `allowedContentRefs` 拒收越窗引用，
+  // 写侧也过滤一遍 refs：`narrative.write` 会以 `allowedContentRefs` 拒收越窗引用，
   // 但整块被拒会丢掉合法正文；这里先把不可见 ref 摘掉，保留正文本身。
   const visible = visibleFactRefs(state, "player");
   const calls = input.blocks.map((block, index) => {
@@ -81,7 +81,7 @@ export function recordNarrative(
     };
     return {
       callId: `${invocationId}#${index}`,
-      tool: "content.writeNarrative",
+      tool: "narrative.write",
       args,
       refs,
     };

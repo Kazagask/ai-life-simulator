@@ -45,7 +45,7 @@ describe("T-05b buildLlmContext", () => {
       ...fixture.rules,
       toolProfile: {
         ...fixture.rules.toolProfile,
-        "flavor-only": ["content.writeFlavor"],
+        "flavor-only": ["narrative.flavor"],
       },
     };
     const skeleton = "最小骨架模板";
@@ -90,8 +90,8 @@ describe("T-05b buildLlmContext", () => {
       toolProfile: "narrative",
       worldSkeleton: "骨架",
     });
-    expect(prefix).toContain("content.writeNarrative");
-    expect(prefix).toContain("content.submit");
+    expect(prefix).toContain("narrative.write");
+    expect(prefix).toContain("agent.submit");
     expect(prefix).toContain("# 输出契约");
     expect(prefix).not.toContain("fact:gate-location");
   });

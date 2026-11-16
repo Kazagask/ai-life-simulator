@@ -30,26 +30,15 @@ llmTriggers:
       toolProfile: "gm"
 
 toolProfile:
-  # 能力画像 = 本次 invocation 允许的工具面。三条硬约束：
-  # 1) 只能列**两处注册表都认识**的工具：game-core 的 defaultToolRegistry()（执行面）
-  #    与 agent-runtime 的 ALL_TOOL_NAMES（给模型看的表面）。少了后者会被静默过滤。
-  # 2) 必须含 content.submit，否则本次 invocation 到不了 committed 终止态。
-  # 3) 必须包含写世界的工具：DAG 分支用 fact.upsertDagBranch（增量续写，
-  #    整份覆盖会静默丢掉模型没看见的 guards/completion/edges），
-  #    把分支事件上桌用 fact.enqueueEvent。
-  narrative:
-    [
-      "content.writeNarrative",
-      "content.writeOption",
-      "content.referenceAsset",
-      "fact.upsertDagBranch",
-      "fact.enqueueEvent",
-      "content.submit",
-    ]
-  # AGENTIC-GM 画像：模板给的是**能力上限**，实际下发由引擎按槽状态求交
-  # （槽被占时去掉 story.submitBranch；combat 不唤起）。
+  # 能力画像 = 本次 invocation 允许的工具面（模板给的是**能力上限**，
+  # 实际下发由引擎按槽状态求交：槽被占时去掉 story.submitBranch；combat 不唤起）。
+  # ① 工具名必须**两处注册表都认识**（game-core 的 defaultToolRegistry 与
+  #    agent-runtime 的 ALL_TOOL_NAMES），少一处就会被静默过滤或吃 unknown_tool。
+  # ② **不需要**提交工具：终止由运行时判定（模型不再发 tool call 即完成）。
+  # ③ 写世界只有一条通道：story.submitBranch。fact.enqueueEvent / upsertDagBranch
+  #    都已下线（前者是"直接入队"、后者是"往已有 DAG 打补丁"，都是被禁止的写法）。
   gm:
-    ["content.writeNarrative", "story.submitBranch", "content.submit"]
+    ["narrative.write", "narrative.flavor", "story.submitBranch"]
 
 knowledgeGrants:
   # 走到分叉点 = 亲眼看见「世界本身被切开」这件事。

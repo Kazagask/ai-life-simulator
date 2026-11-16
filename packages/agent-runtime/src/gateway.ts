@@ -124,7 +124,7 @@ export class AgentGateway implements LlmGateway {
       };
     } finally {
       /**
-       * 「在飞」标记的兜底清除（正常路径已由 `content.submit` 清）。
+       * 「在飞」标记的兜底清除（正常路径已由 `agent.submit` 清）。
        *
        * 没有这一步，重试耗尽 / 超时 / provider 报错这类**不走 submit**的收场会让
        * 投影的 `llmPending` 永久为真 —— 前端「AI 书写中…」再也不熄。

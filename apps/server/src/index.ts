@@ -235,7 +235,7 @@ function isMaskedEnding(resolution: EndingResolution): boolean {
  * 其余走 `generateNarrative`（mock 亦短路为 template）。
  * 管线配置取该世界的内存快照 `entry.pipeline`（不查全局表）。
  *
- * F3：LLM 产出的结局正文（title + summary）经 `content.writeNarrative` 落 trace，
+ * F3：LLM 产出的结局正文（title + summary）经 `narrative.write` 落 trace，
  * 刷新后仍可通过 `GET /api/worlds/:id/narrative` 读回；存档只留 `traceRef`。
  */
 async function endingOutcomeFor(

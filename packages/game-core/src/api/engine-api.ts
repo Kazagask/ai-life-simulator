@@ -655,7 +655,7 @@ const writeContent: ToolHandler = {
 };
 
 /**
- * `content.submit`：invocation 正常落地的终止点。
+ * `agent.submit`：invocation 正常落地的终止点。
  *
  * F3：traceRef 是 trace 的引用锚；正文仍只在 sink，不进 state。
  * 同时清掉本轮的在飞标记（只在 id 匹配时清 —— 见 `EngineApiHandle.clearPending`）。
@@ -681,16 +681,20 @@ function defaultToolRegistry(): Map<string, ToolHandler> {
   map.set("fact.upsertDagBranch", upsertDagBranch);
   map.set("fact.enqueueEvent", enqueueEvent);
   map.set("story.submitBranch", submitBranch);
-  for (const name of [
-    "content.writeNarrative",
-    "content.writeMemory",
-    "content.writeOption",
-    "content.writeFlavor",
-    "content.referenceAsset",
-  ]) {
+  /**
+   * 叙事写入只留两个：`narrative.write`（正文）/ `narrative.flavor`（环境旁注）。
+   *
+   * 删除的三个，理由各不相同：
+   * - `content.writeOption`：**"写一个选项"在语义上就是错的** —— 选项是事件块里的
+   *   `options`，由引擎分配 id、由事件面板呈现；它不是叙事，不该有"写"的入口。
+   * - `content.writeMemory`：记忆是**知识台账**，由模板 `knowledgeGrants` 授予。
+   * - `content.referenceAsset`：媒体挂载不是叙事；将来接资产应作为 `narrative.write`
+   *   的可选参数（`assetId`），而不是独立工具。
+   */
+  for (const name of ["narrative.write", "narrative.flavor"]) {
     map.set(name, writeContent);
   }
-  map.set("content.submit", submitContent);
+  map.set("agent.submit", submitContent);
   return map;
 }
 

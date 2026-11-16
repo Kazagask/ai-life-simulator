@@ -106,22 +106,33 @@ export const FACT_TOOL_NAMES = [
 ] as const;
 
 /** 内容写入工具（与 game-core `defaultToolRegistry()` 对齐）。 */
-export const CONTENT_TOOL_NAMES_ALL = [
-  "content.writeNarrative",
-  "content.writeMemory",
-  "content.writeOption",
-  "content.writeFlavor",
-  "content.referenceAsset",
-] as const;
+/**
+ * 叙事写入工具（与 game-core `defaultToolRegistry()` 对齐）：**只剩两个**。
+ * `writeOption` / `writeMemory` / `referenceAsset` 已从函数层删除，理由见引擎注册处注释。
+ */
+export const CONTENT_TOOL_NAMES_ALL = ["narrative.write", "narrative.flavor"] as const;
 
 /**
- * 常驻工具（不受能力画像收窄影响）：
- * - `content.submit`：唯一的「提交」终止信号，缺了它一次 invocation 永远进不了 committed；
- * - `content.writeOption`：产品口径「点击为主、打字输入为辅」，决策点必须给出可点击选项。
- *   早期 demo 模板的 `toolProfile.narrative` 漏列了它（模板不归本包改），先按常驻处理；
- *   画像现已显式列出 writeOption，本项保留为兜底不变量。
+ * 常驻工具（不受能力画像收窄影响）：**只留 `agent.submit`**。
+ *
+ * `agent.submit` 是唯一的「提交」终止信号，缺了它一次 invocation 永远进不了 committed，
+ * 任何画像都必须有它。
+ *
+ * `content.writeOption` **已从常驻里移除**（AGENTIC-GM 重构）：选项是**事件的一部分**
+ * （`story.submitBranch` 里的 `options`，带真 optionId、由引擎呈现），不是模型写的一段文本。
+ * 它曾经因为"早期 demo 画像漏列"被当常驻兜底，结果是 **gm 画像也照样能写文本选项** ——
+ * 前端把它渲染成黄色胶囊，看起来像选项，点下去却只能按自由行动受理，和事件面板里的
+ * 真选项是两套东西。画像不列 = 不下发，这才是"能力由画像与槽状态共同决定"。
  */
-export const CONTROL_TOOL_NAMES = ["content.submit", "content.writeOption"] as const;
+/**
+ * 常驻工具：**空**。
+ *
+ * `agent.submit` 已从模型工具面移除（2026-11-16）：终止是**运行时责任** ——
+ * 模型不再发 tool call 就是"写完了"，运行时自己补一次内部提交做记账
+ * （写 `traceRef`、清 `pendingInvocation`）。要求模型显式提交只会多一个
+ * "忘了 submit ⇒ 整轮作废"的故障模式。
+ */
+export const CONTROL_TOOL_NAMES: readonly string[] = [];
 
 /**
  * 剧情编排工具（AGENTIC-GM 重构）。
@@ -157,8 +168,8 @@ const contentRefsSchema = {
 };
 
 const CONTENT_DESCRIPTORS: Record<string, ToolDescriptor> = {
-  "content.writeNarrative": {
-    name: "content.writeNarrative",
+  "narrative.write": {
+    name: "narrative.write",
     description: "写入一段叙事正文（只进 trace，不进权威状态）。",
     // 只要求 text：blockId / refs / targetPerspective 由运行时补齐（toApiCall）。
     parameters: schemaOf(
@@ -166,53 +177,12 @@ const CONTENT_DESCRIPTORS: Record<string, ToolDescriptor> = {
       ["text"],
     ),
   },
-  "content.writeMemory": {
-    name: "content.writeMemory",
-    description: "写入某个观察者的记忆片段。",
-    parameters: schemaOf(
-      {
-        text: { type: "string", minLength: 1 },
-        observer: { type: "string", description: "player | npc:<id>；缺省按本轮视角" },
-      },
-      ["text"],
-    ),
-  },
-  "content.writeOption": {
-    name: "content.writeOption",
-    description:
-      "写入一个玩家可点击的行动选项（本游戏以点击选项推进，打字输入只是兜底）。" +
-      "在决策点（章节 / 场景 / 任务推进）应给出 2-3 个选项，顺序排在叙事之后；" +
-      "text 必须是第二人称、动词开头的具体动作（例：「撬开后门的电子锁」），不要写成对选项的描述。",
-    parameters: schemaOf(
-      { text: { type: "string", minLength: 1, description: "选项文案：第二人称、动词开头" } },
-      ["text"],
-    ),
-  },
-  "content.writeFlavor": {
-    name: "content.writeFlavor",
+  "narrative.flavor": {
+    name: "narrative.flavor",
     description: "写入风味文本（环境描写）。",
     parameters: schemaOf(
       { text: { type: "string", minLength: 1, description: "环境描写" } },
       ["text"],
-    ),
-  },
-  "content.referenceAsset": {
-    name: "content.referenceAsset",
-    description: "把已有媒体资源挂到叙事的一个槽位上。",
-    parameters: schemaOf(
-      {
-        assetId: { type: "string", minLength: 1 },
-        slot: { type: "string", minLength: 1, description: "可选：挂到哪个槽位" },
-      },
-      ["assetId"],
-    ),
-  },
-  "content.submit": {
-    name: "content.submit",
-    description: "提交本次 invocation 的全部内容块，结束调用。",
-    parameters: schemaOf(
-      { blockIds: { type: "array", items: { type: "string", minLength: 1 } } },
-      ["blockIds"],
     ),
   },
 };
@@ -397,7 +367,7 @@ export function unknownProfileTools(
   return listed.filter((name) => !ALL_TOOL_NAMES.includes(name));
 }
 
-/** 画像收窄后的工具名集合（含常驻控制通道 `content.submit`）。 */
+/** 画像收窄后的工具名集合（含常驻控制通道 `agent.submit`）。 */
 export function resolveToolNames(
   rules: RulesTemplate | undefined,
   toolProfileName: string | undefined,
@@ -443,12 +413,8 @@ const CONTENT_SCHEMA_BY_TOOL: Record<
   string,
   (typeof ContentToolArgsSchemas)[keyof typeof ContentToolArgsSchemas]
 > = {
-  "content.writeNarrative": ContentToolArgsSchemas.writeNarrative,
-  "content.writeMemory": ContentToolArgsSchemas.writeMemory,
-  "content.writeOption": ContentToolArgsSchemas.writeOption,
-  "content.writeFlavor": ContentToolArgsSchemas.writeFlavor,
-  "content.referenceAsset": ContentToolArgsSchemas.referenceAsset,
-  "content.submit": ContentToolArgsSchemas.submit,
+  "narrative.write": ContentToolArgsSchemas.writeNarrative,
+  "narrative.flavor": ContentToolArgsSchemas.writeFlavor,
 };
 
 /**
@@ -459,6 +425,14 @@ export function validateToolCall(
   call: ToolCallRequest,
   allowed: ReadonlySet<string>,
 ): ArgValidation {
+  /**
+   * `agent.submit` 是**内部/兼容**动词，不在模型工具面上（任何画像都不列它），
+   * 但仍然允许出现在调用里：
+   * - 运行时在"自然退出"时会自己补一次（记账用）；
+   * - 旧脚本 / 旧 trace 回放里可能还有它。
+   * 模型即使幻觉出它也无害 —— 只是标记"我写完了"。
+   */
+  if (call.name === "agent.submit") return { ok: true, args: call.arguments };
   if (!allowed.has(call.name)) {
     return { ok: false, code: "unknown_tool", detail: `未授权的工具：${call.name}` };
   }
@@ -477,13 +451,6 @@ export function validateToolCall(
    */
   if (CONTENT_SCHEMA_BY_TOOL[call.name] !== undefined) {
     const args = call.arguments;
-    if (call.name === "content.referenceAsset") {
-      if (typeof args.assetId !== "string" || args.assetId.length === 0) {
-        return { ok: false, code: "invalid_arguments", detail: "content.referenceAsset 需要 assetId" };
-      }
-      return { ok: true, args };
-    }
-    if (call.name === "content.submit") return { ok: true, args };
     if (typeof args.text !== "string" || args.text.trim().length === 0) {
       return {
         ok: false,
@@ -592,12 +559,10 @@ export function validateToolCall(
 
 // ---------- 第 1.5 层：LLM args → ContentBlock / ApiCall ----------
 
+/** 叙事工具 → 内容块 kind。只剩两个：正文与旁注（option/memory/asset 已删）。 */
 const CONTENT_KIND_BY_TOOL: Record<string, string> = {
-  "content.writeNarrative": "narrative",
-  "content.writeMemory": "memory",
-  "content.writeOption": "option",
-  "content.writeFlavor": "flavor",
-  "content.referenceAsset": "asset",
+  "narrative.write": "narrative",
+  "narrative.flavor": "flavor",
 };
 
 const asPerspective = (v: unknown): Perspective | undefined => {
@@ -616,7 +581,7 @@ export function toApiCall(
   args: Record<string, unknown>,
   ctx: { callId: string; targetPerspective: Perspective },
 ): ApiCall {
-  if (tool === "content.submit") {
+  if (tool === "agent.submit") {
     return { callId: ctx.callId, tool, args };
   }
   const kind = CONTENT_KIND_BY_TOOL[tool];
@@ -627,7 +592,8 @@ export function toApiCall(
     ? args.refs.filter((r): r is string => typeof r === "string")
     : [];
   const declaredTarget = asPerspective(args.targetPerspective);
-  const observerTarget = tool === "content.writeMemory" ? asPerspective(args.observer) : undefined;
+  // `writeMemory` 已删：记忆由引擎按模板 knowledgeGrants 授予，不是 AI 写的。
+  const observerTarget = undefined;
   /**
    * `blockId` 由运行时补齐，**不要求模型生成**。
    *

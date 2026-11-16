@@ -131,7 +131,7 @@ export interface EngineApiHandle {
    * 这时清空会抹掉新一轮的标记，所以实现必须比对 `invocationId` 再决定是否清。
    *
    * 为什么需要它：invocation 是 fire-and-forget，失败（重试耗尽 / 超时 / provider 报错）
-   * 不会走 `content.submit`，若只在提交时清，`llmPending` 会永久为真、前端永远显示「AI 书写中」。
+   * 不会走 `agent.submit`，若只在提交时清，`llmPending` 会永久为真、前端永远显示「AI 书写中」。
    */
   clearPending?(invocationId: string): void;
 }

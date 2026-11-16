@@ -28,37 +28,39 @@ describe("demo-agentic 规则模板可用性（契约核对）", () => {
     }
   });
 
-  it("画像收窄生效，但保留 submit / writeOption 常驻通道（模板漏列 writeOption）", () => {
+  it("画像收窄生效：叙事只剩 write / flavor，工具面里没有提交动词", () => {
     const descriptors = buildToolDescriptors(fixture.rules, "narrative");
     const names = descriptors.map((tool) => tool.name);
-    expect(names).toContain("content.writeNarrative");
-    expect(names).toContain("content.submit");
-    // 产品裁决「点击为主」：模板画像没有 writeOption，本包按常驻工具补齐。
-    expect(names).toContain("content.writeOption");
+    expect(names).toContain("narrative.write");
+    // 终止是运行时责任：模型工具面里**没有**提交动词。
+    expect(names).not.toContain("agent.submit");
+    // 2026-11-16 重设计：`content.writeOption` 从函数层删除（选项属于事件块的 options），
+    // 不再作为常驻工具补进任何画像。
+    expect(names).not.toContain("content.writeOption");
     expect(names).not.toContain("content.writeMemory");
+    expect(names).not.toContain("content.referenceAsset");
   });
 
-  it("writeOption 的工具描述显式要求 2-3 个可点击动作", () => {
-    const descriptor = buildToolDescriptors(fixture.rules, "narrative").find(
-      (tool) => tool.name === "content.writeOption",
-    );
-    const description = descriptor?.description ?? "";
-    expect(description).toContain("点击");
-    expect(description).toContain("2-3");
-    expect(description).toContain("第二人称");
+  it("已删除的写结构工具不再出现在工具面上", () => {
+    // 这一条是"删除清单"的可执行形态：模型不该有任何"直接动引擎结构"的入口。
+    const names = buildToolDescriptors(fixture.rules, "narrative").map((tool) => tool.name);
+    for (const retired of [
+      "content.writeOption",
+      "content.writeMemory",
+      "content.referenceAsset",
+    ]) {
+      expect(names).not.toContain(retired);
+    }
   });
 
   it("画像不得列出引擎未注册的工具（契约漂移不变量）", () => {
-    // 2026-11-16 修：原稿画像列了 `fact.enqueueEvent`，而 game-core 的 defaultToolRegistry 没有
-    // 该工具 ⇒ 模型一 emit 就吃 unknown_tool（FATAL，不消耗重试，且不产生任何回执给模型重生成）。
-    // 该工具已从 rules.yaml 的 narrative 画像移除，本断言由「钉住缺陷」转为「不变量」：
-    // 画像 ∩ 未注册工具 == ∅。再有人往画像里加不存在的工具，这里立刻红。
+    // 画像里出现未注册的工具 ⇒ 模型一 emit 就吃 unknown_tool（FATAL）。
+    // 断言由「钉住缺陷」转为「不变量」：画像 ∩ 未注册工具 == ∅。
     expect(unknownProfileTools(fixture.rules, "narrative")).toEqual([]);
   });
 
-  it("画像含 content.writeOption（点击为主的交互承载）", () => {
-    // 用户裁决「点击为主 打字输入为辅」：整轮只有散文没有任何可点动作 = 坏回合。
-    const descriptors = buildToolDescriptors(fixture.rules, "narrative");
-    expect(descriptors.map((tool) => tool.name)).toContain("content.writeOption");
+  it("叙事工具名走 narrative 命名空间，不再是 content.*", () => {
+    const names = buildToolDescriptors(fixture.rules, "narrative").map((tool) => tool.name);
+    expect(names.filter((n) => n.startsWith("content."))).toEqual([]);
   });
 });

@@ -36,7 +36,7 @@ import {
 } from "./platformLlm";
 import { deleteLifeRecord, listLifeRecords, saveLifeRecord, shouldAutoArchive } from "./records";
 import type { LifeRecordRow } from "./records";
-import { OptionDeck, interactionMode, toActPayload, toViewModel } from "@life-sim/rpg-ui";
+import { interactionMode, toActPayload, toViewModel } from "@life-sim/rpg-ui";
 import type { ActHandler, ContentBlockVM, ViewModel } from "@life-sim/rpg-ui";
 import { ActionDock } from "./ActionDock";
 import { NarrativeStage } from "./NarrativeStage";
@@ -1415,7 +1415,15 @@ function LifeTab({
   const mode = interactionMode(view);
   const docked = !ended && mode === "free";
   // LLM 写的选项块（`kind === "option"`）：叙事区只放散文，这些块归事件区。
-  const aiOptions = view.content.filter((block) => block.kind === "option");
+  /**
+   * AI 写的 `content.writeOption` 块**不再渲染**（AGENTIC-GM 重构）。
+   *
+   * 选项现在只来自事件：`story.submitBranch` 提交的每个事件块带自己的 options，
+   * 由引擎分配真 optionId、由事件面板呈现。曾经的 OptionDeck 把模型写的文本块渲染成
+   * 黄色胶囊，点是能点，但只能按自由行动受理 —— 和事件面板里的真选项是两套东西。
+   * 更糟的是那些块会**跨轮残留**：上一轮写的选项在这一轮的自由行动里继续显示，
+   * 看起来像"这一轮又冒出两个选项"。
+   */
 
   return (
     <>
@@ -1479,15 +1487,9 @@ function LifeTab({
               {slot !== null && slot.kind === "normal" && (
                 <EventPanel slot={slot} busy={busy} onChoose={onChoose} />
               )}
-              {/* 自由行动：行动按钮上移到常驻底部行动坞；这里接 AI 选项 + 次要入口 */}
+              {/* 自由行动：只有模板动作 + 次要入口；**不渲染 AI 写的文本选项**（见上方注释）。 */}
               {slot === null && (
                 <>
-                  {/*
-                    LLM 写的选项铺在行动坞入口上方：事件区是「本轮要点」的唯一归属地。
-                    `docked` 之外（理论上走不到：槽空即自由行动）不传 `onAct` ⇒ 静态引述，
-                    避免渲染出点了必 400 的按钮。空数组时 `OptionDeck` 自身返回 null（不占位）。
-                  */}
-                  <OptionDeck blocks={aiOptions} onAct={docked ? onAct : undefined} disabled={busy} />
                   <ActionPanel snapshot={snapshot} busy={busy} onUseItem={onUseItem} onEndLife={onEndLife} />
                 </>
               )}
