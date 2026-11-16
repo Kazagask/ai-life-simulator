@@ -3,9 +3,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { parse } from "yaml";
-import { WorldTemplateV2Schema, type WorldStateV2, type WorldTemplateV2 } from "@life-sim/shared";
+import { WorldTemplateV2Schema, RulesSchema, type WorldStateV2, type WorldTemplateV2 } from "@life-sim/shared";
 
 import { createActiveWorldV2 } from "./v2/test-utils.js";
+import { createConditionRegistry, evaluateTriggers } from "./v2/condition-evaluator.js";
+import { RpgEngineAPI } from "./api/engine-api.js";
 import { createLookup } from "./v2/lookup.js";
 import { advanceTurnV2, chooseOptionV2 } from "./v2/turn.js";
 import { checkEventPremise, enqueueScheduled, scanDelayQueue } from "./v2/scheduler.js";
@@ -206,9 +208,62 @@ describe("missWhen 一次性守卫（防线二）", () => {
     expect(state.missedEvents).toHaveLength(0);
   });
 
-  // TODO(ADR-0038)：`invoke.branchEventIds` 落地后补第 4 条用例 ——
-  // 「`contextHints` 里出现事件 id、但 invoke 未声明 `branchEventIds` ⇒ 零入队」。
-  // 该约束目前位于 agent-runtime 的 mock 侧（防线一），engine 层字段尚未存在；
-  // 按 team-lead 指示先跳过，等结构化字段落地后由模板 + engine 双侧锁死。
-  it.skip("TODO(ADR-0038): 未声明 branchEventIds ⇒ 即使 contextHints 提到事件也零入队", () => {});
+  /**
+   * ADR-0038 第 4 条：**白名单是能力声明，不是提示的副产物**。
+   *
+   * 模板作者只在 `contextHints` 里写 `evt:trial`（旧写法，标签语义）而没声明
+   * `invoke.branchEventIds` ⇒ core 不往 `LlmContext` 里拷任何白名单 ⇒ 引擎侧
+   * 「两拒一放」的第一种拒绝（未声明），`delayQueue` 逐字段不变。
+   *
+   * 这条把「沉默 = 没有分支能力」钉在 engine 层：即使调用方（mock / 真实模型）
+   * 硬发 `fact.enqueueEvent`，也进不了队列。
+   */
+  it("未声明 branchEventIds ⇒ 即使 contextHints 提到事件也零入队", () => {
+    const { state } = freshWorld();
+    const rawRules = parse(readFileSync(path.join(VERSION_DIR, "rules.yaml"), "utf8")) as Record<
+      string,
+      unknown
+    >;
+    const rules = RulesSchema.parse(rawRules);
+    const trigger = rules.llmTriggers[0]!;
+    // 只写标签、不声明白名单（模拟迁移前的老模板）。
+    trigger.invoke.contextHints = ["chapter.tone", "evt:trial"];
+    delete trigger.invoke.branchEventIds;
+    // 让触发器稳定命中，不依赖 taskDag 状态。
+    trigger.when = [{ op: "always", args: {} }];
+
+    const invocation = evaluateTriggers(state, rules, createConditionRegistry(), {
+      seed: state.seed,
+      turnIndex: 1,
+    })[0];
+    expect(invocation).toBeDefined();
+    // 关键：hints 里有事件 id，但 context 里没有白名单。
+    expect(invocation!.context.contextHints).toContain("evt:trial");
+    expect(invocation!.context.branchEventIds).toBeUndefined();
+
+    const api = new RpgEngineAPI({
+      state,
+      perspective: "player",
+      targetPerspective: "player",
+    });
+    const before = JSON.stringify(state);
+    const result = api.dispatch(
+      [{ callId: "c-1", tool: "fact.enqueueEvent", args: { eventId: "evt:trial" } }],
+      {
+        turnIndex: state.turnIndex,
+        worldTime: state.worldTime,
+        invocationId: invocation!.invocationId,
+        perspective: "player",
+        targetPerspective: "player",
+      },
+    );
+
+    const receipt = result.receipts[0];
+    expect(receipt?.outcome).toBe("rejected");
+    expect(receipt?.code).toBe("unknown_reference");
+    expect(receipt?.factsHint).toMatchObject({ allowedRefs: [] });
+    // 逐字段不变（含 enqueueSeqCounter）—— 拒绝不是"入队后清理"。
+    expect(JSON.stringify(state)).toBe(before);
+    expect(state.delayQueue).toHaveLength(0);
+  });
 });

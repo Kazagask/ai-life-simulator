@@ -310,8 +310,11 @@ describe("分支轮 × 真引擎：分支事件真的上桌", () => {
       (inv) => inv.reason === "chapter.advance",
     );
     expect(invocation).toBeDefined();
-    // rules.yaml 的第 1 条触发器给出显式指令（`branch:evt:trial`）。
-    expect(invocation!.context.contextHints).toContain("branch:evt:trial");
+    // ADR-0038：上桌能力由结构化白名单声明（`branchEventIds`），且提示通道里不得再出现事件 id。
+    expect(invocation!.context.branchEventIds).toEqual(["evt:trial"]);
+    expect(invocation!.context.contextHints ?? []).not.toContainEqual(
+      expect.stringMatching(/^evt:/),
+    );
 
     const queueBefore = fixture.state.delayQueue.length;
     const traces: LlmTrace[] = [];

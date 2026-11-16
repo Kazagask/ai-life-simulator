@@ -19,15 +19,17 @@ import {
  *   ④ 提交（content.submit）
  * 因此 `contentBlocks` 顺序恒为 narrative → option → flavor，前端可直接按序渲染。
  *
- * ② 只在 `contextHints` 出现**显式分支指令**（`branch:evt:xxx` / `hint:branch:evt:xxx` /
- * `{"kind":"enqueueEvent","eventId":"evt:xxx"}`）时才发生。裸 `evt:` 标签与 `facts[].factRef`
- * **不**算指令 —— 见下方 `parseBranchHint` 的 409 事故注释。eventId 必须是模板已有事件，
- * 自造 id 必然吃 `unknown_reference`（FATAL），所以取不到就整轮跳过 —— 宁可少演示一次。
+ * ② 只在调用上下文声明了**分支白名单**（`branchEventIds`）时才发生：取 `[0]`，
+ * 一次 invocation 最多摆一个事件。白名单由模板 `invoke.branchEventIds` 声明、core 求值
+ * 写进 `LlmContext`（ADR-0038）。`contextHints` 是**自由文本标签通道，零解释** ——
+ * 本文件的发射路径不读它的字符串语义（形状判断已收进 `legacy-hint.ts` 且不接线）。
+ * eventId 还必须是模板已有事件：自造 id 必然吃 `unknown_reference`（FATAL）。
  *
- * ⚠ 去重责任边界（别误以为加了 `branch:` 前缀就万事大吉）：显式前缀只修「读错字段」，
- * 不改变「命中一次就发一次」的频率。跨回合不重复入队靠 core 的 `enqueueEvent` waiting 幂等
- * （+ ADR-0035 IO-1 跨回合守卫）；「同一个事件不该反复上桌」的内容层防线靠模板 `missWhen`。
- * mock 是**无状态**的（同 invocationId + 同状态 ⇒ 逐字节相同），结构上做不到跨回合去重。
+ * ⚠ 去重责任边界（别误以为声明白名单就万事大吉）：白名单是**能力**不是**一次性**。
+ * 跨回合不重复入队靠 core 的 `enqueueEvent` waiting 幂等（+ ADR-0035 IO-1 跨回合守卫）；
+ * 「同一个事件不该反复上桌」的内容层防线靠模板 `missWhen`；频率本身由 ADR-0036 的边沿
+ * 触发收敛。mock 是**无状态**的（同 invocationId + 同状态 ⇒ 逐字节相同），
+ * 结构上做不到跨回合去重。
  *
  * 文本全部由 `inv.context` 的 facts / dagNodes / recentTurns 与 invocationReason 合成；
  * 无随机、无时钟：同一 invocationId + 同一世界状态 ⇒ 逐字节相同的输出。
@@ -51,6 +53,8 @@ interface MockContextView {
   };
   recentTurns: unknown[];
   contextHints?: string[];
+  /** ADR-0038：本轮允许摆上桌的事件白名单（取 `[0]`）。缺省/空数组 ⇒ 整轮不摆。 */
+  branchEventIds?: string[];
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -87,6 +91,10 @@ function parseContextView(message: AgentMessage | undefined): MockContextView | 
     recentTurns: Array.isArray(parsed.recentTurns) ? parsed.recentTurns : [],
     ...(Array.isArray(parsed.contextHints)
       ? { contextHints: parsed.contextHints.filter((h): h is string => typeof h === "string") }
+      : {}),
+    // 形状校验与 contextHints 同一套：非字符串项静默丢弃，绝不抛。
+    ...(Array.isArray(parsed.branchEventIds)
+      ? { branchEventIds: parsed.branchEventIds.filter((h): h is string => typeof h === "string") }
       : {}),
   };
 }
@@ -382,67 +390,29 @@ function optionTexts(view: MockContextView): string[] {
 /** ② 分支轮唯一会发的「写世界」工具（把分支上的模板事件上桌）。 */
 const BRANCH_TOOL = "fact.enqueueEvent";
 
-const BRANCH_HINT_PREFIXES = ["hint:branch:", "branch:"] as const;
-
-function normalizeBranchTarget(raw: string): string | null {
-  const id = raw.trim();
-  return id.startsWith("evt:") && id.length > "evt:".length ? id : null;
-}
-
 /**
- * 显式分支提示解析器。
+ * 本轮要上桌的事件 id：只取 `branchEventIds[0]`（ADR-0038 D7）。
  *
- * ⚠ 只认**显式**形态，绝不从裸 `evt:` 提示或 `facts[].factRef` 推断：
- * 那等于把「模板在上下文里提到过某个事件」偷偷解释成「每次 invocation 都把它重新入队」。
- * 真实事故（demo-agentic, task.completed 的 hints 含裸 `evt:chance`）：每次结算都
- * enqueue 一个 evt:chance，closing → chance → closing 无限交替，最终 409。
- *
- * 支持两种显式形态：
- *   1) `branch:evt:xxx` / `hint:branch:evt:xxx`
- *   2) 结构化 JSON：`{"kind":"enqueueEvent","eventId":"evt:xxx"}`
- */
-function parseBranchHint(hint: string): string | null {
-  const trimmed = hint.trim();
-  if (trimmed.startsWith("{")) {
-    try {
-      const parsed: unknown = JSON.parse(trimmed);
-      if (isRecord(parsed) && parsed.kind === "enqueueEvent" && typeof parsed.eventId === "string") {
-        return normalizeBranchTarget(parsed.eventId);
-      }
-    } catch {
-      // 不是 JSON，按普通提示忽略。
-    }
-    return null;
-  }
-  for (const prefix of BRANCH_HINT_PREFIXES) {
-    if (trimmed.startsWith(prefix)) return normalizeBranchTarget(trimmed.slice(prefix.length));
-  }
-  return null;
-}
-
-/**
- * 本轮要上桌的事件 id：只取 contextHints 里的显式分支提示。
- * 取不到 ⇒ null（整轮不发 fact.enqueueEvent），宁可不上桌也不误伤模板节奏。
- *
- * 硬约束：绝不自己编 id —— `fact.enqueueEvent` 的 eventId 会跟模板 ref 全集比对，
- * 编出来的 id 必然吃 `unknown_reference`（FATAL，不消耗重试）。
+ * - 缺省 / 空数组 ⇒ null（整轮不发）—— 「沉默 = 没有分支能力」，空数组**不是**不限制；
+ * - **不按 invocationId 轮转**：多分支演示靠模板给多条触发器，不靠 mock 内部状态机
+ *   （那会把不确定性塞进本该确定的地方）；
+ * - 硬约束：绝不自己编 id —— eventId 会跟模板 ref 全集比对，编出来的必然
+ *   `unknown_reference`（FATAL，不消耗重试）。
  *
  * 注意：eventId 是机器引用（与 `refs[]` / assetId 同类），**不过** `sanitizeProse` 闸门 ——
  * 那道闸门针对玩家可见文本，用在这里会把 id 洗成空串。
  */
 function branchEventId(view: MockContextView): string | null {
-  for (const hint of view.contextHints ?? []) {
-    const eventId = parseBranchHint(hint);
-    if (eventId !== null) return eventId;
-  }
-  return null;
+  const declared = view.branchEventIds;
+  if (declared === undefined || declared.length === 0) return null;
+  return declared[0] ?? null;
 }
 
 /**
  * ② 分支轮：把分支事件上桌（`fact.enqueueEvent` 只入队、不占槽）。
  *
  * 排在叙事之后、选项之前：事件先上桌，玩家再在它的分支上做选择。
- * 只认显式 `branch:` 提示；没有显式提示或画像没给该工具 ⇒ 空数组，
+ * 只认 `branchEventIds` 白名单（取 `[0]`）；没有声明或画像没给该工具 ⇒ 空数组，
  * 原有「叙事 → 选项 → 提交」节奏不变。
  */
 function branchCalls(view: MockContextView, available: Set<string>): ToolCallRequest[] {
@@ -459,11 +429,13 @@ function branchCalls(view: MockContextView, available: Set<string>): ToolCallReq
 }
 
 function assetIdFrom(view: MockContextView): string | null {
+  // 判据（ADR-0038 D2-a）：形状推断若改变世界节奏（入队 / 推进 DAG / 授知识）⇒ 禁止；
+  // 若只选取内容参数（这张图用哪个 assetId）⇒ 允许，且必须由命名空间约定支撑。
+  // factRef 是 ref 命名空间（asset: / fact: / secret: 同级），解引用只选内容参数，不改节奏。
+  // hints 是自由文本通道、无命名空间约束 ⇒ 任何形状推断都禁止（`hint.startsWith("asset:")`
+  // 那一支已按 DECISIONS ADR-0038 与 BACKLOG B-40 删除，不要再加回来）。
   for (const fact of view.facts.facts ?? []) {
     if (fact.factRef.startsWith("asset:")) return fact.factRef.slice("asset:".length);
-  }
-  for (const hint of view.contextHints ?? []) {
-    if (hint.startsWith("asset:")) return hint.slice("asset:".length);
   }
   return null;
 }
@@ -610,17 +582,32 @@ export class MockAgentProvider implements AgentProvider {
     const emitted = emittedToolNames(req.messages);
     const done = submitted(req.messages);
     const branch = branchCalls(view, available);
+    /**
+     * ADR-0038 R10：**只有「改写文案就能修好」的拒绝才重生成**。
+     *
+     * 旧条件是 `!isFactRejection(...)`，它兜住了所有非 fact 拒绝：`content.referenceAsset` /
+     * `writeFlavor` / `writeMemory` 被打回时也会落到 `else` 重发一段 narrative，且用的是
+     * **同一个 blockId** ⇒ sink 里出现两块同 id 正文，玩家看到同一段话两次，且没有任何
+     * 错误提示（trait 仍是 committed）。窗口类拒绝里只有 `writeNarrative` / `writeOption`
+     * 收窄 refs 后重发是有意义的；其余工具重发只会复制正文。
+     *
+     * 其余拒绝 ⇒ 跳过该调用、继续正常阶段推进（诊断仍留在 receipts 里，不吞）。
+     */
+    const rewritable =
+      rejection !== null &&
+      !isFactRejection(rejection.name) &&
+      (rejection.name === "content.writeOption" || rejection.name === "content.writeNarrative");
 
     if (done) {
       // 已有 submit，不再产出（loop 正常情况下已在此前终止）。
-    } else if (rejection !== null && !isFactRejection(rejection.name)) {
+    } else if (rewritable) {
       // 分支①：按被拒工具重生成；窗口类拒绝一律收敛为「不带 refs + 权威窗口」。
       // fact.* 的拒绝不走这里：mock 改不了事件 id / DAG 事实，重写文案修不好它（见下一条分支）。
       const hintTarget =
-        typeof rejection.factsHint?.targetPerspective === "string"
-          ? (rejection.factsHint.targetPerspective as Perspective)
+        typeof rejection!.factsHint?.targetPerspective === "string"
+          ? (rejection!.factsHint.targetPerspective as Perspective)
           : view.targetPerspective;
-      if (rejection.name === "content.writeOption" && available.has("content.writeOption")) {
+      if (rejection!.name === "content.writeOption" && available.has("content.writeOption")) {
         optionTexts(view).forEach((text, index) => {
           toolCalls.push({
             id: `${view.invocationId}:call:opt-retry${index}`,

@@ -1,31 +1,41 @@
 import { describe, expect, it } from "vitest";
-import { LlmBudgetSchema, LlmInvocationSchema, type ToolDescriptor } from "@life-sim/shared";
+import {
+  LlmBudgetSchema,
+  LlmInvocationSchema,
+  type LlmInvocation,
+  type ToolDescriptor,
+} from "@life-sim/shared";
+import { createConditionRegistry, evaluateTriggers } from "@life-sim/game-core";
+import { AgentGateway } from "./gateway.js";
 import { runAgentLoop } from "./loop.js";
 import { MockAgentProvider } from "./providers/index.js";
 import type { AgentMessage, ToolCallRequest } from "./tool-registry.js";
 import { buildToolDescriptors } from "./tool-registry.js";
-import { StubEngine } from "./testing/fixtures.js";
+import { StubEngine, loadDemoFixture } from "./testing/fixtures.js";
+import { completion, ScriptedProvider, toolCall } from "./testing/scripted.js";
 
 /**
- * 分支轮验收（设计 §3.4 (b)）：mock 不只写散文 + 选项，还要**把 DAG 分支上的事件上桌**。
+ * 分支轮验收（ADR-0038）：**只有结构化白名单才把事件上桌**。
  *
- * 契约（R3 修订，起因见 server-impl-2 的 409 事故）：
- * - **只有显式指令**才触发 `fact.enqueueEvent`：
- *   ① `branch:evt:xxx`  ② `hint:branch:evt:xxx`  ③ `{"kind":"enqueueEvent","eventId":"evt:xxx"}`
- * - **裸 `evt:xxx` 提示不触发**。`contextHints` 的语义是「标签」，不是「本轮指令」；
- *   旧实现把标签当指令，`task.completed` 的 `evt:chance` 每轮重新入队，
- *   chance → closing → chance 无限交替，最终 409 `pending_event_required`。
- * - **`facts[].factRef` 里的 `evt:` 不触发**：那是「这条事实可见」，不是「把它做成事件」。
- * - `fact.advanceDag` 不 emit：`dagNodes` 只有 nodeId + status，补不出 kind / title / guards /
- *   templateRefs / visibility / edges，硬造一份会**整份覆盖** state.taskDag（毁掉模板分支）。
- * - 跨回合去重**不归 mock**：mock 无状态（同 invocationId + 同状态 ⇒ 逐字节相同），
- *   队列层的重复上桌由 core 的 `enqueueEvent` waiting 幂等兜底，内容层由模板 `missWhen` 兜底。
+ * 契约：
+ * - `inv.context.branchEventIds` 是唯一来源，取 `[0]`，一次 invocation 最多摆一个；
+ * - 未声明 / 显式空数组 ⇒ 整轮不摆（「沉默 = 没有分支能力」，空 ≠ 不限制）；
+ * - `contextHints` 是自由文本标签通道，**零解释**：裸 `evt:`、`branch:evt:`、
+ *   `hint:branch:evt:`、结构化 JSON、`facts[].factRef` 的 `evt:` 引用 —— 全部 0 次。
+ *   （旧写法曾把标签当指令：`task.completed` 每轮重新入队 `evt:chance`，
+ *   chance → closing → chance 无限交替 ⇒ 409。）
+ * - `fact.advanceDag` 永不 emit：`dagNodes` 只有 nodeId + status，补不出 kind / title /
+ *   guards / templateRefs / visibility / edges，硬造一份会整份覆盖 state.taskDag。
+ *
+ * 去重责任边界：mock 无状态（同 invocationId + 同状态 ⇒ 逐字节相同），跨回合不重复入队
+ * 靠 core 的 `enqueueEvent` waiting 幂等，内容层靠模板 `missWhen`。
  */
 
 interface ViewOverrides {
   invocationId?: string;
   reason?: string;
   contextHints?: string[];
+  branchEventIds?: string[];
   facts?: Array<{ factRef: string; value?: unknown; level?: string }>;
   dagNodes?: Array<{ nodeId: string; status: string }>;
   recentTurns?: unknown[];
@@ -44,6 +54,7 @@ function makeView(overrides: ViewOverrides = {}): Record<string, unknown> {
     },
     recentTurns: overrides.recentTurns ?? [],
     ...(overrides.contextHints !== undefined ? { contextHints: overrides.contextHints } : {}),
+    ...(overrides.branchEventIds !== undefined ? { branchEventIds: overrides.branchEventIds } : {}),
   };
 }
 
@@ -57,10 +68,10 @@ async function runRounds(
   let messages: AgentMessage[] = [{ role: "user", content: JSON.stringify(view) }];
   const rounds: ToolCallRequest[][] = [];
   for (let i = 0; i < maxRounds; i += 1) {
-    const completion = await provider.chat({ messages, tools: [...tools], timeoutMs: 1000 });
-    rounds.push(completion.toolCalls);
-    if (completion.toolCalls.length === 0) break;
-    messages = [...messages, { role: "assistant", toolCalls: completion.toolCalls }];
+    const chat = await provider.chat({ messages, tools: [...tools], timeoutMs: 1000 });
+    rounds.push(chat.toolCalls);
+    if (chat.toolCalls.length === 0) break;
+    messages = [...messages, { role: "assistant", toolCalls: chat.toolCalls }];
   }
   return rounds;
 }
@@ -70,28 +81,26 @@ const names = (calls: readonly ToolCallRequest[]): string[] => calls.map((call) 
 const branchCalls = (rounds: readonly ToolCallRequest[][]): ToolCallRequest[] =>
   rounds.flatMap((calls) => calls.filter((call) => call.name === "fact.enqueueEvent"));
 
-/**
- * 全量工具面：本文件只验 mock ↔ loop 的契约，**不依赖模板**。
- * 「画像是否列全 fact.enqueueEvent」「画像 ∩ 未注册工具 == ∅」由 template-contract 负责，
- * 这样模板在并行改动（hint 前缀 / events.yaml）时，本文件不会跟着红。
- */
-const tools: ToolDescriptor[] = buildToolDescriptors(undefined, undefined);
+describe("mock 分支轮：只认结构化白名单 branchEventIds", () => {
+  const fixture = loadDemoFixture();
+  const tools = buildToolDescriptors(fixture.rules, "narrative");
 
-describe("mock 分支轮：只有显式 `branch:` 指令才把事件上桌", () => {
-
-  it("`branch:evt:trial` ⇒ 叙事之后、选项之前发出一次 fact.enqueueEvent", async () => {
-    const rounds = await runRounds(makeView({ contextHints: ["chapter.tone", "branch:evt:trial"] }), tools);
+  it("锁 1：branchEventIds: [\"evt:trial\"] ⇒ 叙事之后、选项之前恰好一次 enqueue", async () => {
+    const rounds = await runRounds(
+      makeView({ contextHints: ["chapter.tone"], branchEventIds: ["evt:trial"] }),
+      tools,
+    );
 
     // ① 叙事
     expect(names(rounds[0]!)).toEqual(["content.writeNarrative"]);
-    // ② 分支轮：恰好一条，且 eventId 逐字取自提示（不是编造的）
+    // ② 分支轮：恰好一条，eventId 逐字取自白名单
     expect(rounds[1]).toHaveLength(1);
     expect(rounds[1]![0]).toMatchObject({
       name: "fact.enqueueEvent",
       arguments: { eventId: "evt:trial" },
     });
     expect(rounds[1]![0]!.id).toBe("inv-branch:call:branch");
-    // ③ 选项：分支轮之后仍有可点击动作
+    // ③ 选项仍在分支之后
     const options = rounds[2]!;
     expect(options.length).toBeGreaterThanOrEqual(2);
     expect(options.every((call) => call.name === "content.writeOption")).toBe(true);
@@ -104,83 +113,82 @@ describe("mock 分支轮：只有显式 `branch:` 指令才把事件上桌", () 
     expect(blockIds).not.toContain("inv-branch:call:branch");
   });
 
-  it("`hint:branch:evt:trial` 与结构化 JSON 是等价显式形态", async () => {
-    const prefixed = await runRounds(makeView({ contextHints: ["hint:branch:evt:trial"] }), tools);
-    expect(branchCalls(prefixed).map((call) => call.arguments.eventId)).toEqual(["evt:trial"]);
-
-    const structured = await runRounds(
-      makeView({ contextHints: [JSON.stringify({ kind: "enqueueEvent", eventId: "evt:chance" })] }),
-      tools,
-    );
-    expect(branchCalls(structured).map((call) => call.arguments.eventId)).toEqual(["evt:chance"]);
-  });
-
-  it("负向：裸 `evt:` 提示不触发（409 事故回归锁）", async () => {
-    const rounds = await runRounds(makeView({ contextHints: ["facts", "secrets", "evt:chance"] }), tools);
-    expect(branchCalls(rounds)).toHaveLength(0);
-    expect(names(rounds[1]!)).toContain("content.writeOption");
-    expect(names(rounds[2]!)).toEqual(["content.submit"]);
-  });
-
-  it("负向：facts[].factRef 里的 `evt:` 引用同样不是合法来源", async () => {
-    const rounds = await runRounds(
-      makeView({ facts: [{ factRef: "evt:chance", value: "偶遇", level: "known" }] }),
-      tools,
-    );
-    expect(branchCalls(rounds)).toHaveLength(0);
-    expect(names(rounds[0]!)).toEqual(["content.writeNarrative"]);
-  });
-
-  it("负向：裸 `evt:` 提示与 facts 里 `evt:` 引用同时存在，两路都不触发（双保险）", async () => {
-    const rounds = await runRounds(
-      makeView({
-        contextHints: ["evt:trial"],
-        facts: [
-          { factRef: "evt:trial", value: "初次试炼", level: "known" },
-          { factRef: "fact:gate-location", value: "北门", level: "known" },
-        ],
-        dagNodes: [{ nodeId: "n2.trial", status: "ready" }],
-      }),
-      tools,
-    );
-    expect(branchCalls(rounds)).toHaveLength(0);
-    expect(names(rounds[2]!)).toEqual(["content.submit"]);
-  });
-
-  it("负向：`branch:` 但目标不带 `evt:` 前缀 ⇒ 不触发（防洗成任意字符串）", async () => {
-    const rounds = await runRounds(makeView({ contextHints: ["branch:chance"] }), tools);
-    expect(branchCalls(rounds)).toHaveLength(0);
-  });
-
-  it("负向：结构化 JSON 的 kind 不是 enqueueEvent ⇒ 不触发", async () => {
-    const rounds = await runRounds(
-      makeView({ contextHints: [JSON.stringify({ kind: "advanceDag", eventId: "evt:trial" })] }),
-      tools,
-    );
-    expect(branchCalls(rounds)).toHaveLength(0);
-  });
-
-  it("负向：画像是旧的（没有 fact.enqueueEvent）⇒ 即便有显式指令也不 emit", async () => {
-    const ohneBranch = tools.filter((tool) => tool.name !== "fact.enqueueEvent");
-    const rounds = await runRounds(makeView({ contextHints: ["branch:evt:trial"] }), ohneBranch);
+  it("锁 2：未声明白名单 ⇒ 即使 contextHints 提到 evt:trial 也 0 次", async () => {
+    const rounds = await runRounds(makeView({ contextHints: ["chapter.tone", "evt:trial"] }), tools);
     expect(branchCalls(rounds)).toHaveLength(0);
     expect(rounds.flatMap((calls) => names(calls))).toContain("content.submit");
   });
 
-  it("单次性：一次 invocation 内 fact.enqueueEvent 恰好出现一次，且不占 blockId", async () => {
-    const rounds = await runRounds(makeView({ contextHints: ["branch:evt:trial"] }), tools);
-    expect(branchCalls(rounds)).toHaveLength(1);
-    const submit = rounds.at(-2)!;
-    expect(names(submit)).toEqual(["content.submit"]);
-    const blockIds = submit[0]!.arguments.blockIds as string[];
-    expect(blockIds).not.toContain("inv-branch:call:branch");
-    // 分支调用只带 eventId：没有 blockId 可被 submit 收走。
-    expect(rounds[1]![0]!.arguments).toEqual({ eventId: "evt:trial" });
+  it("锁 4a：显式空数组 ⇒ 0 次（空 ≠ 不限制）", async () => {
+    const rounds = await runRounds(makeView({ branchEventIds: [] }), tools);
+    expect(branchCalls(rounds)).toHaveLength(0);
   });
 
-  it("确定性：同一 invocationId + 同一状态 ⇒ 逐字节相同（含分支轮）", async () => {
+  it("锁 4b：legacy 形态（branch: / hint:branch: / JSON / 两条）一律 0 次", async () => {
+    const legacyHintSets: string[][] = [
+      ["branch:evt:trial"],
+      ["hint:branch:evt:trial"],
+      [JSON.stringify({ kind: "enqueueEvent", eventId: "evt:chance" })],
+      ["branch:evt:trial", "branch:evt:ambush"],
+    ];
+    for (const contextHints of legacyHintSets) {
+      const rounds = await runRounds(makeView({ contextHints }), tools);
+      expect(branchCalls(rounds), `hints=${JSON.stringify(contextHints)}`).toHaveLength(0);
+    }
+  });
+
+  it("负向：裸 evt: 提示与 facts[].factRef 的 evt 引用都不触发（409 回归锁）", async () => {
+    const both = await runRounds(
+      makeView({
+        contextHints: ["facts", "secrets", "evt:chance"],
+        facts: [{ factRef: "evt:trial", value: "初次试炼", level: "known" }],
+      }),
+      tools,
+    );
+    expect(branchCalls(both)).toHaveLength(0);
+
+    const factsOnly = await runRounds(
+      makeView({ facts: [{ factRef: "evt:chance", value: "偶遇", level: "known" }] }),
+      tools,
+    );
+    expect(branchCalls(factsOnly)).toHaveLength(0);
+  });
+
+  it("D7：多条白名单只摆第一条（不按 invocationId 轮转）", async () => {
+    const rounds = await runRounds(
+      makeView({ branchEventIds: ["evt:trial", "evt:ambush"] }),
+      tools,
+    );
+    const calls = branchCalls(rounds);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.arguments.eventId).toBe("evt:trial");
+
+    // 换一个 invocationId 仍取第一条：确定性，不做内部状态机轮转。
+    const other = await runRounds(
+      makeView({ invocationId: "inv-other", branchEventIds: ["evt:trial", "evt:ambush"] }),
+      tools,
+    );
+    expect(branchCalls(other)[0]!.arguments.eventId).toBe("evt:trial");
+  });
+
+  it("负向：画像是旧的（没有 fact.enqueueEvent）⇒ 即便有白名单也不 emit", async () => {
+    const ohneBranch = tools.filter((tool) => tool.name !== "fact.enqueueEvent");
+    const rounds = await runRounds(makeView({ branchEventIds: ["evt:trial"] }), ohneBranch);
+    expect(branchCalls(rounds)).toHaveLength(0);
+    expect(rounds.flatMap((calls) => names(calls))).toContain("content.submit");
+  });
+
+  it("单次性：一次 invocation 内恰好一次，且分支调用只带 eventId", async () => {
+    const rounds = await runRounds(makeView({ branchEventIds: ["evt:trial"] }), tools);
+    expect(branchCalls(rounds)).toHaveLength(1);
+    expect(rounds[1]![0]!.arguments).toEqual({ eventId: "evt:trial" });
+    const submit = rounds.at(-2)!;
+    expect(submit[0]!.arguments.blockIds).not.toContain("inv-branch:call:branch");
+  });
+
+  it("确定性：同一 invocationId + 同一状态 ⇒ 逐字节相同", async () => {
     const view = makeView({
-      contextHints: ["branch:evt:trial"],
+      branchEventIds: ["evt:trial"],
       dagNodes: [{ nodeId: "n2.trial", status: "ready" }],
     });
     const first = await runRounds(view, tools);
@@ -191,7 +199,7 @@ describe("mock 分支轮：只有显式 `branch:` 指令才把事件上桌", () 
   it("fact.advanceDag 不 emit：dagNodes 信息不足，硬造会整份覆盖模板 DAG", async () => {
     const rounds = await runRounds(
       makeView({
-        contextHints: ["branch:evt:trial"],
+        branchEventIds: ["evt:trial"],
         dagNodes: [
           { nodeId: "n1.awaken", status: "completed" },
           { nodeId: "n2.trial", status: "ready" },
@@ -199,23 +207,54 @@ describe("mock 分支轮：只有显式 `branch:` 指令才把事件上桌", () 
       }),
       tools,
     );
-    const all = rounds.flatMap((callList) => names(callList));
-    expect(all).not.toContain("fact.advanceDag");
+    expect(rounds.flatMap((callList) => names(callList))).not.toContain("fact.advanceDag");
   });
 });
 
-describe("分支轮契约（不依赖模板拼写）", () => {
-  it("两条显式分支提示 ⇒ 只摆第一条（一次 invocation 只上桌一个事件）", async () => {
-    const rounds = await runRounds(
-      makeView({ contextHints: ["branch:evt:trial", "branch:evt:ambush"] }),
+describe("分支轮契约：mock ↔ loop ↔ 真引擎", () => {
+  const tools = buildToolDescriptors(undefined, undefined);
+
+  it("锁 3：ScriptedProvider 硬发白名单外 eventId ⇒ unknown_reference 且 queue 逐字段不变", async () => {
+    const fixture = loadDemoFixture();
+    const invocation: LlmInvocation = LlmInvocationSchema.parse({
+      invocationId: "inv-gate-1",
+      reason: "chapter.advance",
+      context: {
+        stablePrefix: "",
+        facts: fixture.engine.buildFacts("player"),
+        recentTurns: [],
+        invocationReason: "chapter.advance",
+        branchEventIds: ["evt:trial"],
+      },
       tools,
-    );
-    const calls = rounds.flatMap((list) => list.filter((c) => c.name === "fact.enqueueEvent"));
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.arguments.eventId).toBe("evt:trial");
+      budget: LlmBudgetSchema.parse({}),
+      replyTo: "dispatch",
+      perspective: "player",
+      targetPerspective: "player",
+    });
+    const before = JSON.stringify(fixture.state.delayQueue);
+    // 只发一次越界调用，随后空回合收尾（`unknown_reference` 在码表里是 retryable，
+    // 若让脚本无限重复会连撞 3 次重试额度，测到的就不是"这一次被拒"了）。
+    const provider = new ScriptedProvider([
+      completion([toolCall("fact.enqueueEvent", { eventId: "evt:chance" }, "c-outside")]),
+      completion([]),
+    ]);
+
+    const { outcome, trace } = await runAgentLoop(invocation, {
+      provider,
+      engineApi: fixture.engine,
+    });
+
+    const rejected = trace.receipts.filter((receipt) => receipt.outcome === "rejected");
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]).toMatchObject({ code: "unknown_reference", callId: "inv-gate-1:0:0" });
+    expect(rejected[0]!.factsHint).toMatchObject({ allowedRefs: ["evt:trial"] });
+    // 队列逐字段不变（不是"入队后清掉"）
+    expect(JSON.stringify(fixture.state.delayQueue)).toBe(before);
+    expect(["committed", "fallback"]).toContain(outcome.outcome);
   });
 
-  it("经 runAgentLoop：恰好一条 fact.enqueueEvent 被 dispatch 且回执 accepted", async () => {
+  it("经 runAgentLoop：白名单那条被 dispatch 且回执 accepted，顺序在叙事与选项之间", async () => {
     const dispatched: string[] = [];
     const engine = new StubEngine((calls) => {
       for (const call of calls) dispatched.push(call.tool);
@@ -229,7 +268,7 @@ describe("分支轮契约（不依赖模板拼写）", () => {
         facts: { perspective: "player", facts: [], dagNodes: [] },
         recentTurns: [],
         invocationReason: "chapter.advance",
-        contextHints: ["branch:evt:trial"],
+        branchEventIds: ["evt:trial"],
       },
       tools,
       budget: LlmBudgetSchema.parse({}),
@@ -244,7 +283,6 @@ describe("分支轮契约（不依赖模板拼写）", () => {
     });
 
     expect(outcome.outcome).toBe("committed");
-    // 分支调用只发生一次，且排在叙事之后、选项之前。
     expect(dispatched.filter((tool) => tool === "fact.enqueueEvent")).toHaveLength(1);
     expect(dispatched.indexOf("fact.enqueueEvent")).toBeGreaterThan(
       dispatched.indexOf("content.writeNarrative"),
@@ -252,9 +290,55 @@ describe("分支轮契约（不依赖模板拼写）", () => {
     expect(dispatched.indexOf("fact.enqueueEvent")).toBeLessThan(
       dispatched.indexOf("content.writeOption"),
     );
+    // 回执按 callId 定位（CallReceipt 不带 tool 字段）
     const branchReceipt = trace.receipts.find(
       (receipt) => receipt.callId === "inv-loop-branch:1:0",
     );
     expect(branchReceipt).toMatchObject({ outcome: "accepted" });
+  });
+
+  it("零 key 真引擎：白名单声明 ⇒ evt:trial 真的进 delayQueue 且 committed", async () => {
+    const fixture = loadDemoFixture();
+    fixture.state.taskDag = {
+      ...fixture.rules.fallbackDag,
+      nodes: fixture.rules.fallbackDag.nodes.map((node) =>
+        node.id === "n1.awaken" ? { ...node, status: "completed" as const } : node,
+      ),
+    };
+
+    const invocations = evaluateTriggers(
+      fixture.state,
+      fixture.rules,
+      createConditionRegistry(),
+      { seed: fixture.state.seed, turnIndex: 1 },
+    );
+    const invocation = invocations.find((inv) => inv.reason === "chapter.advance");
+    expect(invocation).toBeDefined();
+    // 白名单来自模板 `invoke.branchEventIds`（core 求值拷贝），不是测试硬塞。
+    expect(invocation!.context.branchEventIds).toEqual(["evt:trial"]);
+
+    const queueBefore = fixture.state.delayQueue.length;
+    const traces: Array<{ contentBlocks?: Array<{ kind: string }> }> = [];
+    const gateway = new AgentGateway({
+      provider: new MockAgentProvider(),
+      engineApi: fixture.engine,
+      templateRef: "demo-agentic@1.0.0",
+      rules: fixture.rules,
+      toolProfile: "narrative",
+      onTrace: (trace) => traces.push(trace),
+    });
+
+    const outcome = await gateway.invoke(invocation!);
+
+    expect(outcome.outcome).toBe("committed");
+    const enqueued = fixture.state.delayQueue.filter((inst) => inst.definitionId === "evt:trial");
+    expect(enqueued).toHaveLength(1);
+    expect(enqueued[0]!.origin).toMatchObject({ kind: "effect", id: "evt:trial" });
+    expect(fixture.state.delayQueue.length).toBe(queueBefore + 1);
+
+    const blocks = traces[0]?.contentBlocks ?? [];
+    const kinds = blocks.map((block) => block.kind);
+    expect(kinds).toContain("narrative");
+    expect(kinds.filter((kind) => kind === "option").length).toBeGreaterThanOrEqual(2);
   });
 });

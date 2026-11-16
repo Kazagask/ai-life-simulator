@@ -236,6 +236,9 @@ const advanceDag: ToolHandler = {
  * 设计口径（§3.4「(b) 需要上桌事件 ⇒ fact.enqueueEvent → delayQueue」）：
  * - LLM **只能选用模板已有事件**，不能凭空发明事件内容 —— `eventId` 必须是
  *   `env.lookupRefs`（模板 ref 全集）成员，否则 `unknown_reference`（FATAL）。
+ * - ADR-0038：还必须命中 `ctx.branchEventIds` 白名单。未声明 / 空数组 / 不在列表
+ *   三者一律 `unknown_reference`（「两拒一放」）—— 模板作者没声明的事件，
+ *   模型"想摆"也不许摆。
  * - 只入队、**不直接占槽**（ADR-0034 §4 R3：写 `slot` 的唯一后继路径是 `applySuccessor`），
  *   时间锚固在 `state.worldTime` ⇒ 当轮即可被扫描取到，但顺序仍由队列排序决定。
  * - 权威写入（delayQueue / enqueueSeqCounter）只在本文件发生（调度器只做纯入队构造）。
@@ -254,6 +257,35 @@ const enqueueEvent: ToolHandler = {
       return rejected("unknown_reference", `eventId 不在模板 ref 集合内：${eventId}`, {
         allowedRefs: [...refs].filter((r) => r.startsWith("evt:")).slice(0, 50),
       });
+    }
+    /**
+     * ADR-0038：分支白名单 —— 「两拒一放」。
+     *
+     * 白名单是**能力**不是用途：未声明 = 没有分支能力（沉默），显式空数组 = **同样拒绝**
+     * （唯一要防的退化是把 `[]` 当成"不限制"）。只有非空且命中才放行。
+     *
+     * 校验顺序固定在 `lookupRefs` 之后：模板全集优先 —— 自造 id 无论白名单怎么写都是
+     * `unknown_reference`，调用方拿到的诊断码不变（同为 `unknown_reference`，不需要区分）。
+     *
+     * 权威性：`ctx.branchEventIds` 只能来自 core 求值写进 `LlmInvocation` 的那一份，
+     * 不接收模型输出 / HTTP 请求体。
+     */
+    const allowlist = ctx.branchEventIds;
+    if (allowlist === undefined || allowlist.length === 0) {
+      return rejected(
+        "unknown_reference",
+        allowlist === undefined
+          ? "本 invocation 未声明 branchEventIds（沉默 = 没有分支能力）"
+          : "本 invocation 的 branchEventIds 为空数组（空 ≠ 不限制）",
+        { allowedRefs: [] },
+      );
+    }
+    if (!allowlist.includes(eventId)) {
+      return rejected(
+        "unknown_reference",
+        `eventId 不在本次 invocation 的 branchEventIds 白名单内：${eventId}`,
+        { allowedRefs: [...allowlist] },
+      );
     }
     /**
      * 幂等：同一事件已在队列里 waiting ⇒ 不重复入队。

@@ -96,6 +96,17 @@ export const DispatchContextSchema = z
      * 绝不采信 args 自带的窗口；args 若带 targetPerspective 且 !== 本值 ⇒ visibility_violation。
      */
     targetPerspective: PerspectiveSchema,
+    /**
+     * ADR-0038：本次 invocation 的分支白名单（从 `LlmInvocation.context` 透传）。
+     *
+     * 三态语义（`fact.enqueueEvent` 实现）：
+     * - `undefined`（未声明）⇒ 拒绝，`allowedRefs: []`；
+     * - `[]`（显式空）⇒ **同样拒绝**（空 ≠ 不限制）；
+     * - 非空且 `eventId` 不在其中 ⇒ 拒绝，`allowedRefs: [...branchEventIds]`。
+     *
+     * 只由 core 求值写进 `LlmInvocation`，**不接收**模型输出 / HTTP 请求体的拼接结果。
+     */
+    branchEventIds: z.array(z.string().min(1)).optional(),
   })
   .strict();
 export type DispatchContext = z.infer<typeof DispatchContextSchema>;

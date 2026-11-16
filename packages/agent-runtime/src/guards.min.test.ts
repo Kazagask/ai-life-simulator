@@ -73,4 +73,40 @@ describe("源码守卫", () => {
     expect(pkg.dependencies?.yaml).toBeUndefined();
     expect(pkg.devDependencies?.yaml).toBeDefined();
   });
+
+  /**
+   * ADR-0038 D10 / D2：`contextHints` 是自由文本标签通道，**零解释**。
+   *
+   * 本清单只覆盖 `evt:`；`asset:`（曾位于 `mock.ts` 的 `hint.startsWith("asset:")`）
+   * 是同类残留，已按 B-40 于本轮删除，删除后 mock 不再发 `content.referenceAsset`。
+   *
+   * 白名单（`evt:` / `branch:` 的形状判断）只允许出现在 `providers/legacy-hint.ts` ——
+   * 那里是唯一的过渡兼容单点，且**不接线**。散在第二个地方，守卫立刻红。
+   */
+  const LEGACY_HINT_FILE = "providers/legacy-hint.ts";
+
+  it("形状判断只准在 legacy-hint.ts：其余生产代码不得出现 startsWith(\"evt:\"/\"branch:\")", () => {
+    const offenders: Array<{ file: string; line: string }> = [];
+    const shape = /startsWith\(\s*["'](?:evt:|branch:)/;
+    for (const file of productionFiles()) {
+      if (rel(file) === LEGACY_HINT_FILE) continue;
+      readFileSync(file, "utf8")
+        .split("\n")
+        .forEach((line, index) => {
+          if (shape.test(line)) offenders.push({ file: rel(file), line: `${index + 1}: ${line.trim()}` });
+        });
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("legacy-hint 的解析器除自身文件外零引用（「临时兼容」不能悄悄复活）", () => {
+    const offenders: string[] = [];
+    const SELF = "guards.min.test.ts";
+    for (const file of sourceFiles(SRC_DIR)) {
+      const name = rel(file);
+      if (name === LEGACY_HINT_FILE || name === SELF) continue;
+      if (/parseLegacyBranchHint/.test(readFileSync(file, "utf8"))) offenders.push(name);
+    }
+    expect(offenders).toEqual([]);
+  });
 });

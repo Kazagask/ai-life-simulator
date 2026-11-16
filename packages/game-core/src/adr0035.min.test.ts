@@ -48,6 +48,9 @@ function ctxAt(turnIndex: number, worldTime: number): DispatchContext {
     perspective: "world",
     targetPerspective: "player",
     invocationId: `inv-${turnIndex}-0`,
+    // ADR-0038：入队能力由白名单声明。本组用例验的是 IO-1 事务边界，
+    // 白名单给足（否则会先撞「未声明 ⇒ 拒绝」，测不到本意）。
+    branchEventIds: ["evt:trial"],
   };
 }
 

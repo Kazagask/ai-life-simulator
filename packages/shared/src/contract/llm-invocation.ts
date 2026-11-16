@@ -50,6 +50,16 @@ export const LlmContextSchema = z
     recentTurns: z.array(z.unknown()),
     invocationReason: z.string().min(1),
     contextHints: z.array(z.string()).optional(),
+    /**
+     * ADR-0038：本轮允许摆上桌的事件白名单（由 core 求值产出，**不来自模型输出**）。
+     *
+     * 放在 `LlmContext` 而非 `LlmInvocation` 顶层的两个理由：
+     * 1) 它既是引擎闸门也是提示内容 —— 真实模型必须知道「本轮可以摆 evt:trial」，
+     *    否则能力被锁起来却没给钥匙，只有 mock 能演；
+     * 2) `contextHash = sha256(stableStringify(inv.context))` 因此自动覆盖它 ——
+     *    两次只有白名单不同的 invocation 必然得到不同哈希，回放归因才成立。
+     */
+    branchEventIds: z.array(z.string().min(1)).optional(),
   })
   .strict();
 export type LlmContext = z.infer<typeof LlmContextSchema>;

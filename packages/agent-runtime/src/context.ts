@@ -124,6 +124,12 @@ export function buildLlmContext(inv: LlmInvocation, deps: LlmContextDeps): Built
       : inv.context.contextHints !== undefined
         ? { contextHints: [...inv.context.contextHints] }
         : {}),
+    // ADR-0038：第二个构造点（本函数逐字段重建、不 spread）。漏了它会让本函数的
+    // `contextHash` 与 `loop` 的 `sha256(stableStringify(inv.context))` 分叉 ——
+    // 只有「白名单不同、其余全同」的两次调用才暴露，单测各自过、合起来才红。
+    ...(inv.context.branchEventIds !== undefined
+      ? { branchEventIds: [...inv.context.branchEventIds] }
+      : {}),
   };
   return { context, contextHash: sha256(stableStringify(context)) };
 }

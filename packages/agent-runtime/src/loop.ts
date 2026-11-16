@@ -82,17 +82,33 @@ interface EndState {
   detail?: string;
 }
 
-/** 初始消息：system = stablePrefix（字节稳定），user = 结构化可见上下文。 */
+/** 分支白名单的固定引导语（锁 7 的断言锚点：不给白名单时整句不得出现）。 */
+export const BRANCH_PROMPT_LEAD = "本轮你最多可以把下列事件之一摆上桌";
+
+/**
+ * 初始消息：system = stablePrefix（字节稳定），user = 结构化可见上下文。
+ *
+ * ADR-0038 R8：user 段用 spread 展开整个 `LlmContext`（**挖掉 `stablePrefix`**，
+ * 它已作为 system 消息单独发送，重复一遍只会白烧 token）。这样以后 `LlmContext`
+ * 加字段会自动进 prompt，不会再出现「字段有了但 provider / 真模型看不到」这类静默失能。
+ *
+ * `branchEventIds` 额外渲染成一句固定引导语：真实模型必须知道「本轮可以摆什么」，
+ * 否则白名单只是锁住能力却不给钥匙 —— 只有 mock 能演。
+ */
 function buildInitialMessages(inv: LlmInvocation): AgentMessage[] {
+  const { stablePrefix: _stablePrefix, ...rest } = inv.context;
+  const branchEventIds = inv.context.branchEventIds;
   const payload = {
     invocationId: inv.invocationId,
     reason: inv.reason,
     perspective: inv.perspective,
     targetPerspective: inv.targetPerspective,
-    facts: inv.context.facts,
-    recentTurns: inv.context.recentTurns,
-    ...(inv.context.contextHints !== undefined ? { contextHints: inv.context.contextHints } : {}),
-    ...(inv.context.secrets !== undefined ? { secrets: inv.context.secrets } : {}),
+    ...rest,
+    ...(branchEventIds !== undefined && branchEventIds.length > 0
+      ? {
+          branchInstruction: `${BRANCH_PROMPT_LEAD}：${branchEventIds.join("、")}；不在列表内的一律被拒绝。`,
+        }
+      : {}),
   };
   return [
     { role: "system", content: inv.context.stablePrefix },
@@ -150,6 +166,11 @@ export async function runAgentLoop(
     ...(inv.perspective === "world" ? {} : { actor: inv.perspective }),
     perspective: inv.perspective,
     targetPerspective: inv.targetPerspective,
+    // ADR-0038：唯一构造点 —— 整轮复用同一份 ctx，不在每个 tool call 里从 inv 重拼。
+    // 这样「invocation 存续期间的权威描述」在物理上不会漂移。
+    ...(inv.context.branchEventIds !== undefined
+      ? { branchEventIds: [...inv.context.branchEventIds] }
+      : {}),
   };
 
   const messages = buildInitialMessages(inv);
