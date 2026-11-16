@@ -23,3 +23,25 @@ CI 里的三条测试门禁（L1 / L2 / L2b）也一并移除。
 - 验收基线：此前唯一基线是 `*.min.test.ts`（338 例）+ `demo-agentic` 整局回归，两者都已不存在。
 
 在以上定下来之前，`pnpm test` 不是一个可用的命令。
+
+## 下次设计测试时必须补的覆盖点（`fact.*` 下线后失去的）
+
+2026-11-16 把 `fact.setKnowledge` / `fact.advanceDag` / `fact.upsertDagBranch` / `fact.enqueueEvent`
+四个写工具从工具面下线（`d2c311f`）。原来断言这些行为的用例随全套测试一起删了，
+**这些行为现在没有任何自动化保护**。重建测试时逐条认领：
+
+| # | 失去的覆盖点 | 现在靠什么保证 | 该补的断言 |
+|---|---|---|---|
+| 1 | `dispatch("fact.*")` 返回 `unknown_tool` | 无（默认分支） | 四个名字各 dispatch 一次，断言 `unknown_tool` |
+| 2 | `story.submitBranch` 节点级 `npcs` 的 alias → 角色 / 刷新规则解析 | 生产构造点已接 `lookup`（`pipeline.ts`） | 接 `lookup` 时能解析、不接时未知引用被拒（而不是静默透传） |
+| 3 | 分支事件跨轮写护栏（ADR-0035 `crossTurnViolation`） | 引擎边界 | 上一轮提交的分支在这一轮才落账 ⇒ 必须拒 |
+| 4 | 模板 `once` 事件不被 LLM 复活 | `scheduler` 侧 `hasFired` | 旧路径已不可达（LLM 无法指名模板事件），但调度侧守卫本身要单独验 |
+| 5 | `validateDag` 对 `fallbackDag` 的加载期校验 | 模板加载 | 环 / 自环 / 悬空端点 / guard 不可解析 四类各一例 |
+| 6 | 知识只由 `knowledgeGrants` / `inferenceRules` 授予 | `assignKnowledgeGrants` | 规则命中 ⇒ 台账有；未命中 ⇒ 台账无（不靠模型自述） |
+| 7 | `upsertDagBranch` 的增量语义 | **能力已删除** | 不需要补；若将来重启"LLM 写 DAG"，先立协议再谈测试 |
+
+另外两条与 `fact.*` 无关、但同样曾失去保护的：
+
+- **`visibility: hidden` 只影响上屏、不影响实例存在与参与规则**（`866204a`）
+- **关系投影与 NPC 卡片解耦**：指向未实例化/敌人/隐藏角色的边要上屏，`withName` 不得是裸 id（`35b7906`）
+
