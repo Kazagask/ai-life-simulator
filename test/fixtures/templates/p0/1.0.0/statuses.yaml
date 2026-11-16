@@ -1,0 +1,20 @@
+statuses:
+  - id: absorbed-curses
+    name: 收集弹
+    duration:
+      turns: 5
+    stacking: stack
+    combat: {}
+    visibility: known
+  - id: inj
+    name: 轻伤
+    duration:
+      turns: 2
+    stacking: refresh
+    simulation:
+      attributeModifiers:
+        agility: -2
+      moodDeltaPerTurn: -2
+    cureConditions:
+      - restTurns: 2
+    visibility: known

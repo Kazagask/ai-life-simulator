@@ -1,0 +1,41 @@
+characters:
+  - id: enemy-x
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 测试敌人
+      age: 0
+      gender: f
+    mood:
+      value: 50
+    attributes:
+      cursedEnergy: 5
+      agility: 1
+      luck: 0
+    skills:
+      - sk-nuke
+    public:
+      personality: 测试用
+    private:
+      combatHints:
+        skillWeights:
+          sk-nuke: 1
+    relationship: -100
+  - id: npc-friend
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 朋友
+      age: 20
+      gender: f
+    mood:
+      value: 50
+    attributes:
+      cursedEnergy: 3
+      agility: 3
+      luck: 0
+    skills: []
+    public:
+      personality: 测试朋友
+    private: {}
+    relationship: 10

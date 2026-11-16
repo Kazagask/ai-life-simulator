@@ -1,0 +1,43 @@
+skills:
+  - id: sk-strike
+    kind: combat
+    name: 强击
+    cost:
+      mp: 0
+    target: enemy
+    damage:
+      - preset: fixed
+        value: 100
+    cooldownTurns: 0
+    usableInBattle: true
+  - id: sk-nuke
+    kind: combat
+    name: 湮灭
+    cost:
+      mp: 0
+    target: enemy
+    damage:
+      - preset: fixed
+        value: 1
+    cooldownTurns: 0
+    usableInBattle: true
+  - id: sk-uzumaki
+    kind: combat
+    name: 旋涡
+    cost:
+      mp: 0
+    target: enemy
+    hitCheck:
+      preset: opposed
+      attacker: cursedEnergy
+      defender: agility
+      baseChance: 1
+    damage:
+      - preset: stack-scaled
+        base: 10
+        perStack: 15
+        status: absorbed-curses
+    consumeStatus:
+      status: absorbed-curses
+    cooldownTurns: 0
+    usableInBattle: true

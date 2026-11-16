@@ -1,0 +1,33 @@
+terminationConditions:
+  - type: worldState
+    params:
+      conditions:
+        - flag: endingReached
+          eq: true
+    combinator: AND
+    terminationMode: afterSettle
+endings:
+  - endingId: end-good
+    name: 好结局
+    description: 好。
+    triggerConditions:
+      - flag: endingShort
+        eq: good
+    priority: 20
+    endingType: salvation
+    narrativeConfig:
+      source: template
+      title: 好结局
+      summary: 好结局。
+  - endingId: end-bad
+    name: 坏结局
+    description: 坏。
+    triggerConditions:
+      - flag: endingShort
+        eq: bad
+    priority: 10
+    endingType: sacrifice
+    narrativeConfig:
+      source: template
+      title: 坏结局
+      summary: 坏结局。

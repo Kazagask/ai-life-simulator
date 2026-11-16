@@ -53,3 +53,24 @@ CI 里的三条测试门禁（L1 / L2 / L2b）也一并移除。
 - **`visibility: hidden` 只影响上屏、不影响实例存在与参与规则**（`866204a`）
 - **关系投影与 NPC 卡片解耦**：指向未实例化/敌人/隐藏角色的边要上屏，`withName` 不得是裸 id（`35b7906`）
 
+
+## 当前套件（2026-11-17 · P0）
+
+```bash
+pnpm test          # vitest run，根目录 vitest.config.ts
+```
+
+- `test/unit/`：game-core 纯函数 / 加载器（projection、relations、scheduler、branch 展开、battle、工具面、回放 provider）。
+- `test/api/`：起真 `apps/server`（随机 32xx 端口、独立 `LIFE_SIM_DATA_DIR`、跑完自清），打 HTTP。
+- `test/helpers/`：模板/状态夹具、服务启停、P0 流程、录制回放 OpenAI 假 provider。
+- `test/fixtures/templates/p0/1.0.0/`：最小 P0 世界（双开局 → 转盘 → 战斗 → 选择 → 结局），
+  由源码 `makeTestTemplate` 生成后固化；**tests 只读它**，不依赖会被改写的 `specs/data/templates`。
+- `test/fixtures/llm/`：录制回放数据，一局一份，来源如下。
+
+| fixture | 来源 |
+|---|---|
+| `p0-narrative.jsonl` | `p0@1.0.0` / `op-gojo` / 默认 seed；`patrol → opt-go`；mock provider 真跑一条 trace（`p0.start`，`calls: []`，1 个 narrative 块） |
+| `p0-tool.jsonl` | `p0` 的录制副本（trigger 加 `branchEventIds:["ev:final"]`）；同一流程；mock 真跑一条 trace（`p0.start`，`calls:[story.submitBranch]`，1 个 narrative 块） |
+
+两份 fixture 都只含 trace，不含 key / prompt / 原始请求；回放 provider 把 `contentBlocks` 包回
+`<narrative-content>`、把 `calls[].args` 原样作为 tool_calls 返回。

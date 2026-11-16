@@ -1,0 +1,22 @@
+llmTriggers:
+  - id: lt.p0-start
+    when:
+      - op: eventResolved
+        args:
+          eventId: ev:start-gojo
+    invoke:
+      reason: p0.start
+      perspective: world
+      targetPerspective: player
+      contextHints:
+        - facts
+      toolProfile: gm
+toolProfile:
+  gm:
+    - world.now
+    - world.history
+    - world.present
+    - world.self
+    - story.submitBranch
+knowledgeGrants: []
+inferenceRules: []

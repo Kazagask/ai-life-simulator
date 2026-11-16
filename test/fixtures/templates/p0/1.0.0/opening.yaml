@@ -1,0 +1,62 @@
+- openingId: op-gojo
+  name: 甲线
+  description: 甲线开局
+  entryConditions: []
+  steps:
+    - id: s-a
+      kind: required
+  characterSetup:
+    effects: []
+    flags:
+      line: gojo
+  worldSetup:
+    flags:
+      openingDone: true
+  npcSetup:
+    relations: []
+    visibility: {}
+  eventPools: []
+  objectives:
+    flags: {}
+  choices: {}
+  completionConditions:
+    - flag: openingDone
+      eq: true
+  handoff:
+    pendingEvents: []
+    schedule:
+      - eventId: ev:start-gojo
+        at:
+          value: 1
+          unit: minute
+- openingId: op-yuji
+  name: 乙线
+  description: 乙线开局
+  entryConditions: []
+  steps:
+    - id: s-b
+      kind: required
+  characterSetup:
+    effects: []
+    flags:
+      line: yuji
+  worldSetup:
+    flags:
+      openingDone: true
+  npcSetup:
+    relations: []
+    visibility: {}
+  eventPools: []
+  objectives:
+    flags: {}
+  choices: {}
+  completionConditions:
+    - flag: openingDone
+      eq: true
+  handoff:
+    pendingEvents: []
+    schedule:
+      - eventId: ev:start-yuji
+        at:
+          value: 1
+          unit: minute

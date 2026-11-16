@@ -1,0 +1,81 @@
+meta:
+  id: p0
+  name: P0 测试世界
+  description: P0 测试专用最小世界：开局 → 转盘 → 战斗 → 选择 → 结局。
+  startYear: 2000
+  engineProtocol: v2
+time:
+  defaultStep:
+    value: 1
+    unit: hour
+genders:
+  - id: f
+    label: 女
+mood:
+  min: 0
+  max: 100
+  defaultValue: 60
+  bands:
+    - id: low
+      label: 消沉
+      min: 0
+      max: 39
+      attributeModifiers:
+        cursedEnergy: -1
+    - id: normal
+      label: 平静
+      min: 40
+      max: 100
+      attributeModifiers: {}
+statusBar:
+  - id: sb1
+    label: 基本
+    source: identity
+attributes:
+  order:
+    - cursedEnergy
+    - agility
+    - luck
+    - willpower
+  defaults:
+    cursedEnergy: 5
+    agility: 5
+    luck: 5
+    willpower: 3
+resources:
+  hp:
+    base: 100
+    perLevel: 0
+    perAttribute:
+      cursedEnergy: 4
+  mp:
+    base: 50
+    perLevel: 0
+    perAttribute:
+      cursedEnergy: 2
+regen:
+  perTurn:
+    hp: 2
+    mp: 1
+playerTemplate:
+  identity:
+    age: 16
+    gender: f
+  mood: 60
+  attributes:
+    cursedEnergy: 5
+    agility: 5
+    luck: 5
+  skills:
+    - sk-strike
+actions:
+  - id: patrol
+    label: 巡逻
+    duration:
+      value: 1
+      unit: hour
+  - id: rest
+    label: 休息
+    duration:
+      value: 1
+      unit: hour

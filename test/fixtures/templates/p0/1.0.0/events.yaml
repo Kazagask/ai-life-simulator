@@ -1,0 +1,119 @@
+events:
+  - id: ev:start-gojo
+    title: 甲线开局
+    narrative: 甲线的第一步。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-go
+            text: 去转盘
+            effects:
+              - type: setFlag
+                id: line
+                value: gojo
+            nextEventId: ev:wheel
+  - id: ev:start-yuji
+    title: 乙线开局
+    narrative: 乙线的第一步。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-go
+            text: 去转盘
+            effects:
+              - type: setFlag
+                id: line
+                value: yuji
+            nextEventId: ev:wheel
+  - id: ev:wheel
+    title: 转盘
+    narrative: 命运转动。
+    trigger:
+      source: chain
+    kind: random
+    settle:
+      random:
+        wheel:
+          segments:
+            - label: 命中
+              weight: 1
+              nextEventId: ev:fight
+  - id: ev:fight
+    title: 战斗
+    narrative: 敌人挡在路上。
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - ref: enemy-x
+            levelScale: 1
+        canFlee: false
+        onVictory:
+          effects:
+            - type: setFlag
+              id: won
+              value: true
+          nextEventId: ev:final
+        onDefeat:
+          effects:
+            - type: setFlag
+              id: won
+              value: false
+          nextEventId: ev:final
+        onFlee:
+          effects:
+            - type: setFlag
+              id: won
+              value: false
+          nextEventId: ev:final
+  - id: ev:final
+    title: 收束
+    narrative: 选一个结局。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-good
+            text: 好结局
+            effects:
+              - type: setFlag
+                id: endingShort
+                value: good
+              - type: setFlag
+                id: endingReached
+                value: true
+          - id: opt-bad
+            text: 坏结局
+            effects:
+              - type: setFlag
+                id: endingShort
+                value: bad
+              - type: setFlag
+                id: endingReached
+                value: true
+  - id: ev:branch
+    title: 分支测试
+    trigger: { source: chain }
+    branch:
+      - node: first
+        title: 首节点
+        text: 首节点。
+        options:
+          - text: 去第二节点
+            goto: { node: second, after: { value: 2, unit: hour } }
+      - node: second
+        title: 第二节点
+        text: 第二节点。
+        options:
+          - text: 出口
+            nextEventId: ev:final

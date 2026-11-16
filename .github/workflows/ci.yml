@@ -53,6 +53,9 @@ jobs:
       - name: L0 typecheck
         run: pnpm typecheck
 
+      - name: L1 P0 tests
+        run: pnpm test
+
       - name: L4 web build
         run: pnpm --filter @life-sim/web build
 
