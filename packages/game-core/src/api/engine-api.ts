@@ -22,6 +22,7 @@ import {
   type SetKnowledgeArgs,
   type SlotScene,
   type TemplateLookup,
+  type TimeSpec,
   type V2Snapshot,
   type WorldStateV2,
 } from "@life-sim/shared";
@@ -340,16 +341,37 @@ const submitBranch: ToolHandler = {
       }
       aliases.add(node.node);
     }
-    // goto 闭合：只能指向本次提交内的节点（跨提交一律拒）
+    /**
+     * goto 闭合 + `goto.after` 归一化。
+     *
+     * - 只能指向本次提交内的节点（跨提交一律拒）；
+     * - 同一个后继节点被多条选项指向时，`after` 必须一致 —— 节点只有一个
+     *   `trigger.window.start`，两条路径要求不同延迟是无法同时满足的。
+     */
+    const gotoAfterByTarget = new Map<string, { canonical: string; spec?: TimeSpec }>();
     for (const node of branch) {
       for (const option of node.options) {
-        if (option.goto !== undefined && !aliases.has(option.goto)) {
+        if (option.goto === undefined) continue;
+        const target = typeof option.goto === "string" ? { node: option.goto } : option.goto;
+        if (!aliases.has(target.node)) {
           return rejected(
             "unknown_reference",
-            `goto 指向本次提交之外的节点：${option.goto}（分支必须自洽，不可接续既有剧情）`,
+            `goto 指向本次提交之外的节点：${target.node}（分支必须自洽，不可接续既有剧情）`,
             { allowedRefs: [...aliases] },
           );
         }
+        const canonical = target.after === undefined ? "null" : JSON.stringify(target.after);
+        const prev = gotoAfterByTarget.get(target.node);
+        if (prev !== undefined && prev.canonical !== canonical) {
+          return rejected(
+            "invalid_arguments",
+            `同一目标节点的 goto.after 不一致：${target.node}（同一幕只能有一个延迟）`,
+          );
+        }
+        gotoAfterByTarget.set(
+          target.node,
+          target.after === undefined ? { canonical } : { canonical, spec: target.after },
+        );
       }
     }
 
@@ -380,6 +402,9 @@ const submitBranch: ToolHandler = {
         resolvedNpcs.push(ref);
       }
 
+      // 后继节点的延迟由「指向它的 goto.after」决定（同一目标已在上面保证一致）。
+      const gotoAfter = gotoAfterByTarget.get(node.node)?.spec;
+
       const event: EventV2 = {
         id: `${prefix}${node.node}`,
         title: node.title,
@@ -402,20 +427,26 @@ const submitBranch: ToolHandler = {
          */
         trigger:
           index > 0
-            ? { source: "chain" }
+            ? {
+                source: "chain",
+                // `goto.after` ⇒ 这一幕结算后延迟入队（不占槽）；缺省立即占槽。
+                ...(gotoAfter !== undefined ? { window: { start: gotoAfter } } : {}),
+              }
             : trigger.mode === "certain"
               ? {
                   source: "schedule",
                   /**
-                   * 相对入队时刻换算 ⇒ 下一轮扫描即到期（不是"世界时间 0"）。
-                   * `TimeAmountSchema` 要求 `value` 是**正整数**，`value: 0` 会被拒；
-                   * 1 分钟已经小于任何一轮的默认步长（10 分钟），等价于"入队即到期"。
+                   * 入口延迟：`trigger.after` 缺省 1 分钟 —— 相对入队时刻换算 ⇒
+                   * 下一轮扫描即到期（不是"世界时间 0"）。`TimeAmountSchema` 要求
+                   * `value` 是正整数，`value: 0` 会被拒；1 分钟已小于任何一轮默认步长。
                    */
-                  window: { start: { value: 1, unit: "minute" } },
+                  window: { start: trigger.after ?? { value: 1, unit: "minute" } },
                 }
               : {
                   source: "pool",
                   weight: 1,
+                  // 池事件被抽中后才按 `after` 延迟入队。
+                  ...(trigger.after !== undefined ? { window: { start: trigger.after } } : {}),
                 },
         settle: {
           normal: {
@@ -425,7 +456,13 @@ const submitBranch: ToolHandler = {
               // 显式给 [] 而不是省略：省略的语义是"这个选项什么也不做"，
               // 而缺省语义将来一变就是静默改行为。
               effects: toCanonicalEffects(option.effects ?? [], npcIdByAlias),
-              ...(option.goto !== undefined ? { nextEventId: `${prefix}${option.goto}` } : {}),
+              ...(option.goto !== undefined
+                ? {
+                    nextEventId: `${prefix}${
+                      typeof option.goto === "string" ? option.goto : option.goto.node
+                    }`,
+                  }
+                : {}),
             })),
           },
         },

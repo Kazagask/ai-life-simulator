@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TimeSpecSchema } from "../schema/common.js";
 import { RelationKindSchema, RelationVisibilitySchema } from "../schema/relation.js";
 
 /**
@@ -118,6 +119,23 @@ export const BranchEffectSchema = z.union([
 
 export type BranchEffect = z.infer<typeof BranchEffectSchema>;
 
+/**
+ * `goto` 目标：字符串是「立刻切到该节点」的简写；对象形态可声明 `after`——
+ * 即「这一幕结算之后再过 N 时间」才把后继放进队列（不占槽，中间可演别的）。
+ */
+export const BranchGotoSchema = z.union([
+  z.string().min(1),
+  z
+    .object({
+      node: z.string().min(1),
+      /** 相对**上一幕结算时刻**的延迟（缺省 = 立刻）。 */
+      after: TimeSpecSchema.optional(),
+    })
+    .strict(),
+]);
+
+export type BranchGoto = z.infer<typeof BranchGotoSchema>;
+
 export const SubmitBranchOptionSchema = z
   .object({
     /** 选项文案（第二人称、动词开头） */
@@ -125,7 +143,7 @@ export const SubmitBranchOptionSchema = z
     /** 该选项的效果（走模板同一套 effect 白名单校验） */
     effects: z.array(BranchEffectSchema).max(4).optional(),
     /** 指向**本次提交内**的另一个 node；缺省 = 到此为止 */
-    goto: z.string().min(1).optional(),
+    goto: BranchGotoSchema.optional(),
   })
   .strict();
 
@@ -174,6 +192,11 @@ export const SubmitBranchArgsSchema = z
          * 语义只到这一层——"池 / 权重 / 到期"是引擎内部实现，模型不感知。
          */
         mode: z.enum(["random", "certain"]),
+        /**
+         * 入口延迟（相对量）：提交后过多久这一幕才开演。缺省 = 尽快。
+         * 声明后入口事件进延时队列、**不占槽**，中间可以继续演别的内容。
+         */
+        after: TimeSpecSchema.optional(),
       })
       .strict(),
     /** 本次提交**新造**的 NPC（模板里没有的人）；上限 4 个，避免一次灌一堆。 */

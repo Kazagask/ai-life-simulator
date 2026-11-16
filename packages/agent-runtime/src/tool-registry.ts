@@ -233,11 +233,14 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
       "⑤ 关系/生命周期同样写在选项效果里：`{\"relation\":{\"with\":\"<alias或npcId>\",\"to\":12}}`、" +
       '`{"lifecycle":{"npc":"<alias或npcId>","state":"alive|inactive"}}`。' +
       "⑥ 标记 `mode: \"certain\"` 表示条件满足即发生，`random` 表示有机会发生。" +
+      "⑦ 延迟是**相对量**：`trigger.after` 表示「提交后过多久开演」（如 {value:2,unit:\"day\"}），" +
+      "不是绝对日期；`goto` 可写字符串，也可写 {node,after} 表示「上一幕之后过多久再进入下一幕」。" +
       " —— 照下面这个例子写。effects 只有三种扁平形状：{\"flag\":\"名字\",\"value\":true} 置旗标、" +
       "{\"mood\":3} 调心情、{\"hp\":-5}/{\"mp\":-5} 调资源；**不要写 type/op 字段**。" +
-      '{"trigger":{"mode":"certain"},' +
+      '{"trigger":{"mode":"certain","after":{"value":2,"unit":"day"}},' +
       '"branch":[{"node":"s1","title":"路口","text":"……","actors":["npc-yuji"],' +
-      '"options":[{"text":"推进","effects":[{"flag":"swept","value":true}],"goto":"s2"}]},' +
+      '"options":[{"text":"推进","effects":[{"flag":"swept","value":true}],' +
+      '"goto":{"node":"s2","after":{"value":1,"unit":"hour"}}}]},' +
       '{"node":"s2","title":"残渣","text":"……","options":[{"text":"绕开"}]}]}',
     parameters: schemaOf(
       {
@@ -245,6 +248,15 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
           type: "object",
           properties: {
             mode: { type: "string", enum: ["random", "certain"] },
+            after: {
+              type: "object",
+              description: "提交后过多久开演（相对量，不是绝对日期）",
+              properties: {
+                value: { type: "integer", minimum: 1 },
+                unit: { type: "string", enum: ["minute", "hour", "day", "week", "month", "year"] },
+              },
+              required: ["value", "unit"],
+            },
             // v1 不解释条件：可以不写，写了也会被忽略（写错不会导致整轮失败）。
           },
           required: ["mode"],
@@ -300,7 +312,31 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
                         "三种扁平形状之一：{flag,value} 置旗标 / {mood} 调心情 / {hp}或{mp} 调资源",
                       items: { type: "object" },
                     },
-                    goto: { type: "string", description: "本次提交内的另一个 node" },
+                    goto: {
+                      description:
+                        "本次提交内的另一个 node；字符串 = 立即进入；对象 = 可声明 after（上一幕之后过多久）",
+                      oneOf: [
+                        { type: "string" },
+                        {
+                          type: "object",
+                          properties: {
+                            node: { type: "string" },
+                            after: {
+                              type: "object",
+                              properties: {
+                                value: { type: "integer", minimum: 1 },
+                                unit: {
+                                  type: "string",
+                                  enum: ["minute", "hour", "day", "week", "month", "year"],
+                                },
+                              },
+                              required: ["value", "unit"],
+                            },
+                          },
+                          required: ["node"],
+                        },
+                      ],
+                    },
                   },
                   required: ["text"],
                 },

@@ -6,16 +6,20 @@ import { parse } from "yaml";
 import { z } from "zod";
 import {
   AssetManifestSchema,
+  EffectSchema,
   EndingConfigSchema,
   EvaluationConfigSchema,
+  EventTriggerSchema,
   OpeningTemplateSchema,
   RulesSchema,
+  TimeSpecSchema,
   WorldTemplateV2Schema,
   type AssetManifest,
   type EndingConfig,
   type EvaluationConfig,
   type OpeningTemplate,
   type Rules,
+  type TimeSpec,
   type WorldTemplateV2,
 } from "@life-sim/shared";
 import {
@@ -332,6 +336,174 @@ function statMtime(file: string): number {
   }
 }
 
+// ---------- 模板侧分支事件（P1）：加载期展开成普通事件，运行时不感知 branch ----------
+
+const asRecord = (v: unknown): Record<string, unknown> | null =>
+  typeof v === "object" && v !== null && !Array.isArray(v)
+    ? (v as Record<string, unknown>)
+    : null;
+
+const TemplateBranchGotoSchema = z.union([
+  z.string().min(1),
+  z
+    .object({
+      node: z.string().min(1),
+      after: TimeSpecSchema.optional(),
+    })
+    .strict(),
+]);
+
+/**
+ * 模板分支节点：与 `story.submitBranch` 的 node 同形；`title` 可省略（缺省继承父事件 title /
+ * node 别名），`effects` 用**模板原生的规范 Effect**（不是 LLM 那三种扁平形状）。
+ */
+const TemplateBranchNodeSchema = z
+  .object({
+    node: z.string().min(1).max(40),
+    title: z.string().min(1).max(40).optional(),
+    text: z.string().min(1).max(600),
+    actors: z.array(z.string().min(1)).max(6).optional(),
+    mentions: z.array(z.string().min(1)).max(6).optional(),
+    npcs: z.array(z.string().min(1)).max(6).optional(),
+    options: z
+      .array(
+        z
+          .object({
+            text: z.string().min(1).max(120),
+            effects: z.array(EffectSchema).max(4).optional(),
+            goto: TemplateBranchGotoSchema.optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(4),
+  })
+  .strict();
+
+const TemplateBranchEventSchema = z
+  .object({
+    id: z.string().min(1),
+    /** 可选父级标题：节点没写 title 时继承。 */
+    title: z.string().min(1).max(40).optional(),
+    trigger: EventTriggerSchema,
+    branch: z.array(TemplateBranchNodeSchema).min(1).max(12),
+  })
+  .strict();
+
+/**
+ * 把 `events[].branch`（模板侧分支）展开成普通 `EventV2[]`：
+ * - 全局 id = `<eventId>#<node>`；`goto` → `nextEventId`；`goto.after` → 后继事件 `trigger.window.start`；
+ * - 第一个节点继承父事件的 `trigger`，其余节点为 `chain`（只靠 nextEventId 到达）；
+ * - 展开后引擎完全不知道"分支"这个概念，复用的仍是普通事件调度。
+ *
+ * 撞车护栏：展开出的 id 与任何手写事件 id / 另一条分支的展开 id 重复 ⇒ 加载期拒载。
+ */
+function expandTemplateEvents(rawEvents: readonly unknown[]): unknown[] {
+  // 第一遍：非分支事件的 id 先占位（同时守住手写 id 自身重复）。
+  const ids = new Set<string>();
+  for (const raw of rawEvents) {
+    const rec = asRecord(raw);
+    if (rec === null || rec.branch !== undefined) continue;
+    if (typeof rec.id === "string") {
+      if (ids.has(rec.id)) throw new Error(`events: id 重复：${rec.id}`);
+      ids.add(rec.id);
+    }
+  }
+
+  const out: unknown[] = [];
+  for (const raw of rawEvents) {
+    const rec = asRecord(raw);
+    if (rec === null || rec.branch === undefined) {
+      out.push(raw);
+      continue;
+    }
+    if (rec.settle !== undefined) {
+      throw new Error(
+        `events: ${String(rec.id ?? "?")} 的 branch 与 settle 互斥（一个事件只能选一种形态）`,
+      );
+    }
+    const parsed = TemplateBranchEventSchema.safeParse(raw);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      throw new Error(
+        `events: branch 事件校验失败（${issue?.path.join(".") || "<root>"}: ${issue?.message ?? ""}）`,
+      );
+    }
+    const event = parsed.data;
+    const prefix = `${event.id}#`;
+    const aliases = new Set(event.branch.map((n) => n.node));
+    if (aliases.size !== event.branch.length) {
+      throw new Error(`events: ${event.id} 的 node 别名重复`);
+    }
+    // goto 闭合 + 同一目标 after 一致（与 submitBranch 同一口径）。
+    const afterByTarget = new Map<string, { canonical: string; spec?: TimeSpec }>();
+    for (const node of event.branch) {
+      for (const option of node.options) {
+        if (option.goto === undefined) continue;
+        const target = typeof option.goto === "string" ? { node: option.goto } : option.goto;
+        if (!aliases.has(target.node)) {
+          throw new Error(`events: ${event.id} 的 goto 指向 branch 之外的节点：${target.node}`);
+        }
+        const canonical = target.after === undefined ? "null" : JSON.stringify(target.after);
+        const prev = afterByTarget.get(target.node);
+        if (prev !== undefined && prev.canonical !== canonical) {
+          throw new Error(
+            `events: ${event.id} 的节点 ${target.node} 收到不一致的 goto.after（同一幕只能有一个延迟）`,
+          );
+        }
+        afterByTarget.set(
+          target.node,
+          target.after === undefined ? { canonical } : { canonical, spec: target.after },
+        );
+      }
+    }
+
+    for (const [index, node] of event.branch.entries()) {
+      const id = `${prefix}${node.node}`;
+      if (ids.has(id)) {
+        throw new Error(
+          `events: branch 展开后的事件 id 撞车：${id}（与手写事件或另一条分支重复）`,
+        );
+      }
+      ids.add(id);
+      const afterSpec = index > 0 ? afterByTarget.get(node.node)?.spec : undefined;
+      out.push({
+        id,
+        title: node.title ?? event.title ?? node.node,
+        narrative: node.text,
+        kind: "normal",
+        ...(node.actors !== undefined ? { actors: [...node.actors] } : {}),
+        ...(node.mentions !== undefined ? { mentions: [...node.mentions] } : {}),
+        ...(node.npcs !== undefined ? { npcs: [...node.npcs] } : {}),
+        trigger:
+          index === 0
+            ? event.trigger
+            : {
+                source: "chain",
+                ...(afterSpec !== undefined ? { window: { start: afterSpec } } : {}),
+              },
+        settle: {
+          normal: {
+            options: node.options.map((option, optionIndex) => ({
+              id: `${id}.opt.${optionIndex + 1}`,
+              text: option.text,
+              ...(option.effects !== undefined ? { effects: option.effects } : {}),
+              ...(option.goto !== undefined
+                ? {
+                    nextEventId: `${prefix}${
+                      typeof option.goto === "string" ? option.goto : option.goto.node
+                    }`,
+                  }
+                : {}),
+            })),
+          },
+        },
+      });
+    }
+  }
+  return out;
+}
+
 /** 合并模板主域为一份 `WorldTemplateV2`（只读存在的文件，缺文件由 schema 校验报错）。 */
 function loadTemplate(versionDir: string, files: ReadonlySet<string>): WorldTemplateV2 {
   const merged: Record<string, unknown> = {};
@@ -355,6 +527,10 @@ function loadTemplate(versionDir: string, files: ReadonlySet<string>): WorldTemp
         merged[key] = [...(merged[key] as unknown[]), ...value];
       }
     }
+  }
+  // P1：模板侧 `events[].branch` 在加载期展开成普通事件；非数组原样交给 schema 报类型错。
+  if (Array.isArray(merged.events)) {
+    merged.events = expandTemplateEvents(merged.events);
   }
   return WorldTemplateV2Schema.parse(merged);
 }
@@ -397,7 +573,7 @@ function loadOptionalConfig<T>(
 /**
  * `rules.yaml` 独立加载器（**不并入** `TEMPLATE_MERGE_FILES`）。
  *
- * 契约 = `RulesSchema`（5 个顶层键、`.strict()`）。校验失败**直接抛错**，由 `scanVersion`
+ * 契约 = `RulesSchema`（4 个顶层键、`.strict()`）。校验失败**直接抛错**，由 `scanVersion`
  * 的 catch 收敛成 `{ ok: false, reason }`：启动期 ⇒ `template_invalid` 拒绝启动；
  * 运行期 ⇒ 该版本标 `invalid`（有旧 Entry 则保留旧的）。绝不再「warn + 静默丢文件」。
  */

@@ -723,11 +723,19 @@ function enqueueGeneratedCertain(
     // 已结算过的生成事件不重放（生成分支是一次性内容，不靠 cooldown 收敛）。
     if (state.firedEvents[def.id] !== undefined) continue;
     if (!checkEventPremise(def, { state, lookup, rng }).ok) continue;
+    const startSpec = def.trigger.window?.start ?? def.trigger.delay;
     enqueueScheduled({
       state,
       definitionId: def.id,
       origin: { kind: "generated", id: def.id },
-      absoluteStart: state.worldTime,
+      // 事件自己声明的延迟/窗口 ⇒ 相对**入队时刻**换算；未声明仍为 now（零回归）。
+      ...(startSpec !== undefined
+        ? {
+            start: startSpec,
+            ...(def.trigger.window?.end !== undefined ? { end: def.trigger.window.end } : {}),
+          }
+        : { absoluteStart: state.worldTime }),
+      calendar: createTimeAdapter(lookup.template),
     });
   }
 }
