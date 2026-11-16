@@ -1,6 +1,7 @@
 import {
   ContentBlockSchema,
   DIAGNOSTIC_CODES,
+  CharacterSchema,
   EventV2Schema,
   SetKnowledgeArgsSchema,
   SubmitBranchArgsSchema,
@@ -16,7 +17,9 @@ import {
   type DispatchResult,
   type Effect,
   type EngineApiHandle,
+  type Character,
   type EventV2,
+  type GeneratedNpc,
   type FactChange,
   type LlmBudget,
   type Perspective,
@@ -529,13 +532,106 @@ const enqueueEvent: ToolHandler = {
  * 真实模型记不住 24 变体的判别联合，会反复写错字段名。这里做一次映射，
  * 把"作者语言"翻译成"引擎语言"。
  */
-function toCanonicalEffects(list: readonly BranchEffect[]): Effect[] {
+function toCanonicalEffects(
+  list: readonly BranchEffect[],
+  /** 本次提交内的 NPC 别名 → 全局 id（引用解析用） */
+  npcIdByAlias: ReadonlyMap<string, string>,
+): Effect[] {
   return list.map((effect) => {
     if ("flag" in effect) return { type: "setFlag", id: effect.flag, value: effect.value };
     if ("mood" in effect) return { type: "adjustMood", value: effect.mood };
     if ("hp" in effect) return { type: "adjustResource", resource: "hp", value: effect.hp };
-    return { type: "adjustResource", resource: "mp", value: effect.mp };
+    if ("mp" in effect) return { type: "adjustResource", resource: "mp", value: effect.mp };
+    if ("spawn" in effect) {
+      /**
+       * `spawn` 两种来源，**同一实例表**：
+       * - 本次提交新造的人（别名命中）⇒ 激活生成角色（unspawned → alive）；
+       * - 模板刷新规则 id（别名不命中）⇒ 走 `spawnNpc`，幂等、受 `npcSpawnRules` 管辖。
+       * 引擎先查别名再查规则；两者都不是 ⇒ 后面 `spawnNpc` 会以未知规则报错。
+       */
+      const generated = npcIdByAlias.get(effect.spawn);
+      return generated !== undefined
+        ? { type: "setNpcLifecycle", npcId: generated, state: "alive" }
+        : { type: "spawnNpc", ruleId: effect.spawn };
+    }
+    if ("relation" in effect) {
+      const target = npcIdByAlias.get(effect.relation.with) ?? effect.relation.with;
+      return { type: "adjustRelation", npcId: target, value: effect.relation.to };
+    }
+    const target = npcIdByAlias.get(effect.lifecycle.npc) ?? effect.lifecycle.npc;
+    return { type: "setNpcLifecycle", npcId: target, state: effect.lifecycle.state };
   });
+}
+
+/**
+ * 把「分支里新造的 NPC」编译成角色定义 + 实例。
+ *
+ * 硬约束（与模板角色共用同一套不变量）：
+ * - **id 由引擎分配**（`gennpc:<invocationId>:<alias>`），模型只给本次提交的局部别名；
+ * - 只采纳展示与基础规则需要的字段：`isEnemy` / `combatHints` / `knowledge` 这类
+ *   **会影响规则判定**的东西一律引擎缺省，不接受模型指定；
+ * - 属性值钳到 `[0, 20]`（与模板属性量级同阶），超出即钳，不信任入参；
+ * - 实例以 `unspawned` 落表 —— "定义了" ≠ "登场了"，登场由选项效果 `{spawn}` 激活。
+ */
+function buildGeneratedNpc(
+  npc: GeneratedNpc,
+  invocationId: string,
+): { character: Character; instance: WorldStateV2["npcs"][number] } | null {
+  const id = `gennpc:${invocationId}:${npc.alias}`;
+  const attributes: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(npc.attributes ?? {})) {
+    attributes[key] = Math.max(0, Math.min(20, Math.round(raw)));
+  }
+  const character: Character = {
+    id,
+    isEnemy: false,
+    identity: {
+      name: npc.name,
+      age: npc.age ?? 30,
+      gender: npc.gender ?? "unknown",
+    },
+    visibility: "public",
+    lifecycle: { state: "unspawned" },
+    mood: { value: 50 },
+    attributes,
+    public: {
+      ...(npc.personality !== undefined ? { personality: npc.personality } : {}),
+      ...(npc.knownGoals !== undefined ? { knownGoals: [...npc.knownGoals] } : {}),
+    },
+    private: {
+      ...(npc.goals !== undefined ? { goals: [...npc.goals] } : {}),
+    },
+    relationship: npc.relationship ?? 0,
+  };
+  const parsed = CharacterSchema.safeParse(character);
+  if (!parsed.success) return null;
+  const c = parsed.data;
+  const instance: WorldStateV2["npcs"][number] = {
+    id: c.id,
+    name: c.identity.name,
+    gender: c.identity.gender,
+    age: c.identity.age,
+    birthTime: 0,
+    attributes: { ...c.attributes },
+    hp: 1,
+    mp: 1,
+    mood: c.mood.value,
+    statuses: [],
+    skillCooldowns: {},
+    inventory: {},
+    skills: [],
+    relationship: c.relationship,
+    personality: c.public.personality ?? "",
+    knownGoals: [...(c.public.knownGoals ?? [])],
+    goals: [...(c.private.goals ?? [])],
+    traits: [],
+    knowledge: [],
+    secrets: [],
+    lastActedAtTurn: 0,
+    isEnemy: false,
+    lifecycle: { state: "unspawned", sinceTurn: 0, sinceWorldTime: 0 },
+  };
+  return { character: c, instance };
 }
 
 const submitBranch: ToolHandler = {
@@ -552,6 +648,23 @@ const submitBranch: ToolHandler = {
       );
     }
     const { trigger, branch } = parsed.data;
+
+    // 本次提交新造的 NPC：先全部编译（含 schema 校验），再在最后一步原子落表。
+    const npcIdByAlias = new Map<string, string>();
+    const newCharacters: Character[] = [];
+    const newInstances: Array<WorldStateV2["npcs"][number]> = [];
+    for (const npc of parsed.data.npcs ?? []) {
+      if (npcIdByAlias.has(npc.alias)) {
+        return rejected("invalid_arguments", `NPC 别名重复：${npc.alias}`);
+      }
+      const built = buildGeneratedNpc(npc, ctx.invocationId ?? "local");
+      if (built === null) {
+        return rejected("invalid_arguments", `NPC 定义未通过 CharacterSchema：${npc.alias}`);
+      }
+      npcIdByAlias.set(npc.alias, built.character.id);
+      newCharacters.push(built.character);
+      newInstances.push(built.instance);
+    }
 
     // 局部别名唯一
     const aliases = new Set<string>();
@@ -619,7 +732,7 @@ const submitBranch: ToolHandler = {
               text: option.text,
               // 显式给 [] 而不是省略：省略的语义是"这个选项什么也不做"，
               // 而缺省语义将来一变就是静默改行为。
-              effects: toCanonicalEffects(option.effects ?? []),
+              effects: toCanonicalEffects(option.effects ?? [], npcIdByAlias),
               ...(option.goto !== undefined ? { nextEventId: `${prefix}${option.goto}` } : {}),
             })),
           },
@@ -640,6 +753,11 @@ const submitBranch: ToolHandler = {
 
     // 追加式：注册后不再修改（与"不能在已有结构上打补丁"同一条纪律）。
     state.generatedEvents = [...(state.generatedEvents ?? []), ...compiled];
+    // 新造的人：定义 + 实例（unspawned）一起落表，与模板角色共用同一实例表。
+    if (newCharacters.length > 0) {
+      state.generatedCharacters = [...(state.generatedCharacters ?? []), ...newCharacters];
+      state.npcs = [...state.npcs, ...newInstances];
+    }
     return accepted([{ path: "generatedEvents", after: compiled.map((e) => e.id).join(",") }]);
   },
 };

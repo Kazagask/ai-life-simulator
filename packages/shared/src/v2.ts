@@ -337,6 +337,11 @@ export interface WorldStateV2 {
    * 可选 ⇒ 旧档可直载、没有生成内容的世界逐字段不变。
    */
   generatedEvents?: EventV2[];
+  /**
+   * 运行时生成的**角色定义**（模板里没有的人）：随分支提交写入，实例同时落 `npcs`
+   * （`unspawned`），由选项效果 `{spawn: alias}` 激活。与模板角色共用同一实例表与生命周期。
+   */
+  generatedCharacters?: Character[];
   /** 全局单调入队序号，纯状态递增（不用 Date / 随机） */
   enqueueSeqCounter: number;
   /** 事实层：错失记录（append-only） */

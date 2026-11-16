@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CombatSettleSchema, EventV2Schema } from "./schema/event.js";
+import { CharacterSchema } from "./schema/character.js";
 import { EndingConfigSchema } from "./schema/ending.js";
 import { EquipmentInstanceSchema } from "./schema/equipment.js";
 import { ScheduledEventInstanceSchema } from "./schema/event-instance.js";
@@ -249,6 +250,8 @@ export const WorldStateV2Schema = z
      * 可选 + 缺省 `[]` ⇒ 旧档可直载、无生成内容的世界逐字段不变。
      */
     generatedEvents: z.array(EventV2Schema).optional(),
+    /** 运行时生成的角色定义（模板里没有的人）；与模板角色共用实例表与生命周期。 */
+    generatedCharacters: z.array(CharacterSchema).optional(),
     enqueueSeqCounter: z.number().int().nonnegative(),
     missedEvents: z.array(MissedEventRecordSchema),
     eventFires: z.array(EventFireRecordSchema),

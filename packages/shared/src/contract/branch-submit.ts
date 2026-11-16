@@ -20,6 +20,40 @@ import { z } from "zod";
  * / `{type,id,value}` 三种混用），每次都让整轮作废。
  * 这里只暴露"作者真正会用的三个动作"，引擎编译时再映射回规范 Effect。
  */
+/**
+ * 分支内**新造**的 NPC（模板里没有定义的人）。
+ *
+ * 与模板 `spawnNpc {ruleId}` 的区别：那个是"把模板已定义、但还没登场的人拉出来"；
+ * 这个是"现场造一个人"。两者**同一实例表、同一生命周期**，但来源不同：
+ * - 模板源：定义在 `characters.yaml`，出生受 `npcSpawnRules` 管辖（幂等、可刷新）；
+ * - 生成源：定义随分支一起提交，引擎校验后写入 `state.generatedCharacters`，
+ *   实例以 `unspawned` 落表，由选项效果 `{spawn: alias}` 激活。
+ *
+ * 引擎只接受**展示所需的最小集**，其余字段按模板缺省填充 ——
+ * 不让模型凭空指定 isEnemy / combatHints / knowledge 这类会影响规则判定的东西。
+ */
+export const GeneratedNpcSchema = z
+  .object({
+    /** 本次提交内的局部别名（引用它用，全局 id 由引擎分配） */
+    alias: z.string().min(1).max(20),
+    name: z.string().min(1).max(20),
+    age: z.number().int().min(0).max(120).optional(),
+    gender: z.string().min(1).max(20).optional(),
+    /** 公开可见的性格描述 */
+    personality: z.string().max(60).optional(),
+    /** 玩家可见的目标 */
+    knownGoals: z.array(z.string().max(40)).max(4).optional(),
+    /** 引擎内部用的长期目标标签（不进投影） */
+    goals: z.array(z.string().max(40)).max(4).optional(),
+    /** 初始属性（只会采纳模板声明的属性键，值被钳到 [0, 20]） */
+    attributes: z.record(z.string(), z.number()).optional(),
+    /** 初始关系值（NPC→玩家，-100..100） */
+    relationship: z.number().min(-100).max(100).optional(),
+  })
+  .strict();
+
+export type GeneratedNpc = z.infer<typeof GeneratedNpcSchema>;
+
 export const BranchEffectSchema = z.union([
   /** 置旗标（最常用：给分支留一个可观测痕迹） */
   z.object({ flag: z.string().min(1), value: z.union([z.boolean(), z.string(), z.number()]) }).strict(),
@@ -28,6 +62,26 @@ export const BranchEffectSchema = z.union([
   /** 调资源（hp / mp） */
   z.object({ hp: z.number() }).strict(),
   z.object({ mp: z.number() }).strict(),
+  /**
+   * 让一个人**登场**。取值二选一：
+   * - 本次提交里的 NPC 别名（`npcs[].alias`）⇒ 激活生成角色；
+   * - 模板刷新规则 id（`npcSpawnRules[].id`）⇒ 走 `spawnNpc`，幂等、受规则管辖。
+   * 引擎先查本次提交的别名，再查模板规则；都没有 ⇒ 拒绝（unknown_reference）。
+   */
+  z.object({ spawn: z.string().min(1) }).strict(),
+  /** 调整某个角色与玩家的关系值 */
+  z.object({ relation: z.object({ with: z.string().min(1), to: z.number().min(-100).max(100) }).strict() }).strict(),
+  /** 改某个角色的生命周期（登场 / 离场） */
+  z
+    .object({
+      lifecycle: z
+        .object({
+          npc: z.string().min(1),
+          state: z.enum(["alive", "inactive", "unspawned"]),
+        })
+        .strict(),
+    })
+    .strict(),
 ]);
 
 export type BranchEffect = z.infer<typeof BranchEffectSchema>;
@@ -84,6 +138,8 @@ export const SubmitBranchArgsSchema = z
         mode: z.enum(["random", "certain"]),
       })
       .strict(),
+    /** 本次提交**新造**的 NPC（模板里没有的人）；上限 4 个，避免一次灌一堆。 */
+    npcs: z.array(GeneratedNpcSchema).max(4).optional(),
     /** 整条编排：1..12 个事件块。单事件是 N=1 的退化形态。 */
     branch: z.array(SubmitBranchNodeSchema).min(1).max(12),
   })

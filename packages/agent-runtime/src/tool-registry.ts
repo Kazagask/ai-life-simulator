@@ -243,7 +243,13 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
       "③ 角色分两种写法，别混：`actors` 是「这一幕必须在场的人」（引擎呈现前复核，不在场就跳过这一幕）；" +
       "`mentions` 是「只在正文里提到的人」，可以是已故的（纪念 / 缅怀 / 遗物 / 墓前这类戏用它，" +
       "把逝者写进 actors 会让这一幕被判跳过）；" +
-      "④ 标记 `mode: \"certain\"` 表示条件满足即发生，`random` 表示有机会发生。" +
+      "④ 需要**新角色**时在顶层 `npcs` 里描述（模板里没有的人也可以）：" +
+      '{alias,name,age?,gender?,personality?,knownGoals?,attributes?}。' +
+      "定义的只是「他是谁」，**登场**要另在选项效果里写 `{\"spawn\":\"<alias>\"}``；" +
+      "`spawn` 也可以填模板刷新规则 id（两种来源共用同一实例表）。" +
+      "⑤ 关系/生命周期同样写在选项效果里：`{\"relation\":{\"with\":\"<alias或npcId>\",\"to\":12}}`、" +
+      '`{"lifecycle":{"npc":"<alias或npcId>","state":"alive|inactive"}}`。' +
+      "⑥ 标记 `mode: \"certain\"` 表示条件满足即发生，`random` 表示有机会发生。" +
       " —— 照下面这个例子写。effects 只有三种扁平形状：{\"flag\":\"名字\",\"value\":true} 置旗标、" +
       "{\"mood\":3} 调心情、{\"hp\":-5}/{\"mp\":-5} 调资源；**不要写 type/op 字段**。" +
       '{"trigger":{"mode":"certain"},' +
@@ -259,6 +265,24 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
             // v1 不解释条件：可以不写，写了也会被忽略（写错不会导致整轮失败）。
           },
           required: ["mode"],
+        },
+        npcs: {
+          type: "array",
+          maxItems: 4,
+          description: "本次提交新造的角色（模板里没有的人）。定义了 ≠ 登场了：登场要用 effect spawn。",
+          items: {
+            type: "object",
+            properties: {
+              alias: { type: "string", description: "本次提交内的局部别名" },
+              name: { type: "string" },
+              age: { type: "integer" },
+              gender: { type: "string" },
+              personality: { type: "string" },
+              knownGoals: { type: "array", items: { type: "string" } },
+              attributes: { type: "object", description: "只采纳模板声明的属性键，值钳到 [0,20]" },
+            },
+            required: ["alias", "name"],
+          },
         },
         branch: {
           type: "array",
