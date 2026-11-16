@@ -1,5 +1,5 @@
 import type { TurnPipelineConfig } from "@life-sim/game-core";
-import { RpgEngineAPI, projectSnapshotV2 } from "@life-sim/game-core";
+import { RpgEngineAPI, createConditionRegistry, projectSnapshotV2 } from "@life-sim/game-core";
 import { AgentGateway, createAgentProvider } from "@life-sim/agent-runtime";
 import type { WorldStateV2 } from "@life-sim/shared";
 import { DEFAULT_OPENAI_BASE_URL, type UserCredentials } from "../llm/credentials.js";
@@ -51,6 +51,33 @@ export function resolveAgentConfig(
 }
 
 /**
+ * 生产路径唯一的引擎构造点（`pipelineForTurn` 与测试共用它）。
+ *
+ * **为什么抽成独立导出**：`lookupRefs` / `conditionRegistry` 是否真的接上，只能对
+ * 「生产实际用的那个构造点」断言 —— 测试里另写一份 `new RpgEngineAPI({...})` 就等于把
+ * 要验的东西 mock 掉了（两份构造可以各接一半，谁也不会红）。
+ *
+ * 两个依赖的作用（ADR-0037 D10 / ADR-0038 IO-14）：
+ * - `lookupRefs`：`fact.enqueueEvent` 的模板存在性校验（`unknown_reference`）+ `validateDag`
+ *   步骤 6 的 `templateRefs ⊆ lookupRefs`；
+ * - `conditionRegistry`：`validateDag` 步骤 6 的 guard-op 可解析性检查。用 core 内置注册表
+ *   （与结算钩子 `runSettlementHooks` 的缺省同源），不另建第二套 op 集合。
+ *
+ * 缺任一项 ⇒ 对应校验**静默空转**：代码在、判据不存在，模型自造 id 也能落账。
+ */
+export function engineApiForTurn(world: WorldStateV2, entry: ReadyTemplateEntry): RpgEngineAPI {
+  return new RpgEngineAPI({
+    state: world,
+    projectSnapshot: (s) => projectSnapshotV2(s, entry.template, entry.lookup),
+    perspective: "world",
+    targetPerspective: "player",
+    // 集合在模板加载期算一次随 entry 缓存，不按请求重算。
+    lookupRefs: entry.refs,
+    conditionRegistry: createConditionRegistry(),
+  });
+}
+
+/**
  * 注入网关的回合管线。
  *
  * - 引擎 API 建在世界的**活状态**上：`advanceTurnV2` 原地改 `state`，网关在结算尾 dispatch
@@ -67,12 +94,7 @@ export function pipelineForTurn(
   const base = entry.pipeline;
   // 真·零回归分支：没有 provider **且**模板没有 rules.yaml ⇒ 没有触发源，注入毫无意义。
   if (config === undefined && entry.rules === undefined) return base;
-  const engineApi = new RpgEngineAPI({
-    state: world,
-    projectSnapshot: (s) => projectSnapshotV2(s, entry.template, entry.lookup),
-    perspective: "world",
-    targetPerspective: "player",
-  });
+  const engineApi = engineApiForTurn(world, entry);
   // 正文增量的转发频道：只把碎片推到内存频道（SSE 路由负责下发），
   // trace 仍然只在 onTrace 收尾时一次性落盘（F3：中途不落盘、不进 sink）。
   const narrativeStream = beginNarrativeInvocation(world.id);

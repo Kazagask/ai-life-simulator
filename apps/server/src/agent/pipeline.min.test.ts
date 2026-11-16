@@ -7,7 +7,7 @@ import { advanceTurnV2, createConditionRegistry, evaluateTriggers } from "@life-
 import { loadTemplates, type ReadyTemplateEntry, type TemplateScanLogger } from "../templates.js";
 import { traceFile, worldStore } from "../store.js";
 import { readNarrativeBlocks } from "../narrative/read.js";
-import { pipelineForTurn, resolveAgentConfig } from "./pipeline.js";
+import { pipelineForTurn, engineApiForTurn, resolveAgentConfig } from "./pipeline.js";
 
 /**
  * T-11 接线最小集：**无 provider 时零回归**。
@@ -163,5 +163,59 @@ describe("pipelineForTurn", () => {
     );
     const strip = (snapshot: typeof resA.snapshot) => ({ ...snapshot, worldId: "" });
     expect(strip(resB.snapshot)).toEqual(strip(resA.snapshot));
+  });
+});
+
+/**
+ * ADR-0037 D10 / ADR-0038 IO-14：`lookupRefs` 必须**接在生产构造点**上。
+ *
+ * 这两条用例的设计要点是「没接线必须变红」：
+ * 反例里 `ctx.branchEventIds` **故意包含**那个不存在的 eventId —— 于是分支白名单放行，
+ * 唯一还能拒绝它的只剩模板 ref 校验。若 `engineApiForTurn` 不传 `lookupRefs`，
+ * 这次 dispatch 会 **accepted**（模型自造的事件被塞进 delayQueue），断言立刻红。
+ */
+describe("lookupRefs 接线（模板存在性校验真的在跑）", () => {
+  const ctxOf = (world: ReturnType<typeof worldStore.create>, branchEventIds: string[]) => ({
+    turnIndex: world.turnIndex,
+    worldTime: world.worldTime,
+    targetPerspective: "player" as const,
+    branchEventIds,
+  });
+
+  it("模板不存在的 eventId ⇒ unknown_reference，factsHint.allowedRefs 是模板 evt: 集合", () => {
+    const world = worldStore.create({ templateId: "demo-agentic", playerName: "阿验" }, entry);
+    const api = engineApiForTurn(world, entry);
+    const { receipts } = api.dispatch(
+      [{ callId: "c-missing", tool: "fact.enqueueEvent", args: { eventId: "evt:nonexistent" } }],
+      ctxOf(world, ["evt:nonexistent"]),
+    );
+    const receipt = receipts[0]!;
+    expect(receipt.outcome).toBe("rejected");
+    expect(receipt.code).toBe("unknown_reference");
+    // 拒绝来自模板 ref 校验（不是分支白名单）：detail 指向集合，hint 回的是模板全集。
+    expect(receipt.detail).toContain("模板 ref 集合内");
+    const allowed = receipt.factsHint?.["allowedRefs"];
+    expect(Array.isArray(allowed)).toBe(true);
+    const refs = allowed as string[];
+    expect(refs.length).toBeGreaterThan(0);
+    expect(refs.every((ref) => ref.startsWith("evt:"))).toBe(true);
+    expect(refs).toContain("evt:trial");
+    expect(refs).not.toContain("evt:nonexistent");
+    // 反证：这次拒绝确实没落账。
+    expect(world.delayQueue.some((i) => i.definitionId === "evt:nonexistent")).toBe(false);
+  });
+
+  it("模板实有 eventId + 白名单命中 ⇒ 不是 unknown_reference（ref 集合非空且未误杀）", () => {
+    const world = worldStore.create({ templateId: "demo-agentic", playerName: "阿放" }, entry);
+    const api = engineApiForTurn(world, entry);
+    const { receipts, state } = api.dispatch(
+      [{ callId: "c-trial", tool: "fact.enqueueEvent", args: { eventId: "evt:trial" } }],
+      ctxOf(world, ["evt:trial"]),
+    );
+    const receipt = receipts[0]!;
+    // 「不是 unknown_reference」是硬判据；accepted 是当前实现下的期望值（可观测落账）。
+    expect(receipt.code).not.toBe("unknown_reference");
+    expect(receipt.outcome).toBe("accepted");
+    expect(state.delayQueue.some((i) => i.definitionId === "evt:trial")).toBe(true);
   });
 });
