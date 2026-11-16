@@ -3,6 +3,8 @@ import {
   DIAGNOSTIC_CODES,
   SetKnowledgeArgsSchema,
   TaskDagSchema,
+  TaskEdgeSchema,
+  TaskNodeSchema,
   type ApiCall,
   type CallReceipt,
   type ContentBlock,
@@ -16,6 +18,10 @@ import {
   type PerspectiveFactView,
   type SetKnowledgeArgs,
   type SlotScene,
+  type TaskDag,
+  type TaskEdge,
+  type TaskNode,
+  type TaskStatus,
   type V2Snapshot,
   type WorldStateV2,
 } from "@life-sim/shared";
@@ -231,6 +237,183 @@ const advanceDag: ToolHandler = {
 };
 
 /**
+ * 结构化深比较用的规范化序列化（ADR-0037 D14.2 的「无变化短路」）。
+ *
+ * 键名排序 ⇒ 不依赖对象字面量字段顺序；数组保持原序（节点 / 边的顺序是语义）。
+ * 不用 `JSON.stringify` 直接比：同一份结构经不同构造路径可能得到不同的键序，
+ * 那会把一次空操作误判成「有变化」，version 白涨一格。
+ */
+function canonicalJson(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+      a < b ? -1 : a > b ? 1 : 0,
+    );
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/**
+ * 节点状态的**单调序**（IO-9）：只允许前进，never 回退。
+ * `ready` / `active` / `in_progress` 视为同一档（模板从不区分它们是"进行中"的不同阶段）。
+ */
+const DAG_STATUS_RANK: Record<TaskStatus, number> = {
+  draft: 0,
+  ready: 1,
+  active: 1,
+  in_progress: 1,
+  completed: 3,
+  expired: 3,
+  cancelled: 3,
+};
+
+const edgeKey = (e: TaskEdge): string => `${e.from}\u0000${e.to}\u0000${e.kind}`;
+
+/**
+ * `fact.upsertDagBranch`（ADR-0037 D4）：**增量**续写分支结构。
+ *
+ * 为什么不是 `fact.advanceDag` 那样的整份覆盖：world 窗口只剩增量（LLM 只看得见自己
+ * 新增/改写的部分语义），整份覆盖会静默丢掉它没看见的 `guards` / `completion` / `edges`。
+ *
+ * 语义（与 ADR §2 D4、§11 D14 一致）：
+ * 1. 已存在的节点只允许改 `status` / `guards` / `completion` / `due` / `visibility`；
+ *    `kind` / `title` 被改写 ⇒ `state_conflict`（防语义被静默重定义）。
+ * 2. `status` 单调（IO-9）：不允许从终态 / 更后档回退。
+ * 3. `edges` 按 `(from,to,kind)` 去重追加 ⇒ 幂等（IO-11）。
+ * 4. 合并结果与现状**深度相等** ⇒ `accepted([])` 且**不 bump version**（D14.2）。
+ * 5. 合并结果跑 `validateDag`（id 唯一 / 端点 / 自环 / 重复边 / 无环 / templateRefs ⊆ lookupRefs）
+ *    ⇒ 不过则整体拒绝、`state.taskDag` 逐字段不变（IO-12）。
+ * 6. `version = max(当前 + 1, 入参 version ?? 0)`；`issuedBy` 只在实质变化时置 `"llm"`；
+ *    `dagId` 永不取自入参（取 state）。
+ * 7. 永不删除节点 / 边。
+ */
+const upsertDagBranch: ToolHandler = {
+  run(state, args, ctx, env) {
+    // ADR-0035 IO-1：结构写入必须与本回合同事务（与 fact.advanceDag 同一条守卫）。
+    const violation = crossTurnViolation(state, ctx);
+    if (violation !== null) return violation;
+    if (!isRecord(args)) {
+      return rejected("invalid_arguments", "fact.upsertDagBranch 需要 { nodes?, edges?, version? }");
+    }
+
+    const rawNodes = args.nodes ?? [];
+    if (!Array.isArray(rawNodes)) {
+      return rejected("invalid_arguments", "nodes 必须是数组");
+    }
+    const rawEdges = args.edges ?? [];
+    if (!Array.isArray(rawEdges)) {
+      return rejected("invalid_arguments", "edges 必须是数组");
+    }
+    if (
+      args.version !== undefined &&
+      (typeof args.version !== "number" || !Number.isInteger(args.version) || args.version < 0)
+    ) {
+      return rejected("invalid_arguments", "version 必须是非负整数");
+    }
+
+    const incomingNodes: TaskNode[] = [];
+    for (const raw of rawNodes) {
+      const parsed = TaskNodeSchema.safeParse(raw);
+      if (!parsed.success) {
+        return rejected("invalid_arguments", "nodes[] 未通过 TaskNodeSchema（新节点必须是完整节点）");
+      }
+      incomingNodes.push(parsed.data);
+    }
+    const incomingEdges: TaskEdge[] = [];
+    for (const raw of rawEdges) {
+      const parsed = TaskEdgeSchema.safeParse(raw);
+      if (!parsed.success) {
+        return rejected("invalid_arguments", "edges[] 未通过 TaskEdgeSchema");
+      }
+      incomingEdges.push(parsed.data);
+    }
+
+    const nextNodes: TaskNode[] = state.taskDag.nodes.map((n) => ({ ...n }));
+    for (const incoming of incomingNodes) {
+      const index = nextNodes.findIndex((n) => n.id === incoming.id);
+      if (index < 0) {
+        nextNodes.push(incoming);
+        continue;
+      }
+      const existing = nextNodes[index]!;
+      if (existing.kind !== incoming.kind || existing.title !== incoming.title) {
+        return rejected(
+          "state_conflict",
+          `节点 ${incoming.id} 的 kind/title 不允许改写（ADR-0037 D4.1）`,
+          { nodeId: incoming.id, kind: existing.kind, title: existing.title },
+        );
+      }
+      if (DAG_STATUS_RANK[incoming.status] < DAG_STATUS_RANK[existing.status]) {
+        return rejected(
+          "state_conflict",
+          `节点 ${incoming.id} 的状态不允许回退：${existing.status} → ${incoming.status}（IO-9 单调）`,
+          { nodeId: incoming.id, status: existing.status },
+        );
+      }
+      nextNodes[index] = {
+        ...existing,
+        status: incoming.status,
+        guards: incoming.guards,
+        completion: incoming.completion,
+        visibility: incoming.visibility,
+        // `due` 可改可留：入参省略 = 不动（避免一次遗漏把截止时间清空）。
+        ...(incoming.due !== undefined ? { due: incoming.due } : {}),
+      };
+    }
+
+    const seenEdges = new Set(state.taskDag.edges.map(edgeKey));
+    const nextEdges: TaskEdge[] = state.taskDag.edges.map((e) => ({ ...e }));
+    for (const edge of incomingEdges) {
+      const key = edgeKey(edge);
+      if (seenEdges.has(key)) continue;
+      seenEdges.add(key);
+      nextEdges.push(edge);
+    }
+
+    // D14.2：无实质变化 ⇒ 幂等返回，不 bump version（否则同一 branch 两次会 +2）。
+    if (
+      canonicalJson(nextNodes) === canonicalJson(state.taskDag.nodes) &&
+      canonicalJson(nextEdges) === canonicalJson(state.taskDag.edges)
+    ) {
+      return accepted([]);
+    }
+
+    const merged: TaskDag = {
+      dagId: state.taskDag.dagId,
+      version: Math.max(
+        state.taskDag.version + 1,
+        typeof args.version === "number" ? args.version : 0,
+      ),
+      issuedBy: "llm",
+      nodes: nextNodes,
+      edges: nextEdges,
+    };
+    const parsedDag = TaskDagSchema.safeParse(merged);
+    if (!parsedDag.success) {
+      return rejected("invalid_arguments", "合并后的 DAG 未通过 TaskDagSchema");
+    }
+    const validation: DagValidationResult = validateDag(parsedDag.data, {
+      ...(env.registry ? { registry: env.registry } : {}),
+      ...(env.lookupRefs ? { lookupRefs: env.lookupRefs } : {}),
+    });
+    if (!validation.ok) {
+      return rejected(
+        validation.code ?? "state_conflict",
+        `validateDag 第 ${validation.step} 步：${validation.message}`,
+        { dagIssues: validation.factsHint ?? [] },
+      );
+    }
+    // 权威写入（taskDag）只在本文件发生。
+    state.taskDag = parsedDag.data;
+    return accepted([
+      ...incomingNodes.map((n) => ({ path: `taskDag.nodes.${n.id}`, after: n.status })),
+      ...incomingEdges.map((e) => ({ path: `taskDag.edges.${edgeKey(e)}`, after: e.kind })),
+    ]);
+  },
+};
+/**
  * `fact.enqueueEvent`：把**模板里已存在**的事件实例化进延时队列（DAG 分支的落地动作）。
  *
  * 设计口径（§3.4「(b) 需要上桌事件 ⇒ fact.enqueueEvent → delayQueue」）：
@@ -388,6 +571,7 @@ function defaultToolRegistry(): Map<string, ToolHandler> {
   const map = new Map<string, ToolHandler>();
   map.set("fact.setKnowledge", setKnowledge);
   map.set("fact.advanceDag", advanceDag);
+  map.set("fact.upsertDagBranch", upsertDagBranch);
   map.set("fact.enqueueEvent", enqueueEvent);
   for (const name of [
     "content.writeNarrative",
@@ -591,6 +775,34 @@ export function assignTriggerFireLedger(
 
 /** 诊断码封闭集合（转出，便于源码守卫 / 测试断言 13 码）。 */
 export const ENGINE_DIAGNOSTIC_CODES = DIAGNOSTIC_CODES;
+
+/**
+ * ADR-0037 D1：建世界期把模板 `fallbackDag` 种进 `state.taskDag` 的唯一写入点。
+ *
+ * `structuredClone` 是**硬要求**：`entry.rules` 是跨世界共享的缓存对象，直接赋引用会让
+ * 一个世界的 `upsertDagBranch` 改动漂到另一个世界，也破坏同 seed 回放的确定性。
+ * 同一 `fallbackDag` 重复种入 ⇒ 逐字段一致（IO-8）。
+ */
+export function assignTaskDagSeed(state: WorldStateV2, dag: TaskDag): void {
+  state.taskDag = structuredClone(dag);
+}
+
+/**
+ * ADR-0037 D2：节点状态迁移的唯一写入点（引擎权威，LLM 不参与）。
+ *
+ * 只改 `status` 这一个字段，其余（`guards` / `completion` / `templateRefs`…）保持不动。
+ * 迁移列表由纯函数 `advanceDagProgress` 基于**本轮开始时的快照**算出，本函数只负责落账。
+ */
+export function assignDagNodeStatus(
+  state: WorldStateV2,
+  nodeId: string,
+  status: TaskStatus,
+): void {
+  state.taskDag = {
+    ...state.taskDag,
+    nodes: state.taskDag.nodes.map((n) => (n.id === nodeId ? { ...n, status } : n)),
+  };
+}
 
 /**
  * 结算 tail 的知识授予落账（T-02 / F4）。

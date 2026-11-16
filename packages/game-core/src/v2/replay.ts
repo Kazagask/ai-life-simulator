@@ -2,6 +2,7 @@ import type {
   ApiCall,
   CallLogEntry,
   DispatchContext,
+  Rules,
   WorldStateV2,
   WorldTemplateV2,
 } from "@life-sim/shared";
@@ -34,6 +35,11 @@ export interface ReplaySpec {
   worldId: string;
   template: WorldTemplateV2;
   commands: ReplayCommand[];
+  /**
+   * ADR-0037 D15：模板规则。**传了才会种 `fallbackDag`** —— 生产路径建世界时种，
+   * 回放不种就会得到"同 seed 但空 DAG"的另一个世界，确定性硬约束被破坏。
+   */
+  rules?: Rules;
   /** 档 1：按轮次重放的 dispatch 调用（trace 回放，零网络）。 */
   llmTrace?: LlmReplayEntry[];
   /** 档 2：可重建调用链的 callLog。 */
@@ -57,6 +63,7 @@ function initReplay(spec: ReplaySpec): ReplayInit {
     template,
     spec.worldId,
     ctx,
+    spec.rules,
   );
   // T2-02 门禁：createWorldV2 产出 openingCompleted=false，首条指令会被 NOT_ACTIVE 拒绝。
   // 与 store.create 同样先交接激活；默认开局不改变轮次/时间/事件，保证逐字段可复现。

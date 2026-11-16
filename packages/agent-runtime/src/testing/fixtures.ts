@@ -91,14 +91,17 @@ export function loadDemoFixture(opts?: { seed?: number }): DemoFixture {
     { templateId: template.meta.id, playerName: "旅人", seed: opts?.seed ?? 20261116 },
     template,
     "world-demo-1",
+    // ADR-0037 D1 / D15：种子由建世界期完成；不再手写 `state.taskDag = rules.fallbackDag`
+    // （那是引用赋值，会让测试夹具与模板缓存共享同一个对象）。
+    undefined,
+    rules,
   );
   const lookup = createLookup(template);
   const openingCtx = { ...createRunnerContext(base.seed), lookup };
   const { state: opened, run } = runOpening(base, createDefaultOpeningTemplate(), openingCtx);
   const state = handoff(opened, run, lookup);
 
-  // 测试夹具：把模板 fallbackDag 作为已发布 DAG，并落常驻知识授予（真实结算由核心完成）。
-  state.taskDag = rules.fallbackDag;
+  // 常驻知识授予（真实结算由核心完成；DAG 种子已在 createWorldV2 落账）。
   seedLedger(state, rules);
 
   const engine = new RpgEngineAPI({ state });
