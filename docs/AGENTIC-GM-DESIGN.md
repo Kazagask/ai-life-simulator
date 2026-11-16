@@ -89,10 +89,16 @@ export const LlmContextSchema = z.object({
   stablePrefix: z.string(),
   /** 本次为什么被唤起（自然语言，不是数据）；供模型理解「我在演哪一出」 */
   invocationReason: z.string().min(1),
+  /**
+   * 压缩记忆：`# 前情` 段的内容（§2.5）。**独立于 stablePrefix 的字节**，每 >=12 轮更新一次。
+   * optional：从未压缩过的世界不携带此字段，其 context 与改前逐字节相同（零回归）。
+   */
+  priorSummary: z.string().optional(),
 }).strict();
 ```
 
 - **删除** `facts` / `secrets` / `recentTurns` / `contextHints` / `branchEventIds` 五个字段。
+  > ⚠ 注意：`priorSummary` 是 §2.5 **新增**的第六个字段，**不在**上面这五个待删字段里，别因为名字近似就顺手删掉。
 - **删除** `buildStablePrefix` 里的 `# 工具与参数` 段。
 - **删除** `loop.ts` 里 `branchEventIds` 的引导语渲染（`BRANCH_PROMPT_LEAD` 整段移除）。
 - 工具面通过 `LlmInvocation.tools` 下发，**工具 schema 不再进 stablePrefix**。
@@ -105,11 +111,18 @@ export const LlmContextSchema = z.object({
 | `# 输出契约` | 「你是说书人」「事实变更只能通过工具」「正文 2-4 句、简体中文、第二人称」 | 行为约束，每轮必用 |
 | `# 能力边界` | 「你能看见的只有本次视角内的东西」「你不能决定事件何时上演，只能提交编排」 | 防止模型「想当然」越界 |
 
-**明确不放进 stablePrefix 的东西**：工具 schema（走 `tools`）、`facts`（走读工具）、`recentTurns`（走读工具）、当前槽状态（走工具面差异）、任何 `evt:`/`dag:` 引用清单（走读工具）。
+**明确不放进 stablePrefix 的东西**：工具 schema（走 `tools`）、`facts`（走读工具）、`recentTurns`（走读工具）、当前槽状态（走工具面差异）、任何 `evt:`/`dag:` 引用清单（走读工具）、**`# 前情` 摘要（独立段，见 §2.5）**。
+
+> `# 前情` 摘要不进 stablePrefix **不是「习惯上不放」，而是硬性理由**：它每 ≥12 轮必变一次，放进字节里会让 prompt cache 前缀**每 12 轮整段失效一次**，且 `contextHash` 失去跨轮可比性（两次 invocation 的哈希差无法再归因到「世界变了」而不是「摘要变了」）。这条不是可商量的偏好。
 
 ### 2.4 字节稳定性
 
-`stablePrefix` 只由「模板静态部分 + 视角」决定，**不随轮次 / 时间 / 随机变化**。同一世界 + 同一视角的两次 invocation，`stablePrefix` 逐字节相同 ⇒ 可命中 prompt cache。`contextHash = sha256(stableStringify(context))` 仍成立，但 `context` 已收缩为两字段，哈希不再被 `facts` 抖动污染。
+`stablePrefix` 只由「模板静态部分 + 视角」决定，**不随轮次 / 时间 / 随机变化**。同一世界 + 同一视角的两次 invocation，`stablePrefix` 逐字节相同 ⇒ 可命中 prompt cache。
+
+`contextHash = sha256(stableStringify(context))` 仍成立，但 `context` 已收缩为三字段（`stablePrefix` / `invocationReason` / `priorSummary?`），哈希不再被 `facts` 抖动污染。
+
+> **哈希口径（防误判）**：`contextHash` 随 `priorSummary` 变化是**正确行为**——上下文确实不同了；要防的是把它当成「状态漂移」。而 `stablePrefix` 的**字节不随摘要变化**，所以 prompt cache 的前缀仍然命中。
+> **零回归**：`priorSummary` 是 optional，从未压缩过的世界其 `context` 与改前**逐字节相同**（`contextHash` 也相同）。
 
 ### 2.5 压缩记忆 compact
 
@@ -165,17 +178,19 @@ GM 每次唤起都带 `# 前情`（当前摘要），**在 stablePrefix 之后�
 
 > **摘要是软记忆，不是事实源。** 它只能让 GM「记得大概发生过什么」；**任何写操作与判活的依据必须来自读工具**。摘要可以写错（模型会编），引擎必须拦（`actors` 在呈现前权威复核，见 §6）。这两条缺一不可：只靠摘要自觉 = 诈尸的另一个入口；只靠引擎拦 = GM 会一直基于错误的记忆写戏。
 
-#### 2.5.7 对已定 §2.2 / §2.3 / §2.4 的同步点（**待 team-lead 确认；本文档未擅自改动已定节**）
+#### 2.5.7 对已定 §2.2 / §2.3 / §2.4 的同步（**team-lead 2026-11-16 已确认并落地**）
 
-本节要求已定节同步三处，否则 `LlmContext` 的 schema 与本节不一致：
+本节要求已定节同步三处，已按 team-lead 确认落地（否则 `LlmContext` 的 schema 与本节不一致）：
 
-1. **§2.2** `LlmContextSchema` 增加一个**可选**字段：
-   ```ts
-   /** 压缩记忆：`# 前情` 段的内容。独立于 stablePrefix 的字节；每 >=12 轮更新一次。 */
-   priorSummary: z.string().optional(),
-   ```
-2. **§2.3** 「明确不放进 stablePrefix 的东西」补一项：**`# 前情` 摘要**（独立段、紧跟 stablePrefix 之后，不进其字节）。
-3. **§2.4** 「`context` 已收缩为两字段」需改为「三字段」，并补一句：`contextHash` 会随 `priorSummary` 更新而变化，但摘要每 ≥12 轮才变一次，**不是每轮变**；`stablePrefix` 字节仍稳定，prompt cache 前缀不受影响。
+1. **§2.2** `LlmContextSchema` 已增加**可选**字段 `priorSummary?: z.string()`（见该节代码块），并注明它**不在**待删的五个字段里。
+2. **§2.3** 「明确不放进 stablePrefix 的东西」已补 **`# 前情` 摘要**，且写全了硬性理由（每 12 轮全失效前缀缓存 + `contextHash` 失去跨轮可比性）。
+3. **§2.4** 「`context` 两字段」已改为**三字段**，并写明哈希口径：随 `priorSummary` 变化是正确行为、`stablePrefix` 字节不变仍命中缓存、未压缩世界逐字节零回归。
+
+**命名：不要统一这两个名字（硬要求）**
+
+- `state.compact.summary`（**权威存储**）与 `LlmContext.priorSummary`（**本轮注入视图**）**必须保持不同名**，不许为了「整洁」统一。
+- 理由（比「语义不同」更硬）：同名会诱导实现者**直接把 `state.compact` 对象塞进 context** —— 那等于把权威状态的可变引用交出去，投影层随手一改就能**反向污染存档**；而且两者生命周期不同——state 里的是「一直累积的事实」，context 里的是「这一轮我给你的快照」。
+- 本项目已有 `contextHints` 被当成指令解析的前科（`branchEventIds` 那轮重构的起因），同类「同名/同形 → 语义漂移」的错误很容易再来一次。
 
 ---
 
