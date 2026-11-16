@@ -38,22 +38,20 @@ llmTriggers:
       contextHints: ["facts", "secrets"]
       toolProfile: "narrative"
 toolProfile:
-  # 能力画像 = 本次 invocation 允许的工具面。三项硬约束：
-  # 1) 只能列 game-core 工具注册表里真实存在的工具（engine-api.ts: defaultToolRegistry）。
-  #    列了未注册的工具 ⇒ 模型一 emit 就吃 unknown_tool（FATAL，不消耗重试）。
-  # 2) **不需要**提交工具：终止是运行时责任（模型不再发 tool call 即视为写完）。
-  # 3) **至少要有写世界的工具**：口径是「LLM 命中节点后 (a) 写叙事 / (b) 上桌事件 / (c) 推进 DAG」。
-  #    只列 narrative.* 的画像是「LLM 只能写散文」，等于把 (b)(c) 整条废掉。
+  # 能力画像 = 本次 invocation 允许的工具面（只能**收窄**，不能新增）。
+  # ① 工具名必须**两处注册表都认识**（game-core 的 defaultToolRegistry 与
+  #    agent-runtime 的 ALL_TOOL_NAMES），少一处会被静默过滤掉。
+  # ② **不需要**提交工具：终止由运行时判定（模型不再发 tool call 即完成）。
+  # ③ **写世界只有 `story.submitBranch` 一条通道**。`fact.setKnowledge` / `fact.advanceDag` /
+  #    `fact.upsertDagBranch` / `fact.enqueueEvent` 已于 2026-11-16 从工具面**下线**
+  #    （理由见 archive 里 AGENTIC-GM 设计 §4：分别对应"直接改知识台账""整份覆盖 DAG"
+  #    "往已有 DAG 打补丁""绕过 once 直接入队"，每一条都出过事故）。
+  #    本模板给"叙事 + 提交分支"两件事，够跑完整一局；只读查询不在这个最小画像里。
   #
-  # 当前放行三个：两个叙事 + fact.enqueueEvent（把分支上的事件实例化进 delayQueue）。
-  # **故意不放行** fact.advanceDag：它要求提交整份 DAG 覆盖写，属违规写法（正确姿势是
-  # fact.upsertDagBranch 增量续写）；也不放行 fact.setKnowledge —— 知识由 knowledgeGrants 规则授予，
-  # 不让模型随手改台账。工具仍在注册表里（引擎自身与将来的画像可复用），只是不暴露给本模板的模型。
-  #
-  # 命名空间：fact.* = 写权威事实，narrative.* = 写血肉（正文只进 trace，不进 WorldStateV2）。
-  # content.* → narrative.* 已收敛；writeOption / referenceAsset 已删（选项属于事件块的 options）。
+  # 命名空间：`narrative.*` = 写血肉（正文只进 trace，不进 WorldStateV2）；
+  #           `story.*` = 提交一整条分支，由引擎消化成事件 / 调度，模型不感知槽与队列。
   narrative:
-    ["narrative.write", "narrative.flavor", "fact.enqueueEvent"]
+    ["narrative.write", "narrative.flavor", "story.submitBranch"]
 knowledgeGrants:
   - when: [{ op: "eventResolved", args: { eventId: "evt:trial" } }]
     grant: { observers: ["player"], factRefs: ["fact:trial-result"], level: "known", source: "witness" }
