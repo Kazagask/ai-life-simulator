@@ -58,6 +58,7 @@ const V2NpcSchema = CombatantBaseSchema.extend({
   personality: z.string(),
   knownGoals: z.array(z.string()),
   skills: z.array(z.string().min(1)),
+  /** 模板 `characters[].isEnemy` 的副本。实例表里**只会**出现 `false` —— 敌人不实例化。 */
   isEnemy: z.boolean(),
   inventory: z.record(z.string(), z.number().int().nonnegative()),
   goals: z.array(z.string()),
@@ -207,6 +208,11 @@ export const WorldStateV2Schema = z
     worldTime: z.number().int(),
     playerAgeAtStart: z.number(),
     player: V2PlayerSchema,
+    /**
+     * 玩家在演员表 / 关系图里的节点 id（A 期 seam）。
+     * **可选**：引入前落盘的存档没有它，读取时回落 `PLAYER_ID`（"player"），行为逐字段不变。
+     */
+    selfId: z.string().min(1).optional(),
     npcs: z.array(V2NpcSchema),
     /** R2.6 / ADR-0014：关系图边（实例层，NPC↔NPC 与 NPC↔玩家同构；配置域不复制） */
     relations: z.array(RelationEdgeSchema),

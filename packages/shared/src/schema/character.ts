@@ -27,8 +27,17 @@ export const MoodValueSchema = z
 export const CharacterSchema = z
   .object({
     id: z.string().min(1),
+    /**
+     * 「这是不是战斗对手」。**不实例化**：`turn.ts` 建世界时整类跳过，
+     * 所以敌人没有 `state.npcs` 条目，也不会跑 NPC 自主行动、不上 NPC 卡。
+     * 战斗只按 `settle.combat.enemies[].ref` 直接引用它。
+     *
+     * 代价（2026-11-16 用户裁决接受）：敌人不能当关系边的端点 —— 它不在实例表里。
+     * 「惠 ↔ 甚尔」这类跨敌我关系要靠**关系投影与 NPC 投影解耦**来表达（见 projection.ts）。
+     */
     isEnemy: z.boolean(),
     identity: IdentitySchema,
+    /** 展示门：`hidden` ⇒ 不进 NPC 卡列表（前提仍是它有实例；敌人根本没有实例）。 */
     visibility: z.enum(["public", "hidden"]),
     /**
      * 初始生命周期（ADR-0020）。缺省 = 在世；用于「开局已故/失踪」的角色（如回忆里的死者）。

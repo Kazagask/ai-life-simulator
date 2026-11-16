@@ -18,6 +18,7 @@ import type { TemplateLookup } from "./lookup.js";
 import { enqueueCandidate, hasFired } from "./scheduler.js";
 import { PLAYER_ID } from "@life-sim/shared";
 import { addEdge, freezeOnDeath } from "./relations.js";
+import { isAliveActor } from "./actors.js";
 
 // ---------- 资源公式（规格 4.4：上限 = base + perLevel × growthLevel + Σ perAttribute[attr] × 基础属性值） ----------
 
@@ -311,16 +312,12 @@ export interface EffectContextV2 {
 }
 
 /**
- * 关系写入的判活辅助（ADR-0020）。只拦「**确知**非在世」的情况：
- * - `"player"`：玩家自身没有 lifecycle，恒视为在世；
- * - 找不到该 id：无法判定，按可写处理（引用完整性由加载期 `superRefine` 负责，
- *   这里不做猜测，否则会把「指向未实例化角色的边」一并挡掉）；
- * - 找到 NPC：要求 `state === "alive"`。
+ * 关系写入的判活辅助（ADR-0020）。实现在 `actors.ts`（演员表访问层）：
+ * 玩家/实例的区分收敛到 `selfIdOf` + `actorOf` 一处，这里只保留调用点。
+ * 语义见 `isAliveActor` 注释：只拦「**确知**非在世」，找不到的 id 按可写处理。
  */
 function isAliveNode(state: WorldStateV2, nodeId: string): boolean {
-  if (nodeId === "player") return true;
-  const npc = state.npcs.find((n) => n.id === nodeId);
-  return npc === undefined ? true : npc.lifecycle.state === "alive";
+  return isAliveActor(state, nodeId);
 }
 
 export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefined): void {

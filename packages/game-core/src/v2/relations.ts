@@ -1,5 +1,6 @@
 import relationship from "relationship.js";
 import type { KinshipKind, RelationEdge } from "@life-sim/shared";
+import { PLAYER_ID } from "@life-sim/shared";
 
 /**
  * R2.6 关系图谱内核（ADR-0014 · T-B2）。
@@ -12,8 +13,14 @@ import type { KinshipKind, RelationEdge } from "@life-sim/shared";
  * 读作「B 是 A 的父亲」，因此**从 A 向外出边**即「A 的 <kind>」。
  */
 
-/** 玩家在关系图中的固定节点 id（与 `schema/relation.ts` 的 PLAYER_ID 同值）。 */
-export const PLAYER_NODE_ID = "player";
+/**
+ * 玩家在关系图中的固定节点 id。
+ *
+ * 2026-11-16（A 期）：不再写字面量，直接引用 `schema/relation.ts` 的 `PLAYER_ID`
+ * —— 模板侧与引擎侧共用同一个常量，避免两处"同值但各写一遍"再次漂移。
+ * 运行时要取玩家节点请用 `actors.selfIdOf(state)`（它允许未来 `selfId` 指向另一个实例）。
+ */
+export const PLAYER_NODE_ID = PLAYER_ID;
 
 /** 亲属边 → 关系链记号（与 `relationship.js` 词表对齐，多跳用「的」连接）。 */
 export const KINSHIP_TOKEN: Record<KinshipKind, string> = {

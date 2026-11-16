@@ -1525,6 +1525,16 @@ details.llm-config .llm-saved {
   font-variant-numeric: tabular-nums;
 }
 
+/* 关系是独立事实（B-2 解耦）：对方可能没有 NPC 卡（敌人 / 尚未登场）。
+   名字照给，但不假装有档案可点 —— 虚线边框表示"只在关系里存在"。 */
+.rel-nocard {
+  font-size: 11px;
+  border-radius: 999px;
+  padding: 1px 7px;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+}
+
 /* 属性面板（ADR-0021 决策 3）：紧凑两列，顺序即模板 attributes.order。
    值可能是 0（有效值）也可能是多位数，故用 tabular-nums 定宽对齐；
    min-width:0 + ellipsis 保证 430 竖屏下不横向溢出。 */

@@ -23,6 +23,7 @@ import type {
   WorldStateV2,
   WorldTemplateV2,
 } from "@life-sim/shared";
+import { PLAYER_ID } from "@life-sim/shared";
 import {
   assignSlot,
   assignPendingInvocation,
@@ -55,6 +56,7 @@ import {
   type EffectContextV2,
 } from "./engine.js";
 import { createBattle, finishBattle, performBattleAction, resolveCombatRefs } from "./battle.js";
+import { PLAYER_NODE_ID } from "./relations.js";
 import { nextInstanceId } from "./equipment.js";
 import { runNpcActionsV2 } from "./npc.js";
 import type { TemplateLookup } from "./lookup.js";
@@ -106,6 +108,8 @@ export function createWorldV2(
   // 保持公开签名兼容：不传 ctx 时沿用原有默认；传入时用注入 rng 派生确定性 seed。
   const seed = input.seed ?? (ctx ? Math.floor(ctx.rng() * 0xffffffff) : Math.floor(Math.random() * 0xffffffff));
   const pt = template.playerTemplate;
+  /** 玩家节点的唯一 id（A 期 seam）：本函数里 `player.id`、关系边端点、`state.selfId` 全用它。 */
+  const selfId = PLAYER_NODE_ID;
   const playerAge = pt?.identity.age ?? 16;
   const mood = pt?.mood ?? template.mood.defaultValue;
   // 初始装备（协议 §19 equipment.initialEquipment；槽位/类型/类别已由 Schema 加载期校验）。
@@ -118,12 +122,14 @@ export function createWorldV2(
     initialEquipment.push({
       instanceId: nextInstanceId(initialEquipment, init.itemId),
       itemId: init.itemId,
-      ownerId: "player",
+      ownerId: selfId,
       slot: def.slot,
     });
   }
   const player = {
-    id: "player",
+    // 玩家节点 id 的唯一来源（A 期）：关系图端点、演员表、战斗镜像都用它，
+    // 不再各处写 `"player"` 字面量。切换到「玩家也是一个 npc 实例」时只改这里。
+    id: selfId,
     name: input.playerName,
     gender: pt?.identity.gender ?? template.genders[0]?.id ?? "",
     age: playerAge,
@@ -161,6 +167,10 @@ export function createWorldV2(
     worldTime: 0,
     playerAgeAtStart: playerAge,
     player,
+    /** 玩家在演员表 / 关系图里的节点 id（A 期 seam；缺省回落同值，见 `selfIdOf`）。 */
+    selfId,
+    // 敌人不实例化：它只是战斗事件的 `enemies[].ref` 目标，不进实例表、不跑自主行动、
+    // 不上 NPC 卡。跨敌我的关系边因此不能靠实例解析，改由关系投影单独处理。
     npcs: template.characters
       .filter((c) => !c.isEnemy)
       .map((c) => ({
@@ -205,10 +215,13 @@ export function createWorldV2(
     // R2.6 / ADR-0014：初始关系边由 characters[].relations 声明（from=该角色）。
     // visibility 缺省 unknown（R-OP-05 默认不认识）；npc.relationship 标量保留独立
     // 兼容字段，不自动生成 known 边。
+    //
+    // A 期：模板侧写的是 `to: player`（`PLAYER_ID`），落库时统一换成 `selfId` ——
+    // 关系图的端点从此只有一个真源，将来 `selfId` 指向实例时图数据不需要迁移。
     relations: template.characters.flatMap((c) =>
       (c.relations ?? []).map((r) => ({
         from: c.id,
-        to: r.to,
+        to: r.to === PLAYER_ID ? selfId : r.to,
         kind: r.kind,
         source: "template" as const,
         visibility: r.visibility ?? ("unknown" as const),

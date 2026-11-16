@@ -33,6 +33,8 @@ export function runNpcActionsV2(state: WorldStateV2, lookup: TemplateLookup, rng
 
   const ctx: ConditionContext = { state, lookup, rng };
   for (const npc of state.npcs) {
+    // 敌人不实例化，正常不会出现在这里；判一次是为了防止未来某处绕过 `!isEnemy` 建实例后
+    // 让敌人跑日常行动（其 `summaries` 是玩家可见的，等于自曝存在）。
     if (npc.isEnemy) continue;
     // ADR-0012 决策 2 / ADR-0020「默认判活」：只有 alive 的 NPC 才进入行动候选，
     // 模板零书写。inactive = 已故/失联/退场，语义由模板 reasonCode 表达，引擎不分支。

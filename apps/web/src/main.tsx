@@ -3036,7 +3036,9 @@ function NpcCard({
             <ul className="rel-list">
               {npc.relations.map((rel, i) => {
                 const kindLabel = RELATION_KIND_LABEL[rel.kind] ?? rel.kind;
-                const other = nameOf(rel.withId);
+                // 关系是独立事实：对方可能没有 NPC 卡（敌人/未登场），
+                // 投影已给全名字，所以直接用它，不再从列表里反查。
+                const other = rel.withName ?? nameOf(rel.withId);
                 // direction=out：本体 → 对方；direction=in：对方 → 本体。
                 // 两个方向都写成完整句（含双方名字），避免出现「本体」这类只有开发者懂的词。
                 const sentence =
@@ -3047,6 +3049,9 @@ function NpcCard({
                   <li key={`${rel.withId}-${rel.kind}-${i}`} className="rel-row">
                     <span className="rel-text">{sentence}</span>
                     {rel.kinshipTerm && <span className="rel-term">{rel.kinshipTerm}</span>}
+                    {/* 关系是独立事实：对方可能没有人物卡（敌人 / 尚未登场）。
+                        名字照给，但明确标出「没有档案」，不假装能点开一个人。 */}
+                    {rel.counterpartVisible === false && <span className="rel-nocard">无档案</span>}
                     <span className={`rel-vis rel-vis-${rel.visibility}`}>
                       {RELATION_VISIBILITY_LABEL[rel.visibility] ?? rel.visibility}
                     </span>

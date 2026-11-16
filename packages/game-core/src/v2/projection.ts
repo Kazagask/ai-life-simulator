@@ -15,6 +15,7 @@ import type { TemplateLookup } from "./lookup.js";
 import { slotEventView } from "./turn.js";
 import { controlOf } from "./battle.js";
 import { isKinshipKind, kinshipTerm, projectVisibleRelations } from "./relations.js";
+import { actorName, buildActorDirectory } from "./actors.js";
 
 /**
  * V2 投影：hidden 信息不外泄；
@@ -37,30 +38,45 @@ export function projectSnapshotV2(
     state.archived === true ? "archived" : state.termination !== null ? "terminated" : "running";
   const ended = status !== "running";
 
-  // R2.6 / ADR-0014：只投影 known / inferred 边。称谓也只在**可见子图**上推导，
-  // 否则 hidden 边会成为可推理的侧信道。
+  // R2.6 / ADR-0014：只投影 known / inferred 边。
   //
   // ADR-0022 补记 D-1：判据是「确知未对玩家可见」，不是「不在上屏列表」——
-  // 可见节点 = 已登场（alive/inactive）且非敌人的 NPC。下列显式归入 hiddenNodeIds：
+  // 下列显式归入 hiddenNodeIds：
   //   · unspawned（尚未出生/登场，由刷新规则管辖）；
-  //   · 敌人（永不实例化、本质是战斗对手，不是玩家可见的关系实体——D-1 原只剔未登场，漏了敌人端点 ⇒ 漏修复）。
+  //   · 敌人（`isEnemy`，**永不实例化**、本质是战斗对手，不是玩家可见的关系实体）。
   // inactive 必须保留边与称谓（决策 1 反例 2：逝去的祖父依旧是祖父）。
   // player 无 NPC 实例，永不进 hiddenNodeIds（硬保留）。
   // 反例记录（勿改成「投影后 NPC 集合的补集」）：用「不在上屏集合内」会把公开边误杀、并让列表口径静默决定关系可见性；
   // 因此 hiddenNodeIds 只由上面两条**显式**规则构成，绝不含「投影后的 npc.id 集合」。
+  //
+  // ⚠ 已知缺口（2026-11-16 记录，本期未修）：模板 `characters[].visibility: hidden`
+  // 目前**没有**参与上屏过滤 —— `V2Npc` 不携带该字段，全仓无人消费它。要让它生效，
+  // 得先把字段从模板复制到实例（B-1 曾这么做，但 B-1 已按用户裁决整包回退）。
+  // 在那之前，「不展示某人」只能靠 `unspawned`（刷新规则）或 `isEnemy` 表达。
   const hiddenNodeIds = new Set<string>([
     ...state.npcs.filter((n) => n.lifecycle.state === "unspawned").map((n) => n.id),
     ...template.characters.filter((c) => c.isEnemy).map((c) => c.id),
   ]);
   /**
-   * 关系面唯一收敛结果：列表行与称谓子图**共用这一份**（决策 3）。
-   * 任一端 unspawned ⇒ 整条边剔除，于是「不可达」由 `kinshipTerm` 返回 `null` 自然表达，
-   * **不补「远亲」兜底**（决策 4）：那会对玩家断言一条没有任何边支撑的亲属关系，
-   * 并暗示中间存在一个他不知道的人（正是要堵的侧信道）。
+   * 关系面：**只按边自身的可见性收敛**（known / inferred），与「有没有 NPC 卡」无关。
+   *
+   * 为什么解耦（2026-11-16 用户裁决 B-2）：关系是**独立事实** ——
+   * 你可能完全不认识伏黑甚尔（没有他的 NPC 卡），但你知道"惠有个父亲"。
+   * 旧实现要求两端都在可见子图里，于是指向敌人/未登场者的边被整条带走，
+   * 这类关系永远显示不出来。解耦后关系能否上屏只由**边自己**说了算：
+   * 模板写 `visibility: known` 就是"玩家知道这条关系"，引擎不再二次猜测。
+   *
+   * 想让某条关系等对方登场后才可见：把它声明成 `unknown`，进场时用效果翻成 known。
+   * 端点有没有卡由 `counterpartVisible` 表达，名字由 `withName` 直接给全 ——
+   * 前端因此不需要在"没有卡"的情况下反查人名。
+   *
+   * ⚠ 已知限制（本期接受）：敌人不实例化，所以**从敌人侧出边**没有落点 ——
+   * 关系行只挂在 NPC 卡上，而卡片只来自 `state.npcs`。要让「敌人 → 某人」也上屏，
+   * 得等 A 期真的把关系行提升为独立于卡片的一等投影项。
    */
-  const observableRelations = projectVisibleRelations(state.relations).filter(
-    (e) => !hiddenNodeIds.has(e.from) && !hiddenNodeIds.has(e.to),
-  );
+  const observableRelations = projectVisibleRelations(state.relations);
+  /** 关系行里的人名解析：实例 → 模板（敌人没有实例但有名字）→ 玩家。 */
+  const actorDirectory = buildActorDirectory(state, template);
 
   const statuses = player.statuses
     .map((inst) => {
@@ -230,17 +246,18 @@ export function projectSnapshotV2(
           sinceTurn: npc.lifecycle.sinceTurn,
           sinceWorldTime: npc.lifecycle.sinceWorldTime,
         },
-        // ADR-0022 补记 D-1：行来源与下方称谓推导的边集是同一份 `observableRelations`
-        // （已剔除任一端 unspawned 的边）——不得再回退到整张 known/inferred 图。
+        // 行来源与下方称谓推导的边集是同一份 `observableRelations`（B-2 解耦后 =
+        // 全部 known/inferred 边，不再按节点可见性剔除）——不得再引入第二份过滤口径，
+        // 否则「卡片上写了这条关系、称谓却算不出来」这类自相矛盾会重新出现。
         relations: observableRelations
           .filter((e) => e.from === npc.id || e.to === npc.id)
           .map((e) => {
             const outgoing = e.from === npc.id;
             const withId = outgoing ? e.to : e.from;
             // 称谓只在「本体称呼对方」的有向亲属边上成立；反向边不强行反推称谓。
-            // 入参必须是过滤后的同一份边集（决策 3）：未登场节点不在可见子图上，
-            // 路径穿过它 ⇒ `kinshipTerm` 返回 null（不可达）⇒ 不带称谓，也不得用
-            // 「远亲」兜底（决策 4：会断言无支撑的亲属关系并暗示中间人存在）。
+            // 入参是**完整**的 known/inferred 边集（2026-11-16 解耦后）：路径可以穿过
+            // 未登场/隐藏的中间人 —— 你不需要认识他，也能知道"惠的父亲的兄弟是他叔叔"。
+            // 仍不补「远亲」兜底（决策 4）：没边支撑就不该断言关系。
             const term =
               outgoing && isKinshipKind(e.kind)
                 ? kinshipTerm(observableRelations, npc.id, withId)
@@ -250,6 +267,14 @@ export function projectSnapshotV2(
               kind: e.kind,
               visibility: e.visibility,
               direction: outgoing ? ("out" as const) : ("in" as const),
+              /**
+               * 对方有没有 NPC 卡。`false` = 这条边指向一个未登场 / 不展示的角色
+               * （比如敌人、或尚未露面的亲属）—— 关系是真的，但点不出卡片。
+               * 前端据此显示「名字 + 未登场」，而不是假装有卡或干脆不显示这条边。
+               */
+              counterpartVisible: !hiddenNodeIds.has(withId),
+              /** 对方名字（隐藏/未登场/敌人都有；前端不再需要在无卡时反查） */
+              withName: actorName(actorDirectory, withId),
               ...(e.value !== undefined ? { value: e.value } : {}),
               ...(term ? { kinshipTerm: term.term } : {}),
             };

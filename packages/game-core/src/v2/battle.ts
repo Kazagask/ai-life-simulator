@@ -13,6 +13,7 @@ import type {
 import { pickWeighted, type Rng } from "../rng.js";
 import { computeMax, effectiveAttributes, maxHp, maxMp, moodBand, rollFormula, applyStatusToPlayer, checkCondition, zeroRng } from "./engine.js";
 import { buildPublicConditionContext, decide } from "./combat-ai.js";
+import { selfIdOf } from "./actors.js";
 import type { ModifierConditionGate } from "./equipment.js";
 import { createTimeAdapter } from "./time.js";
 import type { TemplateLookup } from "./lookup.js";
@@ -26,7 +27,7 @@ import type { TemplateLookup } from "./lookup.js";
 const BATTLE_ITEM_EFFECTS = new Set<Effect["type"]>(["adjustResource", "cureStatus", "adjustMood", "applyStatus"]);
 
 interface Combatant {
-  /** 玩家为 "player"，敌人/友军为其 instanceId */
+  /** 玩家用 `selfIdOf(state)`（当前恒为 "player"），敌人/友军为其 instanceId */
   id: string;
   name: string;
   isPlayer: boolean;
@@ -41,7 +42,7 @@ interface Combatant {
 
 function playerCombatant(state: WorldStateV2, battle: BattleState): Combatant {
   return {
-    id: "player",
+    id: selfIdOf(state),
     name: state.player.name,
     isPlayer: true,
     team: "ally",

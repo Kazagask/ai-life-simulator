@@ -146,6 +146,7 @@ export interface V2Npc extends V2CombatantBase {
   personality: string;
   knownGoals: string[];
   skills: string[];
+  /** 模板 `characters[].isEnemy` 的副本。实例表里只会出现 `false`（敌人不实例化）。 */
   isEnemy: boolean;
   /** NPC 背包（createWorldV2 初始化为空对象；本轮不做 NPC 物品逻辑） */
   inventory: Record<string, number>;
@@ -310,6 +311,15 @@ export interface WorldStateV2 {
   worldTime: number;
   playerAgeAtStart: number;
   player: V2Player;
+  /**
+   * 玩家在**演员表 / 关系图**里的节点 id（A 期 seam，2026-11-16）。
+   *
+   * 目标形态是「玩家也是一个 npc 实例，用一个 self 指针指向它」；本期只提前施工这一半：
+   * 玩家仍存在 `state.player`（不切存储），但所有把玩家当图节点的代码
+   * 一律走 `selfIdOf(state)` / `actorOf(state, id)`，不再写死字面量 `"player"`。
+   * 可选 + 缺省 `"player"` ⇒ 旧档直载；切换存储那期只需让 `actorOf` 从 `npcs` 命中它。
+   */
+  selfId?: string;
   npcs: V2Npc[];
   /**
    * R2.6 / ADR-0014：关系图边（实例层）。kind 语义 = from→to（`{from:A,to:B,kind:"father"}` =
@@ -658,6 +668,13 @@ export interface V2Snapshot {
       visibility: string;
       /** 边的方向：out = 本体→withId；in = withId→本体 */
       direction: "out" | "in";
+      /**
+       * 对方是否有可见的 NPC 卡。`false` = 这条边指向未登场 / 不展示的角色
+       * （敌人、尚未露面的亲属）。关系是独立事实，不因对方不可见而消失。
+       */
+      counterpartVisible?: boolean;
+      /** 对方名字（隐藏 / 未登场者也有名字：关系是独立事实，不因无卡而丢名字）。 */
+      withName?: string;
       value?: number;
       /** 多跳中文称谓（仅亲属链可推导时存在） */
       kinshipTerm?: string;

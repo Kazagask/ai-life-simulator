@@ -9,6 +9,7 @@ import type {
 import type { Rng } from "../rng.js";
 import { amountToMinutes, type CalendarAdapter } from "./time.js";
 import { checkAllConditions, type ConditionContext } from "./engine.js";
+import { selfIdOf } from "./actors.js";
 import type { TemplateLookup } from "./lookup.js";
 
 /**
@@ -255,7 +256,8 @@ export type EventPremiseVerdict =
  * 死亡、离场、未登场一视同仁，都会让事件错失。要区分"已故"请用 `mentions`。
  */
 function isActorPresent(state: WorldStateV2, actorId: string): boolean {
-  if (actorId === "player") return true;
+  // 玩家节点 id 走 `selfIdOf`（A 期 seam），不写死字面量
+  if (actorId === selfIdOf(state)) return true;
   const npc = state.npcs.find((n) => n.id === actorId);
   return npc !== undefined && npc.lifecycle.state === "alive";
 }
