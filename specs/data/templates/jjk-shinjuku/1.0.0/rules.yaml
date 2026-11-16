@@ -22,7 +22,9 @@ llmTriggers:
   - when: [{ op: "eventResolved", args: { eventId: "evt:south-north" } }]
     invoke:
       reason: "after.fork"
-      perspective: "player"
+      # GM 是全知的叙事者：facts / 读工具都按 world 窗口给。
+      # 写入窗口仍是 player（targetPerspective）—— 它写的东西要给玩家看。
+      perspective: "world"
       targetPerspective: "player"
       contextHints: ["fork.tone"]
       # GM 画像（AGENTIC-GM 重构）：只给「写叙事 + 提交分支 + 结束」。

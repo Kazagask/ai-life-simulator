@@ -110,6 +110,8 @@ export class AgentGateway implements LlmGateway {
          */
         readWorld: (name, args) =>
           runReadTool(name, args, {
+            // 视角来自 invocation（模板声明），模型无法通过参数改。
+            perspective: inv.perspective,
             snapshot: this.deps.engineApi.snapshot(),
             ...(this.deps.engineApi.state !== undefined
               ? { state: this.deps.engineApi.state }

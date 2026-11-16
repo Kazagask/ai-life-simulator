@@ -90,7 +90,7 @@ describe("pipelineForTurn", () => {
     expect(pipeline.rules).toBe(entry.rules);
   });
 
-  it("有 provider ⇒ 注入 gateway + rules + 双视角", () => {
+  it("有 provider ⇒ 注入 gateway + rules；视角交给模板声明（pipeline 不覆盖）", () => {
     const world = worldStore.create({ templateId: "demo-agentic", playerName: "阿接" }, entry);
     const pipeline = pipelineForTurn(world, entry, {
       baseUrl: "https://llm.example/v1",
@@ -99,7 +99,11 @@ describe("pipelineForTurn", () => {
     });
     expect(pipeline.gateway).toBeDefined();
     expect(pipeline.rules).toBe(entry.rules);
-    expect(pipeline.perspective).toBe("world");
+    // 2026-11-16 裁决：视角由模板 `invoke.perspective` 决定，pipeline 不再写死。
+    // 留 undefined ⇒ runSettlementHooks 回落到触发器自己的 perspective。
+    // 写死会让模板无权选择，也掩盖"到底谁决定视角"。
+    expect(pipeline.perspective).toBeUndefined();
+    // 写入窗口仍是 player：GM 写出来的东西要给玩家看。
     expect(pipeline.targetPerspective).toBe("player");
     // 结局 / 评价配置逐字段继承
     expect(pipeline.endingConfig).toBe(entry.pipeline.endingConfig);

@@ -31,9 +31,21 @@ const HISTORY_HARD_CAP = 50;
 export interface ReadToolDeps {
   /** 已按 invocation 视角裁好的快照（player 窗口）。 */
   snapshot: V2Snapshot;
-  /** 权威状态：只用于 history（快照里没有历史）。 */
+  /** 权威状态：只用于 history / world 窗口的全量读取。 */
   state: WorldStateV2;
+  /**
+   * 本次 invocation 的视角（由模板 `invoke.perspective` 声明，**不是工具参数**）。
+   *
+   * - `player` ⇒ 只读投影后的快照（看不到 hidden）；
+   * - `world`  ⇒ 直读权威状态（GM 全知：含 NPC 隐秘与 hidden 章节节点）。
+   *
+   * 关键：模型**无法**通过传参改视角 —— 它连这个字段都看不见。
+   */
+  perspective: "world" | "player" | `npc:${string}`;
 }
+
+const isOmniscient = (perspective: ReadToolDeps["perspective"]): boolean =>
+  perspective === "world";
 
 const asRecord = (v: unknown): Record<string, unknown> | null =>
   typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
@@ -92,6 +104,18 @@ export function runReadTool(name: string, rawArgs: unknown, deps: ReadToolDeps):
     }
 
     case "world.present": {
+      if (isOmniscient(deps.perspective)) {
+        // GM 全知窗口：含未登场的、离场的、以及隐秘 refs（只给 id，不给展开内容）。
+        return {
+          npcs: state.npcs.map((npc) => ({
+            id: npc.id,
+            name: npc.name,
+            lifecycle: npc.lifecycle.state,
+            secrets: [...npc.secrets],
+            goals: npc.goals !== undefined ? [...npc.goals] : [],
+          })),
+        };
+      }
       return {
         npcs: snapshot.npcs.map((npc) => ({
           id: npc.id,
@@ -125,8 +149,14 @@ export function runReadTool(name: string, rawArgs: unknown, deps: ReadToolDeps):
     case "world.clues": {
       // 只出 public 节点：hidden 节点在投影阶段就不该出现，这里再挡一次。
       const nodes = (state.taskDag?.nodes ?? [])
-        .filter((node) => node.visibility === "public")
-        .map((node) => ({ id: node.id, title: node.title, status: node.status }));
+        // player 窗口只出 public；world 窗口（GM 全知）出全部，含 hidden。
+        .filter((node) => isOmniscient(deps.perspective) || node.visibility === "public")
+        .map((node) => ({
+          id: node.id,
+          title: node.title,
+          status: node.status,
+          ...(isOmniscient(deps.perspective) ? { visibility: node.visibility } : {}),
+        }));
       return { nodes };
     }
 

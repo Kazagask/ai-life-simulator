@@ -71,6 +71,12 @@ export function engineApiForTurn(world: WorldStateV2, entry: ReadyTemplateEntry)
     // 同上：GM 看到的 facts / 槽位描述也必须能读到生成事件。
     projectSnapshot: (s) =>
       projectSnapshotV2(s, entry.template, entry.lookup.withGenerated(s.generatedEvents)),
+    /**
+     * 视角**由模板声明**，这里不写死（2026-11-16 用户裁决：GM 应全知）。
+     * `pipeline.context` 里的 perspective 只是引擎内部读窗口的缺省，
+     * 真正决定 facts / 读工具窗口的是 `invocation.perspective`（来自模板
+     * `invoke.perspective`），见 `runSettlementHooks` 的透传。
+     */
     perspective: "world",
     targetPerspective: "player",
     // 集合在模板加载期算一次随 entry 缓存，不按请求重算。
@@ -119,7 +125,11 @@ export function pipelineForTurn(
     ...base,
     gateway,
     ...(entry.rules !== undefined ? { rules: entry.rules } : {}),
-    perspective: "world",
+    /**
+     * ⚠ 这里**不再覆盖** perspective：留 undefined ⇒ `runSettlementHooks` 回落到
+     * `trigger.invoke.perspective`（模板声明）。写死 world 会让模板无权选择，
+     * 也掩盖了"到底谁决定视角"这个问题。
+     */
     targetPerspective: "player",
   };
 }
