@@ -90,11 +90,12 @@ export interface AgentProvider {
  * `fact.enqueueEvent` 是「把 DAG 分支上的事件上桌」的唯一通道（只入队、不占槽）；
  * 缺了它，LLM 侧就只剩 `content.*` —— 分支永远上不了桌。
  *
- * `fact.upsertDagBranch`（ADR-0037 D4）是**增量**续写：已存在节点只改
- * status/guards/completion/due/visibility，新增节点整份给出。它与 `fact.advanceDag`
- * （整份覆盖）并存，但 LLM 侧应优先用它 —— 整份覆盖会静默丢掉模型没看见的
- * guards/completion/edges。此前引擎已注册、本清单漏列 ⇒ `resolveToolNames` 会把它
- * 静默过滤掉（画像写了等于没写），模板一切换就只剩散文。
+ * `fact.upsertDagBranch`（ADR-0037 D4）是**增量**续写：只提交新增/改写的节点与边，
+ * 不是整份覆盖；但**改写已有节点仍须重发完整节点**（引擎只采纳其中的可改字段：
+ * status/guards/completion/due/visibility），只发改字段的补丁会被判 `invalid_arguments`
+ * （FATAL，不消耗重试）。它与 `fact.advanceDag`（整份覆盖）并存，但 LLM 侧应优先用它 ——
+ * 整份覆盖会静默丢掉模型没看见的 guards/completion/edges。此前引擎已注册、本清单漏列 ⇒
+ * `resolveToolNames` 会把它静默过滤掉（画像写了等于没写），模板一切换就只剩散文。
  */
 export const FACT_TOOL_NAMES = [
   "fact.setKnowledge",
@@ -248,24 +249,59 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
   "fact.upsertDagBranch": {
     name: "fact.upsertDagBranch",
     description:
-      "**增量**续写任务 DAG 分支：只提交你新增 / 改写的部分，已存在的节点只改 " +
-      "status / guards / completion / due / visibility（kind / title 不可改写）。" +
-      "status 只能前进（终态不可回退）；edges 按 (from,to,kind) 去重追加；永不删除。" +
-      "合并结果若跑不过 DAG 校验（重复 id / 悬空端点 / 自环 / 成环 / 未知 templateRef）" +
-      "⇒ 整体拒绝且 DAG 逐字段不变。",
+      "**增量**续写任务 DAG 分支：只提交新增 / 改写的节点与边，不是整份覆盖（覆盖会丢掉" +
+      "你没看见的 guards / completion / edges）。⚠ 改写已有节点**仍须提交完整节点**" +
+      "（id/kind/title/status/guards/completion/templateRefs/visibility 全给，due 可省）；" +
+      "只发 {id,status} 补丁会被判 invalid_arguments（FATAL）。引擎只采纳 " +
+      "status/guards/completion/due/visibility；status 可写但只能前进、终态不可回退；" +
+      "kind/title 不可改写（被拒时回灌当前值，RETRYABLE）。edges 按 (from,to,kind) 去重追加，" +
+      "永不删除；合并后校验不过（重复 id/悬空端点/自环/成环/未知 templateRef）⇒ 整体拒绝。",
     parameters: schemaOf(
       {
         nodes: {
           type: "array",
-          items: { type: "object" },
-          description: "新增或要改写的完整节点（新节点必须给全字段）",
+          description: "新增或改写的节点（每个都是完整节点，不是补丁）",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              kind: { type: "string" },
+              title: { type: "string" },
+              status: { type: "string" },
+              guards: { type: "array", items: { type: "object" } },
+              completion: { type: "array", items: { type: "object" } },
+              due: { type: "integer" },
+              templateRefs: { type: "array", items: { type: "string" } },
+              visibility: { type: "string" },
+            },
+            required: [
+              "id",
+              "kind",
+              "title",
+              "status",
+              "guards",
+              "completion",
+              "templateRefs",
+              "visibility",
+            ],
+            additionalProperties: false,
+          },
         },
         edges: {
           type: "array",
-          items: { type: "object" },
-          description: "要追加的边（from / to / kind）",
+          description: "要追加的边",
+          items: {
+            type: "object",
+            properties: {
+              from: { type: "string" },
+              to: { type: "string" },
+              kind: { type: "string" },
+            },
+            required: ["from", "to", "kind"],
+            additionalProperties: false,
+          },
         },
-        version: { type: "integer", minimum: 0 },
+        version: { type: "integer" },
       },
       [],
     ),
