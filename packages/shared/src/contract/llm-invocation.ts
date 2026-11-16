@@ -12,9 +12,9 @@ export const LlmBudgetSchema = z
   .object({
     maxToolRounds: z.number().int().nonnegative().default(6),
     retryLimit: z.number().int().nonnegative().default(2),
-    perCallTimeoutMs: z.number().int().nonnegative().default(20000),
-    invocationTimeoutMs: z.number().int().nonnegative().default(90000),
-    turnLlmBudgetMs: z.number().int().nonnegative().default(120000),
+    perCallTimeoutMs: z.number().int().nonnegative().default(60000),
+    invocationTimeoutMs: z.number().int().nonnegative().default(180000),
+    turnLlmBudgetMs: z.number().int().nonnegative().default(240000),
     maxInputTokens: z.number().int().nonnegative().default(8000),
     maxOutputTokens: z.number().int().nonnegative().default(2000),
     maxTotalTokens: z.number().int().nonnegative().default(24000),
