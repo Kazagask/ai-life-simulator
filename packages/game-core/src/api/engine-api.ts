@@ -576,27 +576,38 @@ const submitBranch: ToolHandler = {
 
     const prefix = `gen:${ctx.invocationId}:`;
     const compiled: EventV2[] = [];
-    for (const node of branch) {
+    for (const [index, node] of branch.entries()) {
       const event: EventV2 = {
         id: `${prefix}${node.node}`,
         title: node.title,
         narrative: node.text,
         kind: "normal",
+        /**
+         * **只有入口节点（`branch[0]`）参与调度**；下游节点一律 `chain`，
+         * 只能由上一节的选项 `goto` 到达。
+         *
+         * 为什么必须这样（2026-11-16 实测事故）：起初整条分支的每个节点都编译成
+         * `schedule`，于是回合边界那一次扫描把三节**同时入队**；而玩家选选项时
+         * `goto` 又按链边再入队一次 ⇒ 同一幕被播放多次（存档里 n4c 出现 3 次：
+         * 两次 fired + 一次仍在 waiting）。两套入口撞在一起。
+         */
         trigger:
-          trigger.mode === "certain"
-            ? {
-                source: "schedule",
-                /**
-                 * 相对入队时刻换算 ⇒ 下一轮扫描即到期（不是"世界时间 0"）。
-                 * 注意 `TimeAmountSchema` 要求 `value` 是**正整数**，`value: 0` 会被拒；
-                 * 1 分钟已经小于任何一轮的默认步长（10 分钟），等价于"入队即到期"。
-                 */
-                window: { start: { value: 1, unit: "minute" } },
-              }
-            : {
-                source: "pool",
-                weight: 1,
-              },
+          index > 0
+            ? { source: "chain" }
+            : trigger.mode === "certain"
+              ? {
+                  source: "schedule",
+                  /**
+                   * 相对入队时刻换算 ⇒ 下一轮扫描即到期（不是"世界时间 0"）。
+                   * `TimeAmountSchema` 要求 `value` 是**正整数**，`value: 0` 会被拒；
+                   * 1 分钟已经小于任何一轮的默认步长（10 分钟），等价于"入队即到期"。
+                   */
+                  window: { start: { value: 1, unit: "minute" } },
+                }
+              : {
+                  source: "pool",
+                  weight: 1,
+                },
         settle: {
           normal: {
             options: node.options.map((option, index) => ({
