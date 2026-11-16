@@ -4185,3 +4185,22 @@ D1/D2 落地后，若 n1 的 `completion` 仍是 `[always]`，它在**第一轮*
 **给模板作者的连带后果（新增，必须知道）**：级联对 **unlock 与 completion 同等生效**。一个 `status: "draft"` 且 `guards: []`、`completion` 为真的节点，会在**同一个边界内** `draft → ready → completed` 走两格。两张现有模板都没有这种形态（n1 建世界即 ready；n2/n3 的 completion 都是 `eventResolved`），但**`guards: [] + completion: [always]` 的 draft 节点会立刻完成** —— 那正是 `always` 病灶的另一种写法，模板侧不要写。
 
 **提交与内容的对应关系（更正记录，历史不改写）**：`9cd82ad` 的提交信息是「docs(BACKLOG)」，但它实际带走了 ADR-0037 的实现主体（10 文件 / 735 行）—— 原因是主理人在 worker 已 staged 的情况下 `git add docs/…` 后直接 `git commit`，而 `git commit` 提交的是**整个索引**。`727ce63` 的提交信息写「单趟版，fixpoint 待补」，但其内容**已是** fixpoint 版（`MAX_ITERATIONS = 2N+1`，`adr0037` 14 例）。两笔均未推送，但按"优先新提交、不做破坏性重写"的仓库规则**不修历史**，以本条为权威口径。另：`9cd82ad` 那次 `task-dag.ts` 的 stat 显示 `Bin` —— 因为父提交里 `validateDag` 步 4 的去重 key 是**字面 NUL**，git 只要一侧含 NUL 就整份按二进制处理；从 `727ce63` 起该 key 写成 `\u0000` 转义，所有 DAG 改动恢复为文本 diff（要看 `9cd82ad` 的正文用 `git diff --text 9cd82ad^ 9cd82ad -- <path>`）。
+
+### 16. 取证分级：A 档（内存切臂）≠ B 档（落盘原样），不得合并成「已验证」
+
+同一件事在 2026-11-16 出现了两次**不同等级的证据**，混起来会得到一个没被任何一方证明的结论：
+
+| 档 | 做法 | 能证明 | **不能**证明 |
+|---|---|---|---|
+| **A** | 真实模板 + 真实 `opening.yaml` + 真实 `rules.yaml` **载入后，在内存里按臂覆写** `fallbackDag.nodes[].completion`（`packages/game-core/.tmp-adr0037/table.ts` 的 `withMode`） | fixpoint 在 `always` / `eventResolved` 两种判据下的**行为差异**；`jjk-2006` 三 seed 零回归；反向验证 `MAX_ITERATIONS=1` ⇒ 4 例变红 | **落盘 `rules.yaml` 本身正确** |
+| **B** | **不 patch**，直接读落盘 `rules.yaml`，走真实 loader（`loadTemplates → registry.resolve`），再用 `semanticFingerprint` 反核 | **落盘那份本身对**（`n3.guards` 仍是 `nodeCompleted n2.trial`、`edges`/`dagId`/`version` 未变、指纹与本地复算一致） | **对照组**——`72c1d68` 之后文件里已是 `eventResolved`，不覆写就造不出 `always` 臂 |
+
+⇒ 规则：**`completion` 判据的正确性必须 A + B 两档都出示**，任一缺席都只能说「行为差异已观察」或「落盘值已核对」，**不得写成「已验证」**。A 档单独成立时，它证明的是两个臂之间的差，不是文件里的值；B 档单独成立时，它没有对照组，看不出 `always` 的病灶。
+
+**另一条结构性坑（同一轮踩到）**：本仓库所有 worker 共用同一个 git identity（`Kazagask`），所以 **"谁提交的"无法从 `git log` 恢复** —— 只能靠提交信息、文件内容与 worker 自报。任何"某笔属于 X"的断言都必须注明依据，否则就是猜。同一轮里出现过三次归属/内容记错，形态各异（记错文件内容、记错别人说过什么、记错提交归属），共同点是**凭记忆断言**。
+
+配套的**可执行**规矩（比"要谨慎"有用）：
+
+1. 任何断言前，先写一句它在**哪一次本次会话内新执行的读取**上成立（`sed -n` / `git show` / `vitest` 的哪一行输出）；写不出那一句就不许断言。
+2. **「更正」本身也必须挂在一个新的读取上。** 没有新读取的"更正"不许发 —— 它会把一条正确的记录改坏，方向是"越改越错"，比原文错更难恢复。
+3. 引用 hash / 行号 / 字段值时**当场读**，不用上一轮的输出。
