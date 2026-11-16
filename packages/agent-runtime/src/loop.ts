@@ -533,28 +533,32 @@ export async function runAgentLoop(
   /**
    * 正文只认 `<narrative-content>` 标签：
    * - 有块 ⇒ 合成**一个** narrative ContentBlock 进 sink（trace 落盘，读侧按既有窗口投影）；
-   * - 无块且本次没有别的 narrative 块 ⇒ 记 `narrative_tag_missing`，**不**把标签外文本当正文
-   *   （思维链 / 工具报错绝不透给玩家）；玩家侧回退模板事件文案。
+   * - 无块且本次没有别的 narrative 块 ⇒ 记 `narrative_tag_missing`（**含 fallback**：只要模型
+   *   产出了文本就算不守规矩），**不**把标签外文本当正文（思维链 / 工具报错绝不透给玩家）；
+   *   玩家侧回退模板事件文案。
    * - fallback 收尾不落块：前端会清掉草稿，避免半截正文。
    */
   const narrative = extractNarrativeContent(accumulatedContent);
-  if (outcome === "committed") {
-    const hasNarrativeBlock = sink.list().some((block) => block.kind === "narrative");
-    if (narrative.text !== undefined) {
-      const block: ContentBlock = {
-        blockId: `${inv.invocationId}:narrative`,
-        kind: "narrative",
-        text: narrative.text,
-        refs: [],
-        visibility: "public",
-        targetPerspective: "player",
-      };
-      sink.append(block);
-    } else if (!hasNarrativeBlock) {
-      record("narrative_tag_missing");
-      if (process.env.LIFE_SIM_DEBUG_LLM === "1") {
-        console.warn("[narrative-tag-missing]", { outsideChars: narrative.outsideChars });
-      }
+  const hasNarrativeBlock = sink.list().some((block) => block.kind === "narrative");
+  if (outcome === "committed" && narrative.text !== undefined) {
+    const block: ContentBlock = {
+      blockId: `${inv.invocationId}:narrative`,
+      kind: "narrative",
+      text: narrative.text,
+      refs: [],
+      visibility: "public",
+      targetPerspective: "player",
+    };
+    sink.append(block);
+  } else if (
+    narrative.text === undefined &&
+    !hasNarrativeBlock &&
+    accumulatedContent.trim().length > 0
+  ) {
+    // 模型确实产出了文本但没有标签：即使整轮 fallback，也要把"不守规矩"记下来。
+    record("narrative_tag_missing");
+    if (process.env.LIFE_SIM_DEBUG_LLM === "1") {
+      console.warn("[narrative-tag-missing]", { outsideChars: narrative.outsideChars });
     }
   }
 
