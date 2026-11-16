@@ -145,3 +145,36 @@
   `self-loop-guard` 三个 `.min.test.ts`），**违反 `test/` 约定**；
   后续合并到 `test/` 目录下统一管理
 - 曾短暂存在一个同源压力模板 `stress-lineage`，当前盘上已无（被 valmont 取代）
+
+---
+
+## 10. 叙事链路与工具面（2026-11-17 定稿）
+
+**工具面收敛完毕**（`d2c311f` 删 `fact.*`、`28ada5c` 删 `narrative.*`）：
+
+| 一类 | 工具 |
+|---|---|
+| 只读 | `world.now` / `world.history` / `world.present` / `world.self` |
+| 写世界 | **只有 `story.submitBranch`** |
+
+`dispatch("fact.*")` 与 `dispatch("narrative.*")` 现在都是 `unknown_tool`。
+
+**叙事正文只有一个来源**：模型 `content` 里的 `<narrative-content>…</narrative-content>` 块。
+
+- loop 收尾提取所有标签块 → 合成一个 `ContentBlock`（`kind:"narrative"`、`targetPerspective:"player"`、
+  `refs: []`）→ `ContentSink` → trace。**标签外内容一律丢弃**，绝不透给玩家。
+- 没有标签 ⇒ 诊断 `narrative_tag_missing`（committed / fallback 都记），回退模板文案。
+- `ContentSink` 保留为唯一正文落盘点：agent-runtime 的标签路径与服务端的结局/总结/flavor 都走它。
+
+**实时通道**：`POST /api/worlds/:id/narrative/stream`（SSE）。
+
+- **服务端剥标签**：`stream.ts` 有增量标签扫描器，SSE 只下发标签内文字；跨帧半截开/闭标签都缓冲。
+  客户端拿到的是干净正文，**不要再自己扫标签**（web 已删掉 `narrativeDraftText`）。
+- 等待窗 `PENDING_WAIT_MS = 3000`：覆盖"先开流、再发 turn"的真实顺序。
+- ⚠️ **订阅端的坑**：`fetch` 返回响应头要等首帧写出，而首帧要等 invocation 开始。
+  所以**不能 `await fetch(stream)` 之后再发 turn**（会互锁到 idle）。
+  正确顺序：起请求（不 await）→ 发 turn → 再 await 读取。web 就是这样做的；手写脚本容易踩。
+
+**已知代价**：正文改纯文本后不再有 `refs[]`，`allowedContentRefs` / `visibility_violation`
+这套结构校验对**正文**失效（只对结构化内容块仍有效）。GM 全知，理论上可以在正文里写出隐秘。
+暂定接受，等新 spec 定叙事层边界时再裁决（候选：标签内带 refs / 事后掩码 / 结构声明）。
