@@ -659,8 +659,7 @@ function requestAgentConfig(request: import("fastify").FastifyRequest) {
  * 1. **锁内重取世界**：锁只保证临界区串行，不保证进临界区前读到的 `world` 引用是新的
  *    （外层 `getWorld` 只用于 404 快路径）；`entry.pipeline` 是启动期快照，也不该直接用；
  * 2. **per-request pipeline**：gateway 由 `pipelineForTurn` 按本请求的凭证注入 —— 直接用
- *    `entry.pipeline` 会得到「没有 gateway」，结构写入（`fact.enqueueEvent` / `advanceDag` /
- *    `setKnowledge`）根本不执行；
+ *    `entry.pipeline` 会得到「没有 gateway」，结构写入（`story.submitBranch`）根本不执行；
  * 3. **保存点 + 回滚**：非 `committed` 的收场整体撤销（ADR-0035 §5「宁可不发生，也不许晚到」）；
  * 4. **重投影**：引擎返回的 `res.snapshot` 算在结构写入之前，直接下发会让玩家看不到刚被
  *    摆上桌的事件（IO-3）。

@@ -26,15 +26,15 @@ export const InvokeSchema = z
     targetPerspective: PerspectiveSchema,
     contextHints: z.array(z.string()).optional(),
     /**
-     * ADR-0038：本轮允许 LLM **摆上桌**的事件白名单（模板已有事件 id，`evt:xxx`）。
+     * ADR-0038：本轮允许 LLM 写分支的能力声明（历史上是模板事件 id 白名单）。
      *
-     * 这是**能力声明**，不是用途声明 —— 声明 ≠ 只摆一次：
-     * - 频率由 ADR-0036 的边沿触发、`fact.enqueueEvent` 的 `waiting` 幂等、
+     * 这是**能力声明**，不是用途声明 —— 声明 ≠ 只写一次：
+     * - 频率由 ADR-0036 的边沿触发、`story.submitBranch` 的编译 / 调度语义、
      *   模板的 `missWhen` 三处共同保证；
-     * - 未声明 ⇒ 一律不许 enqueue（`allowedRefs: []`，「沉默 = 没有分支能力」）；
-     * - 显式空数组 ⇒ **同样不许**（空 ≠ 不限制）。
+     * - 引擎侧不再有 enqueue 白名单闸门（`fact.enqueueEvent` 已于 2026-11-16 下线）；
+     *   本字段目前只作为「本轮可写分支」的能力信号供 provider / mock 使用。
      *
-     * ⚠ 挂在每轮都命中的触发器上（如 `flagSet`）会每轮尝试摆一次 —— 那是作者选择，
+     * ⚠ 挂在每轮都命中的触发器上（如 `flagSet`）会每轮尝试提交一次分支 —— 那是作者选择，
      * 运行时不替其兜底。
      */
     branchEventIds: z.array(z.string().min(1)).optional(),

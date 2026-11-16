@@ -3,7 +3,7 @@ import type { WorldStateV2 } from "@life-sim/shared";
 /**
  * ADR-0035 D2：**回合事务边界**（per-world 串行锁 + 结构写入保存点）。
  *
- * 为什么需要锁：`fact.enqueueEvent` / `fact.advanceDag` 是**结构写入**，内容基于
+ * 为什么需要锁：`story.submitBranch` 是**结构写入**，内容基于
  * 「创作这一轮」的状态快照。invocation 是异步的，如果允许世界在它落账前推进，
  * 就会出现主理人给出的两个反例：
  *   A. 已死 npc 作为"活着"登场（诈尸）
@@ -47,7 +47,7 @@ export async function withWorldLock<T>(worldId: string, fn: () => Promise<T>): P
  *
  * 刻意不含 `turnIndex` / `worldTime` / `slot` / `history` / `eventFires`：
  * 那些不是 LLM 的写入面，把它们也快照会掩盖真 bug。`slot` 尤其重要 ——
- * `fact.enqueueEvent` 按 ADR-0034 就不许占槽，若它变了说明有人破了不变量，
+ * `story.submitBranch` 按 ADR-0034 就不许占槽，若它变了说明有人破了不变量，
  * 应当暴露而不是被回滚掩盖。
  */
 export interface StructuralSavepoint {

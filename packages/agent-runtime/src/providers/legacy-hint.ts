@@ -4,9 +4,10 @@
  *
  * ⚠ **不要把这里的解析接回发射路径。**
  * 分支能力已改由结构化白名单 `invoke.branchEventIds`（→ `LlmContext.branchEventIds`
- * → `DispatchContext.branchEventIds`）表达。若仍按 hints 发射 `fact.enqueueEvent`：
+ * → `DispatchContext.branchEventIds`）表达。历史上若仍按 hints 发射 `fact.enqueueEvent`：
  * - 模板没声明白名单 ⇒ engine 侧 D3 第 3 条一律拒绝（`allowedRefs: []`）；
  * - 于是每一轮都白产出一条 `unknown_reference` 拒绝回执 —— 分支既没上桌，又添噪音。
+ * 该工具与白名单闸门均已下线；本文件只剩「把形状判断收敛成单点」的过渡价值。
  *
  * 本文件存在的意义只有一个：**把形状判断收敛成单点**，让守卫可以断言
  * 「`agent-runtime/src/**` 里除本文件外不出现 `startsWith("evt:")` / `"branch:"`」。

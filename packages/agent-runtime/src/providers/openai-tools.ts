@@ -108,8 +108,8 @@ function toOpenAiMessages(messages: readonly AgentMessage[]): unknown[] {
 /**
  * 工具名出网映射：OpenAI 规范（以及绝大多数兼容网关）要求 function name 只含
  * `[a-zA-Z0-9_-]`、最长 64，**不允许点号**。我们内部用点号分层（`narrative.write`
- * / `fact.enqueueEvent`），这是可读性与分组的好处，但在线上一律转成下划线：
- * `content_writeNarrative`。
+ * / `story.submitBranch`），这是可读性与分组的好处，但在线上一律转成下划线：
+ * `narrative_write`。
  *
  * 只在**这一层边界**转换：内部（模板画像、注册表、trace、测试）仍用点号，模型看到的
  * 是下划线，收回来时按同一张表转回。不转的话实测会被网关直接 400：

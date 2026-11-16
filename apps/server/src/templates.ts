@@ -144,9 +144,9 @@ export interface ReadyTemplateEntry extends TemplateEntryBase {
   /**
    * 模板 ref 全集（`collectRefs` 的字面 id 集合），**加载期算一次随 entry 缓存**。
    *
-   * 走 `RpgEngineAPI.lookupRefs`：`fact.enqueueEvent` 的模板存在性校验、`validateDag`
-   * 步骤 6 的 `templateRefs ⊆ lookupRefs` 都依赖它。缺了它这些校验会**静默空转**
-   * （ADR-0037 / ADR-0038 IO-14），所以它属于 entry 的既有事实，不按请求重算。
+   * 设计上供 `validateDag` 步骤 6（`templateRefs ⊆ lookupRefs`）使用；`fact.enqueueEvent`
+   * 已下线，引擎当前没有运行期 DAG 写入，该接线待清理。它属于 entry 的既有事实，
+   * 不按请求重算（ADR-0037 / ADR-0038 IO-14）。
    */
   refs: ReadonlySet<string>;
   openings: OpeningTemplate[];

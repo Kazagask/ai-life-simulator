@@ -112,8 +112,8 @@ export function createLookup(template: WorldTemplateV2): TemplateLookup {
 /**
  * 模板 ref 全集：所有可被跨实体**字面引用**的 id（事件 / 技能 / 物品 / 状态 / 角色 / 链 / 动作）。
  *
- * 用途：`RpgEngineAPI` 的 `lookupRefs` —— `fact.enqueueEvent` 的模板存在性校验
- * （`unknown_reference`）与 `validateDag` 步骤 6 的 `templateRefs ⊆ lookupRefs`。
+ * 用途：`validateDag` 步骤 6 的 `templateRefs ⊆ lookupRefs`（加载期 DAG 校验）。
+ * `fact.enqueueEvent` 已下线，引擎侧不再有「模板事件存在性」这条校验路径。
  *
  * 口径（ADR-0037 / ADR-0038）：
  * - **只取字面 id，不加前缀、不做映射**：模板 id 形态不统一（事件是 `evt:awaken`，

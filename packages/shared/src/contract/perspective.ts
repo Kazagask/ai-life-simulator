@@ -39,7 +39,7 @@ export const PerspectiveSchema = z
 export const KnowledgeLevelSchema = z.enum(["known", "inferred"]);
 export type KnowledgeLevel = z.infer<typeof KnowledgeLevelSchema>;
 
-/** 知识来源封闭枚举（KnowledgeEntry / fact.setKnowledge / rules.yaml grant 共用）。 */
+/** 知识来源封闭枚举（KnowledgeEntry / rules.yaml grant 共用；fact.setKnowledge 已下线）。 */
 export const KnowledgeSourceSchema = z.enum(["witness", "told", "inferred", "llm", "rule"]);
 export type KnowledgeSource = z.infer<typeof KnowledgeSourceSchema>;
 
@@ -166,7 +166,7 @@ export const PerspectiveFactViewSchema = z
   });
 export type PerspectiveFactView = z.infer<typeof PerspectiveFactViewSchema>;
 
-/** fact.setKnowledge 的 args schema：写台账的唯一入口，回程一律走引擎 API。 */
+/** 知识授予 args schema：由 `knowledgeGrants` 规则经 `assignKnowledgeGrants` 使用（fact.setKnowledge 已下线）。 */
 export const SetKnowledgeArgsSchema = z
   .object({
     observer: ObserverIdSchema,

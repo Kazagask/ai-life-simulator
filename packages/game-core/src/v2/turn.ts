@@ -939,7 +939,7 @@ export interface TurnPipelineConfig {
    * （编排层据此把它纳入同一回合的事务边界，见 ADR-0035 D2）。
    *
    * 缺省 false = 保持既有 fire-and-forget 语义（仅供不持事务的调用方 / 测试使用）。
-   * 生产路径必须由 `apps/server` 设 true —— 否则结构写入会晚到，`fact.enqueueEvent`
+   * 生产路径必须由 `apps/server` 设 true —— 否则结构写入会晚到，`story.submitBranch`
    * 的跨回合守卫（IO-1）会把它们全部拒掉，等于 LLM 完全写不了世界。
    */
   deferInvocation?: boolean;
@@ -1070,7 +1070,7 @@ function runSettlementHooks(
   /**
    * `deferInvocation`：交给编排层在**本回合事务内**执行（ADR-0035 D2）。
    *
-   * 为什么不能在这里 fire-and-forget：`fact.enqueueEvent` / `fact.advanceDag` 是
+   * 为什么不能在这里 fire-and-forget：`story.submitBranch` 是
    * 基于「创作这一轮」的状态算出来的**结构写入**。异步 = 落账时世界已经不是那个世界，
    * 于是要么让已死 npc 诈尸，要么（加 missWhen 后）变成静默的"错误错过"。
    * 二者在触发时刻的状态上完全一样，任何基于触发时刻的判据都分不开 —— 只能靠事务边界。

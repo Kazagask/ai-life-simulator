@@ -97,12 +97,10 @@ export const DispatchContextSchema = z
      */
     targetPerspective: PerspectiveSchema,
     /**
-     * ADR-0038：本次 invocation 的分支白名单（从 `LlmInvocation.context` 透传）。
+     * ADR-0038：本次 invocation 的分支能力声明（从 `LlmInvocation.context` 透传）。
      *
-     * 三态语义（`fact.enqueueEvent` 实现）：
-     * - `undefined`（未声明）⇒ 拒绝，`allowedRefs: []`；
-     * - `[]`（显式空）⇒ **同样拒绝**（空 ≠ 不限制）；
-     * - 非空且 `eventId` 不在其中 ⇒ 拒绝，`allowedRefs: [...branchEventIds]`。
+     * ⚠ 历史上的三态拒绝语义由已下线的 `fact.enqueueEvent` 实现；该工具下线后
+     * 引擎侧没有消费者，本字段目前只作为「本轮可写分支」的能力信号随上下文透传。
      *
      * 只由 core 求值写进 `LlmInvocation`，**不接收**模型输出 / HTTP 请求体的拼接结果。
      */

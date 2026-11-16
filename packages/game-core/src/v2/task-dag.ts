@@ -9,8 +9,9 @@ import {
 /**
  * DAG 校验器（T-02 / v2 §3.5，纯函数，O(V+E)）。
  *
- * 加载期对模板 `fallbackDag` 预跑、运行期 `fact.advanceDag` 提交 LLM DAG
- * **共用本文件的同一份 `validateDag` 实现**（`validateFallbackDag` 即其别名），不写两份。
+ * 加载期对模板 `fallbackDag` 预跑用本文件的 `validateDag`（`validateFallbackDag` 即其别名）。
+ * 运行期不再有 LLM DAG 写入 —— `fact.advanceDag` / `fact.upsertDagBranch` 已于 2026-11-16
+ * 下线，写世界统一走 `story.submitBranch`。
  * 失败码按 §3.5 表：`unknown_reference` / `state_conflict`，均为 RETRYABLE，
  * 带 `factsHint`（悬空端点 / 环上剩余节点 / 不可解析 guard 等）回灌重生成。
  */
@@ -131,7 +132,7 @@ export function validateDag(dag: TaskDag, opts: ValidateDagOptions = {}): DagVal
   return OK;
 }
 
-/** 加载期入口：与运行期 `fact.advanceDag` 共用同一函数（此处即别名，字面同一实现）。 */
+/** 加载期入口（别名，字面同一实现）。运行期 LLM DAG 写入已下线（fact.advanceDag / upsertDagBranch）。 */
 export const validateFallbackDag: typeof validateDag = validateDag;
 
 /** 便捷：把校验结果映射为回执所需的失败码 + factsHint。 */
