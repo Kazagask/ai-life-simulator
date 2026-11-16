@@ -1,10 +1,6 @@
 import {
   ContentToolArgsSchemas,
-  SetKnowledgeArgsSchema,
   SubmitBranchArgsSchema,
-  TaskDagSchema,
-  TaskEdgeSchema,
-  TaskNodeSchema,
   type ApiCall,
   type Perspective,
   type RulesTemplate,
@@ -88,23 +84,17 @@ export interface AgentProvider {
 // ---------- 工具清单 ----------
 
 /**
- * 事实写入工具（与 game-core `defaultToolRegistry()` 对齐）。
- * `fact.enqueueEvent` 是「把 DAG 分支上的事件上桌」的唯一通道（只入队、不占槽）；
- * 缺了它，LLM 侧就只剩 `content.*` —— 分支永远上不了桌。
+ * `fact.*` 写工具已于 2026-11-16 **全部下线**（AGENTIC-GM 重构 §4）。
  *
- * `fact.upsertDagBranch`（ADR-0037 D4）是**增量**续写：只提交新增/改写的节点与边，
- * 不是整份覆盖；但**改写已有节点仍须重发完整节点**（引擎只采纳其中的可改字段：
- * status/guards/completion/due/visibility），只发改字段的补丁会被判 `invalid_arguments`
- * （FATAL，不消耗重试）。它与 `fact.advanceDag`（整份覆盖）并存，但 LLM 侧应优先用它 ——
- * 整份覆盖会静默丢掉模型没看见的 guards/completion/edges。此前引擎已注册、本清单漏列 ⇒
- * `resolveToolNames` 会把它静默过滤掉（画像写了等于没写），模板一切换就只剩散文。
+ * 写世界只剩 `story.submitBranch` 一条通道：LLM 不感知槽 / 队列 / 池 / DAG。
+ * 下线原因是三条已被实测确认的事故根因：
+ * - `fact.enqueueEvent`：每轮重新入队 ⇒ closing↔chance 无限交替；
+ * - `fact.advanceDag`：整份覆盖会静默丢掉模型没看见的 guards / completion / edges；
+ * - `fact.upsertDagBranch`：「在已有结构上打补丁」，正是被禁止的写法。
+ * 知识授予改由模板 `knowledgeGrants` 规则完成，不需要 LLM 写。
+ *
+ * **不要**为了兼容把任何一个加回工具面 —— 模型看到它们就会调用，幻觉与 `unknown_tool` 随之而来。
  */
-export const FACT_TOOL_NAMES = [
-  "fact.setKnowledge",
-  "fact.advanceDag",
-  "fact.upsertDagBranch",
-  "fact.enqueueEvent",
-] as const;
 
 /** 内容写入工具（与 game-core `defaultToolRegistry()` 对齐）。 */
 /**
@@ -140,13 +130,11 @@ export const CONTROL_TOOL_NAMES: readonly string[] = [];
  *
  * `story.submitBranch` 是**唯一**的写世界结构通道：LLM 提交一整条独立分支
  * （触发方式 + 完整编排），由引擎编译成事件、按声明的方式调度。
- * LLM **永远不入队、不占槽** —— 那两条通道（`fact.enqueueEvent` / `fact.upsertDagBranch`）
- * 在新架构里会被逐步下线。
+ * LLM **永远不入队、不占槽**；旧的 fact.* 写工具已于 2026-11-16 全部下线。
  */
 export const STORY_TOOL_NAMES = ["story.submitBranch"] as const;
 
 export const ALL_TOOL_NAMES: readonly string[] = [
-  ...FACT_TOOL_NAMES,
   ...CONTENT_TOOL_NAMES_ALL,
   ...CONTROL_TOOL_NAMES,
   ...STORY_TOOL_NAMES,
@@ -330,99 +318,6 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
       ["trigger", "branch"],
     ),
   },
-  "fact.setKnowledge": {
-    name: "fact.setKnowledge",
-    description: "给观察者授一条知识（known / inferred）。",
-    parameters: schemaOf(
-      {
-        observer: { type: "string", description: "player | npc:<id>" },
-        factRef: { type: "string", minLength: 1 },
-        level: { type: "string", enum: ["known", "inferred"] },
-        source: {
-          type: "string",
-          enum: ["witness", "told", "inferred", "llm", "rule"],
-        },
-        sinceTurn: { type: "integer", minimum: 0 },
-        confidence: { type: "number", minimum: 0, maximum: 1 },
-      },
-      ["observer", "factRef", "level", "source", "sinceTurn"],
-    ),
-  },
-  "fact.advanceDag": {
-    name: "fact.advanceDag",
-    description: "用一份新的任务 DAG 覆盖当前 DAG（整体校验后落账）。",
-    parameters: schemaOf({ dag: { type: "object" } }, ["dag"]),
-  },
-  "fact.upsertDagBranch": {
-    name: "fact.upsertDagBranch",
-    description:
-      "**增量**续写任务 DAG 分支：只提交新增 / 改写的节点与边，不是整份覆盖（覆盖会丢掉" +
-      "你没看见的 guards / completion / edges）。⚠ 改写已有节点**仍须提交完整节点**" +
-      "（id/kind/title/status/guards/completion/templateRefs/visibility 全给，due 可省）；" +
-      "只发 {id,status} 补丁会被判 invalid_arguments（FATAL）。引擎只采纳 " +
-      "status/guards/completion/due/visibility；status 可写但只能前进、终态不可回退；" +
-      "kind/title 不可改写（被拒时回灌当前值，RETRYABLE）。edges 按 (from,to,kind) 去重追加，" +
-      "永不删除；合并后校验不过（重复 id/悬空端点/自环/成环/未知 templateRef）⇒ 整体拒绝。",
-    parameters: schemaOf(
-      {
-        nodes: {
-          type: "array",
-          description: "新增或改写的节点（每个都是完整节点，不是补丁）",
-          items: {
-            type: "object",
-            properties: {
-              id: { type: "string" },
-              kind: { type: "string" },
-              title: { type: "string" },
-              status: { type: "string" },
-              guards: { type: "array", items: { type: "object" } },
-              completion: { type: "array", items: { type: "object" } },
-              due: { type: "integer" },
-              templateRefs: { type: "array", items: { type: "string" } },
-              visibility: { type: "string" },
-            },
-            required: [
-              "id",
-              "kind",
-              "title",
-              "status",
-              "guards",
-              "completion",
-              "templateRefs",
-              "visibility",
-            ],
-            additionalProperties: false,
-          },
-        },
-        edges: {
-          type: "array",
-          description: "要追加的边",
-          items: {
-            type: "object",
-            properties: {
-              from: { type: "string" },
-              to: { type: "string" },
-              kind: { type: "string" },
-            },
-            required: ["from", "to", "kind"],
-            additionalProperties: false,
-          },
-        },
-        version: { type: "integer" },
-      },
-      [],
-    ),
-  },
-  "fact.enqueueEvent": {
-    name: "fact.enqueueEvent",
-    description:
-      "把一个**模板里已存在**的事件入队（只入队、不占槽），用于把任务 DAG 分支上桌。" +
-      "eventId 必须逐字取自上下文里出现过的 evt:xxx 引用，禁止自行发明事件 id。",
-    parameters: schemaOf(
-      { eventId: { type: "string", minLength: 1, description: "模板已存在的事件引用 id（evt:xxx）" } },
-      ["eventId"],
-    ),
-  },
 };
 
 const descriptorOf = (name: string): ToolDescriptor | undefined =>
@@ -546,82 +441,6 @@ export function validateToolCall(
           .slice(0, 3)
           .map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`)
           .join("; ")}`,
-      };
-    }
-    return { ok: true, args: call.arguments };
-  }
-  if (call.name === "fact.setKnowledge") {
-    const batch = isRecord(call.arguments) && Array.isArray(call.arguments.entries)
-      ? call.arguments.entries
-      : null;
-    const candidates = batch ?? [call.arguments];
-    for (const candidate of candidates) {
-      if (!SetKnowledgeArgsSchema.safeParse(candidate).success) {
-        return {
-          ok: false,
-          code: "invalid_arguments",
-          detail: "fact.setKnowledge 参数未通过 SetKnowledgeArgsSchema",
-        };
-      }
-    }
-    return { ok: true, args: call.arguments };
-  }
-  if (call.name === "fact.advanceDag") {
-    if (!TaskDagSchema.safeParse(call.arguments.dag).success) {
-      return { ok: false, code: "invalid_arguments", detail: "fact.advanceDag.dag 未通过 TaskDagSchema" };
-    }
-    return { ok: true, args: call.arguments };
-  }
-  if (call.name === "fact.enqueueEvent") {
-    const eventId = call.arguments.eventId;
-    if (typeof eventId !== "string" || eventId.length === 0) {
-      return { ok: false, code: "invalid_arguments", detail: "fact.enqueueEvent 需要 { eventId }" };
-    }
-    return { ok: true, args: call.arguments };
-  }
-  if (call.name === "fact.upsertDagBranch") {
-    /**
-     * 增量入参无法用 `TaskDagSchema`（那是整份 DAG）校验，所以逐项对齐引擎的解析：
-     * 引擎对 `nodes[]` / `edges[]` 逐个 `TaskNodeSchema` / `TaskEdgeSchema` 解析，
-     * 本层用同一对 schema 提前拦下 —— 拒绝码与引擎一致（`invalid_arguments`），
-     * 但**不消耗**引擎那一趟 dispatch。
-     *
-     * 语义级校验（kind/title 不可改写、status 单调、成环、templateRefs 存在性）留在引擎：
-     * 那需要读权威状态，本层没有 state，也不该有。
-     */
-    const nodes = call.arguments.nodes ?? [];
-    const edges = call.arguments.edges ?? [];
-    if (!Array.isArray(nodes) || !Array.isArray(edges)) {
-      return {
-        ok: false,
-        code: "invalid_arguments",
-        detail: "fact.upsertDagBranch 的 nodes / edges 必须是数组",
-      };
-    }
-    for (const node of nodes) {
-      if (!TaskNodeSchema.safeParse(node).success) {
-        return {
-          ok: false,
-          code: "invalid_arguments",
-          detail: "fact.upsertDagBranch.nodes[] 未通过 TaskNodeSchema（新节点必须是完整节点）",
-        };
-      }
-    }
-    for (const edge of edges) {
-      if (!TaskEdgeSchema.safeParse(edge).success) {
-        return {
-          ok: false,
-          code: "invalid_arguments",
-          detail: "fact.upsertDagBranch.edges[] 未通过 TaskEdgeSchema",
-        };
-      }
-    }
-    const version = call.arguments.version;
-    if (version !== undefined && (!Number.isInteger(version) || (version as number) < 0)) {
-      return {
-        ok: false,
-        code: "invalid_arguments",
-        detail: "fact.upsertDagBranch.version 必须是非负整数",
       };
     }
     return { ok: true, args: call.arguments };

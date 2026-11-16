@@ -13,23 +13,19 @@ import {
  *
  * 产品口径（用户裁决）：「点击为主，打字输入为辅」——**每一回合**都要给出可点动作；
  * 只产出散文的一回合等于坏回合。回合内按 loop 的 dispatch 轮次推进：
- *   ① 叙事（narrative.write，必要时 content.referenceAsset）
- *   ② 分支（可选：fact.enqueueEvent —— 把 DAG 分支上的模板事件上桌）
- *   ③ 选项（2-3 条 content.writeOption，必要时 narrative.flavor）
- *   ④ 提交（agent.submit）
- * 因此 `contentBlocks` 顺序恒为 narrative → option → flavor，前端可直接按序渲染。
+ *   ① 叙事（narrative.write）
+ *   ② 分支（可选：story.submitBranch —— 提交一条单节点分支，由引擎调度上桌）
+ *   ③ 旁注（narrative.flavor；选项属于事件块，不再由 LLM 写）
+ *   ④ 结束（不再发 tool call，运行时补一次内部提交做记账）
+ * 因此 `contentBlocks` 顺序恒为 narrative → flavor，前端按 kind 渲染。
  *
- * ② 只在调用上下文声明了**分支白名单**（`branchEventIds`）时才发生：取 `[0]`，
- * 一次 invocation 最多摆一个事件。白名单由模板 `invoke.branchEventIds` 声明、core 求值
- * 写进 `LlmContext`（ADR-0038）。`contextHints` 是**自由文本标签通道，零解释** ——
- * 本文件的发射路径不读它的字符串语义（形状判断已收进 `legacy-hint.ts` 且不接线）。
- * eventId 还必须是模板已有事件：自造 id 必然吃 `unknown_reference`（FATAL）。
+ * ② 只在调用上下文声明了 `branchEventIds`（模板声明"本 invocation 可写分支"）时发生。
+ * 它只是**能力信号**：提交内容由 mock 确定性生成，事件 id 由引擎分配 —— `contextHints`
+ * 仍是**自由文本标签通道，零解释**，发射路径不读它的字符串语义。
  *
- * ⚠ 去重责任边界（别误以为声明白名单就万事大吉）：白名单是**能力**不是**一次性**。
- * 跨回合不重复入队靠 core 的 `enqueueEvent` waiting 幂等（+ ADR-0035 IO-1 跨回合守卫）；
- * 「同一个事件不该反复上桌」的内容层防线靠模板 `missWhen`；频率本身由 ADR-0036 的边沿
- * 触发收敛。mock 是**无状态**的（同 invocationId + 同状态 ⇒ 逐字节相同），
- * 结构上做不到跨回合去重。
+ * ⚠ 去重责任边界：`branchEventIds` 是**能力**不是**一次性**。跨回合不重复上桌靠
+ * `story.submitBranch` 的编译 / 调度语义与模板 `missWhen`；频率由 ADR-0036 的边沿触发收敛。
+ * mock 是**无状态**的（同 invocationId + 同状态 ⇒ 逐字节相同），结构上不做跨回合去重。
  *
  * 文本全部由 `inv.context` 的 facts / dagNodes / recentTurns 与 invocationReason 合成；
  * 无随机、无时钟：同一 invocationId + 同一世界状态 ⇒ 逐字节相同的输出。
@@ -387,43 +383,46 @@ function optionTexts(view: MockContextView): string[] {
   return picks.slice(0, 3);
 }
 
-/** ② 分支轮唯一会发的「写世界」工具（把分支上的模板事件上桌）。 */
-const BRANCH_TOOL = "fact.enqueueEvent";
+/** ② 分支轮唯一会发的「写世界」工具（提交一条分支）。 */
+const BRANCH_TOOL = "story.submitBranch";
 
 /**
- * 本轮要上桌的事件 id：只取 `branchEventIds[0]`（ADR-0038 D7）。
+ * 本轮是否具备分支能力：只认 `view.branchEventIds` 是否声明（ADR-0038 D7 的
+ * "模板声明能力"信号保留）。
  *
- * - 缺省 / 空数组 ⇒ null（整轮不发）—— 「沉默 = 没有分支能力」，空数组**不是**不限制；
- * - **不按 invocationId 轮转**：多分支演示靠模板给多条触发器，不靠 mock 内部状态机
- *   （那会把不确定性塞进本该确定的地方）；
- * - 硬约束：绝不自己编 id —— eventId 会跟模板 ref 全集比对，编出来的必然
- *   `unknown_reference`（FATAL，不消耗重试）。
- *
- * 注意：eventId 是机器引用（与 `refs[]` / assetId 同类），**不过** `sanitizeProse` 闸门 ——
- * 那道闸门针对玩家可见文本，用在这里会把 id 洗成空串。
+ * 值本身不再用于入队 —— 写世界已统一走 `story.submitBranch`，事件 id 由引擎分配；
+ * mock 不得自己编模板事件。缺省 / 空数组 ⇒ 整轮不发（「沉默 = 没有分支能力」，
+ * 空数组**不是**不限制）。
  */
-function branchEventId(view: MockContextView): string | null {
+function branchEnabled(view: MockContextView): boolean {
   const declared = view.branchEventIds;
-  if (declared === undefined || declared.length === 0) return null;
-  return declared[0] ?? null;
+  return declared !== undefined && declared.length > 0;
 }
 
 /**
- * ② 分支轮：把分支事件上桌（`fact.enqueueEvent` 只入队、不占槽）。
+ * ② 分支轮：提交**单节点 + 单选项**的分支（`mode: certain` ⇒ 下一回合上桌）。
  *
- * 排在叙事之后、选项之前：事件先上桌，玩家再在它的分支上做选择。
- * 只认 `branchEventIds` 白名单（取 `[0]`）；没有声明或画像没给该工具 ⇒ 空数组，
- * 原有「叙事 → 选项 → 提交」节奏不变。
+ * 排在叙事之后、选项之前：分支先提交，引擎编译成事件后由回合边界调度上桌。
+ * 内容完全确定性：同 invocationId + 同状态 ⇒ 逐字节相同，不引入随机。
  */
 function branchCalls(view: MockContextView, available: Set<string>): ToolCallRequest[] {
   if (!available.has(BRANCH_TOOL)) return [];
-  const eventId = branchEventId(view);
-  if (eventId === null) return [];
+  if (!branchEnabled(view)) return [];
   return [
     {
       id: `${view.invocationId}:call:branch`,
       name: BRANCH_TOOL,
-      arguments: { eventId },
+      arguments: {
+        trigger: { mode: "certain" },
+        branch: [
+          {
+            node: "mock.branch",
+            title: "岔路",
+            text: "前方出现了一个岔口，脚步在这里短暂停顿。",
+            options: [{ text: "继续前行" }],
+          },
+        ],
+      },
     },
   ];
 }
@@ -489,9 +488,9 @@ function lastRejection(messages: readonly AgentMessage[]): MockRejection | null 
   return null;
 }
 
-/** 被拒的是写世界工具（fact.*）：mock 无法通过改写文案修复它，只能跳过。 */
-function isFactRejection(name: string | undefined): boolean {
-  return typeof name === "string" && name.startsWith("fact.");
+/** 被拒的是写世界工具（story.submitBranch）：mock 无法通过改写文案修复它，只能跳过。 */
+function isUnrewritableWrite(name: string | undefined): boolean {
+  return name === "story.submitBranch";
 }
 
 /** ① 叙事轮：正文 + 至多一次媒体资源挂载。 */
@@ -573,14 +572,14 @@ export class MockAgentProvider implements AgentProvider {
      */
     const rewritable =
       rejection !== null &&
-      !isFactRejection(rejection.name) &&
+      !isUnrewritableWrite(rejection.name) &&
       rejection.name === "narrative.write";
 
     if (done) {
       // 已有 submit，不再产出（loop 正常情况下已在此前终止）。
     } else if (rewritable) {
       // 分支①：按被拒工具重生成；窗口类拒绝一律收敛为「不带 refs + 权威窗口」。
-      // fact.* 的拒绝不走这里：mock 改不了事件 id / DAG 事实，重写文案修不好它（见下一条分支）。
+      // story.submitBranch 的拒绝不走这里：mock 改不了结构，重写文案修不好它（见下一条分支）。
       const hintTarget =
         typeof rejection!.factsHint?.targetPerspective === "string"
           ? (rejection!.factsHint.targetPerspective as Perspective)
