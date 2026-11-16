@@ -282,11 +282,6 @@ function synthesizeNarrative(view: MockContextView): string {
   return sanitizeProse(sentences.join("")) ?? reasonSentence(view.reason);
 }
 
-/** 引用只取窗口内出现过的 factRef，避免自造 visibility_violation。 */
-function collectRefs(view: MockContextView): string[] {
-  return [...new Set(visibleFactRefs(view).slice(0, 3))];
-}
-
 /** 稳定哈希（仅用于确定性地挑选选项顺序，不参与任何权威判定）。 */
 function stableHash(text: string): number {
   let hash = 2166136261;
@@ -426,57 +421,30 @@ function submitted(messages: readonly AgentMessage[]): boolean {
   );
 }
 
-interface MockRejection {
-  code?: string;
-  name?: string;
-  factsHint?: Record<string, unknown>;
+/** 本次 invocation 是否已经吐过带标签的正文（assistant 历史里能看到）。 */
+function narrativeAlreadyEmitted(messages: readonly AgentMessage[]): boolean {
+  return messages.some(
+    (message) =>
+      message.role === "assistant" &&
+      typeof message.content === "string" &&
+      message.content.includes("<narrative-content>"),
+  );
 }
 
-/** 取最后一条 tool 消息里的拒绝回执（loop 以 JSON 回灌 outcome / code / factsHint）。 */
-function lastRejection(messages: readonly AgentMessage[]): MockRejection | null {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i]!;
-    if (message.role !== "tool" || typeof message.content !== "string") continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(message.content);
-    } catch {
-      return null;
-    }
-    if (!isRecord(parsed) || parsed.outcome !== "rejected") return null;
-    return {
-      ...(typeof parsed.code === "string" ? { code: parsed.code } : {}),
-      ...(typeof message.name === "string" ? { name: message.name } : {}),
-      ...(isRecord(parsed.factsHint) ? { factsHint: parsed.factsHint } : {}),
-    };
+/** 把正文包进标签；标签外只留工具调用（mock 不产思维链）。 */
+function taggedNarrative(text: string): string {
+  return `<narrative-content>\n${text}\n</narrative-content>`;
+}
+
+/** 模拟逐片流式：确定性切片 + 让出事件循环，仅用于让 SSE 有真实帧可看。 */
+async function streamNarrative(req: AgentChatRequest, text: string): Promise<void> {
+  if (req.onDelta === undefined) return;
+  const CHUNK = 24;
+  for (let i = 0; i < text.length; i += CHUNK) {
+    req.onDelta({ text: text.slice(i, i + CHUNK) });
+    // 真实 provider 的帧之间必有网络间隔；同步全吐会让订阅者只看到合并后的一帧。
+    await new Promise((resolve) => setTimeout(resolve, 30));
   }
-  return null;
-}
-
-/** 被拒的是写世界工具（story.submitBranch）：mock 无法通过改写文案修复它，只能跳过。 */
-function isUnrewritableWrite(name: string | undefined): boolean {
-  return name === "story.submitBranch";
-}
-
-/** ① 叙事轮：正文 + 至多一次媒体资源挂载。 */
-function narrativeCalls(view: MockContextView, available: Set<string>): ToolCallRequest[] {
-  const calls: ToolCallRequest[] = [];
-  const refs = collectRefs(view);
-  if (available.has("narrative.write")) {
-    calls.push({
-      id: `${view.invocationId}:call:narrative`,
-      name: "narrative.write",
-      arguments: {
-        blockId: `${view.invocationId}:narrative`,
-        text: synthesizeNarrative(view),
-        refs,
-        targetPerspective: view.targetPerspective,
-      },
-    });
-  }
-  // `content.referenceAsset` 已从函数层删除：媒体挂载不是叙事，将来要接资产应作为
-  // `narrative.write` 的可选参数（assetId），而不是独立工具。mock 不再发资产块。
-  return calls;
 }
 
 /**
@@ -520,66 +488,30 @@ export class MockAgentProvider implements AgentProvider {
     }
 
     const toolCalls: ToolCallRequest[] = [];
-    const rejection = lastRejection(req.messages);
     const emitted = emittedToolNames(req.messages);
     const done = submitted(req.messages);
     const branch = branchCalls(view, available);
-    /**
-     * ADR-0038 R10：**只有「改写文案就能修好」的拒绝才重生成**。
-     *
-     * 旧条件是 `!isFactRejection(...)`，它兜住了所有非 fact 拒绝：`content.referenceAsset` /
-     * `writeFlavor` / `writeMemory` 被打回时也会落到 `else` 重发一段 narrative，且用的是
-     * **同一个 blockId** ⇒ sink 里出现两块同 id 正文，玩家看到同一段话两次，且没有任何
-     * 错误提示（trait 仍是 committed）。窗口类拒绝里只有 `writeNarrative` / `writeOption`
-     * 收窄 refs 后重发是有意义的；其余工具重发只会复制正文。
-     *
-     * 其余拒绝 ⇒ 跳过该调用、继续正常阶段推进（诊断仍留在 receipts 里，不吞）。
-     */
-    const rewritable =
-      rejection !== null &&
-      !isUnrewritableWrite(rejection.name) &&
-      rejection.name === "narrative.write";
+
+    // 正文走 `<narrative-content>` 标签（与真实 provider 同一契约）；一个 invocation 只吐一次。
+    const narrativeText = narrativeAlreadyEmitted(req.messages)
+      ? undefined
+      : taggedNarrative(synthesizeNarrative(view));
 
     if (done) {
       // 已有 submit，不再产出（loop 正常情况下已在此前终止）。
-    } else if (rewritable) {
-      // 分支①：按被拒工具重生成；窗口类拒绝一律收敛为「不带 refs + 权威窗口」。
-      // story.submitBranch 的拒绝不走这里：mock 改不了结构，重写文案修不好它（见下一条分支）。
-      const hintTarget =
-        typeof rejection!.factsHint?.targetPerspective === "string"
-          ? (rejection!.factsHint.targetPerspective as Perspective)
-          : view.targetPerspective;
-      if (available.has("narrative.write")) {
-        toolCalls.push({
-          id: `${view.invocationId}:call:retry`,
-          name: "narrative.write",
-          arguments: {
-            blockId: `${view.invocationId}:narrative`,
-            text: synthesizeNarrative(view),
-            refs: [],
-            targetPerspective: hintTarget,
-          },
-        });
-      }
-    } else if (!emitted.has("narrative.write")) {
-      toolCalls.push(...narrativeCalls(view, available));
     } else if (branch.length > 0 && !emitted.has(BRANCH_TOOL)) {
-      // ② 分支轮：把分支事件上桌（只入队、不占槽）。`branch` 已按「画像 + 显式分支指令」筛过，
-      // 为空则整段跳过，不改变原有三阶段节奏。
+      // 分支轮：正文与 tool_calls 同轮返回（content + tool_calls 可以并存）。
       toolCalls.push(...branch);
     } else if (!emitted.has("narrative.flavor")) {
-      // 有叙事但还没有旁注 ⇒ 补一句环境描写（选项已不再由 LLM 产生）。
-      // ⚠ 旁注可能产不出来（没有可依据的标题/上下文）。此时必须**继续走到 submit**，
-      // 否则这里会一直返回空 toolCalls ⇒ 循环以 no_tool_calls 收场、整轮 fallback。
+      // 有正文后补一句旁注；产不出来就直接收尾。
       const extra = optionCalls(view, available);
-      if (extra.length > 0) {
-        toolCalls.push(...extra);
-      }
+      if (extra.length > 0) toolCalls.push(...extra);
     }
     // 末轮：不再发 `agent.submit`（已从工具面移除）。返回空 toolCalls ⇒ 循环自然退出、
     // 由运行时补一次内部提交做记账。
 
-    const text = toolCalls.length === 0 ? "本回合没有更多可写的内容。" : undefined;
+    const text = narrativeText;
+    if (text !== undefined) await streamNarrative(req, text);
     const outputPayload = JSON.stringify(toolCalls);
     return {
       toolCalls,

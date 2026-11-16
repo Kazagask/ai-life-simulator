@@ -121,6 +121,18 @@ function abortIfUnwatched(worldId: string, channel: Channel): void {
   channel.controller.abort();
 }
 
+/**
+ * 前端与 turn **并发**订阅时的抢跑窗口：turn 的 `pendingInvocation` 可能在 SSE 路由
+ * 到达后几十毫秒才写入。短等一小会儿，避免把一次正常结算误判成 `idle`。
+ */
+async function waitForInvocation(worldId: string, ms: number): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (worldStore.get(worldId)?.state.pendingInvocation !== undefined) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 /** SSE 路由注册点：`index.ts` 只需一行 `await registerNarrativeStreamRoute(app)`。 */
 export async function registerNarrativeStreamRoute(app: FastifyInstance): Promise<void> {
   app.post("/api/worlds/:id/narrative/stream", async (request, reply) => {
@@ -172,7 +184,17 @@ export async function registerNarrativeStreamRoute(app: FastifyInstance): Promis
       abortIfUnwatched(id, channel);
     };
 
-    // ① 上一轮已收尾：补发整段正文 + done（LLM 比浏览器开流更快时的不空屏路径）。
+    // 并发订阅抢跑：turn 的 pendingInvocation 可能晚几十毫秒；先等一个短窗口。
+    if (
+      channel.done === null &&
+      record.state.pendingInvocation === undefined &&
+      channel.text.length === 0
+    ) {
+      await waitForInvocation(id, 500);
+    }
+    if (finished) return; // 等待期间客户端断开
+
+    // ① 已收尾（含等待期间刚好收尾）：补发整段正文 + done（不空屏路径）。
     if (channel.done !== null) {
       if (channel.text.length > 0) send({ type: "delta", text: channel.text });
       send({ type: "done", ...channel.done });
@@ -180,7 +202,7 @@ export async function registerNarrativeStreamRoute(app: FastifyInstance): Promis
       return;
     }
 
-    // ② 没有在飞 invocation 且没有残留正文：明确的 idle，不干等、不 404。
+    // ② 等完仍没有在飞 invocation 且没有残留正文：明确的 idle，不干等、不 404。
     if (record.state.pendingInvocation === undefined && channel.text.length === 0) {
       send({ type: "idle" });
       finish();

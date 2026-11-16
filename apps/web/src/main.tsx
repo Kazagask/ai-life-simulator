@@ -13,6 +13,7 @@ import {
   loadableVersionOf,
   mergeEventFlavors,
   resolveEventNarrative,
+  streamNarrative,
   submitLlmCredentials,
 } from "./api";
 import type {
@@ -42,6 +43,28 @@ import { ActionDock } from "./ActionDock";
 import { NarrativeStage } from "./NarrativeStage";
 
 // ---------- 工具 ----------
+
+/**
+ * 从 SSE 原始草稿里**只取** `<narrative-content>` 内的文字。
+ *
+ * 用户裁决：标签外的流（思维链 / 工具调用报错）一律不渲染。未闭合时显示最后一个开标签
+ * 之后的内容（正在流），并剥掉可能半截的闭标签。
+ */
+function narrativeDraftText(raw: string): string {
+  const re = /<narrative-content>([\s\S]*?)<\/narrative-content>/g;
+  const blocks: string[] = [];
+  for (let match = re.exec(raw); match !== null; match = re.exec(raw)) {
+    const text = match[1]?.trim() ?? "";
+    if (text.length > 0) blocks.push(text);
+  }
+  if (blocks.length > 0) return blocks.join("\n\n");
+  const open = raw.lastIndexOf("<narrative-content>");
+  if (open < 0) return "";
+  return raw
+    .slice(open + "<narrative-content>".length)
+    .replace(/<\/?narrative-content>?$/, "")
+    .trim();
+}
 
 const UNIT_NAMES: Record<string, string> = {
   minute: "分钟",
@@ -216,6 +239,11 @@ function App() {
    */
   const [narrative, setNarrative] = useState<ContentBlockVM[]>([]);
   /**
+   * 流式草稿：SSE 增量里**只**显示 `<narrative-content>` 内的正文。
+   * 收尾（turn 响应 + 正式块拉回）后清空，避免与正式块双份。
+   */
+  const [narrativeDraft, setNarrativeDraft] = useState("");
+  /**
    * R2.7 / T-S2：归档响应里的人生总结来源（llm / template / fallback）。
    * 只在 `archiveWorld` 成功时写入，按 worldId 派生 —— 切到别的世界自动失效，无需额外重置。
    * 纯瞬态展示元数据：不写 localStorage、不进 records.ts 人生档案、不参与评分。
@@ -381,6 +409,28 @@ function App() {
       busyRef.current = true;
       setBusy(true);
       setError(null);
+
+      // 先开 SSE 再发 turn：服务端在锁内 await LLM，订阅必须与 turn 并发才能看到增量。
+      // 服务端路由会给「刚发出的 turn」留一个短暂的 pendingInvocation 等待窗口。
+      const wid = worldIdRef.current;
+      let rawDraft = "";
+      const streamAbort = wid ? new AbortController() : null;
+      const streamDone = wid
+        ? streamNarrative(
+            wid,
+            {
+              onDelta: (text) => {
+                rawDraft += text;
+                setNarrativeDraft(narrativeDraftText(rawDraft));
+              },
+              onDone: (info) => {
+                if (info.outcome === "fallback") setNarrativeDraft("");
+              },
+            },
+            streamAbort?.signal,
+          ).catch(() => undefined)
+        : Promise.resolve();
+
       try {
         const res = await fn();
         setSnapshot(res.snapshot);
@@ -391,7 +441,15 @@ function App() {
           wheel: res.wheelResult ?? null,
           eventFlavors: res.eventFlavors,
         });
+        // 对齐正式块：turn 响应在 LLM 收尾之后，通常流已 done；给 200ms 宽限后主动收掉，
+        // 再用 trace 读回替换草稿（正式块是唯一真相，草稿不留在屏上）。
+        await Promise.race([streamDone, new Promise((resolve) => setTimeout(resolve, 200))]);
+        streamAbort?.abort();
+        if (wid) setNarrative(await fetchNarrative(wid));
+        setNarrativeDraft("");
       } catch (e) {
+        streamAbort?.abort();
+        setNarrativeDraft("");
         const status = (e as Error & { status?: number }).status;
         if (status === 409) {
           // 409 = 交互顺序冲突（事件待决/战斗中）：服务器状态是权威，静默刷新而非报错
@@ -412,6 +470,7 @@ function App() {
           setError(translateError ? translateError(e) : e instanceof Error ? e.message : String(e));
         }
       } finally {
+        streamAbort?.abort();
         busyRef.current = false;
         setBusy(false);
       }
@@ -442,13 +501,12 @@ function App() {
   /**
    * 转盘「继续」= **确认**（ADR-0034 §8-⑩）。
    *
-   * 槽内是 `random` 时 `POST /turns` 的语义就是"确认已呈现的那一格"：不消耗行动、不推时间、
-   * 净 +1 轮。请求体里的 `action` 被引擎忽略（服务端 zod 只要求 `type` 非空字符串），
-   * 所以这里发一个**明确的确认标记**，而不是再借自由行动的动作 id —— 否则日志/抓包里
-   * 看起来像玩家做了一次「探索」。确认后的响应带 `wheelResult`，用它对账"这一格是什么"。
+   * 走显式路由 `POST /api/worlds/:id/wheels/confirm`（无请求体）：从路径即可看出语义，
+   * 不再依赖 `action.type` 魔法串。服务端只接受「槽内是 random」的确认，其余回 409。
+   * 确认后的响应带 `wheelResult`，用它对账"这一格是什么"。
    */
   const confirmWheel = useCallback(
-    () => (worldId ? wrap(() => api.advanceTurn(worldId, { type: "wheel-confirm", description: "" })) : undefined),
+    () => (worldId ? wrap(() => api.confirmWheel(worldId)) : undefined),
     [worldId, wrap],
   );
 
@@ -621,6 +679,7 @@ function App() {
             busy={busy}
             lastResult={lastResult}
             wheelsFresh={wheelsFresh}
+            draft={narrativeDraft}
             signedIn={session !== null}
             summarySource={summarySource}
             onAct={act}
@@ -1325,6 +1384,7 @@ function LifeTab({
   busy,
   lastResult,
   wheelsFresh,
+  draft,
   signedIn,
   summarySource,
   onAct,
@@ -1342,13 +1402,15 @@ function LifeTab({
   lastResult: LastResult | null;
   /** 槽内这枚转盘是刚掷出的（true，播动画）还是从存档恢复的（false，直接落定） */
   wheelsFresh: boolean;
+  /** SSE 草稿（只含 `<narrative-content>` 内的文字）；收尾后由正式块替换。 */
+  draft?: string;
   /** 已登录 WorkBuddy 账号：只影响结算页那行「存进人生档案」的提示 */
   signedIn: boolean;
   /** R2.7 / T-S2：归档响应的人生总结来源；缺省 / 非 llm 时展示与改前逐字一致 */
   summarySource?: NarrativeSource;
   /** 统一点击提交（行动栏按钮 / 叙事流选项块 / 自由输入共用一条路径）。 */
   onAct: ActHandler;
-  /** 转盘「继续」= 确认已呈现的那一格（ADR-0034 §8-⑩，走 `/turns`，不带行动语义） */
+  /** 转盘「继续」= 确认已呈现的那一格（ADR-0034 §8-⑩，走 `/wheels/confirm`，不带行动语义） */
   onConfirmWheel: () => void;
   onChoose: (optionId: string) => void;
   onBattle: (command: BattleCommand) => void;
@@ -1436,7 +1498,7 @@ function LifeTab({
           这里**没有点击面**：选项块由 `NarrativeStream` 过滤掉，统一的点击面是
           底部行动坞 + 事件区（引擎 optionId 选项 / AI 选项）。
         */}
-        <NarrativeStage view={view} busy={busy} />
+        <NarrativeStage view={view} busy={busy} draft={draft} />
 
         {ended && snapshot.ending && (
           <EndingPanel

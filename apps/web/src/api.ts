@@ -353,6 +353,13 @@ export const api = {
       body: JSON.stringify({ action, mode: "single", ...(endLife ? { endLife: true } : {}) }),
     });
   },
+  /**
+   * 显式「确认转盘」：无请求体。语义从路由即可看出，不再依赖 `action.type` 魔法串。
+   * 没有待确认的转盘时服务端回 409 `no_pending_wheel`。
+   */
+  confirmWheel(id: string) {
+    return request<TurnResponse>(`/api/worlds/${id}/wheels/confirm`, { method: "POST" });
+  },
   chooseOption(id: string, optionId: string) {
     return request<InteractionResponse>(`/api/worlds/${id}/events/choose`, {
       method: "POST",
@@ -476,6 +483,88 @@ export async function fetchNarrative(worldId: string, fromTurn = 0): Promise<Con
     blocks.push(block);
   }
   return blocks;
+}
+
+export interface NarrativeStreamDone {
+  outcome: "committed" | "fallback";
+  traceRef: string;
+  diagnostics: string[];
+}
+
+/**
+ * 订阅叙事实时增量（`POST /api/worlds/:id/narrative/stream`，SSE）。
+ *
+ * 只负责把 `delta` / `done` / `idle` 事件翻译成回调，不碰正式块；收尾后由调用方
+ * 用 `fetchNarrative` 拉正式块替换草稿。客户端断开（AbortSignal）按静默结束处理。
+ *
+ * 注意：服务端 `turn` 路由在锁内 `await` LLM，所以本函数应在发起 turn 的同时（而不是
+ * `await turn` 之后）调用；晚订阅仍能收到频道保留的整段正文（单帧 delta + done）。
+ */
+export async function streamNarrative(
+  worldId: string,
+  handlers: {
+    onDelta: (text: string) => void;
+    onDone: (done: NarrativeStreamDone) => void;
+    onIdle?: () => void;
+  },
+  signal?: AbortSignal,
+): Promise<void> {
+  const headers: Record<string, string> = {};
+  if (llmSessionId !== null) headers["x-life-sim-llm-session"] = llmSessionId;
+  const res = await fetch(`${BASE}/api/worlds/${worldId}/narrative/stream`, {
+    method: "POST",
+    headers,
+    ...(signal !== undefined ? { signal } : {}),
+  });
+  if (!res.ok || res.body === null) {
+    handlers.onIdle?.();
+    return;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      let sep = buffer.indexOf("\n\n");
+      while (sep >= 0) {
+        const frame = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        for (const line of frame.split("\n")) {
+          if (!line.startsWith("data:")) continue; // event: / id: / retry: / ": ping" 一律忽略
+          const data = line.slice("data:".length).trim();
+          if (data.length === 0 || data === "[DONE]") continue;
+          let event: unknown;
+          try {
+            event = JSON.parse(data) as unknown;
+          } catch {
+            continue;
+          }
+          if (!isRecord(event)) continue;
+          if (event.type === "delta" && typeof event.text === "string") {
+            handlers.onDelta(event.text);
+          } else if (event.type === "done") {
+            handlers.onDone({
+              outcome: event.outcome === "fallback" ? "fallback" : "committed",
+              traceRef: typeof event.traceRef === "string" ? event.traceRef : "",
+              diagnostics: Array.isArray(event.diagnostics)
+                ? event.diagnostics.filter((d): d is string => typeof d === "string")
+                : [],
+            });
+          } else if (event.type === "idle") {
+            handlers.onIdle?.();
+          }
+        }
+        sep = buffer.indexOf("\n\n");
+      }
+    }
+  } catch (error) {
+    if ((error as { name?: string } | null)?.name === "AbortError") return;
+    throw error;
+  }
 }
 
 export type { V2Snapshot, BattleCommand, WheelResultView, SlotEventView, EndingView };

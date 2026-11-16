@@ -36,7 +36,7 @@ export type ContentCall = z.infer<typeof ContentCallSchema>;
 export const ApiCallSchema = z.union([FactCallSchema, ContentCallSchema]);
 export type ApiCall = z.infer<typeof ApiCallSchema>;
 
-/** 诊断码封闭集合（13 码）；新增 / 删改必须改协议。 */
+/** 诊断码封闭集合（14 码）；新增 / 删改必须改协议。 */
 export const DIAGNOSTIC_CODES = [
   "unknown_tool",
   "invalid_arguments",
@@ -51,6 +51,8 @@ export const DIAGNOSTIC_CODES = [
   "provider_unavailable",
   "retry_exhausted",
   "duplicate_invocation",
+  /** provider 完成但 content 里没有 `<narrative-content>` 标签（正文回退模板文案）。 */
+  "narrative_tag_missing",
 ] as const;
 export const DiagnosticCodeSchema = z.enum(DIAGNOSTIC_CODES);
 export type DiagnosticCode = z.infer<typeof DiagnosticCodeSchema>;

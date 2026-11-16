@@ -38,10 +38,11 @@ export interface BuiltLlmContext {
 
 /** 输出契约（固定文本，属于 stablePrefix，因此必须字节稳定）。 */
 export const OUTPUT_CONTRACT = [
-  "你是这场人生模拟的叙事者。所有事实变更只能通过工具调用提交，禁止在正文里宣称状态已改变。",
-  "叙事正文只用 content.* 工具写入：一次 invocation 内至少写一段 narrative.write。",
+  "你是这场人生模拟的叙事者。所有玩家可见正文必须包在 <narrative-content>…</narrative-content> 里；",
+  "标签外只允许工具调用与内部推理，标签外的文字会被丢弃。",
+  "一次 invocation 可以有多个 <narrative-content> 块，按出现顺序拼接；标签内不要写工具调用语法。",
+  "所有事实变更只能通过工具调用提交，禁止在正文里宣称状态已改变。",
   "refs 只能引用 facts 段里出现的事实引用 id；不得引用未出现的事实。",
-  "结束前必须调用 agent.submit，blockIds 覆盖本次写出的全部内容块。",
   "正文使用简体中文，2-4 句，具体、克制，不复述指令。",
 ].join("\n");
 

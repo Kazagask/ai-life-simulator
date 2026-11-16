@@ -29,6 +29,7 @@ export function NarrativeStage({
   view,
   onAct,
   busy = false,
+  draft,
 }: {
   view: ViewModel;
   /** 已无实际用途（叙事区没有可点块）；保留只为不打断既有自定义前端的调用点。 */
@@ -40,6 +41,11 @@ export function NarrativeStage({
    * `projectWorld`，所以响应投影里的 `llmPending` 恒为缺省 —— 只有「请求在飞」能代表在写。
    */
   busy?: boolean;
+  /**
+   * SSE 草稿（只含 `<narrative-content>` 内的文字）。收尾后由正式 trace 块替换。
+   * 独立于 `view.content`：草稿不出现在 `ViewModel`，不参与任何投影 / 交互判定。
+   */
+  draft?: string;
 }) {
   const portraits = portraitsOf(view.media);
   const inlineCg = firstInlineCgBlock(view);
@@ -62,6 +68,15 @@ export function NarrativeStage({
           </div>
         )}
         <NarrativeStream content={view.content} media={view.media} onAct={onAct} disabled={busy} />
+        {draft !== undefined && draft.length > 0 && (
+          <p
+            className="narrative-draft"
+            aria-live="polite"
+            style={{ opacity: 0.72, whiteSpace: "pre-wrap", margin: "8px 0 0" }}
+          >
+            {draft}
+          </p>
+        )}
       </div>
     </section>
   );

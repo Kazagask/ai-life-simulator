@@ -41,7 +41,7 @@ import { createContentSink, type ContentSink } from "../v2/narrative.js";
  *
  * 设计要点：
  * - 工具注册表 **数据化**（Map 查表），引擎不 switch on 工具名；新增工具只需注册。
- * - 13 个 `DiagnosticCode` 全可判别（DIAGNOSTIC_META 覆盖），RETRYABLE 带 `factsHint` 回灌。
+ * - 14 个 `DiagnosticCode` 全可判别（DIAGNOSTIC_META 覆盖），RETRYABLE 带 `factsHint` 回灌。
  * - 幂等：`idempotencyKey` 重复 ⇒ `idempotency_conflict`（FATAL）。
  * - `CallReceipt` 带 `changes` / `factsHint`。
  * - `state.slot` 的唯一写入收敛到本文件的 `assignSlot`（见 turn.ts 收敛）。
@@ -50,7 +50,7 @@ import { createContentSink, type ContentSink } from "../v2/narrative.js";
  * - F4：窗口计算（buildFacts）由 game-core 拥有，agent-runtime 不得自建判据。
  */
 
-/** 13 码全覆盖：每个诊断码的 RETRYABLE / FATAL 分类（v2 §5.2 / §5.3）。 */
+/** 14 码全覆盖：每个诊断码的 RETRYABLE / FATAL 分类（v2 §5.2 / §5.3）。 */
 export const DIAGNOSTIC_META: Record<DiagnosticCode, { retryable: boolean }> = {
   unknown_tool: { retryable: false },
   invalid_arguments: { retryable: false },
@@ -65,6 +65,7 @@ export const DIAGNOSTIC_META: Record<DiagnosticCode, { retryable: boolean }> = {
   provider_unavailable: { retryable: true },
   retry_exhausted: { retryable: true },
   duplicate_invocation: { retryable: false },
+  narrative_tag_missing: { retryable: false },
 };
 
 export function isRetryable(code: DiagnosticCode): boolean {
@@ -753,7 +754,7 @@ export function assignTriggerFireLedger(
   state.triggerFireLedger = ledger;
 }
 
-/** 诊断码封闭集合（转出，便于源码守卫 / 测试断言 13 码）。 */
+/** 诊断码封闭集合（转出，便于源码守卫 / 测试断言 14 码）。 */
 export const ENGINE_DIAGNOSTIC_CODES = DIAGNOSTIC_CODES;
 
 /**

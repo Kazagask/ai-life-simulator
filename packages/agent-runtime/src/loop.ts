@@ -6,6 +6,7 @@ import {
   LlmTraceSchema,
   type ApiCall,
   type CallReceipt,
+  type ContentBlock,
   type DiagnosticCode,
   type DispatchContext,
   type EngineApiHandle,
@@ -126,7 +127,7 @@ function buildInitialMessages(inv: LlmInvocation): AgentMessage[] {
   ];
 }
 
-/** provider 异常 → 13 码之一（超时 / 不可用 / 参数）。 */
+/** provider 异常 → 14 码之一（超时 / 不可用 / 参数）。 */
 function classifyProviderError(err: unknown): DiagnosticCode {
   if (err instanceof AgentProviderError) return err.code;
   const name = (err as { name?: unknown } | null)?.name;
@@ -145,6 +146,38 @@ function hashCalls(calls: readonly ApiCall[]): string {
 
 function dedupeCodes(codes: readonly DiagnosticCode[]): DiagnosticCode[] {
   return [...new Set(codes)];
+}
+
+/**
+ * 从模型 content 中提取 `<narrative-content>` 块。
+ *
+ * 边界行为（写死在这里，免得上层各自解释）：
+ * - **多块**：按出现顺序保留，非空块用 `\n\n` 拼接；
+ * - **嵌套**：非贪婪匹配，内层开标签会被当成外层正文的一部分（模板不承诺嵌套语义）；
+ * - **未闭合**：不匹配，整段算标签外内容（⇒ 无块，走 `narrative_tag_missing`）；
+ * - **标签外内容**：一律丢弃，只统计非空白字符数用于诊断。
+ */
+function extractNarrativeContent(raw: string): {
+  text?: string;
+  blockCount: number;
+  outsideChars: number;
+} {
+  const re = /<narrative-content>([\s\S]*?)<\/narrative-content>/g;
+  const blocks: string[] = [];
+  let lastIndex = 0;
+  let outsideChars = 0;
+  for (let match = re.exec(raw); match !== null; match = re.exec(raw)) {
+    outsideChars += raw.slice(lastIndex, match.index).replace(/\s+/g, "").length;
+    const inner = match[1]?.trim() ?? "";
+    if (inner.length > 0) blocks.push(inner);
+    lastIndex = match.index + match[0].length;
+  }
+  outsideChars += raw.slice(lastIndex).replace(/\s+/g, "").length;
+  return {
+    ...(blocks.length > 0 ? { text: blocks.join("\n\n") } : {}),
+    blockCount: blocks.length,
+    outsideChars,
+  };
 }
 
 export async function runAgentLoop(
@@ -201,6 +234,8 @@ export async function runAgentLoop(
   let wroteSomething = false;
   /** 本轮是否发生过只读查询（只读也算"模型真的在推进"，用于终止判定）。 */
   let readSomething = false;
+  /** 跨轮累积的完整 content（正文只从 `<narrative-content>` 标签提取）。 */
+  let accumulatedContent = "";
   /** 模型/脚本是否已显式发过 `agent.submit`（发过就不再补内部提交，避免多一条回执）。 */
   let submittedByModel = false;
 
@@ -239,6 +274,10 @@ export async function runAgentLoop(
 
     inputTokens += completion.inputTokens;
     outputTokens += completion.outputTokens;
+    // 全量 content 必须留下来：`onDelta` 只是展示通道，收尾的正文块要从这里提取。
+    if (completion.text !== undefined && completion.text.length > 0) {
+      accumulatedContent += `${completion.text}\n`;
+    }
     // `maxInputTokens` 是**单轮**上限、`maxTotalTokens` 才是累计口径
     // （REFACTOR-DESIGN §终止条件 4：「累计 token > maxTotalTokens 或单轮输入 > maxInputTokens」）。
     // 原来把累计值比到单轮上限：提示词每轮重发一遍，3 轮就必然超过 8000，
@@ -262,10 +301,14 @@ export async function runAgentLoop(
        *
        * 判定：本轮只要有过被接受的写入，就算 committed；什么都没写才算失败。
        */
+      const taggedNow = extractNarrativeContent(accumulatedContent);
       end =
-        wroteSomething || readSomething
+        wroteSomething || readSomething || taggedNow.blockCount > 0
           ? { reason: "completed" }
-          : { reason: "no_tool_calls", detail: "provider 只返回文本、未发起工具调用，且本轮没有任何成功的写入" };
+          : {
+              reason: "no_tool_calls",
+              detail: "provider 只返回文本、未发起工具调用，且本轮没有任何成功的写入或叙事块",
+            };
       break;
     }
 
@@ -392,6 +435,7 @@ export async function runAgentLoop(
 
     messages.push({
       role: "assistant",
+      ...(completion.text !== undefined ? { content: completion.text } : {}),
       toolCalls: valid.map((call) => ({
         id: call.id,
         name: call.name,
@@ -485,6 +529,35 @@ export async function runAgentLoop(
 
   const outcome: "committed" | "fallback" =
     end.reason === "completed" || end.reason === "submitted" ? "committed" : "fallback";
+
+  /**
+   * 正文只认 `<narrative-content>` 标签：
+   * - 有块 ⇒ 合成**一个** narrative ContentBlock 进 sink（trace 落盘，读侧按既有窗口投影）；
+   * - 无块且本次没有别的 narrative 块 ⇒ 记 `narrative_tag_missing`，**不**把标签外文本当正文
+   *   （思维链 / 工具报错绝不透给玩家）；玩家侧回退模板事件文案。
+   * - fallback 收尾不落块：前端会清掉草稿，避免半截正文。
+   */
+  const narrative = extractNarrativeContent(accumulatedContent);
+  if (outcome === "committed") {
+    const hasNarrativeBlock = sink.list().some((block) => block.kind === "narrative");
+    if (narrative.text !== undefined) {
+      const block: ContentBlock = {
+        blockId: `${inv.invocationId}:narrative`,
+        kind: "narrative",
+        text: narrative.text,
+        refs: [],
+        visibility: "public",
+        targetPerspective: "player",
+      };
+      sink.append(block);
+    } else if (!hasNarrativeBlock) {
+      record("narrative_tag_missing");
+      if (process.env.LIFE_SIM_DEBUG_LLM === "1") {
+        console.warn("[narrative-tag-missing]", { outsideChars: narrative.outsideChars });
+      }
+    }
+  }
+
   const latencyMs = Math.max(0, now() - startedAt);
   const base = buildContentTrace(sink, {
     invocationId: inv.invocationId,

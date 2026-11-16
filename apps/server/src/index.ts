@@ -709,9 +709,57 @@ async function runWorldTransaction(
 }
 
 /**
+ * 显式「确认转盘」入口（可发现性）：**无请求体**。
+ *
+ * 槽内事件是 `kind === "random"` 时，快照的 `slotEvent.options` **缺省 / 为空** ——
+ * 这不是死锁，而是等待玩家确认已掷出的那一格（扇区见 `slotEvent.wheel`）。
+ * 本路由不消耗行动、不推时间，只结算已呈现的扇区，并返回 `wheelResult`。
+ *
+ * 兼容：`POST /api/worlds/:id/turns` 在槽为 random 时仍等价（旧客户端），
+ * 但新客户端 / 脚本应使用本路由 —— 从路径就能看出语义，不必反查 `action` 魔法串。
+ */
+app.post("/api/worlds/:id/wheels/confirm", async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const found = getWorld(id);
+  if (!found) return reply.code(404).send({ error: "world_not_found" });
+  const slot = found.world.slot;
+  const pending = slot === null ? undefined : found.entry.lookup.event(slot.eventId);
+  if (slot === null || pending?.kind !== "random") {
+    // 没有待确认的转盘：明确 409，而不是把它当成一次自由行动（action 会被引擎当未知动作）。
+    return reply.code(409).send({ error: "no_pending_wheel" });
+  }
+
+  try {
+    const tx = await runWorldTransaction(request, id, (world, entry, pipeline) =>
+      advanceTurnV2(
+        world,
+        { action: { type: "wheel-confirm", description: "" }, mode: "single" },
+        entry.template,
+        entry.lookup.withGenerated(world.generatedEvents),
+        undefined,
+        pipeline,
+      ),
+    );
+    if (!tx.ok) return reply.code(404).send({ error: "world_not_found" });
+    return {
+      worldId: id,
+      turnIndex: tx.turnIndex,
+      elapsed: tx.elapsed,
+      snapshot: tx.snapshot,
+      triggeredEvents: tx.triggeredEvents,
+      wheelResult: tx.wheelResult,
+      eventFlavors: tx.eventFlavors,
+    };
+  } catch (error) {
+    return handleEngineError(request, reply, error);
+  }
+});
+
+/**
  * 推进轮次（自由行动）。
  * 拒绝条件（ADR-0034 §5）：`slot` 被占（`pending_event_required`）或战斗进行中（`battle_in_progress`）。
  * **例外**：槽内是 `random` 时本接口即「转盘确认」——请求体里的 `action` 被忽略（不校验、不报错）。
+ * 新客户端请改用上方的显式路由 `POST /api/worlds/:id/wheels/confirm`。
  */
 app.post("/api/worlds/:id/turns", async (request, reply) => {
   const { id } = request.params as { id: string };
