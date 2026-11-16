@@ -135,8 +135,14 @@ describe("T-04 七种终止条件", () => {
   });
 });
 
-describe("T-04 第 1 层校验是 FATAL（不消耗重试）", () => {
-  it("未知工具 ⇒ unknown_tool 立即终止，且不再调用 provider", async () => {
+describe("T-04 第 1 层校验失败 ⇒ 回灌模型重试（不再是 FATAL）", () => {
+  /**
+   * 契约变更（2026-11-16，真实模型实测）：第 1 层（工具名 / 参数 schema）失败原本直接
+   * 判死整轮，理由是"不消耗重试额度"。但 glm-5.3 实测第一次发 `content.writeNarrative`
+   * 时 arguments 是 `{}` —— 这是**可修的一次格式错误**，判死的结果是玩家一个字都看不到。
+   * 现在改为：把错误码 + 明细（未知工具还附可用清单）回灌给模型，受 `retryLimit` 约束。
+   */
+  it("未知工具 ⇒ 回灌可用工具清单并重试，模型改对后照常提交", async () => {
     const engine = new StubEngine(acceptAll);
     const provider = new ScriptedProvider([
       completion([toolCall("content.hackState", {})]),
@@ -147,12 +153,16 @@ describe("T-04 第 1 层校验是 FATAL（不消耗重试）", () => {
       engineApi: engine,
     });
 
-    expect(provider.callCount).toBe(1);
-    expect(outcome.outcome === "fallback" ? outcome.code : undefined).toBe("unknown_tool");
+    // 关键：没有再"立即终止"——provider 被第二次调用，且最终 committed。
+    expect(provider.callCount).toBe(2);
+    expect(outcome.outcome).toBe("committed");
     expect(trace.receipts[0]).toMatchObject({ outcome: "rejected", code: "unknown_tool" });
+    // 清单回灌确实发给了模型（否则它没有理由改对）。
+    const hint = provider.requests[1]?.messages.at(-1);
+    expect(JSON.stringify(hint ?? {})).toContain("content.submit");
   });
 
-  it("参数不合 schema ⇒ invalid_arguments 立即终止", async () => {
+  it("参数不合 schema ⇒ 回灌错误并重试；模型一直不改 ⇒ retry_exhausted", async () => {
     const engine = new StubEngine(acceptAll);
     const provider = new ScriptedProvider([
       completion([toolCall("content.writeNarrative", { blockId: "b1" })]),
@@ -162,9 +172,10 @@ describe("T-04 第 1 层校验是 FATAL（不消耗重试）", () => {
       engineApi: engine,
     });
 
-    expect(outcome.outcome === "fallback" ? outcome.code : undefined).toBe("invalid_arguments");
+    expect(outcome.outcome === "fallback" ? outcome.code : undefined).toBe("retry_exhausted");
     expect(trace.receipts[0]).toMatchObject({ outcome: "rejected", code: "invalid_arguments" });
-    expect(provider.callCount).toBe(1);
+    // 每次重试都真的又问了模型一次（不是原地空转）。
+    expect(provider.callCount).toBeGreaterThan(1);
   });
 
   it("引擎层面不可重试拒绝（idempotency_conflict）也终止，不空转", async () => {

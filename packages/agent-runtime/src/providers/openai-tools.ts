@@ -87,7 +87,10 @@ function toOpenAiMessages(messages: readonly AgentMessage[]): unknown[] {
         tool_calls: message.toolCalls!.map((call) => ({
           id: call.id,
           type: "function",
-          function: { name: call.name, arguments: JSON.stringify(call.arguments) },
+          // 与 `toOpenAiTools` 同一张映射：回放的 assistant 历史里也必须用出网名，
+          // 否则网关会看到「历史里叫 content.writeNarrative、工具表里叫
+          // content_writeNarrative」两套名字，重试轮直接 400。
+          function: { name: toWireName(call.name), arguments: JSON.stringify(call.arguments) },
         })),
       };
     }
@@ -102,11 +105,33 @@ function toOpenAiMessages(messages: readonly AgentMessage[]): unknown[] {
   });
 }
 
+/**
+ * 工具名出网映射：OpenAI 规范（以及绝大多数兼容网关）要求 function name 只含
+ * `[a-zA-Z0-9_-]`、最长 64，**不允许点号**。我们内部用点号分层（`content.writeNarrative`
+ * / `fact.enqueueEvent`），这是可读性与分组的好处，但在线上一律转成下划线：
+ * `content_writeNarrative`。
+ *
+ * 只在**这一层边界**转换：内部（模板画像、注册表、trace、测试）仍用点号，模型看到的
+ * 是下划线，收回来时按同一张表转回。不转的话实测会被网关直接 400：
+ * `tool name "content.writeNarrative" is invalid (allowed: letters, digits, "_" and "-")`
+ * —— 这条以前被 mock 掩盖了（mock 不校验名字）。
+ */
+function toWireName(name: string): string {
+  return name.replace(/\./g, "_");
+}
+
+/** 本次请求的 出网名 → 内部名 反查表（由 tools 列表唯一确定，不依赖全局约定）。 */
+function wireNameMap(tools: readonly ToolDescriptor[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const tool of tools) map.set(toWireName(tool.name), tool.name);
+  return map;
+}
+
 function toOpenAiTools(tools: readonly ToolDescriptor[]): unknown[] {
   return tools.map((tool) => ({
     type: "function",
     function: {
-      name: tool.name,
+      name: toWireName(tool.name),
       description: tool.description ?? "",
       parameters: tool.parameters ?? { type: "object", properties: {} },
     },
@@ -127,10 +152,12 @@ function buildCompletion(input: {
   req: AgentChatRequest;
 }): AgentCompletion {
   const toolCalls: ToolCallRequest[] = input.rawCalls.map((raw, index) => {
-    const name = raw.function?.name;
-    if (typeof name !== "string" || name.length === 0) {
+    const wireName = raw.function?.name;
+    if (typeof wireName !== "string" || wireName.length === 0) {
       throw new AgentProviderError("invalid_arguments", "tool_call 缺少 function.name");
     }
+    // 出网名 → 内部名（点号形式）。未知名字原样保留，交给第 1 层校验报 unknown_tool。
+    const name = wireNameMap(input.req.tools).get(wireName) ?? wireName;
     const rawArgs = raw.function?.arguments;
     let parsedArgs: unknown;
     if (typeof rawArgs === "string") {
@@ -209,6 +236,10 @@ export class OpenAiCompatibleProvider implements AgentProvider {
     };
 
     let response: Response;
+    if (process.env.LIFE_SIM_DEBUG_LLM === "1") {
+      // 诊断：把实际出网请求（脱敏后）打到 stderr，定位"模型为什么发空参数"这类问题。
+      console.error("[llm-req]", this.redact(JSON.stringify(body)).slice(0, 2500));
+    }
     try {
       // 外部取消信号（客户端断开）与单次调用超时**取并集**：传 signal 不等于放弃时限。
       const timeoutSignal = AbortSignal.timeout(timeoutMs);

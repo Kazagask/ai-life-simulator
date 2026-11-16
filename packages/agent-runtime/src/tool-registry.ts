@@ -148,14 +148,10 @@ const CONTENT_DESCRIPTORS: Record<string, ToolDescriptor> = {
   "content.writeNarrative": {
     name: "content.writeNarrative",
     description: "写入一段叙事正文（只进 trace，不进权威状态）。",
+    // 只要求 text：blockId / refs / targetPerspective 由运行时补齐（toApiCall）。
     parameters: schemaOf(
-      {
-        blockId: { type: "string", minLength: 1 },
-        text: { type: "string", minLength: 1, description: "叙事正文（中文）" },
-        refs: contentRefsSchema,
-        targetPerspective: { type: "string", description: "player | world | npc:<id>" },
-      },
-      ["blockId", "text", "refs", "targetPerspective"],
+      { text: { type: "string", minLength: 1, description: "叙事正文（中文）" } },
+      ["text"],
     ),
   },
   "content.writeMemory": {
@@ -163,12 +159,10 @@ const CONTENT_DESCRIPTORS: Record<string, ToolDescriptor> = {
     description: "写入某个观察者的记忆片段。",
     parameters: schemaOf(
       {
-        blockId: { type: "string", minLength: 1 },
         text: { type: "string", minLength: 1 },
-        refs: contentRefsSchema,
-        observer: { type: "string", description: "player | npc:<id>" },
+        observer: { type: "string", description: "player | npc:<id>；缺省按本轮视角" },
       },
-      ["blockId", "text", "refs", "observer"],
+      ["text"],
     ),
   },
   "content.writeOption": {
@@ -178,25 +172,16 @@ const CONTENT_DESCRIPTORS: Record<string, ToolDescriptor> = {
       "在决策点（章节 / 场景 / 任务推进）应给出 2-3 个选项，顺序排在叙事之后；" +
       "text 必须是第二人称、动词开头的具体动作（例：「撬开后门的电子锁」），不要写成对选项的描述。",
     parameters: schemaOf(
-      {
-        blockId: { type: "string", minLength: 1 },
-        text: { type: "string", minLength: 1 },
-        optionId: { type: "string", minLength: 1 },
-        refs: contentRefsSchema,
-      },
-      ["blockId", "text", "optionId", "refs"],
+      { text: { type: "string", minLength: 1, description: "选项文案：第二人称、动词开头" } },
+      ["text"],
     ),
   },
   "content.writeFlavor": {
     name: "content.writeFlavor",
     description: "写入风味文本（环境描写）。",
     parameters: schemaOf(
-      {
-        blockId: { type: "string", minLength: 1 },
-        text: { type: "string", minLength: 1 },
-        refs: contentRefsSchema,
-      },
-      ["blockId", "text", "refs"],
+      { text: { type: "string", minLength: 1, description: "环境描写" } },
+      ["text"],
     ),
   },
   "content.referenceAsset": {
@@ -204,12 +189,10 @@ const CONTENT_DESCRIPTORS: Record<string, ToolDescriptor> = {
     description: "把已有媒体资源挂到叙事的一个槽位上。",
     parameters: schemaOf(
       {
-        blockId: { type: "string", minLength: 1 },
         assetId: { type: "string", minLength: 1 },
-        slot: { type: "string", minLength: 1 },
-        refs: contentRefsSchema,
+        slot: { type: "string", minLength: 1, description: "可选：挂到哪个槽位" },
       },
-      ["blockId", "assetId", "refs"],
+      ["assetId"],
     ),
   },
   "content.submit": {
@@ -398,13 +381,33 @@ export function validateToolCall(
   if (!isRecord(call.arguments)) {
     return { ok: false, code: "invalid_arguments", detail: `${call.name} 的 arguments 不是对象` };
   }
-  const contentSchema = CONTENT_SCHEMA_BY_TOOL[call.name];
-  if (contentSchema !== undefined) {
-    const parsed = contentSchema.safeParse(call.arguments);
-    if (!parsed.success) {
-      return { ok: false, code: "invalid_arguments", detail: `${call.name} 参数未通过 schema` };
+  /**
+   * 第 1 层只校验**模型真正能决定的那部分**：正文/资源引用。
+   *
+   * `blockId` / `refs` / `targetPerspective` 是运行时簿记（调用身份、引用集、视角），
+   * 由 `toApiCall` 补齐，不该要求模型生成 —— 实测 glm-5.3 在这三个字段上反复失败：
+   * 一次给空对象，一次给 `body`，一次给 `narrative`，还有一次给了跨轮重复的 `blockId`。
+   * 让模型猜簿记字段，只会把"可修的格式错误"变成整轮作废。
+   *
+   * 完整校验仍然发生：`toApiCall` 归一化之后，引擎侧 handler 用同一套 strict schema 解析。
+   */
+  if (CONTENT_SCHEMA_BY_TOOL[call.name] !== undefined) {
+    const args = call.arguments;
+    if (call.name === "content.referenceAsset") {
+      if (typeof args.assetId !== "string" || args.assetId.length === 0) {
+        return { ok: false, code: "invalid_arguments", detail: "content.referenceAsset 需要 assetId" };
+      }
+      return { ok: true, args };
     }
-    return { ok: true, args: call.arguments };
+    if (call.name === "content.submit") return { ok: true, args };
+    if (typeof args.text !== "string" || args.text.trim().length === 0) {
+      return {
+        ok: false,
+        code: "invalid_arguments",
+        detail: `${call.name} 需要 text（非空字符串，正文内容）`,
+      };
+    }
+    return { ok: true, args };
   }
   if (call.name === "fact.setKnowledge") {
     const batch = isRecord(call.arguments) && Array.isArray(call.arguments.entries)
@@ -523,8 +526,17 @@ export function toApiCall(
     : [];
   const declaredTarget = asPerspective(args.targetPerspective);
   const observerTarget = tool === "content.writeMemory" ? asPerspective(args.observer) : undefined;
+  /**
+   * `blockId` 由运行时补齐，**不要求模型生成**。
+   *
+   * 真实模型实测（glm-5.3）：它要么不给 blockId，要么给一个跨轮重复的 `"b1"` —— 前者过不了
+   * 必填校验，后者会让两块正文撞同一个 id（前端 key 冲突）。而 blockId 本来就是
+   * 「这次调用的身份」，运行时手里有唯一确定的 `callId`，没有任何理由让模型去编。
+   */
+  const blockId =
+    typeof args.blockId === "string" && args.blockId.length > 0 ? args.blockId : ctx.callId;
   const block: Record<string, unknown> = {
-    blockId: args.blockId,
+    blockId,
     kind,
     refs,
     visibility: "public",

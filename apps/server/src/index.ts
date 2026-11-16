@@ -372,8 +372,12 @@ async function decorateSnapshot(
   return decorateEndingView(snapshot, outcome);
 }
 
-/** 事件 flavor 后台生成超时（小值）：绝不阻塞当轮结算。 */
-const FLAVOR_TIMEOUT_MS = 3000;
+/**
+ * 事件 flavor 后台生成超时。**绝不阻塞当轮结算**（fire-and-forget），所以放宽到 15s：
+ * 3s 对真实模型（尤其推理型 / 走本地网关的）几乎必然超时，而 flavor 只是装饰，
+ * 超时后静默回退模板文案——代价只是"少一句润色"，不是错误。放宽只是让它有机会成功。
+ */
+const FLAVOR_TIMEOUT_MS = 15000;
 
 /**
  * 事件结算 `worldStore.save(...)` 之后调用：**fire-and-forget**，绝不 await LLM。

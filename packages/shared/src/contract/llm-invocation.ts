@@ -70,6 +70,17 @@ export const LlmInvocationSchema = z
     reason: z.string().min(1),
     context: LlmContextSchema,
     tools: z.array(ToolDescriptorSchema),
+    /**
+     * 能力画像名（模板 `invoke.toolProfile`）。
+     *
+     * 为什么必须随 invocation 传下来：`tools` 的**参数 schema 只有 agent-runtime 知道**
+     * （`buildToolDescriptors` 在那边），core 只会给出工具名。曾经 core 用
+     * `rules.toolProfile[name].map(name => ({ name }))` 造了一个「只有名字、没有 parameters」
+     * 的工具表，agent-runtime 又因为 `inv.tools.length > 0` 而跳过自己的描述符构建 ⇒
+     * 模型收到 6 个 `parameters: {}` 的工具，只能瞎猜参数（实测 glm-5.3 直接发空对象，
+     * 整轮 invocation 作废）。画像名是唯一能让 runtime 重建正确描述符的凭据。
+     */
+    toolProfile: z.string().min(1).optional(),
     budget: LlmBudgetSchema.default({}),
     replyTo: z.literal("dispatch"),
     perspective: PerspectiveSchema,

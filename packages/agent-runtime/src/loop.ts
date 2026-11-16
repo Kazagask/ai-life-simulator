@@ -255,9 +255,54 @@ export async function runAgentLoop(
       valid.push(call);
     }
     if (fatal !== null) {
+      // 诊断开关：真实模型接错参数时，trace 里只有错误码，看不到"它到底发了什么"。
+      // 设 LIFE_SIM_DEBUG_LLM=1 才输出，默认静默（不影响生产日志）。
+      if (process.env.LIFE_SIM_DEBUG_LLM === "1") {
+        console.error(
+          "[llm-fatal]",
+          fatal.call.name,
+          JSON.stringify(fatal.call.arguments).slice(0, 800),
+          "|",
+          fatal.detail,
+        );
+      }
       record(fatal.code);
-      end = { reason: "rejected_fatal", code: fatal.code, detail: fatal.detail };
-      break;
+      /**
+       * 第 1 层失败**回灌给模型自己修**，不再直接判死。
+       *
+       * 理由（真实模型实测）：`glm-5.3` 第一次发 `content.writeNarrative` 时 arguments 是
+       * `{}`（空对象）——这不是"模型不会用工具"，而是**可修的一次格式错误**。原实现把它
+       * 当 FATAL，结果是整轮 invocation 作废、玩家一个字都看不到；而模型只要看到
+       * "缺 text" 就能立刻补上。
+       *
+       * 边界：仍然受 `retryLimit` 约束（不额外消耗引擎 dispatch），且 `unknown_tool`
+       * （模型编了个不存在的工具）也走这条路——把可用工具清单回灌比直接终止更有用。
+       */
+      messages.push({
+        role: "assistant",
+        toolCalls: [{ id: fatal.call.id, name: fatal.call.name, arguments: fatal.call.arguments }],
+      });
+      messages.push({
+        role: "tool",
+        toolCallId: fatal.call.id,
+        name: fatal.call.name,
+        content: JSON.stringify({
+          outcome: "rejected",
+          code: fatal.code,
+          detail: fatal.detail,
+          hint:
+            fatal.code === "unknown_tool"
+              ? `可用工具只有：${[...allowed].join(", ")}`
+              : "参数未通过校验，请按工具 schema 补齐必填字段后重新调用。",
+        }),
+      });
+      if (retries >= budget.retryLimit) {
+        record("retry_exhausted");
+        end = { reason: "retry_exhausted", code: "retry_exhausted", detail: "重试额度耗尽" };
+        break;
+      }
+      retries += 1;
+      continue;
     }
 
     // ---------- 回程：一律 engineApi.dispatch ----------

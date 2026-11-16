@@ -248,6 +248,9 @@ function buildTriggerInvocation(
   index: number,
   opts: TriggerOptions,
 ): LlmInvocation {
+  // 只传工具**名**：参数 schema 归 agent-runtime（`buildToolDescriptors`）。
+  // 曾在 core 侧造过 `{ name }` 这种"空 schema"的工具表，导致模型收到 `parameters: {}`
+  // 只能瞎猜参数（真实模型实测直接发空对象 ⇒ 整轮作废）。
   const tools = (rules.toolProfile[trigger.invoke.toolProfile] ?? []).map((name) => ({ name }));
   const perspective = opts.perspective ?? trigger.invoke.perspective;
   const targetPerspective = opts.targetPerspective ?? trigger.invoke.targetPerspective;
@@ -271,6 +274,8 @@ function buildTriggerInvocation(
         : {}),
     },
     tools,
+    // 画像名必须随 invocation 下传，runtime 才能重建**带参数 schema** 的工具表。
+    toolProfile: trigger.invoke.toolProfile,
     budget: opts.budget ?? DEFAULT_LLM_BUDGET,
     replyTo: "dispatch",
     perspective,

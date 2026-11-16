@@ -70,17 +70,24 @@ export class AgentGateway implements LlmGateway {
 
     try {
       const budget = LlmBudgetSchema.parse(this.deps.budget ?? inv.budget);
-      const tools =
-        inv.tools.length > 0
-          ? inv.tools
-          : buildToolDescriptors(this.deps.rules, this.deps.toolProfile);
+      const profile = this.deps.toolProfile ?? inv.toolProfile;
+      /**
+       * 工具表必须由**本包**用画像重建，不能信 `inv.tools`。
+       *
+       * core 只给工具名（`{ name }`，没有 parameters）；描述符里的参数 schema 只有
+       * `buildToolDescriptors` 知道。曾经的写法是 `inv.tools.length > 0 ? inv.tools : ...`，
+       * 而 core 永远会填 `inv.tools` ⇒ 描述符分支永远走不到 ⇒ 模型收到一堆
+       * `parameters: {}` 的工具，只能瞎猜参数（实测 glm-5.3 发空对象、整轮作废）。
+       */
+      const described = buildToolDescriptors(this.deps.rules, profile);
+      const tools = described.length > 0 ? described : inv.tools;
 
       const { context, contextHash } = buildLlmContext(
         { ...inv, tools, budget },
         {
           engineApi: this.deps.engineApi,
           ...(this.deps.rules !== undefined ? { rules: this.deps.rules } : {}),
-          ...(this.deps.toolProfile !== undefined ? { toolProfile: this.deps.toolProfile } : {}),
+          ...(profile !== undefined ? { toolProfile: profile } : {}),
           ...(this.deps.worldSkeleton !== undefined
             ? { worldSkeleton: this.deps.worldSkeleton }
             : this.deps.templateRef !== undefined
@@ -97,7 +104,7 @@ export class AgentGateway implements LlmGateway {
         engineApi: this.deps.engineApi,
         budget,
         ...(this.deps.templateRef !== undefined ? { templateRef: this.deps.templateRef } : {}),
-        ...(this.deps.toolProfile !== undefined ? { toolProfile: this.deps.toolProfile } : {}),
+        ...(profile !== undefined ? { toolProfile: profile } : {}),
         contextHash,
         ...(this.deps.onDelta !== undefined ? { onDelta: this.deps.onDelta } : {}),
         ...(this.deps.signal !== undefined ? { signal: this.deps.signal } : {}),
