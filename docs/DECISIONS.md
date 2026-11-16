@@ -4164,3 +4164,24 @@ D1/D2 落地后，若 n1 的 `completion` 仍是 `[always]`，它在**第一轮*
 **事实纠正**：`n3.hiddenSeed.guards` 是 `[{ op: "nodeCompleted", args: { nodeId: "n2.trial" } }]`（`rules.yaml:75`），不是 `n1.awaken`。改成 `n1.awaken` 会让「未公开的线索」在试炼之前 ready，n3 的存在意义消失。
 
 **连锁效果（比"修 bug"更有价值）**：`chapter.advance` 挂在 `nodeCompleted n1.awaken` 上，而 n1 只完成一次 ⇒ 触发条件从**粘性**变**一次性边沿**。B-41（`missedEvents` 无界增长）与 B-43（`delayQueue` 残留 opening 实例）里「靠 `missWhen` / 触发器条件兜频率」那部分，由此从**内容层补丁**升级为**结构层收敛**：ADR-0036 的边沿语义 + 节点一次性完成，两层叠起来才叫"不重复"；单靠 `missWhen` 是事后擦屁股。
+
+### 15. 同轮迭代到不动点（取代 D8「一轮一格」的措辞）
+
+**D8 只保留了「DAG 推进 → 知识授予 → 触发器求值」的三段顺序，其"节点一轮最多走一格"的措辞作废。** 单趟两段（用入口快照先算 guards，再算 completion）会造成两个后果，而它们在 `always` 判据下都观察不到：
+
+| 后果 | 在 `always` 下 | 在 `eventResolved` 下 |
+|---|---|---|
+| **解锁晚一拍**（本趟刚 completed 的节点不能当趟解锁下游） | 下一轮补上，无感 | — |
+| **完成晚一拍**（本趟刚 ready 的节点不参与本趟 completion 求值） | 下一轮补上，无感 | **永久错过**：`evt:trial` 恰在 n2 刚 ready 的那一轮结算，`resolvedEventIds` 只含本轮、`missWhen` 又让它无法重结算 ⇒ n2 永卡 `ready` |
+
+⇒ **要求：同一个 turn boundary 内，在「同一份冻结快照」上循环「guards → completion」直到不再产生新迁移。** 落地口径（`727ce63`）：
+
+- **冻结的是 `resolvedEventIds`，不是节点状态。** 这一点最容易理解错：把"冻结"当成"节点状态不级联"，恰好制造上面那个永久错过。每轮按已产生的迁移重投影一个只读视图给 `nodeCompleted` 看，`state` 全程不写，写入仍只在 `turn.ts` 按返回的 `transitions` 落账（`wave1b` 的源码守卫继续成立）。
+- **迭代上限 `2 × nodes.length + 1`**：状态秩严格单调（`draft` 0 → `ready` 1 → `completed` 3），每节点每次边界最多两格 ⇒ `2N` 次必收敛；`+1` 次用于确认"本轮无新迁移"。这是可证明的上界，不是经验值。
+- **每节点每次边界至多一条净迁移**（`from` = 入口状态，`to` = 收敛状态），按 `nodes[]` 声明序输出、`nodeId` 不重复。
+- **确定性**：`random` 型判据在每轮读到同一序列（每轮用同一派生种子新建 RNG），故迭代次数不影响结果。断言形式见 `adr0037.min.test.ts` 第 12 例（同一 state 连调两次 ⇒ `transitions` 逐字节相同，且 `state.taskDag` 前后不变）。
+- **`completion: []` 仍永不自完成**（D7 不变）：判据是 `node.completion.length > 0`。空数组的语义是「等一个引擎看不见的外部信号」，要"立即完成"必须显式写 `{ op: "always" }`。
+
+**给模板作者的连带后果（新增，必须知道）**：级联对 **unlock 与 completion 同等生效**。一个 `status: "draft"` 且 `guards: []`、`completion` 为真的节点，会在**同一个边界内** `draft → ready → completed` 走两格。两张现有模板都没有这种形态（n1 建世界即 ready；n2/n3 的 completion 都是 `eventResolved`），但**`guards: [] + completion: [always]` 的 draft 节点会立刻完成** —— 那正是 `always` 病灶的另一种写法，模板侧不要写。
+
+**提交与内容的对应关系（更正记录，历史不改写）**：`9cd82ad` 的提交信息是「docs(BACKLOG)」，但它实际带走了 ADR-0037 的实现主体（10 文件 / 735 行）—— 原因是主理人在 worker 已 staged 的情况下 `git add docs/…` 后直接 `git commit`，而 `git commit` 提交的是**整个索引**。`727ce63` 的提交信息写「单趟版，fixpoint 待补」，但其内容**已是** fixpoint 版（`MAX_ITERATIONS = 2N+1`，`adr0037` 14 例）。两笔均未推送，但按"优先新提交、不做破坏性重写"的仓库规则**不修历史**，以本条为权威口径。另：`9cd82ad` 那次 `task-dag.ts` 的 stat 显示 `Bin` —— 因为父提交里 `validateDag` 步 4 的去重 key 是**字面 NUL**，git 只要一侧含 NUL 就整份按二进制处理；从 `727ce63` 起该 key 写成 `\u0000` 转义，所有 DAG 改动恢复为文本 diff（要看 `9cd82ad` 的正文用 `git diff --text 9cd82ad^ 9cd82ad -- <path>`）。
