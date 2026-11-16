@@ -1,16 +1,12 @@
 name: CI
 
-# 门禁目标：把 AGENTS.md §0.3 / §4 与 docs/CLOUD_DEV.md §3 的本地命令，
-# 原样变成 GitHub 上必过的检查项。命令与本地一致，不另发明一套。
+# 门禁目标：只保留"代码能不能编译 / 能不能构建 / 服务能不能起来"三件事。
 #
-# 2026-11-16 校正：L2 / L2b 曾与代码脱节 —— L2 注释写"game-core 全量"实际只跑四包
-# min 集（漏了 apps/server），L2b 指向已迁入 legacy-tests 的旧文件（必然 No test files
-# found ⇒ exit 1）。现在两条都对齐到**当前唯一验收基线**（`*.min.test.ts`）。
+# 2026-11-17 用户裁决：「测试全删，现在测试写得乱七八糟的，好多都不用了，你先把代码写好
+# 再谈测试」。所以原 L1 / L2 / L2b 三条测试门禁整体移除，测试文件与 vitest 配置也一并删除。
+# 新测试落地时从零设计（单开 `test/` 目录，不进 npm 包），不沿用旧的 `*.min.test.ts` 布局。
 #
 #   L0  pnpm typecheck                                   类型 0 错
-#   L1  pnpm --filter @life-sim/shared test              契约 / schema
-#   L2  pnpm test                                        五包 min 集（含 apps/server）
-#   L2b pnpm test:playthrough                            6 种子整局回归（串行，最易暴雷）
 #   L4  pnpm --filter @life-sim/web build                前端构建
 #   L5  apps/server/smoke/cloud.smoke.mjs                可移植冒烟（新建世界，零 LLM）
 
@@ -56,17 +52,6 @@ jobs:
 
       - name: L0 typecheck
         run: pnpm typecheck
-
-      - name: L1 shared schema
-        run: pnpm --filter @life-sim/shared test
-
-      - name: L2 全包单元测试（min 集，含 apps/server）
-        run: pnpm test
-
-      # 最容易暴雷的一关，串行跑，单独给一条状态。
-      # 打的是 demo-agentic（新验收基线），不是已迁入 legacy-tests 的旧 jjk-2006 剧本回归。
-      - name: L2b playthrough regression
-        run: pnpm test:playthrough
 
       - name: L4 web build
         run: pnpm --filter @life-sim/web build

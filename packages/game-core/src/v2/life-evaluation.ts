@@ -24,7 +24,7 @@ export const DEFAULT_DIMENSION_IDS = [
 
 /**
  * 输出维度集合的**唯一来源**：`EvaluationConfig`（evaluation.yaml）。模板换成任意
- * 自定义维度集（如 demo-agentic 只声明 `growth`）⇒ 输出维度集随之变化，引擎代码不改。
+ * 自定义维度集（模板只声明 `growth` 一个维度也合法）⇒ 输出维度集随之变化，引擎代码不改。
  * 下列 `DEFAULT_DIMENSION_IDS` 仅是「未提供 evaluation.yaml 时」的默认配置常量，
  * 不参与求值路径的维度裁剪。
  */

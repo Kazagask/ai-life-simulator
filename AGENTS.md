@@ -16,10 +16,15 @@
 
 ```bash
 pnpm typecheck         # 全仓 tsc
-pnpm test              # 五包最小测试集
-pnpm test:playthrough  # 6 种子整局回归
-pnpm --filter @life-sim/web build
+pnpm build             # typecheck + web 构建
+pnpm dev               # server + vite dev
 ```
+
+**当前没有任何测试**（2026-11-17 用户裁决：全删，先把代码写好再谈测试）。
+旧的 `pnpm test` / `test:playthrough` / `test:accept` 已移除，CI 只剩 typecheck / web build / 冒烟。
+
+将来加测试时：**单开仓库根的 `test/` 目录**，不要放回 `packages/*/src` 或 `apps/*/src`；
+并显式声明打包边界，确保测试代码不进 npm 包（细节见 `test/README.md`）。
 
 ## 已知环境坑（本机）
 

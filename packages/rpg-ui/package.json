@@ -6,9 +6,7 @@
   "exports": {
     ".": "./src/index.ts"
   },
-  "scripts": {
-    "test": "vitest run"
-  },
+  "scripts": {},
   "dependencies": {
     "@life-sim/shared": "workspace:*",
     "react": "^19.1.0",

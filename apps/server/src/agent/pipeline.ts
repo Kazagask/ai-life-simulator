@@ -57,11 +57,12 @@ export function resolveAgentConfig(
  * 「生产实际用的那个构造点」断言 —— 测试里另写一份 `new RpgEngineAPI({...})` 就等于把
  * 要验的东西 mock 掉了（两份构造可以各接一半，谁也不会红）。
  *
- * 两个依赖的作用（ADR-0037 D10 / ADR-0038 IO-14）：
- * - `lookupRefs`：`fact.enqueueEvent` 的模板存在性校验（`unknown_reference`）+ `validateDag`
- *   步骤 6 的 `templateRefs ⊆ lookupRefs`；
+ * 三个依赖的作用：
+ * - `lookupRefs`：`validateDag` 步骤 6 的 `templateRefs ⊆ lookupRefs`；
  * - `conditionRegistry`：`validateDag` 步骤 6 的 guard-op 可解析性检查。用 core 内置注册表
- *   （与结算钩子 `runSettlementHooks` 的缺省同源），不另建第二套 op 集合。
+ *   （与结算钩子 `runSettlementHooks` 的缺省同源），不另建第二套 op 集合；
+ * - `lookup`：`story.submitBranch` 的**节点级 `npcs`** 要靠它把 alias 解析成
+ *   "模板角色 id / 刷新规则 id"（不接 ⇒ 未知引用被静默透传，等于模型可以凭空造 id）。
  *
  * 缺任一项 ⇒ 对应校验**静默空转**：代码在、判据不存在，模型自造 id 也能落账。
  */
@@ -82,6 +83,8 @@ export function engineApiForTurn(world: WorldStateV2, entry: ReadyTemplateEntry)
     // 集合在模板加载期算一次随 entry 缓存，不按请求重算。
     lookupRefs: entry.refs,
     conditionRegistry: createConditionRegistry(),
+    // 带 generatedEvents：分支里现造的 NPC 也要能被后续解析（与 projectSnapshot 同一份查表）。
+    lookup: entry.lookup.withGenerated(world.generatedEvents),
   });
 }
 
