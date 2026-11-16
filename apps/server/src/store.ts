@@ -187,6 +187,12 @@ export function appendTrace(worldId: string, trace: LlmTrace): void {
     ...(trace.contentBlocks !== undefined
       ? { contentBlocks: trace.contentBlocks.map(pickContentBlock) }
       : {}),
+    /**
+     * ⚠ 这里逐字段重建 trace，**新增字段必须同步加进来**，否则会被静默丢掉
+     * （`calls` 就踩过这个坑：agent-runtime 明明写了，落盘却看不到）。
+     * 之所以不用 spread：contentBlock / factsHint 需要脱敏与白名单。
+     */
+    ...(trace.calls !== undefined ? { calls: trace.calls.map((call) => ({ ...call })) } : {}),
   };
   const parsed = LlmTraceSchema.parse(sanitized);
   const file = traceFile(worldId);

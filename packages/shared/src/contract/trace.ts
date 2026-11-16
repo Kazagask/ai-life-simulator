@@ -63,6 +63,25 @@ export const LlmTraceSchema = z
      * 绝不把正文写进 WorldStateV2。
      */
     contentBlocks: z.array(ContentBlockSchema).optional(),
+    /**
+     * 本次 invocation 里模型发起的**工具调用原文**（名称 + 参数 JSON，已截断）。
+     *
+     * 为什么必须落盘：验收时要回答"模型到底传了什么"，而 `callsHash` 只是哈希、
+     * 回执只有结果码。没有这一项，`story.submitBranch` 到底提交了什么只能靠
+     * 反编译 `generatedEvents` 猜，而那是**编译后**的形态、不是模型的原始输入。
+     *
+     * 只存前 4000 字符（一条 3 节分支约 2-3KB）；它是取证通道，不是权威状态。
+     */
+    calls: z
+      .array(
+        z
+          .object({
+            name: z.string().min(1),
+            args: z.string(),
+          })
+          .strict(),
+      )
+      .optional(),
   })
   .strict();
 export type LlmTrace = z.infer<typeof LlmTraceSchema>;

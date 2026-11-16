@@ -193,6 +193,11 @@ export async function runAgentLoop(
   let retries = 0;
   let end: EndState | null = null;
   /** 本轮是否至少有一次写入被引擎接受（决定"自然退出"算完成还是失败）。 */
+  /**
+   * 模型发起的工具调用原文（取证用）：名称 + 参数 JSON，截断到 800 字符。
+   * `callsHash` 只能证明"两次调用是否相同"，证明不了"它传了什么"。
+   */
+  const rawCalls: Array<{ name: string; args: string }> = [];
   let wroteSomething = false;
   /** 本轮是否发生过只读查询（只读也算"模型真的在推进"，用于终止判定）。 */
   let readSomething = false;
@@ -341,6 +346,9 @@ export async function runAgentLoop(
      * 两者都要回一条 tool 消息，且 callId 必须一一对应 —— 模型侧看到的是
      * "我发了 N 个调用，收到了 N 条结果"，否则下一轮会错位。
      */
+    for (const call of valid) {
+      rawCalls.push({ name: call.name, args: JSON.stringify(call.arguments).slice(0, 4000) });
+    }
     const readCalls = valid.filter((call) => isReadTool(call.name));
     const writeCalls = valid.filter((call) => !isReadTool(call.name));
 
@@ -498,6 +506,7 @@ export async function runAgentLoop(
     latencyMs,
     outcome,
     ...(outcome === "fallback" && end.code !== undefined ? { fallbackCode: end.code } : {}),
+    ...(rawCalls.length > 0 ? { calls: rawCalls } : {}),
   };
 
   const parsed = LlmTraceSchema.safeParse(candidate);
