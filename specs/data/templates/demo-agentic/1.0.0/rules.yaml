@@ -42,13 +42,16 @@ toolProfile:
   # 1) 只能列 game-core 工具注册表里真实存在的工具（engine-api.ts: defaultToolRegistry）。
   #    列了未注册的工具 ⇒ 模型一 emit 就吃 unknown_tool（FATAL，不消耗重试）。
   # 2) **不需要**提交工具：终止是运行时责任（模型不再发 tool call 即视为写完）。
-  # 3) **必须包含写世界的工具**：设计 §3.4 的口径是「LLM 命中节点后 (a) 写叙事 / (b) 上桌事件
-  #    / (c) 推进 DAG」，只有 content.* 的画像是「LLM 只能写散文」——那等于把 DAG 分支
-  #    整条链路废掉。因此 fact.advanceDag（发布/续写分支）与 fact.enqueueEvent（把分支上的
-  #    事件实例化进 delayQueue）必须同时在画像里。
-  # 已按新命名空间收敛（content.* → narrative.*，且删除 writeOption/referenceAsset）：
-  # 选项属于事件块的 options，媒体挂载将来作为 narrative.write 的可选参数，
-  # 两者都不该是独立工具。fact.advanceDag 一并去掉（整份覆盖 DAG 属违规写法）。
+  # 3) **至少要有写世界的工具**：口径是「LLM 命中节点后 (a) 写叙事 / (b) 上桌事件 / (c) 推进 DAG」。
+  #    只列 narrative.* 的画像是「LLM 只能写散文」，等于把 (b)(c) 整条废掉。
+  #
+  # 当前放行三个：两个叙事 + fact.enqueueEvent（把分支上的事件实例化进 delayQueue）。
+  # **故意不放行** fact.advanceDag：它要求提交整份 DAG 覆盖写，属违规写法（正确姿势是
+  # fact.upsertDagBranch 增量续写）；也不放行 fact.setKnowledge —— 知识由 knowledgeGrants 规则授予，
+  # 不让模型随手改台账。工具仍在注册表里（引擎自身与将来的画像可复用），只是不暴露给本模板的模型。
+  #
+  # 命名空间：fact.* = 写权威事实，narrative.* = 写血肉（正文只进 trace，不进 WorldStateV2）。
+  # content.* → narrative.* 已收敛；writeOption / referenceAsset 已删（选项属于事件块的 options）。
   narrative:
     ["narrative.write", "narrative.flavor", "fact.enqueueEvent"]
 knowledgeGrants:
