@@ -62,8 +62,6 @@ export function recordNarrative(
     state,
     projectSnapshot: (s) =>
       projectSnapshotV2(s, entry.template, entry.lookup),
-    perspective: "world",
-    targetPerspective: "player",
   });
 
   // 写侧也过滤一遍 refs：`narrative.write` 会以 `allowedContentRefs` 拒收越窗引用，

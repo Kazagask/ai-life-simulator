@@ -20,7 +20,9 @@ import {
 } from "@life-sim/shared";
 import {
   collectRefs,
+  createConditionRegistry,
   createLookup,
+  validateFallbackDag,
   type TemplateLookup,
   type TurnPipelineConfig,
 } from "@life-sim/game-core";
@@ -141,14 +143,6 @@ export interface ReadyTemplateEntry extends TemplateEntryBase {
   status: "ready";
   template: WorldTemplateV2;
   lookup: TemplateLookup;
-  /**
-   * 模板 ref 全集（`collectRefs` 的字面 id 集合），**加载期算一次随 entry 缓存**。
-   *
-   * 设计上供 `validateDag` 步骤 6（`templateRefs ⊆ lookupRefs`）使用；`fact.enqueueEvent`
-   * 已下线，引擎当前没有运行期 DAG 写入，该接线待清理。它属于 entry 的既有事实，
-   * 不按请求重算（ADR-0037 / ADR-0038 IO-14）。
-   */
-  refs: ReadonlySet<string>;
   openings: OpeningTemplate[];
   endingConfig?: EndingConfig;
   evaluationConfig?: EvaluationConfig;
@@ -418,6 +412,34 @@ function loadRules(versionDir: string): Rules {
   }
 }
 
+/** `validateDag` 六步的中文名（拒载原因要能一眼看出是哪一步）。 */
+const DAG_STEP_LABEL: Record<number, string> = {
+  1: "端点完整性",
+  2: "节点 id 唯一",
+  3: "自环",
+  4: "重复边",
+  5: "拓扑序 / 无环",
+  6: "guards 或 templateRefs 可解析",
+};
+
+/**
+ * 加载期 DAG 语义校验：`RulesSchema` 只校验**形状**，不校验环 / 自环 / 悬空端点 /
+ * 不可解析 guard。此前 `validateFallbackDag` 没有任何调用方 ⇒ 坏 `fallbackDag` 能正常
+ * 加载，运行时才炸或静默算错。这里用本模板 ref 全集 + core 内置条件注册表跑同一份实现，
+ * 失败即由 `scanVersion` 的 catch 收敛成 `template_invalid` 拒载。
+ */
+function assertFallbackDag(rules: Rules, template: WorldTemplateV2): void {
+  const dag = validateFallbackDag(rules.fallbackDag, {
+    lookupRefs: collectRefs(template),
+    registry: createConditionRegistry(),
+  });
+  if (dag.ok) return;
+  const step = dag.step ?? 0;
+  throw new Error(
+    `rules.yaml: fallbackDag 校验失败（第 ${step} 步：${DAG_STEP_LABEL[step] ?? "未知"}）—— ${dag.message}`,
+  );
+}
+
 /** `assets/manifest.yaml` 独立加载器：契约 = `AssetManifestSchema`，失败同样加载期即抛。 */
 function loadAssetManifest(versionDir: string): AssetManifest {
   try {
@@ -562,6 +584,8 @@ function scanVersion(
     // 坏 `rules.yaml` / `assets/manifest.yaml` 走与其它白名单文件同一条失败通道（catch → reason），
     // 不再「warn + 静默丢文件」（否则 malformed rules 会退化成 undefined，运行时才炸）。
     const rules = present.has("rules.yaml") ? loadRules(versionDir) : undefined;
+    // A：`fallbackDag` 的六步语义校验必须真跑（此前零调用方，等价于不校验）。
+    if (rules !== undefined) assertFallbackDag(rules, template);
     const assetManifest = present.has("assets/manifest.yaml")
       ? loadAssetManifest(versionDir)
       : undefined;
@@ -575,7 +599,6 @@ function scanVersion(
       status: "ready",
       template,
       lookup: createLookup(template),
-      refs: collectRefs(template),
       openings,
       ...(endingConfig !== undefined ? { endingConfig } : {}),
       ...(evaluationConfig !== undefined ? { evaluationConfig } : {}),

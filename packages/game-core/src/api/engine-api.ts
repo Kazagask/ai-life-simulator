@@ -17,7 +17,6 @@ import {
   type EventV2,
   type GeneratedNpc,
   type FactChange,
-  type LlmBudget,
   type Perspective,
   type PerspectiveFactView,
   type SetKnowledgeArgs,
@@ -33,7 +32,6 @@ import {
   applyKnowledgeBatch,
   buildFacts as computeFacts,
 } from "./perspective.js";
-import type { ConditionRegistry } from "../v2/condition-evaluator.js";
 import { createContentSink, type ContentSink } from "../v2/narrative.js";
 
 /**
@@ -122,8 +120,6 @@ export type ToolRunResult =
     };
 
 export interface ToolRunEnv {
-  registry?: ConditionRegistry;
-  lookupRefs?: ReadonlySet<string>;
   sink: ContentSink;
   /**
    * 模板纯函数查表（可选）。`story.submitBranch` 的节点级 `npcs` 需要把
@@ -545,18 +541,11 @@ export interface EngineApiDeps {
   state: WorldStateV2;
   /** 追加 / 覆盖工具（数据化注册，不 switch）。 */
   toolRegistry?: ToolRegistry;
-  /** 条件注册表（DAG guard 可解析性 / 知识授予）。 */
-  conditionRegistry?: ConditionRegistry;
-  /** templateRefs 合法集合（DAG 步 6）。 */
-  lookupRefs?: ReadonlySet<string>;
   /** 模板纯函数查表（供 submitBranch 节点级 npcs 解析；可选）。 */
   lookup?: TemplateLookup;
   sink?: ContentSink;
   /** 注入完整投影（Wave 2 server 注入 projectSnapshotV2）；缺省用 player 窗口最小投影。 */
   projectSnapshot?: (state: WorldStateV2) => V2Snapshot;
-  budget?: LlmBudget;
-  perspective?: Perspective;
-  targetPerspective?: Perspective;
 }
 
 /**
@@ -580,8 +569,6 @@ export class RpgEngineAPI implements EngineApiHandle {
       for (const [name, handler] of deps.toolRegistry) this.tools.set(name, handler);
     }
     this.env = {
-      ...(deps.conditionRegistry ? { registry: deps.conditionRegistry } : {}),
-      ...(deps.lookupRefs ? { lookupRefs: deps.lookupRefs } : {}),
       ...(deps.lookup ? { lookup: deps.lookup } : {}),
       sink: this.sink,
     };

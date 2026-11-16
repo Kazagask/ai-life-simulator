@@ -1,5 +1,5 @@
 import type { TurnPipelineConfig } from "@life-sim/game-core";
-import { RpgEngineAPI, createConditionRegistry, projectSnapshotV2 } from "@life-sim/game-core";
+import { RpgEngineAPI, projectSnapshotV2 } from "@life-sim/game-core";
 import { AgentGateway, createAgentProvider } from "@life-sim/agent-runtime";
 import type { WorldStateV2 } from "@life-sim/shared";
 import { DEFAULT_OPENAI_BASE_URL, type UserCredentials } from "../llm/credentials.js";
@@ -51,20 +51,12 @@ export function resolveAgentConfig(
 }
 
 /**
- * 生产路径唯一的引擎构造点（`pipelineForTurn` 与测试共用它）。
+ * 生产路径唯一的引擎构造点。
  *
- * **为什么抽成独立导出**：`lookupRefs` / `conditionRegistry` 是否真的接上，只能对
- * 「生产实际用的那个构造点」断言 —— 测试里另写一份 `new RpgEngineAPI({...})` 就等于把
- * 要验的东西 mock 掉了（两份构造可以各接一半，谁也不会红）。
- *
- * 三个依赖的作用：
- * - `lookupRefs`：`validateDag` 步骤 6 的 `templateRefs ⊆ lookupRefs`；
- * - `conditionRegistry`：`validateDag` 步骤 6 的 guard-op 可解析性检查。用 core 内置注册表
- *   （与结算钩子 `runSettlementHooks` 的缺省同源），不另建第二套 op 集合；
- * - `lookup`：`story.submitBranch` 的**节点级 `npcs`** 要靠它把 alias 解析成
- *   "模板角色 id / 刷新规则 id"（不接 ⇒ 未知引用被静默透传，等于模型可以凭空造 id）。
- *
- * 缺任一项 ⇒ 对应校验**静默空转**：代码在、判据不存在，模型自造 id 也能落账。
+ * 引擎唯一需要注入的模板依赖是 `lookup`：`story.submitBranch` 的**节点级 `npcs`** 要靠它把
+ * alias 解析成「模板角色 id / 刷新规则 id」（不接 ⇒ 未知引用被静默透传，等于模型可以凭空造 id）。
+ * DAG 的六步语义校验已移到模板**加载期**（`templates.ts` 的 `assertFallbackDag`），
+ * 运行期不再有 LLM DAG 写入，所以 `lookupRefs` / `conditionRegistry` 不再需要注入。
  */
 export function engineApiForTurn(world: WorldStateV2, entry: ReadyTemplateEntry): RpgEngineAPI {
   return new RpgEngineAPI({
@@ -72,17 +64,6 @@ export function engineApiForTurn(world: WorldStateV2, entry: ReadyTemplateEntry)
     // 同上：GM 看到的 facts / 槽位描述也必须能读到生成事件。
     projectSnapshot: (s) =>
       projectSnapshotV2(s, entry.template, entry.lookup.withGenerated(s.generatedEvents)),
-    /**
-     * 视角**由模板声明**，这里不写死（2026-11-16 用户裁决：GM 应全知）。
-     * `pipeline.context` 里的 perspective 只是引擎内部读窗口的缺省，
-     * 真正决定 facts / 读工具窗口的是 `invocation.perspective`（来自模板
-     * `invoke.perspective`），见 `runSettlementHooks` 的透传。
-     */
-    perspective: "world",
-    targetPerspective: "player",
-    // 集合在模板加载期算一次随 entry 缓存，不按请求重算。
-    lookupRefs: entry.refs,
-    conditionRegistry: createConditionRegistry(),
     // 带 generatedEvents：分支里现造的 NPC 也要能被后续解析（与 projectSnapshot 同一份查表）。
     lookup: entry.lookup.withGenerated(world.generatedEvents),
   });
