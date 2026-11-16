@@ -2,6 +2,8 @@ import {
   ContentToolArgsSchemas,
   SetKnowledgeArgsSchema,
   TaskDagSchema,
+  TaskEdgeSchema,
+  TaskNodeSchema,
   type ApiCall,
   type Perspective,
   type RulesTemplate,
@@ -87,10 +89,17 @@ export interface AgentProvider {
  * 事实写入工具（与 game-core `defaultToolRegistry()` 对齐）。
  * `fact.enqueueEvent` 是「把 DAG 分支上的事件上桌」的唯一通道（只入队、不占槽）；
  * 缺了它，LLM 侧就只剩 `content.*` —— 分支永远上不了桌。
+ *
+ * `fact.upsertDagBranch`（ADR-0037 D4）是**增量**续写：已存在节点只改
+ * status/guards/completion/due/visibility，新增节点整份给出。它与 `fact.advanceDag`
+ * （整份覆盖）并存，但 LLM 侧应优先用它 —— 整份覆盖会静默丢掉模型没看见的
+ * guards/completion/edges。此前引擎已注册、本清单漏列 ⇒ `resolveToolNames` 会把它
+ * 静默过滤掉（画像写了等于没写），模板一切换就只剩散文。
  */
 export const FACT_TOOL_NAMES = [
   "fact.setKnowledge",
   "fact.advanceDag",
+  "fact.upsertDagBranch",
   "fact.enqueueEvent",
 ] as const;
 
@@ -236,6 +245,31 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
     description: "用一份新的任务 DAG 覆盖当前 DAG（整体校验后落账）。",
     parameters: schemaOf({ dag: { type: "object" } }, ["dag"]),
   },
+  "fact.upsertDagBranch": {
+    name: "fact.upsertDagBranch",
+    description:
+      "**增量**续写任务 DAG 分支：只提交你新增 / 改写的部分，已存在的节点只改 " +
+      "status / guards / completion / due / visibility（kind / title 不可改写）。" +
+      "status 只能前进（终态不可回退）；edges 按 (from,to,kind) 去重追加；永不删除。" +
+      "合并结果若跑不过 DAG 校验（重复 id / 悬空端点 / 自环 / 成环 / 未知 templateRef）" +
+      "⇒ 整体拒绝且 DAG 逐字段不变。",
+    parameters: schemaOf(
+      {
+        nodes: {
+          type: "array",
+          items: { type: "object" },
+          description: "新增或要改写的完整节点（新节点必须给全字段）",
+        },
+        edges: {
+          type: "array",
+          items: { type: "object" },
+          description: "要追加的边（from / to / kind）",
+        },
+        version: { type: "integer", minimum: 0 },
+      },
+      [],
+    ),
+  },
   "fact.enqueueEvent": {
     name: "fact.enqueueEvent",
     description:
@@ -362,6 +396,53 @@ export function validateToolCall(
     const eventId = call.arguments.eventId;
     if (typeof eventId !== "string" || eventId.length === 0) {
       return { ok: false, code: "invalid_arguments", detail: "fact.enqueueEvent 需要 { eventId }" };
+    }
+    return { ok: true, args: call.arguments };
+  }
+  if (call.name === "fact.upsertDagBranch") {
+    /**
+     * 增量入参无法用 `TaskDagSchema`（那是整份 DAG）校验，所以逐项对齐引擎的解析：
+     * 引擎对 `nodes[]` / `edges[]` 逐个 `TaskNodeSchema` / `TaskEdgeSchema` 解析，
+     * 本层用同一对 schema 提前拦下 —— 拒绝码与引擎一致（`invalid_arguments`），
+     * 但**不消耗**引擎那一趟 dispatch。
+     *
+     * 语义级校验（kind/title 不可改写、status 单调、成环、templateRefs 存在性）留在引擎：
+     * 那需要读权威状态，本层没有 state，也不该有。
+     */
+    const nodes = call.arguments.nodes ?? [];
+    const edges = call.arguments.edges ?? [];
+    if (!Array.isArray(nodes) || !Array.isArray(edges)) {
+      return {
+        ok: false,
+        code: "invalid_arguments",
+        detail: "fact.upsertDagBranch 的 nodes / edges 必须是数组",
+      };
+    }
+    for (const node of nodes) {
+      if (!TaskNodeSchema.safeParse(node).success) {
+        return {
+          ok: false,
+          code: "invalid_arguments",
+          detail: "fact.upsertDagBranch.nodes[] 未通过 TaskNodeSchema（新节点必须是完整节点）",
+        };
+      }
+    }
+    for (const edge of edges) {
+      if (!TaskEdgeSchema.safeParse(edge).success) {
+        return {
+          ok: false,
+          code: "invalid_arguments",
+          detail: "fact.upsertDagBranch.edges[] 未通过 TaskEdgeSchema",
+        };
+      }
+    }
+    const version = call.arguments.version;
+    if (version !== undefined && (!Number.isInteger(version) || (version as number) < 0)) {
+      return {
+        ok: false,
+        code: "invalid_arguments",
+        detail: "fact.upsertDagBranch.version 必须是非负整数",
+      };
     }
     return { ok: true, args: call.arguments };
   }
