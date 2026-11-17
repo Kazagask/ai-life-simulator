@@ -1026,6 +1026,8 @@
 }
 
 .ls-clan__history-summary {
+  /* 折叠条是触屏上的唯一入口：给足纵向命中区（纯文字 18px 太小，拇指点不中）。 */
+  padding: 6px 0;
   font-size: 12px;
   color: var(--ls-text-dim);
   cursor: pointer;

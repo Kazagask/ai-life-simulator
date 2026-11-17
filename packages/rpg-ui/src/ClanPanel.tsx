@@ -4,7 +4,7 @@ import type { ClanVM } from "@life-sim/shared";
 /**
  * 宗族面板（`docs/CLAN-DESIGN.md` §2.4 / §3）。
  *
- * 只吃 `ClanVM`：成员数、在世人數、家主有没有卡、你与本族的关系**全部是服务端口径**。
+ * 只吃 `ClanVM`：成员数、在世人数、家主有没有卡、你与本族的关系**全部是服务端口径**。
  * 组件不读快照、不按关系边自己数人 —— 前端只有出边，数出来的血缘不等于族表（§3 的要点）。
  *
  * 竖屏优先：一族一张卡片，不画图、不横滚。大事记用原生 `<details>` 折叠（默认收起）。
@@ -27,8 +27,11 @@ const LABELS = {
   headVacant: "家主之位空悬",
   deceased: "已故",
   noCard: "无档案",
+  /** 没有已故者时只报在世 —— 两个数一样时并列是噪音（0 人的族尤其明显）。 */
+  livingOnly: (living: number): string => `在世 ${living} 人`,
+  /** 有已故者才把「成员」抬出来：两个数不一样时，得让玩家看得出差在哪。 */
   counts: (living: number, total: number): string => `在世 ${living} 人 · 成员 ${total} 人`,
-  /** 已有死亡记录时补一句解释，免得「成员数 > 在世人数」看起来像 bug。 */
+  /** 解释「成员数 > 在世人数」的差值，免得看起来像 bug。 */
   countsWithDead: (dead: number): string => `其中已故 ${dead} 人`,
   relation: {
     head: "你是家主",
@@ -110,8 +113,14 @@ function ClanCard({ clan, onSelectNpc }: { clan: ClanVM; onSelectNpc?: (id: stri
       </p>
 
       <p className="ls-clan__counts">
-        {LABELS.counts(clan.livingCount, clan.memberCount)}
-        {dead > 0 && <span className="ls-clan__dead-note"> · {LABELS.countsWithDead(dead)}</span>}
+        {dead > 0 ? (
+          <>
+            {LABELS.counts(clan.livingCount, clan.memberCount)}
+            <span className="ls-clan__dead-note"> · {LABELS.countsWithDead(dead)}</span>
+          </>
+        ) : (
+          LABELS.livingOnly(clan.livingCount)
+        )}
       </p>
 
       {clan.legacies !== undefined && clan.legacies.length > 0 && (
