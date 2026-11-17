@@ -384,6 +384,8 @@ function buildSnapshotActors(
       visible: !hiddenNodeIds.has(npc.id),
       alive: npc.lifecycle.state === "alive",
       age: shown.age,
+      // 原始 gender id 只透传，由扩展解释（内核不判断 male/female 语义）。
+      genderId: npc.gender,
       genderLabel: lookup.genderLabel(npc.gender),
       lifeStageLabel: shown.lifeStageLabel,
       lifeState: npc.lifecycle.state,
@@ -402,6 +404,7 @@ function buildSnapshotActors(
     visible: true,
     alive: true,
     age: player.age,
+    genderId: player.gender,
     genderLabel: lookup.genderLabel(player.gender),
     lifeStageLabel: adapter.lifeStageLabel(adapter.resolveLifeStage(player.age)),
     lifeState: "alive",

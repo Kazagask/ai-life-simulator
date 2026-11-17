@@ -219,11 +219,15 @@ export function kinGraphFromPointers(
       pushMove(moves, { kind: "mother", from: p.id, to: p.motherId, visibility: "known" });
     }
   }
-  // 父/母 → 子/女：用孩子性别定 kind；性别未知就不建这条（叫不出儿子/女儿）。
+  // 父/母 → 子/女：用孩子性别定 kind；性别未知就不猜儿子/女儿，退一条不可命名的
+  // `relative` 移动 —— 孩子本身不能从图上消失，称谓层会给中性粗称谓（不猜男女）。
   for (const [parent, kids] of children) {
     for (const kid of kids) {
       const sex = sexOf(kid);
-      if (sex === null) continue;
+      if (sex === null) {
+        pushMove(moves, { kind: "relative", from: parent, to: kid, visibility: "known" });
+        continue;
+      }
       pushMove(moves, {
         kind: sex === "male" ? "son" : "daughter",
         from: parent,

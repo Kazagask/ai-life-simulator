@@ -148,13 +148,22 @@ export interface SnapshotActor {
   readonly alive: boolean;
   /** 投影口径的当前年龄（已故者冻结在 `sinceWorldTime`）。 */
   readonly age: number;
+  /**
+   * 模板里的原始 gender id（如 `male` / `female`）；**由扩展解释，内核不判断语义**。
+   *
+   * 内核只做透传（`npc.gender` / `player.gender`），不把它翻译成 male/female
+   * —— 那是世界观语义，归扩展（`docs/EXTENSIONS.md` §7 宿主零知识）。
+   * 与 `genderLabel` 的分工：那个是给玩家看的文案，这个只给扩展做结构判断。
+   */
+  readonly genderId?: string;
   readonly genderLabel?: string;
   readonly lifeStageLabel?: string;
   readonly lifeState?: NpcLifecycleState;
   readonly reasonCode?: string;
   /**
    * 父/母指针（`docs/FAMILY-GRAPH.md` §3.1），原样透传实例上的值。
-   * 缺省 = 不详（旧档 / 模板没写）。**本轮没有消费者**：族谱仍从边推导，扩展可先读不管。
+   * 缺省 = 不详（旧档 / 模板没写）。**内核不解释指针**：家族扩展据此选「指针模式」，
+   * 没有指针时回落关系边推导 —— 选源与解释都在扩展里。
    */
   readonly fatherId?: string;
   readonly motherId?: string;

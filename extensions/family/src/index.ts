@@ -18,6 +18,7 @@ import {
 import { deriveClanView } from "./clan-view.js";
 import { parseFamilyConfig } from "./config.js";
 import { reachableKinshipNodeIds } from "./graph.js";
+import { familyKinGraph, kinGraphToRelationEdges } from "./kin-source.js";
 import { derivePedigree } from "./pedigree.js";
 import { kinshipReadings, termForEdge, SELF_TITLE, type KinshipReading } from "./terms/index.js";
 
@@ -157,7 +158,7 @@ const relationDerivation: RelationDerivation = { decorate, extendRows };
  * 内核里没有任何「家族」字样，也没有 `V2Snapshot.family` 这个字段。
  *
  * 两段**互不依赖**（`docs/CLAN-DESIGN.md` §0/§3）：
- * · `pedigree` 只吃关系图（关系边 + 演员目录），删掉宗族切片照样完整；
+ * · `pedigree` 只吃亲属图（关系边或指针，二选一）+ 演员目录，删掉宗族切片照样完整；
  * · `selfClanIds` / `clans` 只吃 `state.extensions.family`（权威族表），从不从关系图推成员。
  *
  * 没声明宗族 ⇒ 前两者是空数组，`pedigree` 照出；展示层按 `clans.length > 0` 决定是否出页签。
@@ -165,12 +166,20 @@ const relationDerivation: RelationDerivation = { decorate, extendRows };
 const snapshotDerivation: SnapshotDerivation = {
   derive(ctx) {
     const clan = deriveClanView(ctx);
+    /**
+     * 选源（`docs/FAMILY-GRAPH.md` §1）：演员里有父/母指针 ⇒ 指针模式，否则回落边模式。
+     * 族谱只吃 `RelationEdge[]`，指针模式把**同一张**图投影成边（不是另读一份数据）；
+     * 存量模板没有指针 ⇒ 原样走 `ctx.visibleEdges`，行为与 `47cda45` 完全一致。
+     */
+    const source = familyKinGraph(ctx);
+    const pedigreeInput =
+      source.mode === "edges" ? ctx : { ...ctx, visibleEdges: kinGraphToRelationEdges(source.graph) };
     return {
       // 键 = 扩展 id：宿主只会把这一段原样放进 `snapshot.extensions.family`。
       family: {
         selfClanIds: clan.selfClanIds,
         clans: clan.clans,
-        pedigree: derivePedigree(ctx),
+        pedigree: derivePedigree(pedigreeInput),
       },
     };
   },
@@ -233,8 +242,14 @@ export {
   type ClanState,
   type ClanStatus,
 } from "./clan.js";
-export { parseFamilyConfig, type FamilyConfig } from "./config.js";
+export { parseFamilyConfig, sexFromGenderId, type FamilyConfig } from "./config.js";
 export { reachableKinshipNodeIds, isKinshipReachable } from "./graph.js";
+export {
+  familyKinGraph,
+  kinGraphToRelationEdges,
+  type FamilyKinSource,
+  type KinSourceMode,
+} from "./kin-source.js";
 export {
   KINSHIP_TOKEN,
   COARSE_KINSHIP_TITLE,

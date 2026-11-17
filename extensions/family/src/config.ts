@@ -54,3 +54,20 @@ export function parseFamilyConfig(raw: unknown): FamilyConfig {
     maxNodes: intInRange(pedigree.maxNodes ?? obj.maxNodes, DEFAULT_CONFIG.maxNodes, 2, 500),
   };
 }
+
+/**
+ * 模板 gender id → 推导用的性别（`Sex`）。
+ *
+ * **这是扩展与模板的约定，不是协议**：缺省只认 `male` / `female` 两个 id，
+ * 其它一律 `null`（= 性别不详，称谓层退中性词，**绝不猜男女**）。
+ * 内核只透传原始 id（`SnapshotActor.genderId`），不做这层翻译 —— 语义归扩展
+ * （`docs/EXTENSIONS.md` §7 宿主零知识）。
+ *
+ * 需要别的 id（如 `m` / `f`、`男` / `女`）时再给 `FamilyConfig` 加配置项；
+ * 在那之前不要在称谓层散落 `=== "male"` 的判断。
+ */
+export function sexFromGenderId(genderId: string | null | undefined): "male" | "female" | null {
+  if (genderId === "male") return "male";
+  if (genderId === "female") return "female";
+  return null;
+}
