@@ -800,13 +800,3 @@
   text-align: right;
   transition: opacity 160ms ease;
 }
-
-/* 横向溢出提示：仅在画布比容器宽、且玩家还没横向滚过时出现
-   （判据见 PedigreePanel 的 overflowing / scrolled，与 truncated 是两件事）。 */
-.ls-pedigree__scroll-hint {
-  margin: 0 0 4px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--ls-text-dim);
-  text-align: right;
-}
