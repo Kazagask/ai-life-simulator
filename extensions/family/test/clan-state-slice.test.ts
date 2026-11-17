@@ -164,7 +164,7 @@ describe("建世界期播种：模板写什么就落什么", () => {
   ];
 
   /** 底座只有一个敌人角色；补一个可被婚配引用的 npc-a。 */
-  function templateWithKin(config: unknown): WorldTemplateV2 {
+  function templateWithKin(config: true | Record<string, unknown>): WorldTemplateV2 {
     const base = makeTestTemplate();
     const extra = {
       ...base.characters[0]!,
