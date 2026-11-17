@@ -800,3 +800,13 @@
   text-align: right;
   transition: opacity 160ms ease;
 }
+
+/*
+ * 溢出态右缘渐隐：只加在「真溢出且玩家还没横向滚过」的滚动容器上（--fade-right），
+ * 让被裁掉的最后一列看起来是「还有内容」而不是渲染坏了；首次横向滚走后随类名移除。
+ * 单节点 / 不溢出的世界没有这个类，边缘保持清晰。
+ */
+.ls-pedigree__scroll--fade-right {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent 100%);
+}

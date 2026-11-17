@@ -238,6 +238,8 @@ export function PedigreePanel({ pedigree, onSelectNpc, onSelectSelf, title }: Pe
   }
 
   const byId = new Map(placed.map((p) => [p.node.id, p]));
+  /** 只有「真溢出且玩家还没横向滚过」才提示；单节点世界永远为 false。 */
+  const showScrollHint = overflowing && !scrolled;
 
   const select = (node: PedigreeNodeVM): void => {
     if (node.isSelf) {
@@ -270,9 +272,12 @@ export function PedigreePanel({ pedigree, onSelectNpc, onSelectSelf, title }: Pe
       {notice !== null && <p className="ls-pedigree__notice">{notice}</p>}
 
       {/* 提示放在滚动容器**外面**：出现/消失不会改变容器宽度，避免测量反馈循环。 */}
-      {overflowing && !scrolled && <p className="ls-pedigree__scroll-hint">{LABELS.scrollHint}</p>}
+      {showScrollHint && <p className="ls-pedigree__scroll-hint">{LABELS.scrollHint}</p>}
 
-      <div className="ls-pedigree__scroll" ref={scrollRef}>
+      <div
+        className={`ls-pedigree__scroll${showScrollHint ? " ls-pedigree__scroll--fade-right" : ""}`}
+        ref={scrollRef}
+      >
         <div className="ls-pedigree__canvas" style={{ width, height }}>
           <svg className="ls-pedigree__edges" width={width} height={height} aria-hidden="true">
             {pedigree.edges.map((edge, i) => {
