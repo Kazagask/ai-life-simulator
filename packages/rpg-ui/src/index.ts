@@ -56,6 +56,10 @@ export { AssetDetail } from "./AssetDetail.js";
 export type { AssetDetailProps } from "./AssetDetail.js";
 export { SkillList } from "./SkillList.js";
 export type { SkillListProps } from "./SkillList.js";
+export { EventPanel } from "./EventPanel.js";
+export type { EventPanelProps } from "./EventPanel.js";
+export { GmWorkingStrip } from "./GmWorkingStrip.js";
+export type { GmWorkingStripProps } from "./GmWorkingStrip.js";
 export { buildSlotCells, isSlotSelected } from "./personal.js";
 export type { PersonalSelection, SlotCell } from "./personal.js";
 
@@ -103,6 +107,7 @@ export type {
   EquipmentSlotVM,
   InventoryItemVM,
   SkillVM,
+  EventOptionVM,
   StatusVM,
   WheelVM,
   EndingVM,

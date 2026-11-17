@@ -362,6 +362,10 @@ export function toViewModel({ snapshot, content, media }: ToViewModelInput): Vie
             eventId: slot.eventId,
             title: slot.title,
             narrative: slot.narrative,
+            // 待决事件的选项：id 是引擎分配的真 optionId，前端只负责原样回传。
+            ...(slot.options !== undefined
+              ? { options: slot.options.map((o) => ({ id: o.id, text: o.text })) }
+              : {}),
           },
     evaluation: toEvaluationVM(snapshot),
     media: media ?? snapshot.media ?? [],

@@ -43,6 +43,8 @@ import {
   BagPanel,
   CharacterPanel,
   CharacterSheet,
+  EventPanel,
+  GmWorkingStrip,
   NpcCard,
   SkillList,
   StatsPanel,
@@ -1369,8 +1371,14 @@ function LifeTab({
                   onContinue={onConfirmWheel}
                 />
               )}
-              {slot !== null && slot.kind === "normal" && (
-                <EventPanel slot={slot} busy={busy} onChoose={onChoose} />
+              {slot !== null && slot.kind === "normal" && view.slot !== null && (
+                <EventPanel
+                  title={view.slot.title}
+                  narrative={view.slot.narrative}
+                  options={view.slot.options ?? []}
+                  busy={busy}
+                  onChoose={onChoose}
+                />
               )}
               {/* 自由行动：只有模板动作 + 次要入口；**不渲染 AI 写的文本选项**（见上方注释）。 */}
               {slot === null && (
@@ -1415,28 +1423,6 @@ function LifeTab({
  * - 文案只说"在做什么阶段"，且阶段是**引擎已知的事实**（请求在飞 / 已过 N 秒），
  *   不是从模型里猜的。
  */
-function GmWorkingStrip({ busy }: { busy: boolean }) {
-  const [elapsed, setElapsed] = useState(0);
-  useEffect(() => {
-    if (!busy) {
-      setElapsed(0);
-      return;
-    }
-    const started = Date.now();
-    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 500);
-    return () => clearInterval(timer);
-  }, [busy]);
-  if (!busy) return null;
-  const hint = elapsed < 6 ? "正在读取世界" : elapsed < 20 ? "正在编排这一幕" : "正在收尾";
-  return (
-    <div className="gm-working" role="status" aria-live="polite">
-      <span className="gm-working__dot" aria-hidden="true" />
-      <span className="gm-working__text">GM 推演中 · {hint}</span>
-      <span className="gm-working__elapsed">{elapsed}s</span>
-    </div>
-  );
-}
-
 // ---------- 结局面板 ----------
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -1487,35 +1473,6 @@ function EndingPanel({
 }
 
 // ---------- 事件面板（选项） ----------
-
-function EventPanel({
-  slot,
-  busy,
-  onChoose,
-}: {
-  /** `slotEvent.kind === "normal"` 的那一格（调用方已按 kind 收窄，这里不再传整份 snapshot） */
-  slot: SlotEventView;
-  busy: boolean;
-  onChoose: (optionId: string) => void;
-}) {
-  // 走 `slotEvent.options`（服务端已按 `visibleWhen` 过滤）。缺省成空数组而不是非空断言：
-  // 投影字段缺失时宁可显示「没有可选项」，也不要整页崩在 `undefined.map`。
-  const options = slot.options ?? [];
-  return (
-    <div className="event-body">
-      <h2>{slot.title}</h2>
-      <p>{slot.narrative}</p>
-      <div className="option-list">
-        {options.map((opt) => (
-          <button key={opt.id} className="option" disabled={busy} onClick={() => onChoose(opt.id)}>
-            {opt.text}
-          </button>
-        ))}
-      </div>
-      {options.length === 0 && <p className="muted">（没有可选项……）</p>}
-    </div>
-  );
-}
 
 // ---------- 行动面板（次要入口） ----------
 

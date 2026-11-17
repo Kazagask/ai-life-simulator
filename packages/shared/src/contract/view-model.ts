@@ -134,12 +134,26 @@ export const PlayerVMSchema = z
   .strict();
 export type PlayerVM = z.infer<typeof PlayerVMSchema>;
 
+/** 待决事件的一个选项（id 由引擎分配，提交时原样回传）。 */
+export const EventOptionVMSchema = z
+  .object({
+    id: z.string(),
+    text: z.string(),
+  })
+  .strict();
+export type EventOptionVM = z.infer<typeof EventOptionVMSchema>;
+
 export const SlotSceneVMSchema = z
   .object({
     eventId: z.string(),
     title: z.string(),
     /** 场景正文；稀疏参与时缺省，消费侧用 `narrative ?? ""` 兜底（不要回填 title）。 */
     narrative: z.string().optional(),
+    /**
+     * 追加：待决事件的可选项（服务端已按 `visibleWhen` 过滤，id 是引擎分配的真 optionId）。
+     * 缺省表示这一格不是待决事件 / 没有选项；展示层按空数组处理，不要 `undefined.map`。
+     */
+    options: z.array(EventOptionVMSchema).optional(),
   })
   .strict();
 export type SlotSceneVM = z.infer<typeof SlotSceneVMSchema>;
