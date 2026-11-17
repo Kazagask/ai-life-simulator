@@ -410,6 +410,19 @@ export interface WorldStateV2 {
    * 当"刚刚变真"（至多多发一次，不会永久抑制），与 `spawnRules` / `lastWheels` 同一兼容策略。
    */
   triggerFireLedger?: Record<string, TriggerFireLedgerEntry>;
+  /**
+   * 扩展层的状态切片（`docs/EXTENSIONS.md` §2 / `docs/CLAN-DESIGN.md` §2.1）。
+   *
+   * 键 = 扩展 id（与模板 `extensions:` 的键对齐），值 = **该扩展自己的**可 JSON 序列化对象。
+   * 内核**只做字节级 round-trip**：不读、不改、不解释内容，也不认识「宗族」「声望」这类词 ——
+   * 这是「卸载全部扩展后内核照样跑完整一局」的落点。
+   *
+   * 可选 + 缺省 `undefined` ⇒ 旧档直载、模板不声明扩展时逐字段不变（沿用
+   * `spawnRules` / `lastWheels` 的兼容策略，**不升 `schemaVersion`**）。
+   * 读档时已注册扩展的 `stateSchema` 会被应用到对应切片；未注册的 id 原样保留
+   * （可能是已卸载扩展的遗留数据），不丢、不报错。
+   */
+  extensions?: Record<string, unknown>;
 }
 
 /** ADR-0036：单条触发器的最近一次求值结果。 */
@@ -566,7 +579,13 @@ export interface PedigreeNodeView {
   /** 显示名（来自 actor 目录；未知者用占位名，绝不是裸 id）。 */
   name: string;
   isSelf: boolean;
-  /** `false` = 没有 NPC 卡（隐藏 / 未登场 / 敌人）：可显示，但点不出档案。 */
+  /**
+   * `false` = 没有 NPC 卡（隐藏 / 未登场 / 敌人）：可显示，但点不出档案。
+   *
+   * ⚠ **当前恒为 `true`**：族谱按 §1.5 的投影纪律把隐藏端点**连边带点**整条丢掉，
+   * 走到视图里的节点必然可见。字段保留是为了固定视图契约（将来若出现「可见但没卡」
+   * 的节点，UI 不必改），不是「暂时没人实现」。
+   */
   hasCard: boolean;
   genderLabel: string;
   age: number;
@@ -609,7 +628,13 @@ export interface PedigreeView {
   nodes: PedigreeNodeView[];
   edges: PedigreeEdgeView[];
   generationRange: { min: number; max: number };
-  /** 可见节点的父/母被判 hidden ⇒ UI 画 "?"，不编一个根。 */
+  /**
+   * 可见节点的父/母被判 hidden ⇒ UI 画 "?"，不编一个根。
+   *
+   * 只在**该节点真的上屏**时置真（被世代窗口 / 规模上限截掉的人不算 —— 那种情况由
+   * `truncated` 说明）。因此 `incomplete` 为假不代表血缘链完整，只代表「上屏的人里
+   * 没有谁的父/母是已知但被隐藏的」。
+   */
   incomplete?: boolean;
   /** 因 `maxGenerations` / `maxNodes` 截断过。 */
   truncated?: boolean;
