@@ -156,6 +156,21 @@ export const WorldTemplateV2Schema = z
         engineProtocol: z.literal("v2"),
       })
       .strict(),
+    /**
+     * 扩展声明（`docs/EXTENSIONS.md` §3）：键 = 扩展 id，出现即启用。
+     *
+     * · **值**：`true`（用扩展的默认配置）或一个对象（交给扩展自己的 schema 校验）。
+     * · **不声明 ⇒ 扩展不跑**，哪怕它的包就装在那儿 —— 这是「卸载全部扩展后投影零回归」的落点。
+     * · 某个 id 在已注册 runtime 里找不到 ⇒ 模板拒载（`unknown_extension`），由 `apps/server` 加载器判定。
+     *
+     * 语义指纹：整个 `extensions:` 段进指纹（`config` 会改变投影内容，如 `maxHops`）。
+     */
+    extensions: z
+      .record(
+        z.string().min(1),
+        z.union([z.literal(true), z.record(z.string(), z.unknown())]),
+      )
+      .optional(),
     time: z
       .object({
         defaultStep: TimeAmountSchema,

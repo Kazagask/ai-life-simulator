@@ -1,4 +1,4 @@
-import relationship from "relationship.js";
+import { KinshipKindSchema } from "@life-sim/shared";
 import type { KinshipKind, RelationEdge } from "@life-sim/shared";
 import { PLAYER_ID } from "@life-sim/shared";
 
@@ -6,8 +6,11 @@ import { PLAYER_ID } from "@life-sim/shared";
  * R2.6 关系图谱内核（ADR-0014 · T-B2）。
  *
  * 纯函数、无 IO、无随机、无 `Date`：同输入必然同输出（确定性硬约束）。
- * 本文件只管**图的拓扑**（建图/增删/最短路径/环检测/断代/冻结）；
- * 中文称谓推导（需引 `relationship.js`）在 T-B3 追加，保持本层零依赖。
+ * 本文件只管**图的拓扑**（建图/增删/最短路径/环检测/断代/冻结/可见性收敛）。
+ *
+ * 2026-11-17：中文称谓推导（第三方称谓库）已整体搬去 `extensions/family`
+ * （`docs/EXTENSIONS.md`）。core 不认识「称谓」「族谱」这些词 —— 它只提供事实与算法，
+ * 扩展拿这张图去解释。因此本文件**不含任何第三方依赖**。
  *
  * 边语义（见 `schema/relation.ts`）：`{ from: A, to: B, kind: "father" }`
  * 读作「B 是 A 的父亲」，因此**从 A 向外出边**即「A 的 <kind>」。
@@ -22,24 +25,14 @@ import { PLAYER_ID } from "@life-sim/shared";
  */
 export const PLAYER_NODE_ID = PLAYER_ID;
 
-/** 亲属边 → 关系链记号（与 `relationship.js` 词表对齐，多跳用「的」连接）。 */
-export const KINSHIP_TOKEN: Record<KinshipKind, string> = {
-  father: "爸爸",
-  mother: "妈妈",
-  son: "儿子",
-  daughter: "女儿",
-  husband: "丈夫",
-  wife: "妻子",
-  "elder-brother": "哥哥",
-  "younger-brother": "弟弟",
-  "elder-sister": "姐姐",
-  "younger-sister": "妹妹",
-  relative: "亲戚",
-};
+const KINSHIP_KINDS: ReadonlySet<string> = new Set<string>(KinshipKindSchema.options);
 
-const KINSHIP_KINDS = new Set<string>(Object.keys(KINSHIP_TOKEN));
-
-/** 是否亲属边（只有亲属边参与称谓推导；社会边只作图查询与叙事标签）。 */
+/**
+ * 是否亲属边（只有亲属边参与图上的辈分推导；社会边只作图查询与叙事标签）。
+ *
+ * 判据只有一条：`kind` 是否落在 shared 的 `KinshipKind` 枚举里。
+ * **留在 core** 是因为它只是对 shared 枚举做集合判断，不含任何「称谓」知识。
+ */
 export function isKinshipKind(kind: string): kind is KinshipKind {
   return KINSHIP_KINDS.has(kind);
 }
@@ -129,7 +122,12 @@ export function relationsOf(graph: RelationGraph, nodeId: string): RelationEdge[
 export interface RelationPath {
   /** 逐跳边（从 from 出发向外的顺序）。 */
   readonly edges: readonly RelationEdge[];
-  /** 逐跳关系链记号，如 `["爸爸","妈妈"]`。 */
+  /**
+   * 逐跳的 `kind`（如 `["father","mother"]`）。
+   *
+   * 2026-11-17：这里原来是中文关系链记号。称谓记号属于扩展的解释层，
+   * 已随 `extensions/family` 搬走 —— core 只回边的事实，怎么念由扩展决定。
+   */
   readonly tokens: readonly string[];
   /** 路径上是否经过断代边（gap）——命中则只允许粗称谓，不猜代数。 */
   readonly gapped: boolean;
@@ -153,7 +151,7 @@ function lexLess(a: readonly string[], b: readonly string[]): boolean {
 
 /**
  * 最短关系路径（BFS 逐层，等长路径取关系链字典序最小 ⇒ 完全确定）。
- * 默认只沿**亲属边**向外走（社会边无称谓语义）；`maxHops` 默认 8 跳防爆。
+ * 默认只沿**亲属边**向外走（社会边无辈分语义）；`maxHops` 默认 8 跳防爆。
  * `from === to` 返回空路径（自己）；不可达返回 `null`。
  */
 export function shortestPath(
@@ -177,10 +175,9 @@ export function shortestPath(
         if (kinshipOnly && !isKinshipKind(e.kind)) continue;
         if (kinshipOnly && e.to === from) continue; // 简单路径：不折返回起点
         if (best.has(e.to)) continue; // 已更短到达
-        const token = isKinshipKind(e.kind) ? KINSHIP_TOKEN[e.kind] : e.kind;
         const cand: PathState = {
           edges: [...st.edges, e],
-          tokens: [...st.tokens, token],
+          tokens: [...st.tokens, e.kind],
           gapped: st.gapped || e.gap === true,
         };
         const prev = next.get(e.to);
@@ -278,77 +275,4 @@ export function projectVisibleRelations(edges: readonly RelationEdge[]): Relatio
   return edges
     .filter((e) => e.visibility === "known" || e.visibility === "inferred")
     .map((e) => ({ ...e }));
-}
-
-// ---------------- 多跳中文称谓（T-B3 · 复用 relationship.js） ----------------
-
-/** 断代 / 库无解时的粗称谓：明确「不猜代数」，不抛错、不静默返回空串。 */
-export const COARSE_KINSHIP_TITLE = "远亲";
-
-/** 自己对自己的称谓。 */
-export const SELF_TITLE = "自己";
-
-export interface KinshipTerm {
-  /** 主称谓（多解时取字典序最小 ⇒ 确定性）。 */
-  readonly term: string;
-  /** 全部候选称谓（字典序）。 */
-  readonly alternatives: readonly string[];
-  /** 推导所用的关系链记号，如 `["爸爸","妈妈"]`；回退粗称谓时仍保留以便诊断。 */
-  readonly tokens: readonly string[];
-  /** 路径含断代边。 */
-  readonly gapped: boolean;
-  /** true = 由 relationship.js 精确推导；false = 断代/无解回退粗称谓。 */
-  readonly exact: boolean;
-}
-
-/**
- * 求 `from` 对 `to` 的中文称谓（T-B3）。
- *
- * 管线：最短亲属路径 → 关系链记号（`爸爸的的妈妈`）→ `relationship.js` → 称谓。
- * 确定性：路径等长取字典序最小（`shortestPath` 保证），库多解再按字典序取最小。
- * 回退：断代边（gap）/ 库无解 ⇒ `COARSE_KINSHIP_TITLE`，`exact: false`。
- * 不可达返回 `null`（不是「不认识」的证据，只表示图里没有亲属链）。
- */
-export function kinshipTerm(
-  edges: readonly RelationEdge[],
-  from: string,
-  to: string,
-  opts: { readonly maxHops?: number } = {},
-): KinshipTerm | null {
-  if (from === to) {
-    return { term: SELF_TITLE, alternatives: [SELF_TITLE], tokens: [], gapped: false, exact: true };
-  }
-  const graph = buildRelationGraph(edges);
-  const path = shortestPath(graph, from, to, { maxHops: opts.maxHops ?? 8 });
-  if (!path) return null;
-
-  const tokens = path.tokens;
-  if (path.gapped || tokens.length === 0) {
-    return {
-      term: COARSE_KINSHIP_TITLE,
-      alternatives: [COARSE_KINSHIP_TITLE],
-      tokens,
-      gapped: path.gapped,
-      exact: false,
-    };
-  }
-
-  const raw = relationship({ text: tokens.join("的") });
-  const alternatives = [...new Set(raw)].sort();
-  if (alternatives.length === 0) {
-    return {
-      term: COARSE_KINSHIP_TITLE,
-      alternatives: [COARSE_KINSHIP_TITLE],
-      tokens,
-      gapped: false,
-      exact: false,
-    };
-  }
-  return { term: alternatives[0], alternatives, tokens, gapped: false, exact: true };
-}
-
-/** 便捷判据：`from` 是否至少有亲属链可达 `to`（不含自己）。 */
-export function isKinshipReachable(edges: readonly RelationEdge[], from: string, to: string): boolean {
-  if (from === to) return false;
-  return shortestPath(buildRelationGraph(edges), from, to) !== null;
 }

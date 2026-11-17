@@ -16,8 +16,10 @@ export * from "./v2/life-evaluation.js";
 export * from "./v2/archive.js";
 export * from "./v2/history.js";
 export * from "./v2/equipment-turn.js";
-// R2.6 关系图谱（ADR-0014）：R-REL-01 的查询 API 对外可见（建图/最短路径/称谓/投影）
+// R2.6 关系图谱（ADR-0014）：R-REL-01 的查询 API 对外可见（建图/最短路径/投影）
 export * from "./v2/relations.js";
+// 扩展层接缝（docs/EXTENSIONS.md §2）：注册表 + 派生契约，扩展从这里 import
+export * from "./v2/extensions.js";
 
 // ---------- 确定性随机源（V2 引擎共用，非 V1 遗留） ----------
 export * from "./rng.js";
@@ -27,3 +29,6 @@ export * from "./api/engine-api.js";
 export * from "./api/perspective.js";
 export * from "./v2/condition-evaluator.js";
 export * from "./v2/knowledge-grants.js";
+
+// ---------- 测试夹具（extensions/* 的用例也从这里拿，避免两份「最小模板」各自漂移） ----------
+export * from "./v2/test-utils.js";

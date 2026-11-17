@@ -92,6 +92,25 @@ importers:
         specifier: ^6.3.0
         version: 6.4.6(@types/node@22.20.5)(tsx@4.23.15)(yaml@2.9.1)
 
+  extensions/family:
+    dependencies:
+      '@life-sim/game-core':
+        specifier: workspace:*
+        version: link:../../packages/game-core
+      '@life-sim/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      relationship.js:
+        specifier: ^1.2.9
+        version: 1.2.9
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.0
+        version: 3.2.7(@types/node@22.20.5)(tsx@4.23.15)(yaml@2.9.1)
+
   packages/agent-runtime:
     dependencies:
       '@life-sim/game-core':
@@ -119,9 +138,6 @@ importers:
       '@life-sim/shared':
         specifier: workspace:*
         version: link:../shared
-      relationship.js:
-        specifier: ^1.2.9
-        version: 1.2.9
     devDependencies:
       typescript:
         specifier: ^5.8.0

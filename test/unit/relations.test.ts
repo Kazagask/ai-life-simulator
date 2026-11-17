@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { kinshipTerm, projectVisibleRelations } from "@life-sim/game-core";
+import { projectVisibleRelations } from "@life-sim/game-core";
+import { kinshipTerm } from "@life-sim/ext-family";
 import type { RelationEdge } from "@life-sim/shared";
 
 const edge = (

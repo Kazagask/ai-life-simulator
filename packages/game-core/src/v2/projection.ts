@@ -3,6 +3,7 @@ import type {
   EndingTemplate,
   EndingView,
   EvaluationRecord,
+  RelationEdge,
   TerminationRecord,
   V2Snapshot,
   WorldRunStatus,
@@ -14,8 +15,21 @@ import { birthTimeFromAge, createTimeAdapter } from "./time.js";
 import type { TemplateLookup } from "./lookup.js";
 import { slotEventView } from "./turn.js";
 import { controlOf } from "./battle.js";
-import { isKinshipKind, kinshipTerm, projectVisibleRelations } from "./relations.js";
+import { projectVisibleRelations } from "./relations.js";
+import {
+  assertNoReservedRowFields,
+  resolveExtensionRuntimes,
+  type ResolvedExtension,
+} from "./extensions.js";
 import { actorName, buildActorDirectory } from "./actors.js";
+
+/** 关系行（`V2Snapshot.npcs[].relations[]` 的元素）。 */
+type RelationRow = V2Snapshot["npcs"][number]["relations"][number];
+/**
+ * 装配期可变形态：内核字段 + 扩展加进来的列。
+ * 扩展的列名是动态的，只能以索引访问；出口处收敛回 `RelationRow`。
+ */
+type MutableRelationRow = RelationRow & Record<string, unknown>;
 
 /**
  * V2 投影：hidden 信息不外泄；
@@ -82,6 +96,13 @@ export function projectSnapshotV2(
   const observableRelations = projectVisibleRelations(state.relations);
   /** 关系行里的人名解析：实例 → 模板（敌人没有实例但有名字）→ 玩家。 */
   const actorDirectory = buildActorDirectory(state, template);
+  /**
+   * 模板声明了哪些扩展（`docs/EXTENSIONS.md` §3）。**未声明即不跑** ——
+   * 这里返回空数组时，下面一次都不会调用扩展，投影与「零扩展」逐字段一致。
+   *
+   * 注册表只在启动期写（`apps/server` bootstrap），运行期只读 ⇒ 投影保持确定。
+   */
+  const extensionRuntimes = resolveExtensionRuntimes(template);
 
   const statuses = player.statuses
     .map((inst) => {
@@ -251,39 +272,16 @@ export function projectSnapshotV2(
           sinceTurn: npc.lifecycle.sinceTurn,
           sinceWorldTime: npc.lifecycle.sinceWorldTime,
         },
-        // 行来源与下方称谓推导的边集是同一份 `observableRelations`（B-2 解耦后 =
+        // 行来源与扩展推导用的边集是同一份 `observableRelations`（B-2 解耦后 =
         // 全部 known/inferred 边，不再按节点可见性剔除）——不得再引入第二份过滤口径，
         // 否则「卡片上写了这条关系、称谓却算不出来」这类自相矛盾会重新出现。
-        relations: observableRelations
-          .filter((e) => e.from === npc.id || e.to === npc.id)
-          .map((e) => {
-            const outgoing = e.from === npc.id;
-            const withId = outgoing ? e.to : e.from;
-            // 称谓只在「本体称呼对方」的有向亲属边上成立；反向边不强行反推称谓。
-            // 入参是**完整**的 known/inferred 边集（2026-11-16 解耦后）：路径可以穿过
-            // 未登场/隐藏的中间人 —— 你不需要认识他，也能知道"惠的父亲的兄弟是他叔叔"。
-            // 仍不补「远亲」兜底（决策 4）：没边支撑就不该断言关系。
-            const term =
-              outgoing && isKinshipKind(e.kind)
-                ? kinshipTerm(observableRelations, npc.id, withId)
-                : null;
-            return {
-              withId,
-              kind: e.kind,
-              visibility: e.visibility,
-              direction: outgoing ? ("out" as const) : ("in" as const),
-              /**
-               * 对方有没有 NPC 卡。`false` = 这条边指向一个未登场 / 不展示的角色
-               * （比如敌人、或尚未露面的亲属）—— 关系是真的，但点不出卡片。
-               * 前端据此显示「名字 + 未登场」，而不是假装有卡或干脆不显示这条边。
-               */
-              counterpartVisible: !hiddenNodeIds.has(withId),
-              /** 对方名字（隐藏/未登场/敌人都有；前端不再需要在无卡时反查） */
-              withName: actorName(actorDirectory, withId),
-              ...(e.value !== undefined ? { value: e.value } : {}),
-              ...(term ? { kinshipTerm: term.term } : {}),
-            };
-          }),
+        relations: buildRelationRows(
+          npc.id,
+          observableRelations,
+          hiddenNodeIds,
+          extensionRuntimes,
+          actorDirectory,
+        ),
         };
       }),
     // ADR-0034 §5：投影只给"当前在演什么"（`slotEvent`），不投影队列内容与长度。
@@ -323,6 +321,110 @@ export function projectSnapshotV2(
     status,
     ending: state.termination ? buildEndingView(state.termination, endings, state) : null,
   };
+}
+
+/**
+ * 一张卡的关系行：**内核填事实，扩展加解释**（`docs/EXTENSIONS.md` §2）。
+ *
+ * 内核负责且只负责：
+ * · 事实行（`known` / `inferred` 边）与它们的 `withName` / `counterpartVisible` / `direction`；
+ * · 每卡一个 `memo`，逐行 `decorate`、每卡一次 `extendRows`（顺序 = 模板声明顺序）；
+ * · 五条保证里内核能守的三条：字段同名冲突抛错、推导行的可行性与命名由内核说了算、
+ *   未声明不跑（由调用方传进来的 `extensions` 为空表达）。
+ *
+ * 扩展**拿不到**命名与上屏判定：`withName` / `counterpartVisible` 一律从 actor 目录与
+ * `hiddenNodeIds` 现算 —— 否则隐藏角色可以被扩展「说出来」。
+ */
+function buildRelationRows(
+  viewerId: string,
+  visibleEdges: readonly RelationEdge[],
+  hiddenNodeIds: ReadonlySet<string>,
+  extensions: readonly ResolvedExtension[],
+  directory: ReturnType<typeof buildActorDirectory>,
+): RelationRow[] {
+  /**
+   * 每张卡一个 memo，`decorate` 与 `extendRows` 共用。
+   * 多跳路径枚举的记忆化放这里 —— 同一对端点会被事实行与推导行各查一次，
+   * 不缓存则每条路径枚举跑两遍（十二人家族下足以把请求拖死）。
+   */
+  const memo = new Map<string, unknown>();
+
+  const factEdges = visibleEdges.filter((e) => e.from === viewerId || e.to === viewerId);
+  const factCounterpartIds = new Set<string>();
+  const rows: RelationRow[] = [];
+
+  for (const edge of factEdges) {
+    const outgoing = edge.from === viewerId;
+    const withId = outgoing ? edge.to : edge.from;
+    factCounterpartIds.add(withId);
+    const row: MutableRelationRow = {
+      withId,
+      kind: edge.kind,
+      visibility: edge.visibility,
+      direction: outgoing ? "out" : "in",
+      /**
+       * 对方有没有 NPC 卡。`false` = 这条边指向一个未登场 / 不展示的角色
+       * （比如敌人、或尚未露面的亲属）—— 关系是真的，但点不出卡片。
+       * 前端据此显示「名字 + 未登场」，而不是假装有卡或干脆不显示这条边。
+       */
+      counterpartVisible: !hiddenNodeIds.has(withId),
+      /** 对方名字（隐藏/未登场/敌人都有；前端不再需要在无卡时反查） */
+      withName: actorName(directory, withId),
+      ...(edge.value !== undefined ? { value: edge.value } : {}),
+    };
+    for (const ext of extensions) {
+      const decorate = ext.runtime.relationDerivation?.decorate;
+      if (decorate === undefined) continue;
+      const fields = decorate({ viewerId, edge, outgoing, visibleEdges, config: ext.config, memo });
+      if (fields === null) continue;
+      assertNoReservedRowFields(ext.id, fields);
+      Object.assign(row, fields);
+    }
+    rows.push(row);
+  }
+
+  /**
+   * 推导行：没有直接边、但扩展推得出来的关系（如多跳亲缘）。
+   *
+   * 这些行**不是新事实**，是同一张事实图上换一条路径得出的另一个解释 ——
+   * 所以可见性由扩展按构成边合成（`visibility` 已在草稿里给出），
+   * 但「能不能上屏」仍由内核判定（见下方两条 continue）。
+   */
+  const covered = new Set(factCounterpartIds);
+  for (const ext of extensions) {
+    const extendRows = ext.runtime.relationDerivation?.extendRows;
+    if (extendRows === undefined) continue;
+    const drafts = extendRows({
+      viewerId,
+      visibleEdges,
+      factCounterpartIds,
+      hiddenNodeIds,
+      config: ext.config,
+      memo,
+    });
+    for (const draft of drafts) {
+      // 保证 3：推得出来 ≠ 可以显示。已有事实行覆盖的对手不再补行；隐藏节点一律丢弃。
+      if (covered.has(draft.withId)) continue;
+      if (hiddenNodeIds.has(draft.withId)) continue;
+      const fields = draft.fields ?? {};
+      assertNoReservedRowFields(ext.id, fields);
+      const row: MutableRelationRow = {
+        withId: draft.withId,
+        kind: draft.kind ?? "relative",
+        visibility: draft.visibility ?? "known",
+        direction: "out",
+        counterpartVisible: !hiddenNodeIds.has(draft.withId),
+        withName: actorName(directory, draft.withId),
+        derived: true,
+      };
+      Object.assign(row, fields);
+      rows.push(row);
+      // 同一张卡上同一个人只留一行：后一个扩展不许给已有推导行的人再补一行。
+      covered.add(draft.withId);
+    }
+  }
+
+  return rows;
 }
 
 /**

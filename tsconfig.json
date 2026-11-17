@@ -14,12 +14,14 @@
       "@life-sim/shared": ["packages/shared/src/index.ts"],
       "@life-sim/game-core": ["packages/game-core/src/index.ts"],
       "@life-sim/agent-runtime": ["packages/agent-runtime/src/index.ts"],
-      "@life-sim/rpg-ui": ["packages/rpg-ui/src/index.ts"]
+      "@life-sim/rpg-ui": ["packages/rpg-ui/src/index.ts"],
+      "@life-sim/ext-family": ["extensions/family/src/index.ts"]
     }
   },
   "include": [
     "packages/**/*.ts",
     "packages/**/*.tsx",
+    "extensions/**/*.ts",
     "apps/**/*.ts",
     "apps/**/*.tsx"
   ],

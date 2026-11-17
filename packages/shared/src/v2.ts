@@ -680,8 +680,20 @@ export interface V2Snapshot {
       /** 对方名字（隐藏 / 未登场者也有名字：关系是独立事实，不因无卡而丢名字）。 */
       withName?: string;
       value?: number;
-      /** 多跳中文称谓（仅亲属链可推导时存在） */
+      /** 多跳中文称谓（仅亲属链可推导时存在）。**按本行自己的关系推导**，不是整对端点的最短路径。 */
       kinshipTerm?: string;
+      /**
+       * 同一段亲缘的其他读法（不含 `kinshipTerm` 本身）。
+       * 由扩展 `extensions.family` 产出（模板 `extensions.family.showAllRoles` 打开时才有），
+       * 如某人同时是「女儿」与「孙女」。
+       */
+      kinshipTerms?: string[];
+      /**
+       * true = 这一行不是声明出来的边，而是由多跳路径推出的关系。
+       * 只是来源标记，**不代表可信度更低**：它的 `visibility` 由路径上各边合成，
+       * 全部 known 时它就是 known。
+       */
+      derived?: boolean;
     }>;
     /**
      * 当前补正（ADR-0019）。**只投影 visibility=known 的定义**，与玩家补正同一过滤口径；

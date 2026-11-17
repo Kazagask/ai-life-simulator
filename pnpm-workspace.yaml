@@ -1,3 +1,5 @@
 packages:
   - "apps/*"
   - "packages/*"
+  # 扩展层（docs/EXTENSIONS.md）：多个世界共同、但不是所有世界通用的逻辑
+  - "extensions/*"

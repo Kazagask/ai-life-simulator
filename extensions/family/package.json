@@ -1,0 +1,21 @@
+{
+  "name": "@life-sim/ext-family",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@life-sim/game-core": "workspace:*",
+    "@life-sim/shared": "workspace:*",
+    "relationship.js": "^1.2.9"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}

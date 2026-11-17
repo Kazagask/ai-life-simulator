@@ -240,9 +240,6 @@ function toNpcVM(snapshot: V2Snapshot, npc: V2Snapshot["npcs"][number]): NpcVM {
     relations: npc.relations
       .filter((rel) => rel.direction === "out")
       .map((rel) => {
-        // `kinshipTerms`（同一段亲缘的其它读法）目前还在 packages/shared/src/v2.ts 的未提交改动里，
-        // 这里用结构化收窄读它，避免本提交绑死别人的未落库类型。那笔改动落库后删掉这层 cast 即可。
-        const extra = rel as { kinshipTerms?: string[] };
         return {
         withId: rel.withId,
         withName: rel.withName ?? nameOf(rel.withId),
@@ -252,7 +249,7 @@ function toNpcVM(snapshot: V2Snapshot, npc: V2Snapshot["npcs"][number]): NpcVM {
         visibilityLabel: RELATION_VISIBILITY_LABEL[rel.visibility] ?? rel.visibility,
         ...(rel.value !== undefined ? { value: rel.value } : {}),
         ...(rel.kinshipTerm !== undefined ? { kinshipTerm: rel.kinshipTerm } : {}),
-        ...(extra.kinshipTerms !== undefined ? { kinshipTerms: [...extra.kinshipTerms] } : {}),
+        ...(rel.kinshipTerms !== undefined ? { kinshipTerms: [...rel.kinshipTerms] } : {}),
         ...(rel.counterpartVisible !== undefined ? { counterpartVisible: rel.counterpartVisible } : {}),
         };
       }),
