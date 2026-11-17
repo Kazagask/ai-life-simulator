@@ -81,6 +81,17 @@ export const CharacterSchema = z
      * visibility 缺省 unknown（R-OP-05：默认不认识）。
      */
     relations: z.array(RelationDeclSchema).optional(),
+    /**
+     * **大众认知的生父**（不是"名分父"）——见 `docs/FAMILY-GRAPH.md` §3.1。
+     * 指向 `characters[].id`，必须存在（引用完整性在 world.ts 顶层校验），不得指向自己。
+     * 缺省 = 不详（不编）。
+     *
+     * ⚠ **本轮只是铺路**：字段入契约、建局时复制进实例，但**没有任何推导读它** ——
+     * 亲缘仍由 `extensions/family` 从关系边推导（模式一）。指针成为唯一真源是后续轮次的事。
+     */
+    fatherId: z.string().min(1).optional(),
+    /** **大众认知的生母**。同上：指向已声明角色，缺省 = 不详，本轮不参与推导。 */
+    motherId: z.string().min(1).optional(),
   })
   .strict();
 

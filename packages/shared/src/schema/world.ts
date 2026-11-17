@@ -365,6 +365,20 @@ export const WorldTemplateV2Schema = z
         }
       });
     });
+    // 父/母指针（`docs/FAMILY-GRAPH.md` §3.1）：必须指向已声明角色，且不得自引用。
+    // 指向不存在的 id 会让「指针是唯一真源」在运行时悄悄断线（族谱缺人、称谓静默降级），
+    // 所以在加载期 fail-fast；自引用则是必然的环，同样当场拒载。
+    w.characters.forEach((c, i) => {
+      (["fatherId", "motherId"] as const).forEach((field) => {
+        const target = c[field];
+        if (target === undefined) return;
+        if (target === c.id) {
+          add(["characters", i, field], `${field} 不能指向自己：${c.id}`);
+        } else if (!characterIds.has(target)) {
+          add(["characters", i, field], `未知角色：${target}（${field} 目标）`);
+        }
+      });
+    });
     if (w.playerTemplate && !genderIds.has(w.playerTemplate.identity.gender)) {
       add(["playerTemplate", "identity", "gender"], `未知性别：${w.playerTemplate.identity.gender}`);
     }

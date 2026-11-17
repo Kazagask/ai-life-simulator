@@ -167,6 +167,15 @@ export interface V2Npc extends V2CombatantBase {
   secrets: string[];
   /** 上次自主行动的轮次 */
   lastActedAtTurn: number;
+  /**
+   * **大众认知的生父**（`docs/FAMILY-GRAPH.md` §3.1）：模板 `characters[].fatherId` 的副本，
+   * 缺省 = 不详。可选 + 无默认值，旧档缺字段不拒载（沿用 `birthTime` 的先例）。
+   *
+   * ⚠ **本轮只是铺路**：亲缘推导仍走关系边，没有任何代码读这两个指针。
+   */
+  fatherId?: string;
+  /** **大众认知的生母**。语义同 `fatherId`。 */
+  motherId?: string;
 }
 
 // ---------- 战斗 ----------

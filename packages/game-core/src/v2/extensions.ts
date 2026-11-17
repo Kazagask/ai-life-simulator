@@ -152,6 +152,17 @@ export interface SnapshotActor {
   readonly lifeStageLabel?: string;
   readonly lifeState?: NpcLifecycleState;
   readonly reasonCode?: string;
+  /**
+   * 父/母指针（`docs/FAMILY-GRAPH.md` §3.1），原样透传实例上的值。
+   * 缺省 = 不详（旧档 / 模板没写）。**本轮没有消费者**：族谱仍从边推导，扩展可先读不管。
+   */
+  readonly fatherId?: string;
+  readonly motherId?: string;
+  /**
+   * 出生时刻（世界分钟，可为负）。缺省 = 实例没有该字段（旧档），
+   * 要「当前年龄」请读上面的 `age`（内核已按同口径反推）——别自己再算一遍。
+   */
+  readonly birthTime?: number;
 }
 
 /**

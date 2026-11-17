@@ -199,6 +199,10 @@ export function createWorldV2(
         visibility: c.visibility,
         // ADR-0022：由刷新规则管辖的角色，世界创建时处于 unspawned（尚未出生/登场）
         ...(spawnRuleByCharacter.has(c.id) ? { spawnRuleId: spawnRuleByCharacter.get(c.id) } : {}),
+        // `docs/FAMILY-GRAPH.md` §3.1：父/母指针原样复制（缺省不写字段，保持旧模板存档形状不变）。
+        // **本轮不参与推导**：亲缘仍由 family 扩展从关系边算，这里只把值传下去。
+        ...(c.fatherId !== undefined ? { fatherId: c.fatherId } : {}),
+        ...(c.motherId !== undefined ? { motherId: c.motherId } : {}),
         // ADR-0012 决策 1 / ADR-0020：缺省在世；模板可在 characters[].lifecycle 声明初始态
         lifecycle: {
           state: spawnRuleByCharacter.has(c.id) ? "unspawned" : (c.lifecycle?.state ?? "alive"),

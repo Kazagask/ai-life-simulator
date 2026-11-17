@@ -388,6 +388,10 @@ function buildSnapshotActors(
       lifeStageLabel: shown.lifeStageLabel,
       lifeState: npc.lifecycle.state,
       ...(npc.lifecycle.reasonCode !== undefined ? { reasonCode: npc.lifecycle.reasonCode } : {}),
+      // 指针与出生时刻原样透传（FAMILY-GRAPH §3.1）：只搬运实例已有字段，不新增计算。
+      ...(npc.fatherId !== undefined ? { fatherId: npc.fatherId } : {}),
+      ...(npc.motherId !== undefined ? { motherId: npc.motherId } : {}),
+      ...(npc.birthTime !== undefined ? { birthTime: npc.birthTime } : {}),
     });
   }
   const player = state.player;
