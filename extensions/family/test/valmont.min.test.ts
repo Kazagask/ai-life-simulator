@@ -210,7 +210,7 @@ describe("valmont · 关系投影（玩家真正看到的那一行）", () => {
       "younger-sister",
     ]);
     /**
-     * 姻亲/拟制词表（与扩展的 `AFFINAL_TERMS` 同口径，但不从实现里 import：
+     * 姻亲/拟制词表（测试自己的口径，不从实现里 import：
      * 这条断言要钉的是**玩家看到的词**，不是某份常量表本身）。
      */
     const AFFINAL = new Set([

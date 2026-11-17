@@ -218,7 +218,10 @@ export function kinshipTermIn(
   if (resolved.kind === "signed") {
     // 主称谓不带「同父异母的」前缀：半血亲读法仍会出现在 `kinshipReadings` 里。
     const term = nameAtoms(resolved.atoms, facts, from, { halfPrefix: false });
-    if (term !== null) return { term, alternatives: [term], tokens, gapped: false, exact: true };
+    // 粗称谓（姻亲/养亲）是兜底：同长度若还有能叫出名字的路径，走下面的读法枚举。
+    if (term !== null && !isCoarseTerm(term)) {
+      return { term, alternatives: [term], tokens, gapped: false, exact: true };
+    }
   }
 
   /**
@@ -399,11 +402,14 @@ export function kinshipReadingsIn(
   const collected =
     precise.length > 0 ? [...precise, ...coarseAffinal] : [...coarseAffinal, ...coarseBlood];
 
-  // 排序：tier 升序 → 跳数升序 → 称谓字典序。
+  // 排序：tier 升序 → 精确词先于粗称谓 → 跳数升序 → 称谓字典序。
+  // 粗称谓（姻亲/养亲/远亲）是兜底，同层同跳数时不该压过能叫出名字的读法。
   const rank = (r: KinshipReading): number => r.signature?.tier ?? 1;
+  const coarseRank = (r: KinshipReading): number => (isCoarseTerm(r.term) ? 1 : 0);
   collected.sort(
     (a, b) =>
       rank(a) - rank(b) ||
+      coarseRank(a) - coarseRank(b) ||
       a.hops - b.hops ||
       (a.term < b.term ? -1 : a.term > b.term ? 1 : 0),
   );
