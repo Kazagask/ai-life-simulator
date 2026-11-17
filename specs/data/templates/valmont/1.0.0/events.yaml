@@ -33,6 +33,12 @@ events:
               # 因为推导只沿 outgoing 走，玩家没有出边就等于「不认识任何人」。
               - { type: addRelationEdge, fromId: player, toId: npc-reynard, kind: father, visibility: known, value: 40 }
               - { type: addRelationEdge, fromId: player, toId: npc-blanche, kind: mother, visibility: known, value: 45 }
+              # 宗族：建局时这一族是空族（`clans` 声明里刻意没有 headId / members）。
+              # 第一幕把这本册子重抄一遍，抄到最新一行只有一个还活着的人 —— 雷纳德。
+              # 入族与立主必须成对：`setClanHead` 只认在族成员，先把名字写进正册，主笔之位才有主。
+              # 这两条各自自动追加一条史（member_joined / head_changed），不另写 clanHistory。
+              - { type: joinClan, actorId: npc-reynard, clanId: valmont, via: birth, role: 嫡长, reason: "开册重抄：雷纳德承父栏，名续正册" }
+              - { type: setClanHead, clanId: valmont, actorId: npc-reynard }
             nextEventId: "evt:sibling"
 
   - id: "evt:sibling"
@@ -48,9 +54,14 @@ events:
             effects:
               - { type: adjustFlag, id: purityLevel, value: 1 }
               - { type: setFlag, id: sawSibling, value: true }
+              # 门第跟着册页走：把这一笔明写在边上，页页对得上，宅子的名声才立得住。
+              # 增量 +6（声望 60 → 66），远低于模板的 maxStep，不靠一步登天。
+              - { type: adjustClanPrestige, clanId: valmont, value: 6 }
             nextEventId: "evt:half"
           - id: opt-skip-sibling
             text: 不记，翻过去
+            # 刻意不调整门第：这一笔没落下，册子照旧，名声也照旧 —— 零变化，不写史
+            # （`adjustClanPrestige` 夹完无变化本来就不记）。
             effects:
               - { type: setFlag, id: sawSibling, value: false }
             nextEventId: "evt:half"
@@ -68,6 +79,21 @@ events:
             effects:
               - { type: adjustFlag, id: purityLevel, value: 1 }
               - { type: setFlag, id: sawHalf, value: true }
+              # 史是史，不是日志：这一条按册子的写法落笔，不动门第。
+              - { type: clanHistory, clanId: valmont, kind: custom, text: "庶支一名补入侧册：墨浅半度，栏低半行，掌笔者不署名。", refs: [npc-godfrey] }
+            nextEventId: "evt:ethics"
+          - id: opt-half-annex
+            text: 另起一页，把庶支抬进正册
+            # 条件链路的实证：两条都要成立才出现 ——
+            #   · 家主仍在族（`inClan` 按全图判定，不按可见性收敛）；
+            #   · 门第 ≥65：只有上一幕「记明兄妹」把 60 抬到 66 才成立，另一条路仍是 60。
+            # 也就是「玩家在第二幕的选择决定了第三幕能看到哪一支笔」。
+            visibleWhen:
+              - { op: inClan, args: { clanId: valmont, actorId: npc-reynard } }
+              - { op: clanPrestige, args: { clanId: valmont, gte: 65 } }
+            effects:
+              - { type: setFlag, id: sawHalf, value: true }
+              - { type: clanHistory, clanId: valmont, kind: custom, text: "另起一页，庶支的名字抬了半行；墨加了一度，页脚留下一个指印。" }
             nextEventId: "evt:ethics"
 
   - id: "evt:ethics"
