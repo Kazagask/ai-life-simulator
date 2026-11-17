@@ -39,10 +39,15 @@ export const clanView: ExtensionView = {
   order: 20,
   // 空数组 = 这个世界没有可展示的宗族 ⇒ 不出空页签。
   visible: (vm) => (familyUiData(vm)?.clans.length ?? 0) > 0,
-  Component: ({ vm }) => {
+  Component: ({ vm, host }) => {
     const data = familyUiData(vm);
     if (data === undefined || data.clans.length === 0) return null;
-    return <ClanPanel clans={data.clans} />;
+    return (
+      <ClanPanel
+        clans={data.clans}
+        onSelectNpc={(id) => host?.openNpc(id)}
+      />
+    );
   },
 };
 
