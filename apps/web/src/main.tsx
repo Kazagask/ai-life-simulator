@@ -1695,7 +1695,16 @@ function WorldTab({
   useEffect(() => {
     if (sub !== "npc" || focusNpcId === null) return;
     const el = document.getElementById(`npc-${focusNpcId}`);
-    el?.scrollIntoView({ block: "start", behavior: "smooth" });
+    if (el === null) return;
+    /*
+     * 不能直接 `scrollIntoView({ block: "start" })`：顶部栏是 `position: sticky`
+     * （约 66px），它会把目标卡片的标题行正好压在栏下面 —— 玩家只看到卡片中段，
+     * 认不出自己点的是谁。这里按顶栏实际高度留出偏移量再滚。
+     */
+    const topbar = document.querySelector<HTMLElement>(".topbar");
+    const offset = (topbar?.offsetHeight ?? 0) + 8;
+    const top = el.getBoundingClientRect().top + window.scrollY - offset;
+    window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
   }, [sub, focusNpcId]);
 
   const subtabs: Array<{ key: WorldSubTab; label: string }> =

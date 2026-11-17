@@ -23,7 +23,7 @@ const LABELS = {
   title: "族谱",
   empty: "这段关系里还没有可画的亲缘。",
   noCard: "无档案",
-  incomplete: "有人的父母不在已知范围内（画作「?」）。",
+  incomplete: "有些人的父母不在已知范围内，谱系不完整。",
   truncated: "谱系已按规模截断，只显示与你最近的那几代。",
   looseEnds: "据称的远亲",
   legend: {
