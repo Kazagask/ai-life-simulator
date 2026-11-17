@@ -148,6 +148,46 @@ function dedupeCodes(codes: readonly DiagnosticCode[]): DiagnosticCode[] {
   return [...new Set(codes)];
 }
 
+/** 正文字符上限：超过就按段落边界截断（保留整段，不切半句）。 */
+const NARRATIVE_MAX_CHARS = 420;
+
+/**
+ * 正文后处理：**去重 + 限长**。
+ *
+ * 两种真实模型行为（glm-5.3 实测）会让正文变脏，而它们都不是"内容问题"、是"格式问题"：
+ * 1. **整段复读**：模型把同一段话写两遍（一次 invocation 里自问自答式重来），
+ *    直接上屏就是"你坐回椅子上……你坐回椅子上……"；
+ * 2. **超长**：契约写了 80–220 字，模型常常写到 500+。
+ *
+ * 处理方式是确定性的（同输入同输出）：
+ * - 按空行切段，**按首现顺序保留唯一的段**（重复段直接丢，不做相似度判断）；
+ * - 再按段落累加，超过 `NARRATIVE_MAX_CHARS` 就停（不截断半句）。
+ */
+function normalizeNarrative(text: string): { text: string; droppedParagraphs: number } {
+  const paragraphs = text
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const p of paragraphs) {
+    if (seen.has(p)) continue;
+    seen.add(p);
+    unique.push(p);
+  }
+  const kept: string[] = [];
+  let total = 0;
+  for (const p of unique) {
+    if (kept.length > 0 && total + p.length > NARRATIVE_MAX_CHARS) break;
+    kept.push(p);
+    total += p.length;
+  }
+  return {
+    text: kept.join("\n\n"),
+    droppedParagraphs: paragraphs.length - kept.length,
+  };
+}
+
 /**
  * 从模型 content 中提取 `<narrative-content>` 块。
  *
@@ -155,12 +195,14 @@ function dedupeCodes(codes: readonly DiagnosticCode[]): DiagnosticCode[] {
  * - **多块**：按出现顺序保留，非空块用 `\n\n` 拼接；
  * - **嵌套**：非贪婪匹配，内层开标签会被当成外层正文的一部分（模板不承诺嵌套语义）；
  * - **未闭合**：不匹配，整段算标签外内容（⇒ 无块，走 `narrative_tag_missing`）；
- * - **标签外内容**：一律丢弃，只统计非空白字符数用于诊断。
+ * - **标签外内容**：一律丢弃，只统计非空白字符数用于诊断；
+ * - **块内后处理**：去重 + 限长，见 `normalizeNarrative`。
  */
 function extractNarrativeContent(raw: string): {
   text?: string;
   blockCount: number;
   outsideChars: number;
+  droppedParagraphs: number;
 } {
   const re = /<narrative-content>([\s\S]*?)<\/narrative-content>/g;
   const blocks: string[] = [];
@@ -173,10 +215,14 @@ function extractNarrativeContent(raw: string): {
     lastIndex = match.index + match[0].length;
   }
   outsideChars += raw.slice(lastIndex).replace(/\s+/g, "").length;
+  if (blocks.length === 0) return { blockCount: 0, outsideChars, droppedParagraphs: 0 };
+  const joined = blocks.join("\n\n");
+  const normalized = normalizeNarrative(joined);
   return {
-    ...(blocks.length > 0 ? { text: blocks.join("\n\n") } : {}),
+    ...(normalized.text.length > 0 ? { text: normalized.text } : {}),
     blockCount: blocks.length,
     outsideChars,
+    droppedParagraphs: normalized.droppedParagraphs,
   };
 }
 

@@ -40,8 +40,13 @@ export interface BuiltLlmContext {
 export const OUTPUT_CONTRACT = [
   "你是这场人生模拟的叙事者。所有玩家可见正文必须包在 <narrative-content>…</narrative-content> 里；",
   "标签外只允许工具调用与内部推理，标签外的文字会被丢弃。一次 invocation 可以有多个块，按出现顺序拼接。",
+  "**只写正文时不要调用任何工具**：输出 `<narrative-content>` 就完成了，不调工具同样算完成。",
+  "**只有要新增一条支线时**才调用 `story.submitBranch`；调用它就必须给全参数，空参数会整条被拒。",
   "只写简体中文散文。禁止任何 markdown / 格式符号（# * - ` >、列表、编号、代码块、英文引号）；除对话外不用括号，不写“（此处……）”式旁注，不写标题。",
   "禁止只转述现状：不要复述状态数字、线索数量、属性值、轮次。必须写这一刻具体的感官、动作、环境或对话片段，至少包含一个可被摄像机拍到的细节。",
+  "**必须紧接 `recentTurns` 的最后一条往下写**：那是刚刚发生的事，你写它之后的下一拍。不要重写已经演过的场面，不要跳回更早的场景，也不要预告下一幕。",
+  "**不要替玩家说话或做决定**：不写「你说……」「你决定……」这类替玩家表的态；只写他看到、听到、闻到、感到的，以及别人说的话、做的动作。",
+  "**用第二人称「你」指主角**，不要用名字当主语（别人喊他名字时除外），也不要写成第三人称旁白。写法示例：正确——你把眼罩往上推了推；错误——五条悟把眼罩往上推了推。",
   "不得违背 [设定]：其中写明的能力与限制是硬约束（例：无下限让普通斩击无法命中；斩击需要咏唱 / 接触或特定条件）。不确定就避开，不要编。",
   "一次 invocation 正文 80–220 个汉字，1–3 段。",
   "所有事实变更只能通过工具调用提交，禁止在正文里宣称状态已改变；refs 只能引用 facts 段里出现的事实引用 id。",
@@ -133,6 +138,8 @@ export function buildLlmContext(inv: LlmInvocation, deps: LlmContextDeps): Built
       : inv.context.contextHints !== undefined
         ? { contextHints: [...inv.context.contextHints] }
         : {}),
+    /** 模板的本幕要求：逐字透传，不改写（它是作者写给模型的话）。 */
+    ...(inv.context.instruction !== undefined ? { instruction: inv.context.instruction } : {}),
     ...(inv.lore?.some((entry) => entry.always !== true)
       ? { lore: inv.lore.filter((entry) => entry.always !== true) }
       : {}),

@@ -26,6 +26,14 @@ export const InvokeSchema = z
     targetPerspective: PerspectiveSchema,
     contextHints: z.array(z.string()).optional(),
     /**
+     * **本幕要求**（模板定制提示词）：一句话说清「这一次写什么、不要写什么」。
+     *
+     * 与 `contextHints` 的分工：hints 只是**标签**（引擎完全不解释，只当上下文记号），
+     * instruction 是**给模型看的话**。上限 300 字——它是"一句话"，不是第二个设定集；
+     * 需要长篇设定就写 `lore.md`（按 keys 命中，不占每次调用）。
+     */
+    instruction: z.string().min(1).max(300).optional(),
+    /**
      * ADR-0038：本轮允许 LLM 写分支的能力声明（历史上是模板事件 id 白名单）。
      *
      * 这是**能力声明**，不是用途声明 —— 声明 ≠ 只写一次：

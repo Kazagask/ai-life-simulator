@@ -13,6 +13,8 @@ llmTriggers:
     when: [{ op: "eventResolved", args: { eventId: "evt:gojo-fork" } }]
     invoke:
       reason: "gojo.fork"
+      # 本幕要求（模板定制提示词）：一句话说清这一次写什么、不要写什么。
+      instruction: "写候机厅里这几秒：他刚说完「南」，身子靠回椅背，广播在念航班号，飞机还在滑行。不要写跳场景，不要写开打，不要写他救人，也不要预告接下来会发生什么。"
       perspective: "world"
       targetPerspective: "player"
       contextHints: ["fork.tone", "facts"]
@@ -23,6 +25,7 @@ llmTriggers:
     when: [{ op: "eventResolved", args: { eventId: "evt:gojo-south-cut" } }]
     invoke:
       reason: "gojo.fall"
+      instruction: "写那一刀落下之后的一瞬：身体的感觉、周围人的反应、声音先消失再回来。不要写成总结陈词，也不要替玩家告别。"
       perspective: "world"
       targetPerspective: "player"
       contextHints: ["death.tone", "mentions"]
@@ -33,6 +36,7 @@ llmTriggers:
     when: [{ op: "eventResolved", args: { eventId: "evt:yuji-awaken" } }]
     invoke:
       reason: "yuji.awaken"
+      instruction: "写术式第一次成形的那一刻：手上、骨头里、呼吸里发生了什么。只写身体和眼前的东西，不要解释术式原理，不要写他想起谁。"
       perspective: "world"
       targetPerspective: "player"
       contextHints: ["awaken.tone", "facts"]
@@ -43,6 +47,7 @@ llmTriggers:
     when: [{ op: "eventResolved", args: { eventId: "evt:yuji-megumi" } }]
     invoke:
       reason: "yuji.rescue"
+      instruction: "写把伏黑从里面拉出来那一下：两个人各说一句就够，剩下的用动作和触感写。不要写胜利宣言，不要写后续安排。"
       perspective: "world"
       targetPerspective: "player"
       contextHints: ["rescue.tone", "facts", "secrets"]
@@ -86,3 +91,14 @@ inferenceRules:
   # 斩了羂索 ⇒ 你拼出他这一千年真正想要的东西。
   - when: [{ op: "flagSet", args: { flag: "kenjakuDead" } }]
     grant: { observers: ["player"], factRefs: ["fact:kenjaku-plan"], level: "inferred", source: "inferred" }
+
+# ── 模板级文风（进 invocation 的 stable prefix，与引擎输出契约并列，不覆盖它）──
+# 只写「这个模板怎么说话」，不写剧情概要；设定事实一律放 lore.md。
+prompt:
+  style: |
+    第二人称，贴着当下的那具身体写：呼吸、手心的汗、脚底踩到的碎玻璃、血在袖口结成的硬块。
+    短句为主，一段最多三句。不要用「你感到愤怒」这类结论，写让他愤怒的那个动作。
+    对话一次只给一到两句，说完就停，不要解释台词的含义。
+    不写旁白式总结，不写「这一切意味着」；把意义留给读者。
+    不要替玩家做决定，正文里不出现选项、不出现提示语、不出现「你可以……」。
+    不写与此刻无关的回忆，除非这一刻正被某个具体的东西勾起来（一首歌、一件校服、一个称呼）。

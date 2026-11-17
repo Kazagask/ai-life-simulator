@@ -71,6 +71,11 @@ export const LlmContextSchema = z
     recentTurns: z.array(z.unknown()),
     invocationReason: z.string().min(1),
     contextHints: z.array(z.string()).optional(),
+    /**
+     * 模板的**本幕要求**（`rules.yaml` 的 `invoke.instruction`）：一句话说清这一次写什么、不写什么。
+     * 与 `contextHints` 不同，它是给模型看的自然语言，不是标签。
+     */
+    instruction: z.string().min(1).optional(),
     /** 关键词命中的设定条目（reactive `[设定]` 段）；常驻条目在 stablePrefix 里。 */
     lore: z.array(LoreEntrySchema).optional(),
     /**

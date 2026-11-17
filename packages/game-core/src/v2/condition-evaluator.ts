@@ -265,6 +265,9 @@ function buildTriggerInvocation(
       ...(trigger.invoke.contextHints !== undefined
         ? { contextHints: trigger.invoke.contextHints }
         : {}),
+      ...(trigger.invoke.instruction !== undefined
+        ? { instruction: trigger.invoke.instruction }
+        : {}),
       // ADR-0038：白名单随 invocation 一起快照 —— 规则在 invocation 存续期间被改，
       // 不影响已经发出的这一份（它是这次调用的权威描述）。
       ...(trigger.invoke.branchEventIds !== undefined
