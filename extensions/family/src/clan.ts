@@ -104,22 +104,59 @@ export const ClanMemberSchema = z
   .strict();
 
 /**
+ * 婚配（`docs/FAMILY-GRAPH.md` §3.2）：`a` / `b` **无向**，按 `(min,max)` 归一去重；
+ * `until` 表达和离 / 丧偶（历史留在表里，不删条目）；**多妻顺序 = 数组顺序**。
+ *
+ * 放在扩展切片而**不留在 core 的边里**：这些语义只有家族关心，core 今天没有消费者。
+ */
+export const KinSpouseFactSchema = z
+  .object({
+    a: z.string().min(1),
+    b: z.string().min(1),
+    since: z.number().int().optional(),
+    until: z.number().int().optional(),
+  })
+  .strict();
+
+/** 收养（`docs/FAMILY-GRAPH.md` §3.2 第三层推导）：`parent` 是养父母，`child` 是被收养者。 */
+export const KinAdoptionFactSchema = z
+  .object({
+    child: z.string().min(1),
+    parent: z.string().min(1),
+    since: z.number().int().optional(),
+    until: z.number().int().optional(),
+  })
+  .strict();
+
+/**
  * `state.extensions.family` 的权威形状（整段严格）。
  *
  * `members` 是**权威表**，不是从关系图推的派生（§2.2）：嫁出去的女儿、出继的儿子、
  * 义子、入赘随妻族 —— 血缘与归族本来就不同。所以这里既允许「在族但无亲缘」，
  * 也允许「有亲缘但不在族」。
+ *
+ * `spouses` / `adoptions`（`docs/FAMILY-GRAPH.md` §3.2）**可选且不补缺省值**：
+ * · 旧档 / 旧模板里没有这两个键 ⇒ 必须直载（`optional()` 而非 `default([])`，
+ *   否则读档 round-trip 会凭空多出两个空数组，等于改了存档形状）；
+ * · 一旦存在，**任何 clan effect 都必须原样保留** —— 本文件的写点全部走
+ *   `ensureClanState`（整段解析，已含保留字段）→ 只改自己那部分 → `writeClanState`，
+ *   **不要**另造 `{ clans, members }` 形状的裸对象重建切片（那会当场抹掉婚配表，
+ *   亲属图随之塌掉；回归用例见 `extensions/family/test/clan-state-slice.test.ts`）。
  */
 export const clanStateSchema = z
   .object({
     clans: z.array(ClanFactSchema),
     members: z.array(ClanMemberSchema),
+    spouses: z.array(KinSpouseFactSchema).optional(),
+    adoptions: z.array(KinAdoptionFactSchema).optional(),
   })
   .strict();
 
 export type ClanHistoryEntry = z.infer<typeof ClanHistoryEntrySchema>;
 export type ClanFact = z.infer<typeof ClanFactSchema>;
 export type ClanMember = z.infer<typeof ClanMemberSchema>;
+export type KinSpouseFact = z.infer<typeof KinSpouseFactSchema>;
+export type KinAdoptionFact = z.infer<typeof KinAdoptionFactSchema>;
 export type ClanState = z.infer<typeof clanStateSchema>;
 
 /** 空切片（读侧兜底用；**不写回** state，避免把「没数据」写成「有数据」）。 */
@@ -271,7 +308,13 @@ function ensureClanState(state: WorldStateV2): ClanState {
   return parsed.data;
 }
 
-/** 只替换 `family` 切片，**保留其它扩展的切片**（`state.extensions` 是共享命名空间）。 */
+/**
+ * 只替换 `family` 切片，**保留其它扩展的切片**（`state.extensions` 是共享命名空间）。
+ *
+ * `next` 必须是 `ensureClanState` 的返回值（或其副本）：整段解析已把 `spouses` /
+ * `adoptions` 带上，写回时原样保留。**禁止**用 `{ clans, members }` 裸对象调用本函数
+ * —— 那等于重建切片，婚配表会被静默抹掉（`docs/FAMILY-GRAPH.md` §7.1 第 2 条）。
+ */
 function writeClanState(state: WorldStateV2, next: ClanState): void {
   state.extensions = { ...(state.extensions ?? {}), family: next };
 }
@@ -631,6 +674,8 @@ export const clanConditions: Readonly<Record<string, ConditionEvalFn>> = {
  * · 每个族写一条 `founded` 史（append-only 的起点）。
  * · 没声明族 ⇒ 不造空段（`state.extensions` 保持缺省，零回归）。
  * · 已有切片 ⇒ 不覆盖（幂等：建世界只调一次，防重复装配把历史抹掉）。
+ *   这里是**唯一**会造新切片的写点：切片还不存在，故不存在「抹掉 `spouses` / `adoptions`」
+ *   的问题；已存在时上面这条早退把它挡在门外。
  */
 export function initClanState(
   state: WorldStateV2,
