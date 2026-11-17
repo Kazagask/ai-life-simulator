@@ -259,9 +259,13 @@ export function NarrativeStream({ content, onAct, media = [], renderers, typewri
     el.scrollTop = el.scrollHeight;
   }, [blocks.length, lastBlockId, tailLength, typedLength]);
 
-  if (blocks.length === 0) {
+  // 一句正文都没有（开局前）才是「故事尚未开始」；局中这一轮只写了选项块时，上面的历史正文
+  // 还在，照常渲染 —— 绝不能在这时候把开局文案印到屏幕上。
+  if (content.length === 0) {
     return <p className="ls-narrative__empty">故事尚未开始。</p>;
   }
+  // 过滤后一块都不剩（例如本轮只产出 option 块）：不占位，也不留空容器。
+  if (blocks.length === 0) return null;
 
   /**
    * 每轮至多内联一张资源，且只有画面槽（`cg*` / `scene*`）允许内联

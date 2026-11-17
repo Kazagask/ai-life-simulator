@@ -206,6 +206,15 @@ function WheelReveal({
   // 转子角度：0° → 超调一点点 → 精确落点。不播动画时直接停在命中角度：
   // 指针压住的就是服务端结算出的扇区。
   const rotorDeg = phase === "spin" ? target + overshoot : phase === "rebound" || phase === "done" ? target : 0;
+  /**
+   * 落定后转子会再转 `360 - 命中扇区中心` 度 ⇒ 每个扇区在屏幕上的角度是
+   * `中心角 - 命中中心角`（mod 360），**不是**它自己的中心角。
+   *
+   * 标签的「不然就倒着」补偿必须按**屏幕上**的角度判断：早先按原始中心角判断，
+   * 结果只有靠近指针的那一两个扇区正着，其余全倒过来（RPA 截图 `ui-4-wheel.png`）。
+   * 转动过程中沿用起始朝向（0°），高速旋转时看不出差别。
+   */
+  const rotorOffset = phase === "rebound" || phase === "done" ? 360 - (hit?.center ?? 0) : 0;
   const rotorTransition =
     phase === "spin"
       ? `transform ${WHEEL_SPIN_MS}ms ${WHEEL_SPIN_EASING}`
@@ -254,7 +263,8 @@ function WheelReveal({
               const layout = layoutWheelLabel(s.label, s.sweep);
               const at = polar(WHEEL_LABEL_R, s.center);
               const lineHeight = layout.fontSize * WHEEL_LABEL_LINE_GAP;
-              const flip = s.center > 90 && s.center < 270;
+              const visualAngle = (((s.center + rotorOffset) % 360) + 360) % 360;
+              const flip = visualAngle > 90 && visualAngle < 270;
               return (
                 <g key={`${s.label}-${i}`}>
                   <path
