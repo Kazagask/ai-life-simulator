@@ -350,6 +350,10 @@ LLM 侧有一条同形的 DSL（`story.submitBranch`），见 §4.4。
 - `actors` = 这一幕**必须在场**（出队前复核活着，不符判错失）；`mentions` = 只在正文提到（可已故）；
   `npcs` = 这一幕把这些人**拉上场**（幂等）。
 - `once` / `cooldown` / `window` / `delay` / `timeCost` / `missWhen` 见 §2。
+- **后继不重算条件**（容易踩）：`nextEventId` 指向的下一幕由 `applySuccessor`（`turn.ts:390`）
+  直接写 `slot`，**不求值** `trigger.conditions` / `missWhen`——这两个只在队列扫描与候选筛选时生效。
+  要让"某一幕只在条件成立时出现"，把条件写在**该事件选项的 `visibleWhen`** 上，或让上一幕不指向它。
+  写成 `trigger.conditions` 是空转，不会报错，也不会有任何效果。
 
 ### 3.3 事实层
 
