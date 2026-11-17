@@ -121,7 +121,7 @@ describe("族谱：配偶边无向去重", () => {
     expect(view.edges.filter((e) => e.kind === "spouse")).toHaveLength(1);
   });
 
-  it("多配偶时按边出现序给位次（不看年龄）", () => {
+  it("多配偶不再下发「第几位配偶」（字段已删除，先后由排布表达）", () => {
     const view = derivePedigree(
       ctx({
         edges: [
@@ -132,12 +132,12 @@ describe("族谱：配偶边无向去重", () => {
         selfId: "a",
       }),
     );
-    const wife1 = view.nodes.find((n) => n.id === "wife1");
-    const wife2 = view.nodes.find((n) => n.id === "wife2");
-    expect(wife1?.spouseOrdinal).toBe(1);
-    expect(wife2?.spouseOrdinal).toBe(2);
-    // 只有一位配偶的人不该挂「第 1 位」这种噪音。
-    expect(view.nodes.find((n) => n.id === "kid")?.spouseOrdinal).toBeUndefined();
+    // 位次没有主客体，玩家看不懂；多配偶的先后由同代横排的顺序本身表达。
+    for (const node of view.nodes) {
+      expect("spouseOrdinal" in node).toBe(false);
+    }
+    // 配偶边本身照常保留（多配偶仍是可见事实，只是不再编号）。
+    expect(view.edges.filter((e) => e.kind === "spouse")).toHaveLength(2);
   });
 });
 

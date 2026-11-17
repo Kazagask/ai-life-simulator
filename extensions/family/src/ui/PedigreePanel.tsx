@@ -4,7 +4,7 @@ import type { PedigreeEdgeVM, PedigreeNodeVM, PedigreeVM } from "./view-model.js
 /**
  * 族谱面板（`docs/CLAN-DESIGN.md` §1.6）。
  *
- * 只吃 `PedigreeVM`：世代号、配偶序、有没有卡、生死态**全部是服务端口径**，
+ * 只吃 `PedigreeVM`：世代号、有没有卡、生死态**全部是服务端口径**，
  * 组件不读快照、不按关系边自己算辈分（前端只有出边，根本算不出「我的孩子是谁」）。
  *
  * 交互只有一条：点 `hasCard` 的节点交给宿主导航，`isSelf` 交给宿主开玩家面板；
@@ -33,7 +33,6 @@ const LABELS = {
     spouse: "姻亲",
     step: "继亲",
   },
-  ordinal: (n: number): string => `第 ${n} 位配偶`,
   age: (n: number): string => `${n} 岁`,
   generation: (n: number): string => `第 ${n} 代`,
   lifeState: {
@@ -301,10 +300,7 @@ export function PedigreePanel({ pedigree, onSelectNpc, onSelectSelf, title }: Pe
                   {LABELS.age(node.age)}
                   {node.genderLabel !== "" ? ` · ${node.genderLabel}` : ""}
                 </span>
-                <span className="ls-pedigree__meta">
-                  {dead ? lifeText(node) : ""}
-                  {node.spouseOrdinal !== undefined ? ` ${LABELS.ordinal(node.spouseOrdinal)}` : ""}
-                </span>
+                <span className="ls-pedigree__meta">{dead ? lifeText(node) : ""}</span>
                 {!node.hasCard && <span className="ls-pedigree__nocard">{LABELS.noCard}</span>}
               </button>
             );

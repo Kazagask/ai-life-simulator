@@ -6,7 +6,7 @@ import type { ClanView, PedigreeView } from "../contract.js";
  *
  * 宿主不再认识 `pedigree` / `clans`：`ViewModel.extensions.family` 是一个 `unknown` 切片，
  * 由本文件用 zod 校验成扩展自己的视图模型。字段口径与引擎的 `PedigreeView` / `ClanView`
- * 同形（服务端已算好世代 / 配偶序 / 生死态 / 计数），这里只做形状校验，不重算。
+ * 同形（服务端已算好世代 / 生死态 / 计数），这里只做形状校验，不重算。
  *
  * 注意：`PedigreeEdgeVM` **没有** `back`、`PedigreeNodeVM` **没有** `cyclic` ——
  * 回边不再下发（§7.4），schema 里也没有它们的容身处（`.strict()` 会直接拒绝）。
@@ -34,8 +34,6 @@ export const PedigreeNodeVMSchema = z
         reasonCode: z.string().optional(),
       })
       .strict(),
-    /** 多配偶时的位次（1 起；普通夫妻不下发）。 */
-    spouseOrdinal: z.number().optional(),
   })
   .strict();
 export type PedigreeNodeVM = z.infer<typeof PedigreeNodeVMSchema>;

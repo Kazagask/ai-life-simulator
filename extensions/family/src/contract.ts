@@ -42,8 +42,6 @@ export interface PedigreeNodeView {
    */
   generationBasis?: "blood" | "marriage" | "root";
   lifecycle: { state: NpcLifecycleState; reasonCode?: string };
-  /** 此人是其配偶的第几位配偶（1 起；只有多配偶时才下发，避免给普通夫妻加噪音）。 */
-  spouseOrdinal?: number;
 }
 
 /** 族谱边：`from` / `to` 是关系图节点 id（仅作 key / 跳转键）。 */

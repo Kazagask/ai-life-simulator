@@ -19,7 +19,7 @@ import { deriveClanView } from "./clan-view.js";
 import { parseFamilyConfig } from "./config.js";
 import { reachableKinshipNodeIds } from "./graph.js";
 import { derivePedigree } from "./pedigree.js";
-import { kinshipReadings, kinshipTerm, SELF_TITLE, STEP_TERMS, type KinshipReading } from "./terms.js";
+import { kinshipReadings, kinshipTerm, SELF_TITLE, type KinshipReading } from "./terms.js";
 
 /**
  * 家族扩展（extension id = `family`）：把关系**事实图**解释成称谓与族谱。
@@ -64,23 +64,23 @@ function visibleReadings(
 /**
  * `showAllRoles` 打开时，把主要读法之外的其他身份带出。
  *
- * 血亲读法全部保留（「女儿 / 孙女」这类同一血脉的多个身份）；
- * 姻亲读法只留「继」字辈与配偶直系（`STEP_TERMS`）——「婆婆」「小姑子」这类
- * 随口称呼是社交称谓，不是身份，列出来只会把卡片刷满。
- * 姻亲已被 `kinshipReadings` 过滤过（不可命名的路径直接丢弃），
- * 所以这里不会再有「老公的老婆」那种噪音。
+ * **只带血亲读法**。行首已经写了「爸爸 / 女儿 / 妈妈」，再并排一个「继女」「儿媳」
+ * 就是在同一行里自我矛盾 —— 行是事实，称谓就该描述这条事实；拟制/姻亲身份
+ * （含「继」字辈）不进 `kinshipTerms`。姻亲读法仍作为**主称谓**参与推导
+ * （继母就是继母），只是不再作为「附加身份」与血亲并列。
  *
- * 展示顺序：**「继」字辈优先**，其余按跳数。血亲优先只用于选主称谓；
- * 一旦作为「附加身份」并排展示，「继母」比「小姑」更值得占那一格。
+ * 多读法的价值保留在血亲内部：同一血脉的多条路径各算一个身份
+ * （奥德里克看布兰奇 = 女儿 + 外孙女 + 甥外孙女，三条都成立）。
+ *
+ * 展示顺序：**跳数升序 → 称谓字典序**（全血亲，不再有「继优先」那一层）。
  * 复制一份再排序——缓存里的数组不能被就地改动，否则主称谓会跟着变。
  */
 function pickExtras(readings: readonly KinshipReading[], primary: string, showAllRoles: boolean): string[] {
   if (!showAllRoles) return [];
   return [...readings]
-    .filter((r) => !r.affinal || STEP_TERMS.has(r.term))
+    .filter((r) => !r.affinal)
     .sort(
       (a, b) =>
-        Number(!STEP_TERMS.has(a.term)) - Number(!STEP_TERMS.has(b.term)) ||
         a.hops - b.hops ||
         (a.term < b.term ? -1 : a.term > b.term ? 1 : 0),
     )
@@ -235,7 +235,6 @@ export {
   KINSHIP_TOKEN,
   COARSE_KINSHIP_TITLE,
   SELF_TITLE,
-  STEP_TERMS,
   kinshipReadings,
   kinshipTerm,
   type KinshipReading,

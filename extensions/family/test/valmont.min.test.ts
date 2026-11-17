@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import type { EndingConfig, EvaluationConfig, OpeningTemplate, Rules, WorldTemplateV2, WorldStateV2 } from "@life-sim/shared";
+import type { EndingConfig, EvaluationConfig, OpeningTemplate, RelationEdge, Rules, WorldTemplateV2, WorldStateV2 } from "@life-sim/shared";
 import {
   EndingConfigSchema,
   EvaluationConfigSchema,
@@ -13,6 +13,7 @@ import {
 } from "@life-sim/shared";
 import {
   advanceTurnV2,
+  checkCondition,
   chooseOptionV2,
   createActiveWorldV2,
   createLookup,
@@ -25,6 +26,7 @@ import {
   type TurnPipelineConfig,
 } from "@life-sim/game-core";
 import { familyExtension, type FamilyView } from "../src/index.js";
+import { toViewModel } from "@life-sim/rpg-ui";
 
 /**
  * 集成回归：**直接拿可玩的 `valmont` 模板当夹具**，不另造测试专用剧本。
@@ -185,13 +187,73 @@ describe("valmont · 开册的后果落在状态上", () => {
 });
 
 describe("valmont · 关系投影（玩家真正看到的那一行）", () => {
-  it("布兰奇看玛蒂尔达是「外婆」，不是「妈妈」；继母作为附加身份并列", () => {
+  it("布兰奇看玛蒂尔达是「外婆」，不是「妈妈」；姻亲读法不再作为附加身份并列", () => {
     const rows = relationRow(newWorld(3), "布兰奇", "玛蒂尔达");
     expect(rows).toHaveLength(1);
     const row = rows[0]!;
     expect(row.kinshipTerm).toBe("外婆");
-    expect(row.kinshipTerms).toContain("继母");
     expect(row.kinshipTerm).not.toBe("妈妈");
+    // 行首已经写了「外婆」，再并排一个「继母」是自相矛盾的读法混层。
+    expect(row.kinshipTerms ?? []).not.toContain("继母");
+  });
+
+  it("直系血亲行的 extras 只并列血亲读法（不含任何姻亲/拟制称谓）", () => {
+    const snap = snapshot(newWorld(12));
+    const BLOOD_KINDS = new Set([
+      "father",
+      "mother",
+      "son",
+      "daughter",
+      "elder-brother",
+      "younger-brother",
+      "elder-sister",
+      "younger-sister",
+    ]);
+    /**
+     * 姻亲/拟制词表（与扩展的 `AFFINAL_TERMS` 同口径，但不从实现里 import：
+     * 这条断言要钉的是**玩家看到的词**，不是某份常量表本身）。
+     */
+    const AFFINAL = new Set([
+      "公公",
+      "婆婆",
+      "岳父",
+      "岳母",
+      "继父",
+      "继母",
+      "继子",
+      "继女",
+      "继兄弟",
+      "继姐妹",
+      "儿媳",
+      "女婿",
+      "嫂子",
+      "弟媳",
+      "姐夫",
+      "妹夫",
+      "小姑子",
+      "小叔子",
+      "大伯子",
+      "小舅子",
+      "大姨子",
+      "小姨子",
+      "连襟",
+      "妯娌",
+    ]);
+    const offenders: string[] = [];
+    for (const npc of snap.npcs) {
+      for (const row of npc.relations) {
+        if (row.direction !== "out" || !BLOOD_KINDS.has(row.kind)) continue;
+        for (const term of row.kinshipTerms ?? []) {
+          if (AFFINAL.has(term)) offenders.push(`${npc.name} ${row.kind} ${row.withName}: ${term}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+
+    // 血亲范围内的多读法必须保留：布兰奇既是奥德里克的女儿，又是他的外孙女。
+    const row = relationRow(newWorld(12), "奥德里克", "布兰奇").find((r) => r.kind === "daughter");
+    expect(row?.kinshipTerm).toBe("女儿");
+    expect(row?.kinshipTerms).toContain("外孙女");
   });
 
   it("戈弗雷看罗莎（零血缘）不会写成「妹妹」", () => {
@@ -199,7 +261,8 @@ describe("valmont · 关系投影（玩家真正看到的那一行）", () => {
     expect(rows.length).toBeGreaterThan(0);
     const terms = rows.flatMap((r) => [r.kinshipTerm, ...(r.kinshipTerms ?? [])]);
     expect(terms).not.toContain("妹妹");
-    expect(terms).toContain("继姐妹");
+    // 这层是事实边（妻子），主称谓就是「老婆」；姻亲读法不再作为附加身份并列。
+    expect(rows.find((r) => r.kind === "wife")?.kinshipTerm).toBe("老婆");
   });
 
   it("半血亲带前缀：玛蒂尔达看戈弗雷是「同父异母的弟弟」", () => {
@@ -214,6 +277,63 @@ describe("valmont · 关系投影（玩家真正看到的那一行）", () => {
     expect(kinds).toEqual(["father", "husband"]);
     expect(rows.find((r) => r.kind === "father")?.kinshipTerm).toBe("爸爸");
     expect(rows.find((r) => r.kind === "husband")?.kinshipTerm).toBe("老公");
+  });
+});
+
+describe("valmont · 派生行只是投影，不是事实边", () => {
+  const rng = (): number => 0.5;
+
+  it("派生的「亲戚」行不满足任何按 kind 匹配的关系条件", () => {
+    const state = newWorld(12);
+    const snap = snapshot(state);
+    const aldric = snap.npcs.find((n) => n.id === "npc-aldric")!;
+    const derived = aldric.relations.find((r) => r.derived === true && r.withId === "npc-irma");
+    // 派生行确实存在（奥德里克 → 伊尔玛 是继母，没有直接事实边）。
+    expect(derived?.kind).toBe("relative");
+    expect(derived?.kinshipTerm).toBe("继母");
+
+    const ctx = { state, lookup, rng };
+    // `gte: 1` = 「这条边存在且强度为正」。缺边时引擎读到 value = 0，自然不满足。
+    for (const kind of ["father", "mother", "son", "daughter", "husband", "wife", "relative"] as const) {
+      expect(checkCondition({ relation: "npc-aldric", to: "npc-irma", kind, gte: 1 }, ctx)).toBe(false);
+    }
+    // 对照：真实事实边能命中 —— 上面的 false 不是「条件恒假」。
+    expect(checkCondition({ relation: "npc-aldric", to: "npc-bardo", kind: "father", gte: 1 }, ctx)).toBe(true);
+  });
+
+  it("即便派生行被回灌进 state.relations，也不满足事实边判定", () => {
+    const state = newWorld(12);
+    // 只做防御性构造：正常路径上 `RelationEdge` 没有 `derived` 字段。
+    const forged = {
+      from: "npc-aldric",
+      to: "npc-irma",
+      kind: "father",
+      source: "effect",
+      visibility: "known",
+      value: 5,
+      derived: true,
+    } as unknown as RelationEdge;
+    const polluted: WorldStateV2 = { ...state, relations: [...state.relations, forged] };
+    const ctx = { state: polluted, lookup, rng };
+    // 价值 5 足以满足 gte: 1；被挡下来的是「是派生行」这件事本身。
+    expect(checkCondition({ relation: "npc-aldric", to: "npc-irma", kind: "father", gte: 1 }, ctx)).toBe(false);
+  });
+});
+
+describe("valmont · 关系行显示标签", () => {
+  it("派生行以推出来的称谓为主标签（外公），不是占位的「亲戚」", () => {
+    const snap = snapshot(newWorld(12));
+    const vm = toViewModel({ snapshot: snap, content: [], media: [] });
+    const hugh = vm.npcs.find((n) => n.id === "npc-hugh")!;
+
+    const maternal = hugh.relations.find((r) => r.withId === "npc-bardo");
+    expect(maternal?.kind).toBe("relative");
+    expect(maternal?.kindLabel).toBe("外公");
+
+    // 一级事实行不替换：kind 本身就是准的（父亲），标签照 kind 翻。
+    const father = hugh.relations.find((r) => r.kind === "father");
+    expect(father?.kindLabel).toBe("父亲");
+    expect(father?.kinshipTerm).toBe("爸爸");
   });
 });
 

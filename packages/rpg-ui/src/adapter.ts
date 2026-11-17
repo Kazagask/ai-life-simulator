@@ -182,6 +182,27 @@ const RELATION_VISIBILITY_LABEL: Record<string, string> = {
 };
 
 /**
+ * 关系行行首的称谓标签。
+ *
+ * **事实行**按 `kind` 翻译：一级边的 `kind` 本身就是准的（`father` → 父亲），不需要替换。
+ *
+ * **派生行**（多跳亲缘，投影里 `derived: true`）的 `kind` 恒为占位的 `"relative"` ——
+ * 照 kind 翻会把爷爷、外婆统统显示成「亲戚」。所以派生行以扩展推出来的 `kinshipTerm`
+ * 作主标签（「爷爷」），只有连称谓都推不出来时才回落到 kind 词（「亲戚」）。
+ * 组件侧不会再重复画一遍同名词（见 `RelationList`）。
+ */
+function relationKindLabel(rel: {
+  readonly kind: string;
+  readonly derived?: boolean;
+  readonly kinshipTerm?: string;
+}): string {
+  if (rel.derived === true && rel.kinshipTerm !== undefined && rel.kinshipTerm !== "") {
+    return rel.kinshipTerm;
+  }
+  return RELATION_KIND_LABEL[rel.kind] ?? rel.kind;
+}
+
+/**
  * 生命周期三态（ADR-0012 / ADR-0020）只是 `reasonCode` 缺失时的**兜底**文案。
  * `inactive` 的兜底必须中性写「已离场」：「已故」「失联」都是在替模板猜具体死因，
  * 而模板可能表达的是叛逃、被封印、转学离开……真正的原因由 `reasonCode` 原样下发。
@@ -244,7 +265,7 @@ function toNpcVM(snapshot: V2Snapshot, npc: V2Snapshot["npcs"][number]): NpcVM {
         withId: rel.withId,
         withName: rel.withName ?? nameOf(rel.withId),
         kind: rel.kind,
-        kindLabel: RELATION_KIND_LABEL[rel.kind] ?? rel.kind,
+        kindLabel: relationKindLabel(rel),
         visibility: rel.visibility,
         visibilityLabel: RELATION_VISIBILITY_LABEL[rel.visibility] ?? rel.visibility,
         ...(rel.value !== undefined ? { value: rel.value } : {}),

@@ -26,8 +26,12 @@ export function RelationList({ relations, subjectName }: RelationListProps) {
           <span className="rel-text">
             {subjectName}视{rel.withName ?? rel.withId}为{rel.kindLabel}
           </span>
-          {rel.kinshipTerm && <span className="rel-term">{rel.kinshipTerm}</span>}
-          {/* 同一段亲缘的另一个读法（「女儿」之外的「孙女」、「外婆」之外的「继母」）。 */}
+          {/* 派生行的行首标签已经是主称谓（适配器把 `kinshipTerm` 提到 `kindLabel`），
+              这里只画与行首不同的那一档，避免同一句话里出现两遍「外婆」。 */}
+          {rel.kinshipTerm && rel.kinshipTerm !== rel.kindLabel && (
+            <span className="rel-term">{rel.kinshipTerm}</span>
+          )}
+          {/* 同一段亲缘的另一个读法（「女儿」之外的「外孙女」）—— 扩展只并列血亲读法。 */}
           {rel.kinshipTerms?.map((term) => (
             <span key={term} className="rel-term rel-term-extra">
               {term}

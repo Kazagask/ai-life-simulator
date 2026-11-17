@@ -200,7 +200,9 @@ function normalize(ctx: PedigreeInput): Normalized {
     nodeIds.add(e.to);
   }
 
-  // 配偶序：按边出现序，逐人记「第几个配偶关系」（多妻/多夫时 UI 才需要）。
+  // 每人有哪些配偶（按边出现序，去重）。用途只有两个：无父母者的世代继承、
+  // 以及继亲边（父/母的另一位配偶）。**不再产出「第几位配偶」**——多配偶的先后
+  // 由节点的横向排布本身表达，加一个没有主客体的位次只会让玩家困惑。
   const spousePartners = new Map<string, string[]>();
   for (const e of spouses) {
     const a = spousePartners.get(e.a);
@@ -465,7 +467,6 @@ export function derivePedigree(ctx: PedigreeInput): PedigreeView {
     .map((id) => {
       const actor = ctx.actors.get(id);
       const lifeState = actor?.lifeState ?? (actor?.alive === false ? "inactive" : "alive");
-      const spouseOrdinal = spouseOrdinalOf(id, norm.spousePartners);
       return {
         // `id` 只作 React key / 跳转键，显示名一律取 `name`（绝不用裸 id）。
         id,
@@ -484,7 +485,6 @@ export function derivePedigree(ctx: PedigreeInput): PedigreeView {
           state: lifeState,
           ...(actor?.reasonCode !== undefined ? { reasonCode: actor.reasonCode } : {}),
         },
-        ...(spouseOrdinal !== undefined ? { spouseOrdinal } : {}),
       };
     });
 
@@ -590,22 +590,4 @@ export function derivePedigree(ctx: PedigreeInput): PedigreeView {
     ...(truncated ? { truncated: true } : {}),
     ...(looseEnds.length > 0 ? { looseEnds } : {}),
   };
-}
-
-/**
- * 「此人是其配偶的第几位配偶」（1 起，§1.2 第 2 条：用**边出现序**，不用年龄——年龄会漂）。
- *
- * 只有多配偶时才下发：普通一对夫妻没有歧义，给每个人挂个 "第 1 位" 只是噪音。
- */
-function spouseOrdinalOf(
-  id: string,
-  spousePartners: ReadonlyMap<string, readonly string[]>,
-): number | undefined {
-  const partners = spousePartners.get(id) ?? [];
-  if (partners.length === 0) return undefined;
-  const primary = partners[0]!;
-  const siblingsInMarriage = spousePartners.get(primary) ?? [];
-  if (siblingsInMarriage.length < 2) return undefined;
-  const at = siblingsInMarriage.indexOf(id);
-  return at >= 0 ? at + 1 : undefined;
 }

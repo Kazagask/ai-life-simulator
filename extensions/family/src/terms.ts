@@ -83,22 +83,6 @@ const AFFINAL_TERMS: ReadonlySet<string> = new Set([
   "妯娌",
 ]);
 
-/** 「继」字辈（多读法展示时允许与血亲并列，其它姻亲随口称呼不占位置）。 */
-export const STEP_TERMS: ReadonlySet<string> = new Set([
-  "继父",
-  "继母",
-  "继子",
-  "继女",
-  "继兄弟",
-  "继姐妹",
-  "儿媳",
-  "女婿",
-  "嫂子",
-  "弟媳",
-  "姐夫",
-  "妹夫",
-]);
-
 /** 同胞称谓：只有这些才谈得上「同父异母 / 同母异父」。 */
 const SIBLING_TERMS: ReadonlySet<string> = new Set(["哥哥", "弟弟", "姐姐", "妹妹"]);
 
