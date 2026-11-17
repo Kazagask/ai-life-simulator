@@ -105,11 +105,14 @@ extensions:
 ```
 
 - **值**：`true`（默认配置）或一个对象（交给扩展的 schema）。
-- **加载期**：任一 id 在已注册 runtime 里找不到 ⇒ **模板拒载**，封闭码 `unknown_extension`。
-  这就是"模板写了 extension 但没包，直接拒载"。
-- **语义指纹**：扩展 id + 版本进指纹（它改的是规则语义，和模板 yaml 同级）；
-  `config` **不进**——同 id 同版本下改开关不改结果结构……**注意**：这条待验证，
-  `maxHops` 会改变投影内容。**暂定整个 `extensions:` 段都进指纹**，简单且安全。
+- **加载期**：任一 id 在已注册 runtime 里找不到 ⇒ **该版本不可载**，封闭码 `unknown_extension`，
+  `/api/templates` 与建局 409 都带 `reasonCode`。这就是"模板写了 extension 但没包，直接拒载"。
+  **按版本拒载、不拖垮进程**：只让声明它的那一个版本不可载，别的模板照玩——
+  崩溃式 fail-fast 会让别人的存档一起陪葬。全部模板都不可载时才会命中既有的 `no_templates_found`。
+- **版本**：`extensions` 只按 **id** 校验，**没有版本区间**。`ExtensionRuntime.version` 字段目前
+  不被读取 —— 加版本约束是 `未决`（要它就得先定"版本不满足时是拒载还是降级"）。
+- **语义指纹**：`extensions` 整段（含 `config`）进指纹 —— 因为它在 `world.yaml` 里、整文件参与哈希。
+  `config` 确实会改投影内容（如 `maxHops`），所以"整段进"是对的，不用再区分。
 - 模板不声明 ⇒ 扩展不生效，哪怕包就装在那儿。
 
 ---
