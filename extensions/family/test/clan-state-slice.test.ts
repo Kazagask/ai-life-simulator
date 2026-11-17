@@ -145,3 +145,72 @@ describe("clan effect 写回：婚配 / 收养原样保留", () => {
     expect("adoptions" in slice).toBe(false);
   });
 });
+
+/**
+ * 建世界期**播种**（3c 接缝）：模板 `extensions.family.spouses` 必须落进 state。
+ *
+ * 指针模式没有婚姻边 —— 父/母在 `fatherId`/`motherId`，婚配只能来自模板的那张表。
+ * `initClanState` 是唯一的切片创建点，因此播种也归它：
+ * · 只声明 spouses（没有 clan）⇒ 切片照样建、`clans: []`、`members: []`；
+ * · 播种后跑 clan effect ⇒ spouses 原样保留（与上面「保留」组同一机制）；
+ * · 什么都没声明 ⇒ 不建切片（零回归）；
+ * · 端点未声明 ⇒ 建局期报错，不静默丢一对。
+ */
+describe("建世界期播种：模板写什么就落什么", () => {
+  /** 已按无向对归一（a < b），数组顺序 = 先后。 */
+  const SPOUSES = [
+    { a: "npc-a", b: "player" },
+    { a: "enemy-x", b: "npc-a" },
+  ];
+
+  /** 底座只有一个敌人角色；补一个可被婚配引用的 npc-a。 */
+  function templateWithKin(config: unknown): WorldTemplateV2 {
+    const base = makeTestTemplate();
+    const extra = {
+      ...base.characters[0]!,
+      id: "npc-a",
+      isEnemy: false,
+      identity: { ...base.characters[0]!.identity, name: "甲" },
+    };
+    return { ...base, characters: [...base.characters, extra], extensions: { family: config } };
+  }
+
+  it("只声明 spouses（不声明 clans）⇒ 切片存在、clans 为空、spouses 有值", () => {
+    const state = makeWorld(templateWithKin({ spouses: SPOUSES }));
+    const slice = familySlice(state);
+
+    expect(slice).toBeDefined();
+    expect(slice.clans).toEqual([]);
+    expect(slice.members).toEqual([]);
+    expect(slice.spouses).toEqual(SPOUSES);
+    // 没声明收养 ⇒ 不许补空数组（state 形状 = 模板声明）。
+    expect("adoptions" in slice).toBe(false);
+  });
+
+  it("播种后跑 clan effect：spouses 原样保留，clans 正常写入", () => {
+    const template = templateWithKin({ clans: [{ id: "c1", name: "瓦尔蒙" }], spouses: SPOUSES });
+    const state = makeWorld(template);
+    expect(readClanState(state).clans).toHaveLength(1);
+
+    run(
+      state,
+      template,
+      { type: "joinClan", actorId: "npc-a", clanId: "c1", via: "birth", reason: "生于本家" },
+      { type: "adjustClanPrestige", clanId: "c1", value: 5 },
+    );
+
+    expect(familySlice(state).spouses).toEqual(SPOUSES);
+    expect(readClanState(state).members).toHaveLength(1);
+    expect(readClanState(state).clans[0]?.prestige).toBe(5);
+  });
+
+  it("什么都没声明 ⇒ 不创建切片", () => {
+    const state = makeWorld(templateWithKin(true));
+    expect(state.extensions?.family).toBeUndefined();
+  });
+
+  it("婚配端点未声明 ⇒ 建局期报错，不静默丢一对", () => {
+    const template = templateWithKin({ spouses: [{ a: "npc-a", b: "npc-ghost" }] });
+    expect(() => makeWorld(template)).toThrow(/family_kin_seed_invalid/);
+  });
+});

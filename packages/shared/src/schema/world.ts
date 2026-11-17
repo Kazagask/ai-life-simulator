@@ -85,6 +85,12 @@ const PlayerTemplateSchema = z
     items: z
       .array(z.object({ itemId: z.string().min(1), count: z.number().int().positive() }).strict())
       .optional(),
+    /**
+     * 玩家也适用父/母指针（`docs/FAMILY-GRAPH.md` §3.1「玩家不是特例」）。
+     * 指向 `characters[].id`，加载期校验引用完整性；缺省 = 不详（不编）。
+     */
+    fatherId: z.string().min(1).optional(),
+    motherId: z.string().min(1).optional(),
   })
   .strict();
 
@@ -381,6 +387,17 @@ export const WorldTemplateV2Schema = z
     });
     if (w.playerTemplate && !genderIds.has(w.playerTemplate.identity.gender)) {
       add(["playerTemplate", "identity", "gender"], `未知性别：${w.playerTemplate.identity.gender}`);
+    }
+    // 玩家的父/母指针与角色同一条规则：必须指向已声明角色（玩家自身不是 characters 成员，
+    // 自引用在这里等价于「指向未知角色」，会被同一条分支拒载）。
+    if (w.playerTemplate) {
+      (["fatherId", "motherId"] as const).forEach((field) => {
+        const target = w.playerTemplate?.[field];
+        if (target === undefined) return;
+        if (!characterIds.has(target)) {
+          add(["playerTemplate", field], `未知角色：${target}（${field} 目标）`);
+        }
+      });
     }
     if (w.playerTemplate) {
       (w.playerTemplate.skills ?? []).forEach((sk, j) => {

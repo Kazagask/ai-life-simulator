@@ -1,8 +1,4 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { parse } from "yaml";
 import type { KinshipKind, RelationEdge } from "@life-sim/shared";
 import { kinshipReadings, kinshipTerm } from "../src/terms/index.js";
 
@@ -12,38 +8,101 @@ import { kinshipReadings, kinshipTerm } from "../src/terms/index.js";
  * 旧实现 `relationship.js` 已删除；这些用例锁住「换库到底换掉了什么」，
  * 防止以后有人把库的错误假设（父之妻=母、妻之子=子、配偶的配偶=自己、凭空给长幼）
  * 又写回来。注释里的「旧」都是 `terms-audit.md` 的实测输出。
+ *
+ * **夹具是手搓的边图，不读模板文件**：valmont 已迁到指针模式（`fatherId`/`motherId`
+ * + `extensions.family.spouses`），`characters.yaml` 里不再有亲属边。本文件测的是
+ * **terms 库对一张给定亲属图怎么命名**，不该随模板的写法迁移而松动 —— 所以把这家人的
+ * 亲缘事实（父/母、婚配、同胞长幼）直接写在这里，断言保持原样。
  */
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const VALMONT = path.resolve(HERE, "../../../specs/data/templates/valmont/1.0.0");
+const E = build({
+  "npc-bardo": [
+    ["npc-hilda", "wife"],
+    ["npc-irma", "wife"],
+    ["npc-aldric", "son"],
+    ["npc-mathilde", "daughter"],
+    ["npc-godfrey", "son"],
+  ],
+  "npc-hilda": [
+    ["npc-bardo", "husband"],
+    ["npc-aldric", "son"],
+    ["npc-mathilde", "daughter"],
+  ],
+  "npc-irma": [
+    ["npc-bardo", "husband"],
+    ["npc-konrad", "husband"],
+    ["npc-godfrey", "son"],
+  ],
+  "npc-konrad": [
+    ["npc-irma", "wife"],
+    ["npc-rosa", "daughter"],
+  ],
+  "npc-aldric": [
+    ["npc-bardo", "father"],
+    ["npc-hilda", "mother"],
+    ["npc-mathilde", "wife"],
+    ["npc-mathilde", "younger-sister"],
+    ["npc-hugh", "son"],
+    ["npc-cecily", "daughter"],
+    ["npc-cecily", "wife"],
+    ["npc-blanche", "daughter"],
+    ["npc-blanche", "wife"],
+  ],
+  "npc-mathilde": [
+    ["npc-bardo", "father"],
+    ["npc-hilda", "mother"],
+    ["npc-aldric", "husband"],
+    ["npc-aldric", "elder-brother"],
+    ["npc-godfrey", "husband"],
+    ["npc-godfrey", "younger-brother"],
+    ["npc-cecily", "daughter"],
+    ["npc-hugh", "son"],
+    ["npc-hugh", "husband"],
+    ["npc-reynard", "son"],
+  ],
+  "npc-godfrey": [
+    ["npc-bardo", "father"],
+    ["npc-irma", "mother"],
+    ["npc-mathilde", "wife"],
+    ["npc-mathilde", "elder-sister"],
+    ["npc-rosa", "wife"],
+  ],
+  "npc-rosa": [
+    ["npc-konrad", "father"],
+    ["npc-godfrey", "husband"],
+  ],
+  "npc-hugh": [
+    ["npc-aldric", "father"],
+    ["npc-mathilde", "mother"],
+    ["npc-mathilde", "wife"],
+    ["npc-reynard", "son"],
+  ],
+  "npc-cecily": [
+    ["npc-aldric", "father"],
+    ["npc-aldric", "husband"],
+    ["npc-mathilde", "mother"],
+    ["npc-blanche", "daughter"],
+  ],
+  "npc-reynard": [
+    ["npc-hugh", "father"],
+    ["npc-mathilde", "mother"],
+    ["npc-blanche", "wife"],
+    ["player", "son"],
+  ],
+  "npc-blanche": [
+    ["npc-aldric", "father"],
+    ["npc-aldric", "husband"],
+    ["npc-cecily", "mother"],
+    ["npc-cecily", "elder-sister"],
+    ["npc-reynard", "husband"],
+    ["player", "son"],
+  ],
+  player: [
+    ["npc-reynard", "father"],
+    ["npc-blanche", "mother"],
+  ],
+});
 
-/** 与 `scripts/audit-terms.ts` 同一口径：角色边 + 开册事件补的玩家 → 父母两条边。 */
-function valmontEdges(): RelationEdge[] {
-  const doc = parse(readFileSync(path.join(VALMONT, "characters.yaml"), "utf8")) as {
-    characters: {
-      id: string;
-      relations?: { to: string; kind: string; visibility?: string }[];
-    }[];
-  };
-  const edges: RelationEdge[] = [];
-  for (const c of doc.characters) {
-    for (const rel of c.relations ?? []) {
-      edges.push({
-        from: c.id,
-        to: rel.to,
-        kind: rel.kind as KinshipKind,
-        source: "template",
-        visibility: (rel.visibility as RelationEdge["visibility"] | undefined) ?? "known",
-        value: 0,
-      });
-    }
-  }
-  edges.push({ from: "player", to: "npc-reynard", kind: "father", source: "template", visibility: "known" });
-  edges.push({ from: "player", to: "npc-blanche", kind: "mother", source: "template", visibility: "known" });
-  return edges;
-}
-
-const E = valmontEdges();
 const term = (from: string, to: string) => kinshipTerm(E, from, to, { maxHops: 3 })?.term;
 const readings = (from: string, to: string) => kinshipReadings(E, from, to, { maxHops: 3 });
 const terms = (from: string, to: string) => readings(from, to).map((r) => r.term);

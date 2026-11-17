@@ -141,6 +141,10 @@ export function createWorldV2(
     skills: [...(pt?.skills ?? [])],
     growthLevel: 0,
     equipment: initialEquipment,
+    // 玩家也有父/母指针（`docs/FAMILY-GRAPH.md` §3.1「玩家不是特例」）：
+    // 缺省不写字段，保持旧模板的存档形状不变。
+    ...(pt?.fatherId !== undefined ? { fatherId: pt.fatherId } : {}),
+    ...(pt?.motherId !== undefined ? { motherId: pt.motherId } : {}),
   };
   // 历法适配器在建世界期就要用（广播 birthTime 反推 + 下方 schedule 窗口换算），故提前构造。
   // 纯函数、无副作用，位置变化不改变任何行为。

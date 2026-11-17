@@ -428,6 +428,9 @@ function buildSnapshotActors(
     genderLabel: lookup.genderLabel(player.gender),
     lifeStageLabel: adapter.lifeStageLabel(adapter.resolveLifeStage(player.age)),
     lifeState: "alive",
+    // 玩家指针同样原样透传（`docs/FAMILY-GRAPH.md` §3.1：玩家不是特例）。
+    ...(player.fatherId !== undefined ? { fatherId: player.fatherId } : {}),
+    ...(player.motherId !== undefined ? { motherId: player.motherId } : {}),
   });
   return actors;
 }

@@ -74,6 +74,12 @@ export interface V2Player extends V2CombatantBase {
    * 只存实例状态，不存补正结果——补正值每次经 evaluateDynamicModifier 现算（P8）。
    */
   equipment?: EquipmentInstance[];
+  /**
+   * 父/母指针（`docs/FAMILY-GRAPH.md` §3.1）：模板 `playerTemplate.fatherId/motherId` 的副本。
+   * 玩家不是特例；可选 + 无默认值 ⇒ 旧档缺字段不拒载。
+   */
+  fatherId?: string;
+  motherId?: string;
 }
 
 /** NPC 生命周期三态（ADR-0012 决策 1）：不引入阶段枚举，只这三态 + 自由 reasonCode。 */

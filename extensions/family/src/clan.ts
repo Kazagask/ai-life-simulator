@@ -188,6 +188,14 @@ export interface ClanConfig {
   readonly clans: readonly ClanDeclaration[];
   /** 声望域与单次调整上限（§4 风险 8：没有钳域就会一步登天）。 */
   readonly prestige: { readonly min: number; readonly max: number; readonly maxStep: number };
+  /**
+   * 模板声明的婚配表（`extensions.family.spouses`，`docs/FAMILY-GRAPH.md` §3.2）：
+   * 建世界时**原样播种**进 `state.extensions.family.spouses` —— 指针模式下这是配偶行的唯一来源
+   * （父/母来自 `fatherId`/`motherId`，婚姻没有指针形态）。已按无向对归一去重。
+   */
+  readonly spouses: readonly KinSpouseFact[];
+  /** 模板声明的收养表（`extensions.family.adoptions`），口径同 `spouses`。 */
+  readonly adoptions: readonly KinAdoptionFact[];
 }
 
 const DEFAULT_PRESTIGE = { min: 0, max: 100, maxStep: 20 } as const;
@@ -210,9 +218,20 @@ const ClanDeclarationSchema = z
   })
   .strict();
 
+/**
+ * `extensions.family` 的**全部**配置键。
+ *
+ * ⚠ **配置里认下的每个键，都必须在 `initClanState` 里有对应落点**。这张 schema 是
+ * `passthrough`：写进来而没人消费的键会被**静默忽略** —— `spouses` 就这样在 3c 之前
+ * 被吞掉过（模板写了婚配、state 里一条都没有，配偶行整批消失，且全程无报错）。
+ * 加字段时要么在 `initClanState` 里写进切片，要么在这里显式拒绝。
+ */
 const ClanConfigSchema = z
   .object({
     clans: z.array(ClanDeclarationSchema).optional(),
+    /** 婚配 / 收养（指针模式的输入）：与宗族同段但**互不依赖**，见 ClanConfig 的注释。 */
+    spouses: z.array(KinSpouseFactSchema).optional(),
+    adoptions: z.array(KinAdoptionFactSchema).optional(),
     prestige: z
       .object({
         min: z.number().optional(),
@@ -223,6 +242,38 @@ const ClanConfigSchema = z
       .optional(),
   })
   .passthrough();
+
+/**
+ * 婚配归一去重：`a` / `b` 无向（按 id 字典序取小端在前），同一对只留第一次出现
+ * （**数组顺序 = 多妻先后**，去重不能打乱它），自环直接丢弃。
+ */
+function normalizeSpouses(list: readonly KinSpouseFact[]): KinSpouseFact[] {
+  const seen = new Set<string>();
+  const out: KinSpouseFact[] = [];
+  for (const s of list) {
+    if (s.a === s.b) continue;
+    const [a, b] = s.a < s.b ? [s.a, s.b] : [s.b, s.a];
+    const key = `${a}\u0000${b}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ ...s, a, b });
+  }
+  return out;
+}
+
+/** 收养去重：`(parent, child)` 唯一，自养自丢弃；顺序保留。 */
+function normalizeAdoptions(list: readonly KinAdoptionFact[]): KinAdoptionFact[] {
+  const seen = new Set<string>();
+  const out: KinAdoptionFact[] = [];
+  for (const a of list) {
+    if (a.parent === a.child) continue;
+    const key = `${a.parent}\u0000${a.child}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(a);
+  }
+  return out;
+}
 
 function intClamp(raw: unknown, fallback: number, min: number, max: number): number {
   const n = typeof raw === "number" && Number.isFinite(raw) ? raw : fallback;
@@ -251,8 +302,12 @@ export function parseClanConfig(raw: unknown): ClanConfig {
       : { ...prestige, min: prestige.max, max: prestige.min };
 
   // 非对象 = 没声明宗族（`true` = 用默认配置；缺字段 / 类型不对 → 与 parseFamilyConfig 同口径）
-  if (raw === undefined || raw === null || raw === true) return { clans: [], prestige: bounds };
-  if (typeof raw !== "object" || Array.isArray(raw)) return { clans: [], prestige: bounds };
+  if (raw === undefined || raw === null || raw === true) {
+    return { clans: [], prestige: bounds, spouses: [], adoptions: [] };
+  }
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    return { clans: [], prestige: bounds, spouses: [], adoptions: [] };
+  }
 
   const parsed = ClanConfigSchema.safeParse(raw);
   if (!parsed.success) {
@@ -267,7 +322,12 @@ export function parseClanConfig(raw: unknown): ClanConfig {
     if (seen.has(d.id)) throw new Error(`clan_config_invalid: 宗族 id 重复声明 "${d.id}"`);
     seen.add(d.id);
   }
-  return { clans: declarations, prestige: bounds };
+  return {
+    clans: declarations,
+    prestige: bounds,
+    spouses: normalizeSpouses(parsed.data.spouses ?? []),
+    adoptions: normalizeAdoptions(parsed.data.adoptions ?? []),
+  };
 }
 
 /** 按路径取值（配置是 `unknown`，不许直接下标）。非对象一律 undefined。 */
@@ -672,19 +732,44 @@ export const clanConditions: Readonly<Record<string, ConditionEvalFn>> = {
  *   所以族声明里**没有** `headId`：家主只能由 `joinClan` + `setClanHead` 显式立，
  *   否则会出现「家主不在族成员表」的自我矛盾。
  * · 每个族写一条 `founded` 史（append-only 的起点）。
- * · 没声明族 ⇒ 不造空段（`state.extensions` 保持缺省，零回归）。
+ * · 同时播种模板声明的 `spouses` / `adoptions`（`docs/FAMILY-GRAPH.md` §3.2）：
+ *   指针模式没有婚姻边，`world.yaml` 里这一份是配偶行的**唯一来源**。段名与读侧
+ *   （`kin-source.readSpouses`）一致，建局即有，无需事件补写。
+ * · 没声明族、也没有婚配/收养 ⇒ 不造空段（`state.extensions` 保持缺省，零回归）。
  * · 已有切片 ⇒ 不覆盖（幂等：建世界只调一次，防重复装配把历史抹掉）。
  *   这里是**唯一**会造新切片的写点：切片还不存在，故不存在「抹掉 `spouses` / `adoptions`」
  *   的问题；已存在时上面这条早退把它挡在门外。
+ * · 婚配 / 收养的端点必须是已声明角色或玩家自身：加载期没有扩展配置的校验口，
+ *   这里 fail-fast（静默丢掉一对配偶会让族谱少一代，比建局失败更难查）。
  */
 export function initClanState(
   state: WorldStateV2,
   config: unknown,
-  _template: WorldTemplateV2,
+  template: WorldTemplateV2,
 ): void {
   const cfg = parseClanConfig(config);
-  if (cfg.clans.length === 0) return;
+  const hasClans = cfg.clans.length > 0;
+  const hasKinSeed = cfg.spouses.length > 0 || cfg.adoptions.length > 0;
+  if (!hasClans && !hasKinSeed) return;
   if (state.extensions?.family !== undefined) return;
+
+  const known = new Set<string>([selfIdOf(state), ...template.characters.map((c) => c.id)]);
+  const spouses = cfg.spouses.filter((s) => known.has(s.a) && known.has(s.b));
+  const adoptions = cfg.adoptions.filter((a) => known.has(a.parent) && known.has(a.child));
+  if (spouses.length !== cfg.spouses.length) {
+    const bad = cfg.spouses.find((s) => !known.has(s.a) || !known.has(s.b));
+    throw new Error(
+      `family_kin_seed_invalid: 婚配端点未声明（${bad?.a} × ${bad?.b}）；` +
+        `spouses 只能指向 characters[].id 或玩家自身`,
+    );
+  }
+  if (adoptions.length !== cfg.adoptions.length) {
+    const bad = cfg.adoptions.find((a) => !known.has(a.parent) || !known.has(a.child));
+    throw new Error(
+      `family_kin_seed_invalid: 收养端点未声明（${bad?.parent} → ${bad?.child}）；` +
+        `adoptions 只能指向 characters[].id 或玩家自身`,
+    );
+  }
 
   const clans: ClanFact[] = cfg.clans.map((d) => ({
     id: d.id,
@@ -697,5 +782,10 @@ export function initClanState(
     legacies: [],
     history: [historyEntry(state, "founded", `${d.name}立族`)],
   }));
-  writeClanState(state, { clans, members: [] });
+  writeClanState(state, {
+    clans,
+    members: [],
+    ...(spouses.length > 0 ? { spouses } : {}),
+    ...(adoptions.length > 0 ? { adoptions } : {}),
+  });
 }

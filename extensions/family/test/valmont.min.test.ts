@@ -310,8 +310,14 @@ describe("valmont · 派生行只是投影，不是事实边", () => {
     for (const kind of ["father", "mother", "son", "daughter", "husband", "wife", "relative"] as const) {
       expect(checkCondition({ relation: "npc-aldric", to: "npc-irma", kind, gte: 1 }, ctx)).toBe(false);
     }
-    // 对照：真实事实边能命中 —— 上面的 false 不是「条件恒假」。
-    expect(checkCondition({ relation: "npc-aldric", to: "npc-bardo", kind: "father", gte: 1 }, ctx)).toBe(true);
+    // 指针模式下**所有**亲缘行都是投影合成：state.relations 里一条亲属边都没有
+    // （父/母在 `fatherId`/`motherId`，婚配在 `extensions.family.spouses`）。
+    // 所以关系条件对父子也读不到 —— 这不是「条件恒假」，而是「亲缘不再是事实边」的
+    // 直接后果；同一对端点在投影里仍然有「爸爸」行（上面已断言 derived 行存在）。
+    expect(checkCondition({ relation: "npc-aldric", to: "npc-bardo", kind: "father", gte: 1 }, ctx)).toBe(false);
+    // 反过来锁住另一半：投影行确实带出了称谓，别把「条件看不到」误读成「关系没了」。
+    const bardoRow = aldric.relations.find((r) => r.withId === "npc-bardo" && r.kind === "father");
+    expect(bardoRow?.kinshipTerm).toBe("爸爸");
   });
 });
 

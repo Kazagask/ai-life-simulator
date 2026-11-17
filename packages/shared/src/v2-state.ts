@@ -50,6 +50,12 @@ const V2PlayerSchema = CombatantBaseSchema.extend({
   skills: z.array(z.string().min(1)),
   growthLevel: z.number().int().nonnegative(),
   equipment: z.array(EquipmentInstanceSchema).optional(),
+  /**
+   * 父/母指针（`docs/FAMILY-GRAPH.md` §3.1）：模板 `playerTemplate.fatherId/motherId` 的副本。
+   * 可选 + 无默认值 ⇒ 旧档缺字段不拒载。
+   */
+  fatherId: z.string().min(1).optional(),
+  motherId: z.string().min(1).optional(),
 }).strict();
 
 const V2NpcSchema = CombatantBaseSchema.extend({

@@ -203,12 +203,56 @@ const SYNTHETIC_EDGE_SOURCE = "extension" as const;
  *
  * 性别不详 ⇒ **不猜**（`docs/FAMILY-GRAPH.md` §5：信息在就在，不在不猜），那一半不补。
  */
-function pointerGraphRowEdges(graph: KinGraph): RelationEdge[] {
+function pointerGraphRowEdges(
+  graph: KinGraph,
+  actors: ReadonlyMap<string, { readonly age: number }>,
+): RelationEdge[] {
   // 父/母边：直接复用族谱适配（同一张图 → 同一批事实），只把来源改标 `extension`。
   const edges: RelationEdge[] = kinGraphToRelationEdges(graph).map((edge) => ({
     ...edge,
     source: SYNTHETIC_EDGE_SOURCE,
   }));
+
+  // 同胞：共同父或共同母（半同胞也算）。边模式靠作者写 elder/younger 边承载长幼，
+  // 指针模式没有这条边 —— 用演员年龄补出带长幼的同胞边，否则「弟弟/妹妹/小姑/弟媳」
+  // 这类依赖长幼的读法会整批退成中性词。
+  const byParent = new Map<string, Set<string>>();
+  for (const [map] of [[graph.facts.fathers], [graph.facts.mothers]] as const) {
+    for (const [child, parents] of map) {
+      for (const parent of parents) {
+        const bucket = byParent.get(parent);
+        if (bucket) bucket.add(child);
+        else byParent.set(parent, new Set([child]));
+      }
+    }
+  }
+  const siblingSeen = new Set<string>();
+  for (const kids of byParent.values()) {
+    const list = [...kids].sort();
+    for (let i = 0; i < list.length; i += 1) {
+      for (let j = i + 1; j < list.length; j += 1) {
+        const a = list[i]!;
+        const b = list[j]!;
+        const key = `${a}\u0000${b}`;
+        if (siblingSeen.has(key)) continue;
+        siblingSeen.add(key);
+        const ageA = actors.get(a)?.age;
+        const ageB = actors.get(b)?.age;
+        if (ageA === undefined || ageB === undefined || ageA === ageB) continue;
+        const sexA = graph.facts.sexes.get(a);
+        const sexB = graph.facts.sexes.get(b);
+        if (sexA === undefined || sexB === undefined) continue;
+        const elder = ageA > ageB ? a : b;
+        const younger = elder === a ? b : a;
+        const youngerSex = younger === a ? sexA : sexB;
+        const kind = youngerSex === "male" ? "younger-brother" : "younger-sister";
+        edges.push({ from: elder, to: younger, kind, source: SYNTHETIC_EDGE_SOURCE, visibility: "known" });
+        const elderSex = elder === a ? sexA : sexB;
+        const kindBack = elderSex === "male" ? "elder-brother" : "elder-sister";
+        edges.push({ from: younger, to: elder, kind: kindBack, source: SYNTHETIC_EDGE_SOURCE, visibility: "known" });
+      }
+    }
+  }
 
   for (const id of [...graph.nodes].sort()) {
     for (const { child } of graph.childrenOf(id)) {
@@ -267,7 +311,7 @@ function contributeRelationEdges(ctx: RelationEdgeSourceContext): readonly Relat
     extensionState: ctx.extensionState,
   });
   if (source.mode !== "pointers") return [];
-  return pointerGraphRowEdges(source.graph);
+  return pointerGraphRowEdges(source.graph, ctx.actors);
 }
 
 /**
