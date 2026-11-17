@@ -100,6 +100,23 @@ export function seniorityOfKind(kind: KinshipKind): Seniority | null {
   return null;
 }
 
+/**
+ * 同胞链上的长幼传递：`a` 是「上一个同胞相对持有者」的长幼，`b` 是「新同胞相对上一个」的长幼。
+ *
+ * 加号 = 更年长。两段同向才是确定的长幼；一长一幼或任一未知 ⇒ 不知道。
+ * 只用于**显式同胞边**连成的链；`父/母 → 子/女` 那条路不带长幼，永远是 null。
+ */
+export function combineSeniority(
+  a: Seniority | null,
+  b: Seniority | null,
+): Seniority | null {
+  if (a === null || b === null) return null;
+  const score = (a === "elder" ? 1 : -1) + (b === "elder" ? 1 : -1);
+  if (score > 0) return "elder";
+  if (score < 0) return "younger";
+  return null;
+}
+
 /** 从边集提取结构事实。确定性与输入顺序无关（只建集合）。 */
 export function kinshipFacts(edges: readonly RelationEdge[]): KinshipFacts {
   const fathers = new Map<string, Set<string>>();
@@ -384,8 +401,8 @@ export function signatureOfPath(
         atoms.push({
           role: "sibling",
           sex,
-          // 这条边的长幼是相对于「上一个同胞」的，不是相对于我 —— 不猜。
-          seniority: null,
+          // 长幼沿同胞链传递；一长一幼或任一未知 ⇒ 不知道。
+          seniority: combineSeniority(last.seniority, seniorityOfKind(kind)),
           subject: last.subject,
           target,
           via: last.via,

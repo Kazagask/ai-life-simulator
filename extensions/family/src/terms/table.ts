@@ -105,8 +105,14 @@ const UNCLE_SPOUSE: Readonly<Record<string, string>> = {
   伯父: "伯母",
   叔叔: "婶婶",
   姑姑: "姑父",
+  大姑: "大姑父",
+  小姑: "小姑父",
   舅舅: "舅妈",
+  大舅: "大舅妈",
+  小舅: "小舅妈",
   姨妈: "姨父",
+  大姨: "大姨父",
+  小姨: "小姨父",
 };
 
 /** 继祖辈：母系加「外」，与直系祖辈的「外」同一套口径。 */
@@ -202,7 +208,13 @@ function nephewTerm(
   return null;
 }
 
-/** 父/母的同胞。`subjectSex` = 我的父/母的性别。 */
+/**
+ * 父/母的同胞。`subjectSex` = 我的父/母的性别。
+ *
+ * 长幼**能拿到就必须用**：边 kind 写了 `elder-*` / `younger-*` 就是事实，
+ * 塌成「姑姑/舅舅/姨妈」等于把已知信息扔掉。只有长幼未知才用中性词。
+ * 与姻亲的「大舅子 / 小姑子」不冲突：后者带「子」。
+ */
 function parentSiblingTerm(
   subjectSex: Sex,
   siblingSex: Sex,
@@ -214,9 +226,18 @@ function parentSiblingTerm(
       if (seniority === "younger") return "叔叔";
       return "叔伯";
     }
+    if (seniority === "elder") return "大姑";
+    if (seniority === "younger") return "小姑";
     return "姑姑";
   }
-  return siblingSex === "male" ? "舅舅" : "姨妈";
+  if (siblingSex === "male") {
+    if (seniority === "elder") return "大舅";
+    if (seniority === "younger") return "小舅";
+    return "舅舅";
+  }
+  if (seniority === "elder") return "大姨";
+  if (seniority === "younger") return "小姨";
+  return "姨妈";
 }
 
 /**
@@ -233,18 +254,26 @@ function grandparentSiblingTerm(
 ): string | null {
   if (grandparentSex === null) return null;
   const outer = parentSex === "female" ? "外" : "";
+  // 长幼能拿到就用：伯公/叔公 已经分了，姑婆/舅公/姨婆 用 大/小 前缀。
+  const aged = seniority === "elder" ? "大" : seniority === "younger" ? "小" : "";
   if (grandparentSex === "male") {
     if (siblingSex === "male") {
       if (seniority === "elder") return `伯${outer}公`;
       if (seniority === "younger") return `叔${outer}公`;
       return null;
     }
-    return `姑${outer}婆`;
+    return `${aged}姑${outer}婆`;
   }
-  return siblingSex === "male" ? `舅${outer}公` : `姨${outer}婆`;
+  return siblingSex === "male" ? `${aged}舅${outer}公` : `${aged}姨${outer}婆`;
 }
 
-/** 堂/表：伯父（父之兄/弟）的孩子才是「堂」，其余都是「表」。 */
+/**
+ * 堂/表：伯父（父之兄/弟）的孩子才是「堂」，其余都是「表」。
+ *
+ * **有意的简化**：旧库还会分「姑表 / 舅表 / 姨表」。签名里信息够
+ * （`parentSex` + `siblingSex` + `siblingSubjectSex` 都在），要恢复只是加一层前缀；
+ * 现状停在「堂 vs 表」，因为再往下分属于书面/方言用法，产品上不划算。
+ */
 function cousinPrefix(parentSex: Sex, uncleSex: Sex): "堂" | "表" {
   return parentSex === "male" && uncleSex === "male" ? "堂" : "表";
 }
@@ -445,7 +474,8 @@ function nameAffinal(
     }
 
     if (h.role === "sibling") {
-      // 我同胞的配偶
+      // 我同胞的配偶：长幼已知才出 嫂子/弟媳/姐夫/妹夫，未知退「姻亲」——
+      // 不许把整条读法丢掉（「什么都不说」比「说姻亲」更差）。
       if (head.length === 1) {
         return siblingSpouseTerm(h.sex, h.seniority) ?? COARSE_AFFINAL_TERM;
       }

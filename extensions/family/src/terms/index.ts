@@ -179,12 +179,16 @@ export function kinshipReadings(
   const graph = buildRelationGraph(edges);
   const facts = kinshipFacts(edges);
   /**
-   * 精确读法与粗称谓分开收集：同一对端点若存在任何可命名的读法，
-   * 粗称谓（「远亲」「姻亲」）就不再作为读法出现 —— 粗称谓只在
-   * **一条都命不了名**时兜底，避免把「远亲」混进附加身份。
+   * 精确读法与粗称谓分开收集。
+   *
+   * · 姻亲粗称谓（「姻亲」）**永远保留**：中文对「兄弟的妻子（长幼未知）」没有中性词，
+   *   但「说姻亲」也比「整条读法消失」好（这一条是产品口径）。
+   * · 血亲粗称谓（「远亲」）只在**一条都命不了名**时兜底，避免把「远亲」
+   *   混进附加身份（`pickExtras` 只过滤姻亲，不过滤血亲）。
    */
   const precise: KinshipReading[] = [];
-  const coarse: KinshipReading[] = [];
+  const coarseAffinal: KinshipReading[] = [];
+  const coarseBlood: KinshipReading[] = [];
 
   /**
    * 首跳的「主边」约束。
@@ -243,7 +247,7 @@ export function kinshipReadings(
         // 结构上不成立的路径（如「我女儿的同胞」并不是我的孩子）：整条丢弃。
         if (resolved.kind === "invalid") continue;
         if (resolved.kind === "coarse") {
-          coarse.push({
+          coarseBlood.push({
             term: COARSE_KINSHIP_TITLE,
             tokens: nextKinds.map((k) => KINSHIP_TOKEN[k]),
             hops: hops + 1,
@@ -285,7 +289,9 @@ export function kinshipReadings(
           ...(half !== undefined ? { half } : {}),
           signature,
         };
-        (isCoarseTerm(finalTerm) ? coarse : precise).push(reading);
+        if (!isCoarseTerm(finalTerm)) precise.push(reading);
+        else if (reading.affinal) coarseAffinal.push(reading);
+        else coarseBlood.push(reading);
         continue;
       }
 
@@ -297,8 +303,8 @@ export function kinshipReadings(
 
   walk(from, [], [from], new Set<string>([from]), 0, [], false);
 
-  // 有精确读法时丢弃粗称谓；一条都命不了名才用粗称谓兜底。
-  const collected = precise.length > 0 ? precise : coarse;
+  // 姻亲粗称谓始终保留；血亲粗称谓仅在没有任何精确读法时兜底。
+  const collected = precise.length > 0 ? [...precise, ...coarseAffinal] : [...coarseAffinal, ...coarseBlood];
 
   // 排序分层：血亲 → 继亲 → 其余姻亲；同层内按跳数 → 称谓字典序。
   const rank = (r: KinshipReading): number =>

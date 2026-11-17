@@ -475,7 +475,7 @@ const AGED_VARIANTS: Readonly<Record<string, readonly string[]>> = {
   ],
   表姐妹: ["姑表姐", "姑表妹", "舅表姐", "舅表妹", "姨表姐", "姨表妹", "姨姐", "姨妹"],
   舅舅: ["大舅", "小舅"],
-  姑姑: ["大姑", "小姑", "姑妈"],
+  姑姑: ["大姑", "小姑"],
   姨妈: ["大姨", "小姨"],
   舅妈: ["大舅妈", "小舅妈"],
   姑父: ["大姑丈", "小姑丈", "大姑夫"],
@@ -516,6 +516,11 @@ function classify(r: Row): { verdict: string; reason: string } {
   if (r.kind === "term") {
     if (r.before === "孙媳妇" && r.after === "孙媳") return { verdict: "等价", reason: "同义简称" };
     if (r.before === "大姨" && r.after === "姨妈") return { verdict: "等价", reason: "同一人取中性词（回避大/小长幼）" };
+    if (r.before === "姑妈" && r.after === "姑姑") return { verdict: "等价", reason: "同义称谓（都可不分长幼）" };
+    if (r.before === "姑奶奶" && r.after.endsWith("姑婆")) return { verdict: "等价", reason: "同义称谓（北方/书面）" };
+    if ((r.before === "大舅爷" || r.before === "小舅爷" || r.before === "舅爷") && r.after.endsWith("舅公")) {
+      return { verdict: "等价", reason: "同义称谓（北方/书面）" };
+    }
     if (r.before === "自己") {
       return { verdict: "修正", reason: "旧库按一夫一妻把配偶的配偶算成自己；结构上不是自己" };
     }
@@ -586,10 +591,13 @@ function classify(r: Row): { verdict: string; reason: string } {
     if ([...SIBLING_INLAW].some((t) => r.newTerms.has(t))) {
       return { verdict: "修正", reason: "旧长幼取错或来自重复路径；正确长幼的那条读法仍在" };
     }
-    return {
-      verdict: "待定",
-      reason: "覆盖损失：旧凭空给了长幼（图上无该信息），新严格丢弃整条读法；是否接受需产品判断",
-    };
+    if (r.newTerms.has("姻亲")) {
+      return {
+        verdict: "修正",
+        reason: "长幼未知 ⇒ 退粗称谓「姻亲」，读法保留（不再整条丢弃；中文对「兄弟的妻子（长幼未知）」没有中性词）",
+      };
+    }
+    return { verdict: "待定", reason: "旧有长幼词，新既无精确词也无「姻亲」兜底" };
   }
   const FOLDED_AFFINAL = new Set(["公公", "婆婆", "岳父", "岳母", "继母", "继父"]);
   if (r.after === "∅" && FOLDED_AFFINAL.has(r.before)) {
@@ -613,6 +621,20 @@ function classify(r: Row): { verdict: string; reason: string } {
       verdict: "修正",
       reason: "同一人有多重身份（近亲婚配）：该端点其实是自己的孩子，旧把它折成孙辈/甥辈",
     };
+  }
+  // 祖辈的同胞：旧用了不带长幼的泛称 / 北方变体，新按边 kind 补上 大/小 或换词形。
+  if (r.after === "∅" && r.before === "姑妈" && r.newTerms.has("姑姑")) {
+    return { verdict: "等价", reason: "同义称谓（都可不分长幼；该路径没有长幼信息）" };
+  }
+  const GRAND_INLAW = ["舅外公", "姑外婆", "姨外婆", "舅公", "姑婆", "姨婆", "舅爷", "姑奶奶", "姨奶奶"];
+  if (r.after === "∅" && GRAND_INLAW.some((s) => r.before.endsWith(s))) {
+    const base = r.before.replace(/^[大小]/, "").replace(/爷$/, "公").replace(/奶奶$/, "婆");
+    if (r.newTerms.has(base)) {
+      return { verdict: "等价", reason: "同义称谓（北方/书面词形），且该路径没有长幼信息" };
+    }
+    if (r.newTerms.has(`大${base}`) || r.newTerms.has(`小${base}`)) {
+      return { verdict: "修正", reason: "旧未写长幼（或用了北方变体）；新按边 kind 补上" };
+    }
   }
   if (r.after === "∅" && NEUTRAL_BLOOD[r.before] !== undefined) {
     return r.newTerms.has(NEUTRAL_BLOOD[r.before]!) || r.newTerms.has("姻亲")
@@ -677,8 +699,10 @@ lines.push("分类口径：");
 lines.push("");
 lines.push("- **修正**：新的对、旧的错。旧实现的错误只有几类：把姻亲/继亲折叠成血亲（库假定「父之妻=母」「妻之子=子」「配偶的配偶=自己」）、凭空给长幼、把社会/方言称谓写进血亲行、表外兜底。");
 lines.push("- **回归**：新的错、旧的对。**本轮为 0 行**；若出现，逐条列在表里。");
-lines.push("- **等价**：同一关系的不同词形，不改变判断（如 孙媳妇/孙媳、大姨/姨妈）。");
-lines.push("- **待定**：作者拿不准，或需要产品判断。本轮 16 行全部属于同一类：**覆盖损失** —— 旧词（嫂子/姐夫/大伯子）给了长幼，但图上没有长幼信息，新实现按「不猜」整条丢弃；旧词有一半概率是错的，但丢掉也确实少了一个可读身份。");
+lines.push("- **等价**：同一关系的不同词形/书面-口语变体，不改变判断（如 孙媳妇/孙媳、姑妈/姑姑、姑奶奶/姑婆）。");
+lines.push("- **待定**：作者拿不准，或需要产品判断。本轮 0 行；上一版 16 行「覆盖损失」已按裁决落定：边里有长幼（`elder-*` / `younger-*`）⇒ 出精确词；长幼未知 ⇒ **退「姻亲」，读法保留**，不再整条丢弃。");
+lines.push("");
+lines.push("长幼口径：同胞链上的长幼按边 kind 传递（`combineSeniority`：同向才确定，一长一幼/未知即未知）；`父/母 → 子/女` 那条路不带长幼，不猜。");
 lines.push("");
 lines.push("读法层面的分类规则写在 `scripts/audit-terms.ts` 的 `classify()` 里（先规则、后人工例外）；规则只做机械归类，`待定` 与所有「回归」都要求人工过目。");
 lines.push("");
