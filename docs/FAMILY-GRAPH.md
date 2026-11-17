@@ -225,9 +225,11 @@ interface FamilyState {
 ### 7.1 迁移前必须先解决的两处（否则会静默降级）
 
 1. **行级称谓在指针模式会消失**。NPC 卡上的「关系」行来自 `state.relations`；指针模式下那里没有亲属边
-   ⇒ 没有行可装饰，`relationDerivation`（`RelationRowContext`）无从下手。
-   解法：给 `RelationCardContext` 补 `actors` + `extensionState`（两者都通用，不含家族语义），
-   由扩展在指针模式下**自行合成亲属行**。**不是**模板问题，是接缝缺字段。
+   ⇒ 没有行可装饰。
+   **解法（用户 2026-11-18）：「计算的时候把边加回去」** —— 投影期把指针合成的边**并入边集合**，
+   之后的行装配、称谓装饰（`relationDerivation`）、族谱全部照旧走原来的路。
+   接缝只需加一个"扩展可以贡献关系边"的钩子；**`RelationCardContext` 不用加字段**，
+   行级逻辑也不用搬进扩展。合成边**只活在投影里**，绝不写回 `state.relations`。
 2. **切片重建会抹掉婚配表**。`FamilyStateSchema` 目前是 strict 的 `{ clans, members }`，而
    `writeClanState` 会**重建整个切片**。现在往里写 `spouses` / `adoptions`，任何 clan effect
    （`joinClan` 等）一跑就整块覆盖 ⇒ 亲属图当场塌。
@@ -235,3 +237,15 @@ interface FamilyState {
 
 > 顺序：`3a 切片 schema + 写点保留` → `3b 接缝补 actors/extensionState + 合成亲属行` → `3c 模板迁移 + 闸门接入`。
 > 3a 是纯增量零行为变化；3b 会改变"关系行长什么样"，应当在有人盯着的时候做。
+
+**3b 的形状**（据上一条解法）：接缝加
+
+```ts
+/** 扩展可向投影**贡献**关系边（通常是「从指针合成」）。返回的边只活在投影里，不写回 state。 */
+readonly contributeRelationEdges?: (ctx: RelationEdgeSourceContext) => readonly RelationEdge[];
+```
+
+核心在 `projection.ts` 里把它返回的边并入 `observableRelations`（**并集后去重**，按 `(from,to,kind)`），
+再把合并后的集合同时喂给行装配与 `relationDerivation` —— **一个集合，两个消费者**，
+不允许两条路径各拿一份（那就会重新长出双真相）。
+合成边的 `source` 用一个明确值（不能伪装成 `template`），前端据此可以区分"声明的关系"与"推出来的关系"。
