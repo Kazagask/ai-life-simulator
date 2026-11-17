@@ -155,3 +155,35 @@ extensions/family/
 4. **搬测试**：原四个 `*.min.test.ts`（亲缘系数 / 多读法 / 自环守卫 / valmont）在新位置全绿。
 5. **守卫测试**：`packages/game-core/src` 里 grep 不到 `relationship.js`；`extensions/` 里没有
    反向 import 到 `apps/*`。
+
+---
+
+## 6. 开放形与校验分工（2026-11-17，实测补记）
+
+模板能写扩展定义的 effect / condition，但**开放形只出现在解析模板的 8 个边界**：
+事件选项 / 转盘段 / 战斗结算 / `actions` / `npcActions` / 物品 `use` / 开局两块 / 分支节点。
+**`Effect` 这个类型保持闭合（27 种）**——`applyEffectsV2` 的 switch 靠它做类型收窄。
+
+三层分工，缺一层就会出现"能载入但静默失效"：
+
+| 层 | 负责 | 不认识时 |
+|---|---|---|
+| schema（`TemplateEffectSchema`） | 只保证「有 `type` 字段」，内核 type 仍走闭合校验 | 放行（当开放形） |
+| 跨引用校验（`isCoreEffect` 守卫） | 只校验内核效果的字段引用（`spawnNpc.ref`、`adjustRelation.with`…） | **跳过**，不是静默通过 |
+| 加载期词表扫描（`assertOpenVocabularyDeclared`） | `type` / `op` 必须有实现：内核白名单 ∪ 模板**已声明**扩展 | `unknown_effect_type` / `unknown_condition_op`（软码：只标该版本不可载） |
+
+两条踩过的坑，都值得记住：
+
+1. **开放形的 `catchall` 会吞掉任何带 `type` 的对象**，所以 `TemplateEffectSchema` 必须有一条
+   superRefine 复核「内核 type 走闭合校验」；否则内核效果漏字段也能过。
+2. **条件放宽 schema 还不够**：`checkAllConditions` 必须认得 `{op,args}` 并接到与 `rules.yaml`
+   触发器**同一张注册表**。只放宽 schema 的后果是"载入成功、条件永远 false"——最难查的那类。
+
+**未决**：
+
+- 扩展效果的**字段级**校验（如 `joinClan.clanId` 必须指向已声明的 clan）需要扩展导出字段级钩子，
+  现在只校验 type/op 有没有实现，不校验参数指向。
+- 战斗内使用物品时，`use` 里的扩展效果会抛 `item_effect_unsupported_in_battle`（战斗域没有
+  扩展效果结算通道，不静默跳过）。
+- `rules.yaml` 的开放形 op **不进**加载期扫描：它本来就走注册表 + 运行期诊断，再立一套判据
+  就是两个法官。
