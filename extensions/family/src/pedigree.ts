@@ -73,7 +73,16 @@ interface Normalized {
  * 分支因此是**保留分支**（给将来「可见但没卡」的节点，例如只听说过的某人），
  * **不是死代码、不要删**。
  */
-function normalize(ctx: SnapshotDerivationContext): Normalized {
+/**
+ * 族谱能看到的全部输入：**故意 `Omit` 掉 `extensionState`**。
+ *
+ * 「族谱不许读宗族数据」在 `docs/CLAN-DESIGN.md §3` 里是硬口径，但 `SnapshotDerivationContext`
+ * 是同一个对象，族谱只要写一行 `ctx.extensionState` 就能偷看。所以在**类型上**把那个口封掉：
+ * 要读宗族数据得先改这个签名，改签名会在 review 里被看见。纪律 → 约束。
+ */
+type PedigreeInput = Omit<SnapshotDerivationContext, "extensionState">;
+
+function normalize(ctx: PedigreeInput): Normalized {
   const hidden = ctx.hiddenNodeIds;
   const visible = (id: string): boolean => !hidden.has(id);
   const parents: ParentEdge[] = [];
@@ -309,7 +318,7 @@ const KIND_RANK: Record<PedigreeEdgeView["kind"], number> = { parent: 0, spouse:
  * 2. 规模上限：从 self BFS，按「距离 → 世代距离 → id 升序」取前 `maxNodes`。
  *    **禁止按 Map 迭代序截断**（跨引擎不稳定）。
  */
-export function derivePedigree(ctx: SnapshotDerivationContext): PedigreeView {
+export function derivePedigree(ctx: PedigreeInput): PedigreeView {
   const cfg = parseFamilyConfig(ctx.config);
   const norm = normalize(ctx);
 
