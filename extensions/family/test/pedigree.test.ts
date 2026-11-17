@@ -182,6 +182,48 @@ describe("族谱：环", () => {
   });
 });
 
+describe("族谱：同一对父子只出一条边", () => {
+  it("模板同时写 son 与 father ⇒ 一条边，parentRole 取 father", () => {
+    const view = derivePedigree(
+      ctx({
+        // 同一事实的两种写法：甲是乙的父亲（父→子 son，子→父 father）。
+        edges: [edge("a", "b", "son"), edge("b", "a", "father")],
+        selfId: "b",
+      }),
+    );
+    const parent = view.edges.filter((e) => e.kind === "parent" && e.from === "a" && e.to === "b");
+    expect(parent).toHaveLength(1);
+    expect(parent[0]!.parentRole).toBe("father");
+    // 去重不改变世代：父 g0、子 g1。
+    expect(generationOf(view, "a")).toBe(0);
+    expect(generationOf(view, "b")).toBe(1);
+  });
+
+  it("两条都带 parentRole 且冲突 ⇒ father 优先（父系优先）", () => {
+    const view = derivePedigree(
+      ctx({
+        edges: [edge("b", "a", "mother"), edge("b", "a", "father")],
+        selfId: "b",
+      }),
+    );
+    const parent = view.edges.filter((e) => e.kind === "parent");
+    expect(parent).toHaveLength(1);
+    expect(parent[0]!.parentRole).toBe("father");
+  });
+
+  it("两条都没有 parentRole ⇒ 保留一条（不因重复输入画出重影）", () => {
+    const view = derivePedigree(
+      ctx({
+        edges: [edge("a", "b", "son"), edge("a", "b", "son")],
+        selfId: "b",
+      }),
+    );
+    const parent = view.edges.filter((e) => e.kind === "parent");
+    expect(parent).toHaveLength(1);
+    expect(parent[0]!.parentRole).toBeUndefined();
+  });
+});
+
 describe("族谱：隐藏节点", () => {
   it("隐藏者的节点与连带边都不出现，且可见子节点标 incomplete", () => {
     const view = derivePedigree(

@@ -82,6 +82,43 @@ interface Normalized {
  */
 type PedigreeInput = Omit<SnapshotDerivationContext, "extensionState">;
 
+/**
+ * 同一对 `(parent, child)` 只留一条 parent 边（去重在归一化之后、派生之前）。
+ *
+ * 模板同时写 `{from: 子女, to: 父, kind: father}` 与 `{from: 父, to: 子女, kind: son}`
+ * 是**合法输入**（两个方向表达同一事实），归一化后就成了两条重复边。输入口径不改，
+ * 但画两条线就是重影，`edges` 条数也会失真 —— 所以去重是展示派生的事。
+ *
+ * 保留「信息更全」的那条，规则确定：
+ * 1. 两条都带 `parentRole` 且不同 ⇒ 取 `father`（父系优先，与模板 `descent: patrilineal` 一致）；
+ * 2. 一条带、一条不带 ⇒ 取带的；
+ * 3. 都不带 ⇒ 取先出现的那条（`state.relations` 出现序）。
+ * 结果按下标数组取回，不依赖 Map 迭代序。
+ */
+function dedupeParentEdges(parents: readonly ParentEdge[]): ParentEdge[] {
+  const chosen = new Map<string, ParentEdge>();
+  const keys: string[] = [];
+  for (const e of parents) {
+    const key = `${e.parent}\u0000${e.child}`;
+    const prev = chosen.get(key);
+    if (prev === undefined) {
+      chosen.set(key, e);
+      keys.push(key);
+      continue;
+    }
+    chosen.set(key, preferRicherEdge(prev, e));
+  }
+  return keys.map((key) => chosen.get(key)!);
+}
+
+/** 两条同端点 parent 边取信息更全的一条（规则见 `dedupeParentEdges`）。 */
+function preferRicherEdge(a: ParentEdge, b: ParentEdge): ParentEdge {
+  if (a.role === b.role) return a;
+  if (a.role === undefined) return b;
+  if (b.role === undefined) return a;
+  return a.role === "father" ? a : b;
+}
+
 function normalize(ctx: PedigreeInput): Normalized {
   const hidden = ctx.hiddenNodeIds;
   const visible = (id: string): boolean => !hidden.has(id);
@@ -174,7 +211,15 @@ function normalize(ctx: PedigreeInput): Normalized {
     else spousePartners.set(e.b, [e.a]);
   }
 
-  return { parents, spouses, siblings, spousePartners, incompleteChildIds, looseEndIds, nodeIds };
+  return {
+    parents: dedupeParentEdges(parents),
+    spouses,
+    siblings,
+    spousePartners,
+    incompleteChildIds,
+    looseEndIds,
+    nodeIds,
+  };
 }
 
 /**

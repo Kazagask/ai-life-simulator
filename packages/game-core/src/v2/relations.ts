@@ -8,8 +8,8 @@ import { PLAYER_ID } from "@life-sim/shared";
  * 纯函数、无 IO、无随机、无 `Date`：同输入必然同输出（确定性硬约束）。
  * 本文件只管**图的拓扑**（建图/增删/最短路径/环检测/断代/冻结/可见性收敛）。
  *
- * 2026-11-17：中文称谓推导（第三方称谓库）已整体搬去 `extensions/family`
- * （`docs/EXTENSIONS.md`）。core 不认识「称谓」「族谱」这些词 —— 它只提供事实与算法，
+ * 2026-11-17：中文称谓推导（第三方称谓库）已整体搬去扩展包（`docs/EXTENSIONS.md`）。
+ * core 不认识「称谓」「族谱」这些词 —— 它只提供事实与算法，
  * 扩展拿这张图去解释。因此本文件**不含任何第三方依赖**。
  *
  * 边语义（见 `schema/relation.ts`）：`{ from: A, to: B, kind: "father" }`
@@ -126,7 +126,7 @@ export interface RelationPath {
    * 逐跳的 `kind`（如 `["father","mother"]`）。
    *
    * 2026-11-17：这里原来是中文关系链记号。称谓记号属于扩展的解释层，
-   * 已随 `extensions/family` 搬走 —— core 只回边的事实，怎么念由扩展决定。
+   * 已随扩展包搬走 —— core 只回边的事实，怎么念由扩展决定。
    */
   readonly tokens: readonly string[];
   /** 路径上是否经过断代边（gap）——命中则只允许粗称谓，不猜代数。 */
