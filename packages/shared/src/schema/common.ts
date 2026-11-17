@@ -126,6 +126,12 @@ export const MoodConditionSchema = z
  * ① 旧形态：`{ relation: npcId, gte, lte }` —— 读 NPC→玩家 标量 `npc.relationship`。
  * ② 关系边形态：声明 `kind` 时改读边 `(relation → to ?? "player", kind)` 的 `value`
  *    （缺省 0）；`to` 缺省为玩家，便于表达「某 NPC 对玩家的师徒/敌意强度」。
+ *
+ * ⚠ 只匹配**事实边**：判定读的是权威 `state.relations`（`RelationEdgeSchema`，strict）。
+ * 派生行（投影里 `derived: true` 的多跳亲缘，如「爷爷」那条 `kind: "relative"`）只随
+ * `V2Snapshot` 下发，从不写进 `state.relations` —— 它是展示层的解释，不是事实。
+ * 因此「他是我亲戚」不会满足「他是我的父亲」，哪怕两个称谓指的是同一个人；这里不需要
+ * 任何额外判断，将来若要防回灌，应在**写入侧**拒绝，而不是在读取侧挂守卫。
  */
 export const RelationConditionSchema = z
   .object({
