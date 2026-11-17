@@ -1,0 +1,10 @@
+# 单维度评价：只看「血统纯度」。
+# 这里是**旗标驱动**的临时口径：purityLevel 由事件累加，因为内核还没有亲缘系数。
+# 等 kinshipCoefficient() 落进 game-core，这一维应当改成对 F 的投影，而不是数旗标。
+dimensions:
+  - id: purity
+    label: 血统纯度
+    weight: 1
+    ranges: [0, 7]
+    explainRules: ["按册上被计入血亲的结合次数给出评价"]
+worldSpecificDimensions: []

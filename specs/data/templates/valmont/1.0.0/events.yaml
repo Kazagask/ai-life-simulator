@@ -1,0 +1,201 @@
+# 十幕事件链：八类结合各占一幕，最后两幕留给玩家。
+#
+# 走位：open → sibling → half → ethics → mother → father → skip → merge → choice → close
+#
+# 每一幕只做一件事：把一类结合写进册子，让玩家读到它。事件不评判对错 ——
+# 结构异常不会在这里报错，只会在关系投影里露出痕迹。
+#
+# 文风：全部落在册、栏、墨、蜡、灯、门、纸这些器物上，不写身体、不写情欲。
+# 恶意来自「记录即事实」：笔一落，亲缘就换了形状，而写的人不必在场。
+events:
+  - id: "evt:open"
+    title: 开册
+    narrative: 册子摊在长桌上，压着四代人的名字。第一页只有两个人，往下每一页都从上一页抄下来，抄的时候会多一点东西。
+    kind: normal
+    trigger: { source: chain }
+    settle:
+      normal:
+        options:
+          - id: opt-read-first
+            text: 从第一页读起
+            effects:
+              # 六个人在册已故：让他们退场，剩下的六个人才在同一个屋子里。
+              - { type: setNpcLifecycle, npcId: npc-bardo, state: inactive, reasonCode: 卒 }
+              - { type: setNpcLifecycle, npcId: npc-hilda, state: inactive, reasonCode: 卒 }
+              - { type: setNpcLifecycle, npcId: npc-irma, state: inactive, reasonCode: 卒 }
+              - { type: setNpcLifecycle, npcId: npc-konrad, state: inactive, reasonCode: 卒 }
+              - { type: setNpcLifecycle, npcId: npc-aldric, state: inactive, reasonCode: 卒 }
+              - { type: setNpcLifecycle, npcId: npc-mathilde, state: inactive, reasonCode: 卒 }
+              - { type: setFlag, id: ledgerOpened, value: true }
+              - { type: setFlag, id: purityLevel, value: 0 }
+              # playerTemplate 没有 relations 字段（模板层已知缺口），
+              # 玩家出边只能在运行时补。不补则 kinshipTerm(player, X) 全为 null ——
+              # 因为推导只沿 outgoing 走，玩家没有出边就等于「不认识任何人」。
+              - { type: addRelationEdge, fromId: player, toId: npc-reynard, kind: father, visibility: known, value: 40 }
+              - { type: addRelationEdge, fromId: player, toId: npc-blanche, kind: mother, visibility: known, value: 45 }
+            nextEventId: "evt:sibling"
+
+  - id: "evt:sibling"
+    title: 同一行上两个名字
+    narrative: 这一页的父栏和母栏各写着一个名字，两个名字的上一行是同一对。也就是说，填这两栏的人，是同一个人的一儿一女。
+    kind: normal
+    trigger: { source: chain }
+    settle:
+      normal:
+        options:
+          - id: opt-mark-sibling
+            text: 在边上记一笔：兄妹
+            effects:
+              - { type: adjustFlag, id: purityLevel, value: 1 }
+              - { type: setFlag, id: sawSibling, value: true }
+            nextEventId: "evt:half"
+          - id: opt-skip-sibling
+            text: 不记，翻过去
+            effects:
+              - { type: setFlag, id: sawSibling, value: false }
+            nextEventId: "evt:half"
+
+  - id: "evt:half"
+    title: 半行
+    narrative: 再往后一页，同一个女人换了配偶。新的名字比她的名字低半行——那半行是庶出的位置。两个人有同一个父亲，没有同一个母亲。
+    kind: normal
+    trigger: { source: chain }
+    settle:
+      normal:
+        options:
+          - id: opt-half
+            text: 把「同父异母」四个字写进备注
+            effects:
+              - { type: adjustFlag, id: purityLevel, value: 1 }
+              - { type: setFlag, id: sawHalf, value: true }
+            nextEventId: "evt:ethics"
+
+  - id: "evt:ethics"
+    title: 新纸
+    narrative: 有一个名字的纸色比周围白。她是从外面写进来的，随母入籍，父栏留着一个外姓。她和这一页上任何人都没有一个共同的祖先。
+    kind: normal
+    trigger: { source: chain }
+    settle:
+      normal:
+        options:
+          - id: opt-ethics
+            text: 把这一栏圈出来——这是唯一的门
+            effects:
+              - { type: setFlag, id: sawDoor, value: true }
+            nextEventId: "evt:mother"
+          - id: opt-ethics-ignore
+            text: 圈掉它，让它看起来和别处一样
+            effects:
+              - { type: setFlag, id: sawDoor, value: false }
+              - { type: adjustFlag, id: purityLevel, value: 1 }
+            nextEventId: "evt:mother"
+
+  - id: "evt:mother"
+    title: 三行的距离
+    narrative: 有一行写得很慢，笔画之间隔了很久。父栏是一个人，母栏是另一个人；往下三行，配偶栏里出现了母栏那个名字。中间那三行，是同一支笔在同一个夜里补的。
+    kind: normal
+    trigger: { source: chain }
+    settle:
+      normal:
+        options:
+          - id: opt-mother
+            text: 数一遍：三行
+            effects:
+              - { type: adjustFlag, id: purityLevel, value: 1 }
+              - { type: setFlag, id: sawMotherSon, value: true }
+            nextEventId: "evt:father"
+
+  - id: "evt:father"
+    title: 十九年
+    narrative: 这一页的两栏之间隔了十九年。父栏的名字先写下，十九年后同一个名字又出现在配偶栏。写第二遍的时候，笔尖在纸上停了一下，留下一个墨点。
+    kind: normal
+    trigger: { source: chain }
+    settle:
+      normal:
+        options:
+          - id: opt-father
+            text: 把墨点按原样留着
+            effects:
+              - { type: adjustFlag, id: purityLevel, value: 1 }
+              - { type: setFlag, id: sawFatherDaughter, value: true }
+            nextEventId: "evt:skip"
+
+  - id: "evt:skip"
+    title: 隔一代
+    narrative: 最奇怪的是这一栏。祖父的名字写在了孙女的配偶栏里。两个人之间隔着一整代人，而那一代人还在册子上，一个都没少。
+    kind: normal
+    trigger: { source: chain }
+    settle:
+      normal:
+        options:
+          - id: opt-skip
+            text: 承认它：这是名分，不是血
+            effects:
+              - { type: setFlag, id: sawSkip, value: true }
+            nextEventId: "evt:merge"
+          - id: opt-skip-merge
+            text: 把它算进血里
+            effects:
+              - { type: adjustFlag, id: purityLevel, value: 1 }
+              - { type: setFlag, id: sawSkip, value: true }
+            nextEventId: "evt:merge"
+
+  - id: "evt:merge"
+    title: 两条线汇到一行
+    narrative: 最后一行只有一个人。往上数，他的祖先栏里反复出现同样的几个名字，数到尽头只剩两个人——第一页的那两个。他母亲的名字在父系那边也出现过一次。
+    kind: normal
+    trigger: { source: chain }
+    settle:
+      normal:
+        options:
+          - id: opt-merge
+            text: 合上，抬头。他就在门口站着
+            effects:
+              - { type: setFlag, id: metRoland, value: true }
+              - { type: adjustMood, value: -10 }
+            nextEventId: "evt:choice"
+
+  - id: "evt:choice"
+    title: 你的那一行
+    narrative: 罗兰站在门口，没有进来。他把手里的空页递过来——那一页已经画好了栏位，只差名字。屋子里所有人都在等他自己填。
+    kind: normal
+    trigger: { source: chain }
+    settle:
+      normal:
+        options:
+          - id: opt-in-line
+            text: 写塞西莉。她是母亲的母亲，也是祖父的女儿
+            effects:
+              - { type: addRelationEdge, fromId: player, toId: npc-cecily, kind: wife, visibility: known, value: 30 }
+              # 缺口留痕：亲属枚举里没有 `grandmother`，祖孙只能用 `relative` + gap 兜。
+              # 这不是写法偷懒 —— 是关系 kind 枚举缺一档，见配套的陪测记录。
+              - { type: addRelationEdge, fromId: player, toId: npc-cecily, kind: relative, gap: true, visibility: known, value: 20 }
+              - { type: adjustFlag, id: purityLevel, value: 1 }
+              - { type: setFlag, id: path, value: 1 }
+            nextEventId: "evt:close"
+          - id: opt-out
+            text: 写一个外姓。写完就走
+            effects:
+              - { type: setFlag, id: path, value: 2 }
+              - { type: adjustFlag, id: purityLevel, value: -3 }
+              - { type: adjustMood, value: 15 }
+            nextEventId: "evt:close"
+          - id: opt-none
+            text: 不写。把空页还回去
+            effects:
+              - { type: setFlag, id: path, value: 3 }
+              - { type: adjustMood, value: -5 }
+            nextEventId: "evt:close"
+
+  - id: "evt:close"
+    title: 合册
+    narrative: 蜡点上了。册子合起来的时候，纸页之间挤出一口气，很轻。屋外的天色没有变，但灯已经不必要了。
+    kind: normal
+    trigger: { source: chain }
+    settle:
+      normal:
+        options:
+          - id: opt-close
+            text: 把手从封面上拿开
+            effects:
+              - { type: setFlag, id: bookClosed, value: true }

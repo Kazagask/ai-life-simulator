@@ -1,0 +1,32 @@
+# 开局：把第一幕排到 t+1 分钟。
+# 用 `schedule` 而不是 `pendingEvents` —— 后者会在建世界时占住槽位。
+- openingId: op-entry
+  name: 空页
+  description: 你被领进西厅。桌上摊着一本册子，压着四代人的名字。带你进来的人只说了一句：你那一行还空着。说完就退出去了，门没有关严，留了一指宽的缝。
+  entryConditions: []
+  steps:
+    - { id: step-enter, kind: required }
+  characterSetup:
+    flags:
+      openingPath: valmont
+  worldSetup:
+    flags:
+      openingDone: true
+      chapter: 1
+  npcSetup:
+    relations:
+      - { npcId: npc-reynard, value: 40, source: 父亲 }
+      - { npcId: npc-blanche, value: 45, source: 母亲 }
+      - { npcId: npc-cecily, value: 20, source: 外祖母 }
+      - { npcId: npc-godfrey, value: 10, source: 庶支长房 }
+  eventPools: []
+  objectives:
+    flags:
+      objective: 把册子读完，再决定自己那一行写谁
+  choices: {}
+  completionConditions:
+    - { flag: openingDone, eq: true }
+  handoff:
+    pendingEvents: []
+    schedule:
+      - { eventId: "evt:open", at: { value: 1, unit: minute } }

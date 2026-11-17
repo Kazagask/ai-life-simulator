@@ -1,0 +1,104 @@
+# 剧本模板 · 瓦勒蒙家族（valmont）
+#
+# 这张模板是把「八类婚配交织图」落成运行时资产：每一对结合都在 characters.yaml
+# 里留下成对的关系边，每一类结合在 events.yaml 里对应一幕。
+#
+#   ① 无血缘    巴尔多 × 希尔达        两支撑起全部后代
+#   ② 多配偶    巴尔多 × 希尔达、伊尔玛  嫡庶两支同源
+#   ③ 兄妹      奥德里克 × 玛蒂尔达      生休与塞西莉
+#   ④ 半血缘    玛蒂尔达 × 戈弗雷        同父异母，转房婚
+#   ⑤ 纯伦理    戈弗雷 × 罗莎            罗莎是伊尔玛前夫之女，零血缘
+#   ⑥ 母子      休 × 玛蒂尔达            生雷纳德
+#   ⑦ 父女      奥德里克 × 塞西莉        生布兰奇
+#   ⑧ 隔代      奥德里克 × 布兰奇        祖孙，名分婚，无子
+#   ⑨ 汇合      雷纳德 × 布兰奇          生罗兰（玩家）
+#
+# 设定对齐三条硬约束：
+#   · 模板不接 LLM（llmTriggers 为空），所有异常都能归因到 game-core；
+#   · 全部婚配与生育发生在双方成年后，这是模板层约束，不是叙事取舍；
+#   · 描写只落在器物与文书上（册、栏、墨、蜡、灯、门），不写身体、不写情欲。
+#
+# 时间轴：T=0 为 1320 年，图上所有「−N」读作 1320 减 N 年。
+meta:
+  id: valmont
+  name: 瓦勒蒙 · 八类婚配
+  description: 四代人把自己的血收成一根线。册子上每一页都对得上，正因为对得上，才没有人敢翻下去。
+  startYear: 1320
+  engineProtocol: v2
+  # 亲缘称谓已迁出 meta：它是 `family` 扩展的能力，声明在下面的顶层 `extensions:`。
+  # 不声明那个扩展，内核不再计算任何称谓（推导逻辑已从 game-core 搬到 extensions/family）。
+
+extensions:
+  # 亲缘称谓展示开关。推导本身始终开启，这里只决定**同一段亲缘有多个读法时展示几个**
+  # —— 这个剧本的看点正是「一个人同时是谁的谁」，所以打开并排展示；maxHops 保持默认 3。
+  family:
+    showAllRoles: true
+    maxHops: 3
+
+time:
+  defaultStep: { value: 1, unit: day }
+
+genders:
+  - { id: male, label: 男 }
+  - { id: female, label: 女 }
+
+mood:
+  min: 0
+  max: 100
+  defaultValue: 40
+  bands:
+    - { id: dim, label: 暗, min: 0, max: 29, attributeModifiers: {} }
+    - { id: still, label: 静, min: 30, max: 74, attributeModifiers: {} }
+    - { id: clear, label: 通明, min: 75, max: 100, attributeModifiers: { mind: 1 } }
+
+statusBar:
+  - { id: vitals, label: 状态, source: resource, key: hp }
+
+attributes:
+  order: [body, mind, will]
+  defaults: { body: 4, mind: 6, will: 5 }
+  labels: { body: 体魄, mind: 心智, will: 意志 }
+
+resources:
+  hp: { base: 100, perLevel: 0 }
+  mp: { base: 50, perLevel: 0 }
+
+regen:
+  perTurn: { hp: 0, mp: 0 }
+
+# 常驻点击面：册子不会自己翻，但每一轮都有一页可看。
+actions:
+  - id: act-read
+    label: 读一页
+    description: 只读一页。读完把书脊压平，让它自己合上，不夹书签。
+    duration: { value: 1, unit: day }
+    effects:
+      - { type: adjustFlag, id: pagesRead, value: 1 }
+  - id: act-count
+    label: 数栏位
+    description: 从父栏数到母栏，再数回来。数目总是对得上，这正是最难受的地方。
+    duration: { value: 1, unit: day }
+    effects:
+      - { type: adjustFlag, id: columnsCounted, value: 1 }
+  - id: act-walk
+    label: 走到侧院
+    description: 侧院的门框比正厅矮一掌。你每次过去都要低头，低头的时候会看见门框上刻的四道痕。
+    duration: { value: 1, unit: day }
+
+# NPC 自主行动：本模板**不写关系边**。
+# 理由是那条已知缺陷 —— 共享行动池 + `fromId: __self__` + 字面量 toId 会在
+# 执行者恰好是目标时造出 from === to 的自环，落盘即拒载。剧本没必要复现它。
+npcActions:
+  - id: npc-godfrey-audit
+    summary: "{name} 把一页的边角对齐，对齐了三次，才承认它本来就齐。"
+    trigger: { probability: 0.45, cooldownTurns: 2 }
+    utility: { base: 1, traitAffinity: [exact] }
+    effects:
+      - { type: adjustFlag, id: audits, value: 1 }
+  - id: npc-blanche-light
+    summary: "{name} 换了一支新蜡，火苗矮下去一截，屋里反而亮了一点。"
+    trigger: { probability: 0.4, cooldownTurns: 3 }
+    utility: { base: 1, traitAffinity: [quiet] }
+
+# 本模板不刷新 NPC：十二个人全部在册，从第一页起就在。
+npcSpawnRules: []

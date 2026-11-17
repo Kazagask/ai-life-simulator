@@ -1,0 +1,67 @@
+# 90 天确定性收束。终止条件只认时间，不认 HP —— 这个剧本里没有人会死于伤口。
+terminationConditions:
+  - type: timeReached
+    params:
+      conditions:
+        - time: { gte: { value: 90, unit: day } }
+    combinator: AND
+    terminationMode: afterSettle
+
+endings:
+  # 纯度推到顶，且最后一行仍写的是血亲。
+  - endingId: end-pure
+    name: 纯血
+    description: 册子上再没有别人的姓。你做到了，翻到最后一页，最后一页是空的。
+    triggerConditions:
+      - { flag: path, eq: 1 }
+      - { flag: purityLevel, gte: 6 }
+    priority: 10
+    endingType: bad
+    narrativeConfig:
+      source: template
+      title: 纯血
+      summary: 这一支收到只剩一条线。线很干净，干净到没有下一笔可落。
+    fallback: false
+
+  # 写了一个外姓：血断了，人还活着。
+  - endingId: end-out
+    name: 外姓
+    description: 你在最后一页写下一个不在这本册子上的名字。写完把笔放下，笔滚到了桌子另一边。
+    triggerConditions:
+      - { flag: path, eq: 2 }
+    priority: 8
+    endingType: good
+    narrativeConfig:
+      source: template
+      title: 外姓
+      summary: 四代人的名字到这一页为止。再往下，是一种谁也不认识的写法。
+    fallback: false
+
+  # 不写：空页还回去。
+  - endingId: end-blank
+    name: 空页
+    description: 你把空页放回桌上，压平，让它和别的页一样齐。然后你退出去，把门带上——这一次关严了。
+    triggerConditions:
+      - { flag: path, eq: 3 }
+    priority: 6
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 空页
+      summary: 没有人被写上去，也就没有人被这一页困住。
+    fallback: false
+
+  # 兜底：时间到了还没做决定，等同于空页。
+  - endingId: end-unwritten
+    name: 未落笔
+    description: 九十天过去了。册子还摊在原处，你那一行还是空的。灰尘落在栏位上，把格子填得很慢。
+    triggerConditions: []
+    priority: 0
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 未落笔
+      summary: 空白也是一种记录，只是没有人愿意去读它。
+    fallback: true
+
+fallback: end-unwritten

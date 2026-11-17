@@ -1,0 +1,31 @@
+# 独立规则文件（不并入 TEMPLATE_MERGE_FILES）。
+#
+# 本模板**不接 LLM**：llmTriggers 与 toolProfile 为空，所有异常都归因到 game-core，
+# 不会混进一次生成里。
+llmTriggers: []
+toolProfile: {}
+
+knowledgeGrants:
+  # 外姓那一栏只有亲手翻到的人才知道 —— 看过那一页（sawDoor 任意取值）即登记为目击。
+  - when: [{ op: "flagSet", args: { flag: sawHalf, value: true } }]
+    grant:
+      observers: ["player"]
+      factRefs: ["fact:rosa-outsider"]
+      level: "known"
+      source: "witness"
+  # 「血收到极限」这件事，最后只有罗兰自己承认。
+  - when: [{ op: "flagSet", args: { flag: path, value: 1 } }]
+    grant:
+      observers: ["player"]
+      factRefs: ["fact:pure-line"]
+      level: "known"
+      source: "rule"
+  # 戈弗雷从一开始就知道罗莎没有这一支的血 —— 这是别人告诉他的，不是他查到的。
+  - when: [{ op: "always", args: {} }]
+    grant:
+      observers: ["npc:npc-godfrey"]
+      factRefs: ["fact:rosa-outsider"]
+      level: "inferred"
+      source: "told"
+
+inferenceRules: []

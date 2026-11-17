@@ -1,0 +1,341 @@
+# 瓦勒蒙家族角色表。
+#
+# 关系声明读法（与全仓一致）：`{ to: B, kind: X }` 读作「B 是 A 的 X」。
+# 婚配要写两条边：男方 → 女方 [wife]，女方 → 男方 [husband]。
+# 同一对端点可以并存多条不同 kind 的边 —— 本表刻意用了三处：
+#   奥德里克 ↔ 塞西莉：father/daughter 与 husband/wife 并存（父女婚）
+#   奥德里克 ↔ 布兰奇：同上（隔代婚，布兰奇同时是他的孙女与妻子）
+#   休 ↔ 玛蒂尔达：mother/son 与 husband/wife 并存（母子婚）
+#
+# 十二个人：六人在册已故，六人在世。已故者由首幕的 setNpcLifecycle 置为 inactive。
+characters:
+  - id: npc-bardo
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 巴尔多
+      age: 100
+      gender: male
+      description: 建这座宅子的人。册子第一页只有他一个人的字，后面的字都在学他。
+    mood: { value: 30 }
+    attributes: { body: 5, mind: 7, will: 9 }
+    public:
+      personality: 说话像在立规矩。规矩立完之后，他自己是第一个不守的人。
+      knownGoals: [把两支并成一支]
+    private:
+      secrets: []
+      knowledge: []
+      goals: [merge-branches]
+      traits: [stern]
+    relationship: 0
+    relations:
+      - { to: npc-hilda, kind: wife, visibility: known, value: 60 }
+      - { to: npc-irma, kind: wife, visibility: known, value: 40 }
+      - { to: npc-aldric, kind: son, visibility: known, value: 55 }
+      - { to: npc-mathilde, kind: daughter, visibility: known, value: 50 }
+      - { to: npc-godfrey, kind: son, visibility: known, value: 35 }
+
+  - id: npc-hilda
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 希尔达
+      age: 98
+      gender: female
+      description: 第一页右栏是她的名字，墨最淡。她没有留下别的东西，除了这条线。
+    mood: { value: 40 }
+    attributes: { body: 4, mind: 6, will: 6 }
+    public:
+      personality: 据记载她只说过一句话：往下数，别往回数。
+      knownGoals: []
+    private:
+      secrets: []
+      knowledge: []
+      goals: []
+      traits: [quiet]
+    relationship: 0
+    relations:
+      - { to: npc-bardo, kind: husband, visibility: known, value: 60 }
+      - { to: npc-aldric, kind: son, visibility: known, value: 55 }
+      - { to: npc-mathilde, kind: daughter, visibility: known, value: 55 }
+
+  - id: npc-irma
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 伊尔玛
+      age: 92
+      gender: female
+      description: 巴尔多续娶的那一位。她进宅时带了一个女儿，册子上写的是「随母入籍」。
+    mood: { value: 35 }
+    attributes: { body: 4, mind: 7, will: 6 }
+    public:
+      personality: 从不提进门之前的事。有人问，她就说那一段没记。
+      knownGoals: [让带来的女儿有一个栏位]
+    private:
+      secrets: ["fact:rosa-outsider"]
+      knowledge: ["fact:rosa-outsider"]
+      goals: [seat-daughter]
+      traits: [guarded]
+    relationship: 0
+    relations:
+      - { to: npc-bardo, kind: husband, visibility: known, value: 40 }
+      - { to: npc-konrad, kind: husband, visibility: known, value: 45 }
+      - { to: npc-godfrey, kind: son, visibility: known, value: 50 }
+      # ⚠ 罗莎是康拉德**前妻**之女，伊尔玛只是继母 —— 故此处**不写** mother 边。
+      # 按最小边集设计，罗莎→伊尔玛 应当由「父之妻」推理得出，而不会存边。
+      # 但 relationship.js 把「爸爸的妻子」硬编码成「妈妈」（实测），
+      # 于是零血缘的继母会被推成生母 —— 见事件 evt:ethics 的备注。
+
+  - id: npc-konrad
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 康拉德
+      age: 94
+      gender: male
+      description: 伊尔玛的前夫，外姓。册子上只留了一个姓，没有生卒，也没有画像。
+    mood: { value: 30 }
+    attributes: { body: 5, mind: 5, will: 5 }
+    public:
+      personality: 关于他的一切都是别人转述的，包括他有没有存在过。
+      knownGoals: []
+    private:
+      secrets: []
+      knowledge: []
+      goals: []
+      traits: [absent]
+    relationship: 0
+    relations:
+      - { to: npc-irma, kind: wife, visibility: known, value: 45 }
+      - { to: npc-rosa, kind: daughter, visibility: known, value: 45 }
+
+  # ── 第三代：三处血亲婚配的起点都集中在他身上 ──
+  - id: npc-aldric
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 奥德里克
+      age: 78
+      gender: male
+      description: 册子上他名下有四个栏位：兄、父、夫、祖。四个栏位填的是同一个姓，字迹一次比一次稳。
+    mood: { value: 38 }
+    attributes: { body: 6, mind: 8, will: 8 }
+    public:
+      personality: 只谈栏位，不谈人。他能把一段血缘念得像一份契书。
+      knownGoals: [让血收成一条线]
+    private:
+      secrets: ["fact:pure-line"]
+      knowledge: ["fact:pure-line"]
+      goals: [concentrate-line]
+      traits: [exact, cold]
+    relationship: 10
+    relations:
+      - { to: npc-bardo, kind: father, visibility: known, value: 55 }
+      - { to: npc-hilda, kind: mother, visibility: known, value: 50 }
+      # ③ 兄妹婚
+      - { to: npc-mathilde, kind: wife, visibility: known, value: 65 }
+      - { to: npc-mathilde, kind: younger-sister, visibility: known, value: 55 }
+      - { to: npc-hugh, kind: son, visibility: known, value: 40 }
+      # ⑦ 父女婚：塞西莉既是女儿又是妻子，两条边并存
+      - { to: npc-cecily, kind: daughter, visibility: known, value: 45 }
+      - { to: npc-cecily, kind: wife, visibility: known, value: 50 }
+      # ⑧ 隔代婚：布兰奇既是孙女又是妻子
+      - { to: npc-blanche, kind: daughter, visibility: known, value: 30 }
+      - { to: npc-blanche, kind: wife, visibility: known, value: 35 }
+
+  - id: npc-mathilde
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 玛蒂尔达
+      age: 76
+      gender: female
+      description: 她的名字在同一页出现过三次，三次的栏头不一样：妹妹、妻子、母亲。第三个栏头是后来添的，添在她儿子那一行。
+    mood: { value: 25 }
+    attributes: { body: 3, mind: 7, will: 7 }
+    public:
+      personality: 说话极轻。你要靠近才能听清，靠近之后她又不说了。
+      knownGoals: []
+    private:
+      secrets: ["fact:pure-line"]
+      knowledge: ["fact:pure-line"]
+      goals: [hold-line]
+      traits: [fragile]
+    relationship: 5
+    relations:
+      - { to: npc-bardo, kind: father, visibility: known, value: 50 }
+      - { to: npc-hilda, kind: mother, visibility: known, value: 50 }
+      # ③ 兄妹婚的另一侧
+      - { to: npc-aldric, kind: husband, visibility: known, value: 65 }
+      - { to: npc-aldric, kind: elder-brother, visibility: known, value: 55 }
+      # ④ 半血缘：同父异母，转房为妻
+      - { to: npc-godfrey, kind: husband, visibility: known, value: 30 }
+      - { to: npc-godfrey, kind: younger-brother, visibility: known, value: 30 }
+      - { to: npc-cecily, kind: daughter, visibility: known, value: 45 }
+      # ⑥ 母子婚：休既是她的儿子又是她的丈夫
+      - { to: npc-hugh, kind: son, visibility: known, value: 40 }
+      - { to: npc-hugh, kind: husband, visibility: known, value: 40 }
+      - { to: npc-reynard, kind: son, visibility: known, value: 45 }
+
+  - id: npc-godfrey
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 戈弗雷
+      age: 74
+      gender: male
+      description: 庶出的那一支。他的栏位比嫡支低半行，但他自己从不提这件事——提了就等于承认自己在意。
+    mood: { value: 45 }
+    attributes: { body: 6, mind: 6, will: 6 }
+    public:
+      personality: 记得每一页的边角对齐过几次。他信「齐」这件事。
+      knownGoals: [让庶支的名字进正册]
+    private:
+      secrets: ["fact:rosa-outsider"]
+      knowledge: ["fact:rosa-outsider"]
+      goals: [seat-branch]
+      traits: [exact, stubborn]
+    relationship: 20
+    relations:
+      - { to: npc-bardo, kind: father, visibility: known, value: 40 }
+      - { to: npc-irma, kind: mother, visibility: known, value: 50 }
+      - { to: npc-mathilde, kind: wife, visibility: known, value: 30 }
+      - { to: npc-mathilde, kind: elder-sister, visibility: known, value: 30 }
+      # ⑤ 纯伦理：罗莎与他没有一个共同祖先
+      - { to: npc-rosa, kind: wife, visibility: known, value: 55 }
+
+  - id: npc-rosa
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 罗莎
+      age: 72
+      gender: female
+      description: 她是这栋宅子里唯一一个名字从外面写进来的人。栏位是新的，纸比周围白。
+    mood: { value: 50 }
+    attributes: { body: 4, mind: 8, will: 7 }
+    public:
+      personality: 她说话时不用家族的称呼。她叫人的名字，只叫名字。
+      knownGoals: [不让自己那一页被刮掉]
+    private:
+      secrets: ["fact:rosa-outsider"]
+      knowledge: ["fact:rosa-outsider"]
+      goals: [stay-listed]
+      traits: [detached]
+    relationship: 25
+    relations:
+      - { to: npc-konrad, kind: father, visibility: known, value: 40 }
+      # 不写 mother：她与伊尔玛零血缘。继母女关系由「父之妻」推理，不落边。
+      - { to: npc-godfrey, kind: husband, visibility: known, value: 55 }
+
+  - id: npc-hugh
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 休
+      age: 60
+      gender: male
+      description: 他的父母栏填着两个人，其中一个是他的母亲；他的配偶栏填着一个人，还是她。两栏之间隔了三行。
+    mood: { value: 20 }
+    attributes: { body: 5, mind: 5, will: 4 }
+    public:
+      personality: 从不在同一句话里提母亲和妻子。他分得开，所以更说不出口。
+      knownGoals: []
+    private:
+      secrets: ["fact:pure-line"]
+      knowledge: ["fact:pure-line"]
+      goals: [survive]
+      traits: [dimmed]
+    relationship: 15
+    relations:
+      - { to: npc-aldric, kind: father, visibility: known, value: 40 }
+      - { to: npc-mathilde, kind: mother, visibility: known, value: 30 }
+      # ⑥ 母子婚：同一条边上两个身份
+      - { to: npc-mathilde, kind: wife, visibility: known, value: 25 }
+      - { to: npc-reynard, kind: son, visibility: known, value: 40 }
+
+  - id: npc-cecily
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 塞西莉
+      age: 58
+      gender: female
+      description: 她的父栏和配偶栏是同一个名字。写这两栏的是同一个人，间隔十九年。
+    mood: { value: 28 }
+    attributes: { body: 4, mind: 7, will: 6 }
+    public:
+      personality: 她把每一页都读过，包括自己的。她说读完了就不疼了。
+      knownGoals: [让布兰奇搬出这一页]
+    private:
+      secrets: ["fact:pure-line"]
+      knowledge: ["fact:pure-line"]
+      goals: [free-daughter]
+      traits: [resolved]
+    relationship: 10
+    relations:
+      - { to: npc-aldric, kind: father, visibility: known, value: 20 }
+      # ⑦ 父女婚的另一侧
+      - { to: npc-aldric, kind: husband, visibility: known, value: 15 }
+      - { to: npc-mathilde, kind: mother, visibility: known, value: 45 }
+      - { to: npc-blanche, kind: daughter, visibility: known, value: 60 }
+
+  - id: npc-reynard
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 雷纳德
+      age: 42
+      gender: male
+      description: 他是两条坍缩线的交点。册子上他的祖先栏能一直往上数到两个人，数到头只有两个人。
+    mood: { value: 22 }
+    attributes: { body: 5, mind: 6, will: 5 }
+    public:
+      personality: 话少。他数过自己有多少个祖先，数出来的数让他一夜没睡。
+      knownGoals: [让罗兰离开这座宅子]
+    private:
+      secrets: ["fact:pure-line"]
+      knowledge: ["fact:pure-line", "fact:rosa-outsider"]
+      goals: [free-son]
+      traits: [haunted]
+    relationship: 30
+    relations:
+      - { to: npc-hugh, kind: father, visibility: known, value: 35 }
+      - { to: npc-mathilde, kind: mother, visibility: known, value: 30 }
+      # ⑨ 汇合
+      - { to: npc-blanche, kind: wife, visibility: known, value: 60 }
+      - { to: player, kind: son, visibility: known, value: 70 }
+
+  - id: npc-blanche
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 布兰奇
+      age: 40
+      gender: female
+      description: 她的父栏是奥德里克，母栏是塞西莉，配偶栏先是奥德里克，后来是雷纳德。前两个名字是她的血，第三个是她的选择。
+    mood: { value: 32 }
+    attributes: { body: 4, mind: 7, will: 7 }
+    public:
+      personality: 她只问过一次：我们还有没有别人可以选。没有人回答她。
+      knownGoals: [找到第三个名字以外的人]
+    private:
+      secrets: ["fact:pure-line"]
+      knowledge: ["fact:pure-line"]
+      goals: [find-outsider]
+      traits: [willful]
+    relationship: 35
+    relations:
+      - { to: npc-aldric, kind: father, visibility: known, value: 15 }
+      # ⑧ 隔代婚的另一侧
+      - { to: npc-aldric, kind: husband, visibility: known, value: 10 }
+      - { to: npc-cecily, kind: mother, visibility: known, value: 55 }
+      - { to: npc-cecily, kind: elder-sister, visibility: known, value: 20 }
+      - { to: npc-reynard, kind: husband, visibility: known, value: 60 }
+      - { to: player, kind: son, visibility: known, value: 75 }
+
+playerTemplate:
+  identity: { gender: male, age: 20 }
+  mood: 35
+  attributes: { body: 5, mind: 7, will: 6 }

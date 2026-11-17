@@ -82,18 +82,6 @@ function load(): Loaded {
       }
     }
   }
-  /**
-   * 模板迁移垫片（**模板一改就删**）：旧模板把亲缘开关写在 `meta.kinship`，
-   * 现在它属于扩展声明（`extensions.family`，见 `docs/EXTENSIONS.md` §3），
-   * 而 `meta` 是 `.strict()` —— 留着旧字段模板直接不可载。
-   * 这段只做「读旧形状 → 当成 extension 声明」，不改变任何推导结果。
-   */
-  const meta = merged.meta as Record<string, unknown> | undefined;
-  const legacyKinship = meta?.kinship;
-  if (legacyKinship !== undefined) {
-    delete meta!.kinship;
-    if (merged.extensions === undefined) merged.extensions = { family: legacyKinship };
-  }
   const openings = OpeningTemplateSchema.array().parse(readYaml("opening.yaml"));
   if (openings.length === 0) throw new Error("valmont 必须有至少一个开局");
   return {
