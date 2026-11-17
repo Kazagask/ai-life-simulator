@@ -55,6 +55,21 @@ export interface ExtensionRuntime {
     config: unknown,
     template: WorldTemplateV2,
   ) => void;
+  /**
+   * 扩展向投影**贡献**关系边（`docs/FAMILY-GRAPH.md` §7.1）。
+   *
+   * 为什么需要：指针模式（只写 `fatherId` / `motherId`）下 `state.relations` 里没有亲属边，
+   * NPC 卡的关系行会整块消失。让扩展在投影期把指针合成的边**加回来**，行装配与称谓装饰
+   * （`relationDerivation`）照旧走原来的路 —— 行级逻辑不进扩展。
+   *
+   * 边界：
+   * · 返回的边**只活在这一次投影里**，绝不写回 `state.relations`（不许在渲染路径制造事实）；
+   * · 合并与去重由内核执行（见 `projection.ts` 的 `mergeContributedRelationEdges`）：
+   *   按 `(from,to,kind)` 去重，**声明边优先**（作者写的关系压过推出来的）；
+   * · 只看 `known` / `inferred`：合成边同样要过可见性门槛；
+   * · 未声明本扩展 / 未注册 / 没实现本钩子 ⇒ 一次都不调用（零回归）。
+   */
+  readonly contributeRelationEdges?: (ctx: RelationEdgeSourceContext) => readonly RelationEdge[];
 }
 
 /**
@@ -172,6 +187,30 @@ export interface SnapshotActor {
    * 要「当前年龄」请读上面的 `age`（内核已按同口径反推）——别自己再算一遍。
    */
   readonly birthTime?: number;
+}
+
+/**
+ * 扩展向投影贡献关系边的上下文（`contributeRelationEdges`，`docs/FAMILY-GRAPH.md` §7.1）。
+ *
+ * 刻意**不给** `visibleEdges`：贡献是纯追加，合并在内核做（一个集合、两个消费者）。
+ * 给了边集，扩展就有了「自己合并一遍」的入口，双真相会从那里长回来。
+ */
+export interface RelationEdgeSourceContext {
+  /** 玩家节点 id（`selfIdOf(state)`）。 */
+  readonly selfId: string;
+  /** 演员目录（已含 `fatherId` / `motherId` / `genderId` / `birthTime`）—— 指针合成的原料。 */
+  readonly actors: ReadonlyMap<string, SnapshotActor>;
+  /** 内核判定不可上屏的节点（贡献边不许越过它：与 `SnapshotDerivationContext` 同口径）。 */
+  readonly hiddenNodeIds: ReadonlySet<string>;
+  /** 模板 `extensions.<id>` 的值（`true` = 默认配置），扩展自己校验。 */
+  readonly config: unknown;
+  /**
+   * 本扩展自己的 state 切片（`state.extensions[<id>]`，**可能缺省**；只读，不许写回）。
+   *
+   * 婚配 / 收养（`docs/FAMILY-GRAPH.md` §3.2）就在这段里 —— 没有它，指针模式只能合成
+   * 父/母边，卡片上永远看不到配偶行（族谱却画得出，两处自相矛盾）。
+   */
+  readonly extensionState?: unknown;
 }
 
 /**

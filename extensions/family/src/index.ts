@@ -3,6 +3,7 @@ import type {
   ExtensionRuntime,
   RelationCardContext,
   RelationDerivation,
+  RelationEdgeSourceContext,
   RelationFields,
   RelationRowContext,
   RelationRowDraft,
@@ -20,7 +21,7 @@ import { parseFamilyConfig } from "./config.js";
 import { reachableKinshipNodeIds } from "./graph.js";
 import { familyKinGraph, kinGraphToRelationEdges } from "./kin-source.js";
 import { derivePedigree } from "./pedigree.js";
-import { kinshipReadings, termForEdge, SELF_TITLE, type KinshipReading } from "./terms/index.js";
+import { kinshipReadings, termForEdge, SELF_TITLE, type KinshipReading, type KinGraph } from "./terms/index.js";
 
 /**
  * 家族扩展（extension id = `family`）：把关系**事实图**解释成称谓与族谱。
@@ -186,10 +187,95 @@ const snapshotDerivation: SnapshotDerivation = {
 };
 
 /**
+ * 合成边统一标 `extension`（`packages/shared/src/schema/relation.ts`）。
+ * **绝不标 `template`**：这些边不是作者写的，标错会让「声明 vs 推到」在前端不可分。
+ */
+const SYNTHETIC_EDGE_SOURCE = "extension" as const;
+
+/**
+ * 指针图 → **行级**关系边（`docs/FAMILY-GRAPH.md` §7.1）。
+ *
+ * 与 `kinGraphToRelationEdges` 的分工：那个函数只服务**族谱**（方向由族谱自己归一，
+ * 它输出的边也只喂族谱），这里服务**人物卡的行** —— 而人物卡只渲染出边
+ * （`packages/rpg-ui` 的 `RelationList`），所以必须把两个方向都补齐，否则：
+ * · 父/母卡上看不到「儿子 / 女儿」行（指针图只有 子女→父母 方向）；
+ * · 配偶只有一端能看到「妻子 / 丈夫」（婚配是无向事实，行却是「甲视乙为…」）。
+ *
+ * 性别不详 ⇒ **不猜**（`docs/FAMILY-GRAPH.md` §5：信息在就在，不在不猜），那一半不补。
+ */
+function pointerGraphRowEdges(graph: KinGraph): RelationEdge[] {
+  // 父/母边：直接复用族谱适配（同一张图 → 同一批事实），只把来源改标 `extension`。
+  const edges: RelationEdge[] = kinGraphToRelationEdges(graph).map((edge) => ({
+    ...edge,
+    source: SYNTHETIC_EDGE_SOURCE,
+  }));
+
+  for (const id of [...graph.nodes].sort()) {
+    for (const { child } of graph.childrenOf(id)) {
+      const sex = graph.facts.sexes.get(child);
+      if (sex === "male") {
+        edges.push({ from: id, to: child, kind: "son", source: SYNTHETIC_EDGE_SOURCE, visibility: "known" });
+      } else if (sex === "female") {
+        edges.push({
+          from: id,
+          to: child,
+          kind: "daughter",
+          source: SYNTHETIC_EDGE_SOURCE,
+          visibility: "known",
+        });
+      }
+    }
+    for (const partner of graph.spousesOf(id)) {
+      // `kinGraphToRelationEdges` 已按 id 升序只从较小端起一条；这里只补另一半。
+      if (id >= partner || !graph.nodes.has(partner)) continue;
+      const sex = graph.facts.sexes.get(id);
+      if (sex === "male") {
+        edges.push({
+          from: partner,
+          to: id,
+          kind: "husband",
+          source: SYNTHETIC_EDGE_SOURCE,
+          visibility: "known",
+        });
+      } else if (sex === "female") {
+        edges.push({
+          from: partner,
+          to: id,
+          kind: "wife",
+          source: SYNTHETIC_EDGE_SOURCE,
+          visibility: "known",
+        });
+      }
+    }
+  }
+  return edges;
+}
+
+/**
+ * 把指针合成的关系边**贡献给投影**（`ExtensionRuntime.contributeRelationEdges`）。
+ *
+ * 只在**指针模式**贡献：边模式下亲属边本来就在 `state.relations` 里，再合一份就是双真相
+ * （那正是 `kinship_conflict` 要拦的混用）。边模式返回 `[]`，投影与 `2b8d304` 逐字段一致。
+ *
+ * 返回的边只活在这一次投影里：合并 / 去重 / 声明边优先全部由内核做，**不写回 state**。
+ */
+function contributeRelationEdges(ctx: RelationEdgeSourceContext): readonly RelationEdge[] {
+  const source = familyKinGraph({
+    actors: ctx.actors,
+    // 选源只看演员有没有指针；指针模式不读这个参数，边模式走下面的 `[]` 分支。
+    visibleEdges: [],
+    extensionState: ctx.extensionState,
+  });
+  if (source.mode !== "pointers") return [];
+  return pointerGraphRowEdges(source.graph);
+}
+
+/**
  * 宿主注册的那一份实现。`id` 与模板 `extensions.family` 的键对齐。
  *
- * 四个口（`docs/EXTENSIONS.md` §2）：
+ * 五个口（`docs/EXTENSIONS.md` §2）：
  * · `relationDerivation` / `snapshotDerivation` —— 称谓与族谱（**只读事实图**）；
+ * · `contributeRelationEdges` —— 指针模式把亲属边加回投影（行与称谓照旧走原路）；
  * · `effects` / `conditions` / `stateSchema` / `onWorldCreated` —— 宗族（**权威 state 切片**）。
  * 两者互不依赖（`docs/CLAN-DESIGN.md` §0/§3）：删掉宗族切片，族谱照样完整。
  */
@@ -197,6 +283,7 @@ export const familyExtension: ExtensionRuntime = {
   id: "family",
   relationDerivation,
   snapshotDerivation,
+  contributeRelationEdges,
   effects: clanEffectHandlers,
   conditions: clanConditions,
   stateSchema: clanStateSchema,
@@ -220,6 +307,8 @@ export {
   ClanFactSchema,
   ClanHistoryEntrySchema,
   ClanMemberSchema,
+  KinAdoptionFactSchema,
+  KinSpouseFactSchema,
   AdjustClanPrestigeEffectSchema,
   ClanHistoryEffectSchema,
   JoinClanEffectSchema,
@@ -241,6 +330,8 @@ export {
   type ClanMemberVia,
   type ClanState,
   type ClanStatus,
+  type KinAdoptionFact,
+  type KinSpouseFact,
 } from "./clan.js";
 export { parseFamilyConfig, sexFromGenderId, type FamilyConfig } from "./config.js";
 export { reachableKinshipNodeIds, isKinshipReachable } from "./graph.js";

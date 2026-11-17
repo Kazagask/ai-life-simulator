@@ -21,6 +21,7 @@ import {
   assertNoReservedRowFields,
   assertOwnSegmentKeys,
   resolveExtensionRuntimes,
+  type RelationEdgeSourceContext,
   type ResolvedExtension,
   type SnapshotActor,
   type SnapshotDerivationContext,
@@ -81,7 +82,22 @@ export function projectSnapshotV2(
     ...state.npcs.filter((n) => n.visibility === "hidden").map((n) => n.id),
   ]);
   /**
-   * 关系面：**只按边自身的可见性收敛**（known / inferred），与「有没有 NPC 卡」无关。
+   * 模板声明了哪些扩展（`docs/EXTENSIONS.md` §3）。**未声明即不跑** ——
+   * 这里返回空数组时，下面一次都不会调用扩展，投影与「零扩展」逐字段一致。
+   *
+   * 注册表只在启动期写（`apps/server` bootstrap），运行期只读 ⇒ 投影保持确定。
+   */
+  const extensionRuntimes = resolveExtensionRuntimes(template);
+  const selfId = selfIdOf(state);
+  /**
+   * 演员目录（含玩家）：关系边贡献与快照段派生**共用这一份**，年龄 / 阶段不会两处各算一遍。
+   */
+  const actors = buildSnapshotActors(state, hiddenNodeIds, adapter, lookup);
+  /**
+   * **唯一的关系边集合**：声明边（known / inferred）+ 扩展贡献的合成边
+   * （`docs/FAMILY-GRAPH.md` §7.1：指针模式下把指针合成的边加回来）。
+   *
+   * 声明边先按**边自身的可见性**收敛（known / inferred），与「有没有 NPC 卡」无关。
    *
    * 为什么解耦（2026-11-16 用户裁决 B-2）：关系是**独立事实** ——
    * 你可能完全不认识伏黑甚尔（没有他的 NPC 卡），但你知道"惠有个父亲"。
@@ -96,17 +112,20 @@ export function projectSnapshotV2(
    * ⚠ 已知限制（本期接受）：敌人不实例化，所以**从敌人侧出边**没有落点 ——
    * 关系行只挂在 NPC 卡上，而卡片只来自 `state.npcs`。要让「敌人 → 某人」也上屏，
    * 得等 A 期真的把关系行提升为独立于卡片的一等投影项。
+   *
+   * 这个集合有两个消费者：① NPC 卡的行装配（`buildRelationRows`）；
+   * ② `relationDerivation` / 快照段派生的 `visibleEdges`。
+   * **不许**任何一方另拿一份 —— 两份就会长出双真相
+   * （「卡片上写了这行、称谓却算不出来」正是这样来的）。
    */
-  const observableRelations = projectVisibleRelations(state.relations);
+  const observableRelations = mergeContributedRelationEdges(
+    projectVisibleRelations(state.relations),
+    extensionRuntimes,
+    { selfId, actors, hiddenNodeIds },
+    state.extensions,
+  );
   /** 关系行里的人名解析：实例 → 模板（敌人没有实例但有名字）→ 玩家。 */
   const actorDirectory = buildActorDirectory(state, template);
-  /**
-   * 模板声明了哪些扩展（`docs/EXTENSIONS.md` §3）。**未声明即不跑** ——
-   * 这里返回空数组时，下面一次都不会调用扩展，投影与「零扩展」逐字段一致。
-   *
-   * 注册表只在启动期写（`apps/server` bootstrap），运行期只读 ⇒ 投影保持确定。
-   */
-  const extensionRuntimes = resolveExtensionRuntimes(template);
 
   const statuses = player.statuses
     .map((inst) => {
@@ -329,10 +348,11 @@ export function projectSnapshotV2(
    * 保持 `undefined`（零回归门槛）。段键不是扩展 id ⇒ `assertOwnSegmentKeys` 抛错。
    */
   applySnapshotDerivations(snapshot, extensionRuntimes, state.extensions, {
-    selfId: selfIdOf(state),
+    // 与行装配**同一份**边集（含扩展贡献的合成边）——不许另算一份。
+    selfId,
     visibleEdges: observableRelations,
     hiddenNodeIds,
-    actors: buildSnapshotActors(state, hiddenNodeIds, adapter, lookup),
+    actors,
     worldTime: state.worldTime,
     turnIndex: state.turnIndex,
     // 历法口径与 `snapshot.formattedTime` 同源：扩展要展示历史时刻时不得自算。
@@ -410,6 +430,69 @@ function buildSnapshotActors(
     lifeState: "alive",
   });
   return actors;
+}
+
+/**
+ * 把扩展贡献的关系边并入声明边（`docs/FAMILY-GRAPH.md` §7.1）。
+ *
+ * 规则（**冲突时声明边赢**）：
+ * · 键 = `(from, to, kind)`。声明边先占位，合成边撞键就让位 ——
+ *   作者写的关系优先级更高，推出来的只是补充；
+ * · 只接受 `known` / `inferred`：合成边同样要过内核的可见性门槛，否则扩展能绕过
+ *   `projectVisibleRelations` 把 hidden 关系说上屏（那是红线）；
+ * · 自环直接丢（`RelationEdgeSchema` 对声明边禁止自环，合成边照办）；
+ * · **没有扩展贡献 ⇒ 原样返回声明边**：没有指针的存量语料与零扩展模板逐字段不变。
+ *
+ * 扩展抛错不 fail-fast（与 `snapshotDerivation` 同口径）：派生展示坏掉不该把整局锁死。
+ */
+function mergeContributedRelationEdges(
+  declared: readonly RelationEdge[],
+  extensions: readonly ResolvedExtension[],
+  base: Pick<RelationEdgeSourceContext, "selfId" | "actors" | "hiddenNodeIds">,
+  extensionSlices: Readonly<Record<string, unknown>> | undefined,
+): readonly RelationEdge[] {
+  /** 已占位的 `(from,to,kind)`：先放进全部声明边，合成边只能补空位。 */
+  const seen = new Set<string>();
+  for (const edge of declared) seen.add(relationEdgeKey(edge));
+
+  let merged: RelationEdge[] | null = null;
+  for (const ext of extensions) {
+    const contribute = ext.runtime.contributeRelationEdges;
+    if (contribute === undefined) continue;
+
+    let contributed: readonly RelationEdge[];
+    try {
+      contributed = contribute({
+        selfId: base.selfId,
+        actors: base.actors,
+        hiddenNodeIds: base.hiddenNodeIds,
+        config: ext.config,
+        // 每个扩展只看得见**自己的**切片（同 `SnapshotDerivationContext.extensionState`）。
+        extensionState: extensionSlices?.[ext.id],
+      });
+    } catch (err) {
+      console.warn(
+        `[extensions] "${ext.id}".contributeRelationEdges 抛错，本次投影跳过其贡献：`,
+        err instanceof Error ? err.message : err,
+      );
+      continue;
+    }
+
+    for (const edge of contributed) {
+      if (edge.visibility !== "known" && edge.visibility !== "inferred") continue;
+      if (edge.from === edge.to) continue;
+      const key = relationEdgeKey(edge);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      (merged ??= [...declared]).push(edge);
+    }
+  }
+  return merged ?? declared;
+}
+
+/** 关系边去重键：`(from, to, kind)`（与 `relations.addEdge` 同口径）。 */
+function relationEdgeKey(edge: RelationEdge): string {
+  return `${edge.from}\u0000${edge.to}\u0000${edge.kind}`;
 }
 
 /**
