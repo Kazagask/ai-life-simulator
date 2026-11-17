@@ -180,7 +180,7 @@ interface FamilyState {
 | 模板 | 现状 | 迁移动作 |
 |---|---|---|
 | `valmont` | 12 个角色，亲缘全靠 `characters.yaml` 的 `father/mother/wife/husband/son/daughter/elder-sister/…` 边 | 全部改写成 `fatherId` / `motherId` + 一份 `spouses` 列表。**罗莎不写 `motherId`**（前妻之女，图上本就没有母边）——指针模型下这是自然的，不需要额外注释解释"为什么不写" |
-| `jjk-2006` | 一条 `relative` + `gap: true` 的远亲边 | 要么迁成指针（远亲无法用指针表达 ⇒ 直接删掉），要么撤掉 `extensions.family` 声明 |
+| `jjk-2006` | 一条 `relative`（`gap: true` 远亲）+ 一条 `npc-megumi → enemy-toji` 的 `father` 边 | **已撤掉 `extensions.family` 声明 ⇒ 模式一**。代价（已接受）：NPC 卡上的亲属称谓整体消失，`father` 行只剩 kind 标签「父亲」；族谱段整体消失（它本来也只有 1 个孤立节点，没有信息量）。**若将来要它也有称谓**：先给 `enemy-toji` 建实例（敌人不实例化，指针会悬空），再迁指针 |
 | `jjk-shinjuku` | 伏黑 → 甚尔（敌方、hidden）一条 `father` 边 | 同上。注意：**敌人不实例化**，指针指向一个不存在的实例会踩 `unknown_reference`，所以要么给甚尔建实例、要么撤掉 family 声明 |
 
 迁移后每个模板的**语义指纹都会变**，旧存档拒载——这是预期的，和其他协议变更一样。
