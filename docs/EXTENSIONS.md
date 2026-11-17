@@ -187,3 +187,59 @@ extensions/family/
   扩展效果结算通道，不静默跳过）。
 - `rules.yaml` 的开放形 op **不进**加载期扫描：它本来就走注册表 + 运行期诊断，再立一套判据
   就是两个法官。
+
+---
+
+## 7. 扩展自带前端：宿主给槽，扩展挂载（2026-11-17 裁决）
+
+> 用户原话：「ui 也得移到 extensions 里 都算扩展 前端给槽和 layout 那样加载」。
+
+**目标形状**：和内核对称。内核把 `state.extensions` 当不透明切片搬运、由扩展解释；
+前端也一样——宿主只搬运，扩展自己解自己的数据、自己渲染。
+
+### 7.1 三条硬规则
+
+1. **宿主不认识具体扩展**：`ViewModel` 不再有 `pedigree` / `clans` 这类字段，改成一个
+   `extensions?: Record<string, unknown>` 的命名空间。宿主只做 `snapshot.family → vm.extensions.family`
+   的原样搬运，**不解析、不映射、不校验**。
+2. **扩展自带 UI**：组件、它自己的视图模型（含 zod 校验）、它自己的样式，全部住在
+   `extensions/<id>/src/ui/`。`packages/rpg-ui` 只剩**通用组件**与**槽**。
+3. **加载是编译期的**：前端在 `apps/web/src/extensions.ts` 里静态 `registerExtensionUi(familyUi)`，
+   和内核一样不做热加载。加扩展 = 加一行注册 + 重新构建。
+
+### 7.2 槽（slot）契约（`packages/rpg-ui/src/extension-slots.ts`）
+
+```ts
+export interface ExtensionView {
+  id: string;                 // 'pedigree' | 'clan'
+  slot: string;               // 'world.subview' …
+  label: string;              // 页签名，扩展自己给
+  order?: number;
+  /** 宿主调它决定这一格出不出（拿得到 ViewModel，但只该看自己的切片 + 公共字段）。 */
+  visible?: (vm: ViewModel) => boolean;
+  Component: React.ComponentType<{ vm: ViewModel }>;
+}
+
+export interface ExtensionUiRuntime { id: string; views: ReadonlyArray<ExtensionView> }
+
+export function registerExtensionUi(rt: ExtensionUiRuntime): void;
+export function resetExtensionUi(): void;                 // 仅测试
+export function extensionViewsFor(slot: string, vm: ViewModel): ExtensionView[];  // 过滤 visible + 按 order 排
+```
+
+- 槽名由宿主定义（`world.subview` 是本轮唯一一个）；扩展只能往**已有槽**里挂，宿主不认识扩展本身。
+- `visible` 只允许看公共字段与自己的切片。**不许**窥探别的扩展的切片。
+- 槽为空 ⇒ 宿主不渲染这一块（不画空页签）。
+
+### 7.3 与 `ui.yaml` 的关系（`未决`）
+
+`specs/SPEC.md` §1.5 的 `ui.yaml`（`views` / `place`）迟早要接管"哪个能力挂哪个槽"。
+本轮先落地**机制**（槽 + 注册），`ui.yaml` 仍是设计未定稿；两者不冲突：
+将来 `place: slot:world.subview` 就是把这里的 `slot` 字段从代码挪进数据。
+
+### 7.4 顺带：回边不展示
+
+`PedigreeEdgeView.back` 与 `PedigreeNodeView.cyclic` **从视图契约里删掉**：
+检测仍然要做（世代计算必须跳过回边，否则死循环），但**不再下发、不再渲染**。
+理由：现实里人不可能是自己的祖先，这类边只会来自数据错误或极端设定，
+画出来是给玩家看一个"引擎出错的样子"。
