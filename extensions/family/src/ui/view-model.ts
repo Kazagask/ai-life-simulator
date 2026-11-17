@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ClanView, PedigreeView } from "../contract.js";
 
 /**
  * 家族扩展**自己的**前端契约（`docs/EXTENSIONS.md` §7.1 第 2 条）。
@@ -139,3 +140,11 @@ export const FamilyUiSliceSchema = z.object({
   clans: z.array(ClanVMSchema),
 });
 export type FamilyUiSlice = z.infer<typeof FamilyUiSliceSchema>;
+
+/**
+ * 编译期防漂移：zod 推出来的视图模型必须仍是快照契约的超集形状。
+ * 改了 `contract.ts` 却忘了改 schema（或反过来）时，这里先红，而不是运行时画出半张图。
+ */
+type Assert<T extends true> = T;
+export type _PedigreeVMMatchesContract = Assert<PedigreeVM extends PedigreeView ? true : false>;
+export type _ClanVMMatchesContract = Assert<ClanVM extends ClanView ? true : false>;

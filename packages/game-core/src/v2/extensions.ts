@@ -131,7 +131,7 @@ export interface RelationRowDraft {
   readonly fields?: RelationFields;
 }
 
-// ---------- 快照段派生（每次投影一次，`docs/CLAN-DESIGN.md` §3） ----------
+// ---------- 快照段派生（每次投影一次，`docs/EXTENSIONS.md` §7） ----------
 
 /**
  * 演员目录里的一项（投影期现算，扩展只读）。
@@ -190,53 +190,29 @@ export interface SnapshotDerivationContext {
 }
 
 export interface SnapshotDerivation {
-  /** 返回要并入快照的段；键名与内核键冲突 ⇒ **抛错**，不许静默覆盖（见 `assertNoReservedSnapshotKeys`）。 */
+  /**
+   * 返回本扩展的快照片段：`{ [扩展 id]: 段 }`。
+   *
+   * 段键**必须等于扩展 id** —— 段会落进 `snapshot.extensions`，那里按扩展 id 分槽；
+   * 写别人的槽就抛错（`assertOwnSegmentKeys`），不静默覆盖。内核不解析段内容。
+   */
   derive(ctx: SnapshotDerivationContext): Record<string, unknown>;
 }
 
 /**
- * 内核快照键：扩展段**不得覆盖**（`docs/EXTENSIONS.md` §2 保证 1 的同一条纪律）。
+ * 段键必须等于扩展 id：`snapshot.extensions` 是按扩展 id 分槽的不透明命名空间
+ * （`docs/EXTENSIONS.md` §7），扩展只能写自己那一格。
  *
- * 故意**不含**扩展自己拥有的顶层键（如 `family`）—— 那些是留给扩展段的槽位，
- * 名字由 `V2Snapshot` 声明，内容由扩展填。名单与 `V2Snapshot` 的键集同步维护；
- * 漏一个的后果是「扩展悄悄改写了内核字段」，所以这里宁可多列（含可选键）。
+ * 这条约束替代了旧的「不得覆盖内核快照键」：段不再落在快照顶层，天然碰不到内核字段。
  */
-const RESERVED_SNAPSHOT_KEYS: ReadonlySet<string> = new Set([
-  "worldId",
-  "templateId",
-  "worldName",
-  "turnIndex",
-  "worldTime",
-  "formattedTime",
-  "lifeStage",
-  "lifeStageLabel",
-  "startYear",
-  "storyChapter",
-  "labels",
-  "player",
-  "equipmentSlots",
-  "npcs",
-  "slotEvent",
-  "battle",
-  "lastWheel",
-  "lastWheels",
-  "availableActions",
-  "evaluation",
-  "status",
-  "ending",
-  "media",
-  "llmPending",
-]);
-
-/** 段与内核键同名 ⇒ 抛错（与 `assertNoReservedRowFields` 同一纪律，不静默忽略）。 */
-export function assertNoReservedSnapshotKeys(
+export function assertOwnSegmentKeys(
   extensionId: string,
   segment: Record<string, unknown>,
 ): void {
   for (const key of Object.keys(segment)) {
-    if (!RESERVED_SNAPSHOT_KEYS.has(key)) continue;
+    if (key === extensionId) continue;
     throw new Error(
-      `extension "${extensionId}" 试图覆盖内核快照键 "${key}"：扩展只能加段，不能改段（docs/EXTENSIONS.md §2 保证 1）`,
+      `extension "${extensionId}" 返回了段键 "${key}"：snapshot.extensions 按扩展 id 分槽，扩展只能写自己那一格（docs/EXTENSIONS.md §7）`,
     );
   }
 }

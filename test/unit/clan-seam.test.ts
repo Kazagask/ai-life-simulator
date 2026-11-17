@@ -9,8 +9,9 @@ import {
   selfIdOf,
   type UnknownEffect,
 } from "@life-sim/game-core";
-import type { V2Npc, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
+import type { V2Npc, V2Snapshot, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
 import { familyExtension } from "@life-sim/ext-family";
+import type { FamilyView } from "@life-sim/ext-family";
 import { fixtureEntry } from "../helpers/world.ts";
 
 /**
@@ -21,7 +22,7 @@ import { fixtureEntry } from "../helpers/world.ts";
  * 1. `state.extensions.family` **真的**被投影读到（`extensionState` 接缝通着）；
  * 2. 模板声明了 `family` 但没声明 `clans` ⇒ 空数组、不抛（`valmont` 那种 `family: true`）。
  *
- * 零回归（不声明 `extensions` ⇒ `snapshot.family === undefined`）由
+ * 零回归（不声明 `extensions` ⇒ 快照里没有 `extensions` 键）由
  * `test/unit/pedigree-seam.test.ts` 的既有用例守着，本项目不再重复一份。
  */
 
@@ -59,6 +60,14 @@ function snapshotOf(state: WorldStateV2, template: WorldTemplateV2) {
   return projectSnapshotV2(state, template, createLookup(template));
 }
 
+/**
+ * 宿主侧 `snapshot.extensions.family` 是 `unknown`（内核不认识「家族」）；
+ * 测试拿扩展自己的契约类型收窄 —— 这正是任何消费方该做的事。
+ */
+function familyOf(snapshot: V2Snapshot): FamilyView | undefined {
+  return snapshot.extensions?.family as FamilyView | undefined;
+}
+
 /** 一个玩家视角可见、且在世 / 可被置死的 NPC（p0 夹具里一定有）。 */
 function pickNpc(state: WorldStateV2): V2Npc {
   const npc = state.npcs.find((n) => n.lifecycle.state === "alive" && n.visibility !== "hidden");
@@ -84,7 +93,7 @@ describe("宗族接缝：state.extensions.family → snapshot.family", () => {
       reason: "生于本族",
     });
 
-    const family = snapshotOf(state, template).family;
+    const family = familyOf(snapshotOf(state, template));
     expect(family).toBeDefined();
     expect(family!.selfClanIds).toEqual(["c1"]);
     expect(family!.clans.map((c) => c.id)).toEqual(["c1", "c2"]);
@@ -113,7 +122,7 @@ describe("宗族接缝：state.extensions.family → snapshot.family", () => {
       { type: "setClanHead", clanId: "c1", actorId: selfId },
     );
 
-    const c1 = snapshotOf(state, template).family!.clans[0]!;
+    const c1 = familyOf(snapshotOf(state, template))!.clans[0]!;
     expect(c1.selfRelation).toBe("head");
     expect(c1.head).toMatchObject({ id: selfId, isSelf: true, hasCard: true, alive: true });
   });
@@ -128,7 +137,7 @@ describe("宗族接缝：state.extensions.family → snapshot.family", () => {
       { type: "joinClan", actorId: npc.id, clanId: "c1", via: "marriage", reason: "嫁入本族" },
     );
 
-    const alive = snapshotOf(state, template).family!.clans[0]!;
+    const alive = familyOf(snapshotOf(state, template))!.clans[0]!;
     expect(alive.livingCount).toBe(2);
     expect(alive.memberCount).toBe(2);
 
@@ -139,13 +148,13 @@ describe("宗族接缝：state.extensions.family → snapshot.family", () => {
       sinceTurn: state.turnIndex,
       sinceWorldTime: state.worldTime,
     };
-    const dead = snapshotOf(state, template).family!.clans[0]!;
+    const dead = familyOf(snapshotOf(state, template))!.clans[0]!;
     expect(dead.memberCount).toBe(2);
     expect(dead.livingCount).toBe(1);
 
     // 判 hidden：玩家视角里根本没这个人 ⇒ 两个数都不算他。
     state.npcs.find((n) => n.id === npc.id)!.visibility = "hidden";
-    const hidden = snapshotOf(state, template).family!.clans[0]!;
+    const hidden = familyOf(snapshotOf(state, template))!.clans[0]!;
     expect(hidden.memberCount).toBe(1);
     expect(hidden.livingCount).toBe(1);
   });
@@ -159,7 +168,7 @@ describe("宗族接缝：state.extensions.family → snapshot.family", () => {
       { type: "leaveClan", actorId: selfId, reason: "出继" },
     );
 
-    const family = snapshotOf(state, template).family!;
+    const family = familyOf(snapshotOf(state, template))!;
     expect(family.selfClanIds).toEqual([]);
     expect(family.clans[0]!).toMatchObject({
       memberCount: 0,
@@ -175,18 +184,19 @@ describe("宗族接缝：声明了 family 但没声明 clans", () => {
     expect(state.extensions).toBeUndefined();
 
     const snapshot = snapshotOf(state, template);
-    expect(snapshot.family).toBeDefined();
-    expect(snapshot.family!.clans).toEqual([]);
-    expect(snapshot.family!.selfClanIds).toEqual([]);
+    const family = familyOf(snapshot);
+    expect(family).toBeDefined();
+    expect(family!.clans).toEqual([]);
+    expect(family!.selfClanIds).toEqual([]);
     // 两段互不依赖：没有宗族，族谱照样出（至少玩家自己一个节点）。
-    expect(snapshot.family!.pedigree).toBeDefined();
-    expect(snapshot.family!.pedigree!.nodes.some((n) => n.isSelf)).toBe(true);
+    expect(family!.pedigree).toBeDefined();
+    expect(family!.pedigree!.nodes.some((n) => n.isSelf)).toBe(true);
   });
 
   it("只有族谱配置（showAllRoles）⇒ 同样空宗族、不抛", () => {
     const { state, template } = worldWith({ showAllRoles: true });
-    const snapshot = snapshotOf(state, template);
-    expect(snapshot.family!.clans).toEqual([]);
-    expect(snapshot.family!.pedigree!.nodes.length).toBeGreaterThan(0);
+    const family = familyOf(snapshotOf(state, template))!;
+    expect(family.clans).toEqual([]);
+    expect(family.pedigree!.nodes.length).toBeGreaterThan(0);
   });
 });

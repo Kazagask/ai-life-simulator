@@ -13,6 +13,13 @@ import type { ViewModel } from "@life-sim/shared";
  * 2. 槽名由宿主定义（`world.subview` 是本轮唯一一个）。扩展只能往**已有槽**里挂。
  * 3. `visible` 只允许看公共字段与自己的切片 —— 不许窥探别的扩展的切片。槽为空 ⇒
  *    宿主不渲染这一块（不画空页签）。
+ *
+ * **宿主持有的只有三样东西**（`docs/EXTENSIONS.md` §7）：
+ * 1. 三个不透明命名空间：世界状态、引擎快照（V2 快照）、视图模型各有一个 `extensions`；
+ * 2. 两个注册表：`ExtensionRuntime`（内核侧）/ `ExtensionUiRuntime`（前端侧，本文件）；
+ * 3. 一张槽表：本文件。
+ * 除此之外 `packages/**` 里不该出现任何 `clan` / `pedigree` / `family` 的**类型或字段名**
+ * （注释里提到可以，用来解释这些玩法搬去哪了）。
  */
 
 /**

@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { projectSnapshotV2, registerExtensionRuntime, resetExtensionRuntimes } from "@life-sim/game-core";
+import {
+  projectSnapshotV2,
+  registerExtensionRuntime,
+  resetExtensionRuntimes,
+  type ExtensionRuntime,
+} from "@life-sim/game-core";
 import { familyExtension } from "@life-sim/ext-family";
 import { makeWorld } from "../helpers/world.ts";
 
@@ -54,5 +59,41 @@ describe("extensions: 未声明即不跑", () => {
       .find((r) => r.withId === "player" && r.direction === "out");
     expect(row?.kind).toBe("father");
     expect(row?.kinshipTerm).toBe("爸爸");
+  });
+});
+
+/**
+ * 快照命名空间按扩展 id 分槽（`docs/EXTENSIONS.md` §7）。
+ *
+ * 宿主不认识任何玩法：`snapshot.extensions` 只容纳各扩展自己的段，段键必须等于扩展 id。
+ * 这两条用例守着「宿主零知识」的**结构**，不是某个具体扩展的行为。
+ */
+describe("extensions: snapshot.extensions 按扩展 id 分槽", () => {
+  afterEach(() => resetExtensionRuntimes());
+
+  it("段键 = 扩展 id ⇒ 落在 snapshot.extensions 下，不会写到快照顶层", () => {
+    const runtime: ExtensionRuntime = {
+      id: "fake",
+      snapshotDerivation: { derive: () => ({ fake: { kind: "smoke" } }) },
+    };
+    registerExtensionRuntime(runtime);
+    const { state, entry } = makeWorld();
+    const template = { ...entry.template, extensions: { fake: true } };
+
+    const snapshot = projectSnapshotV2(state, template, entry.lookup);
+    expect(snapshot.extensions).toEqual({ fake: { kind: "smoke" } });
+    expect((snapshot as unknown as Record<string, unknown>).fake).toBeUndefined();
+  });
+
+  it("段键不是自己的 id ⇒ 抛错，不静默改写别人的命名空间", () => {
+    const runtime: ExtensionRuntime = {
+      id: "fake",
+      snapshotDerivation: { derive: () => ({ someoneElse: { kind: "smoke" } }) },
+    };
+    registerExtensionRuntime(runtime);
+    const { state, entry } = makeWorld();
+    const template = { ...entry.template, extensions: { fake: true } };
+
+    expect(() => projectSnapshotV2(state, template, entry.lookup)).toThrow(/分槽/);
   });
 });

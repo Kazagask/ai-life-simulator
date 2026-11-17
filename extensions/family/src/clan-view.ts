@@ -1,5 +1,5 @@
 import type { SnapshotDerivationContext } from "@life-sim/game-core";
-import type { ClanHeadView, ClanView } from "@life-sim/shared";
+import type { ClanHeadView, ClanView } from "./contract.js";
 import {
   clanStateSchema,
   parseClanConfig,

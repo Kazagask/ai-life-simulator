@@ -393,6 +393,6 @@ export function toViewModel({ snapshot, content, media }: ToViewModelInput): Vie
     turnIndex: snapshot.turnIndex,
     // 扩展命名空间：宿主只做**原样搬运**（`docs/EXTENSIONS.md` §7.1）——不解析、不映射、
     // 不校验；数据怎么解释是扩展自带 UI 的事（它只该看自己那一格）。
-    ...(snapshot.family !== undefined ? { extensions: { family: snapshot.family } } : {}),
+    ...(snapshot.extensions !== undefined ? { extensions: snapshot.extensions } : {}),
   };
 }

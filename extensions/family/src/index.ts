@@ -147,9 +147,12 @@ function extendRows(ctx: RelationCardContext): RelationRowDraft[] {
 const relationDerivation: RelationDerivation = { decorate, extendRows };
 
 /**
- * 每次快照一次：产出 `snapshot.family`（`docs/CLAN-DESIGN.md`）。
+ * 每次快照一次：产出**自己那一格** `snapshot.extensions.family`（`docs/EXTENSIONS.md` §7）。
  *
- * 两段**互不依赖**（§0/§3）：
+ * 返回的段键恒等于扩展 id（`family`）：投影只负责把它放进 `snapshot.extensions`，
+ * 内核里没有任何「家族」字样，也没有 `V2Snapshot.family` 这个字段。
+ *
+ * 两段**互不依赖**（`docs/CLAN-DESIGN.md` §0/§3）：
  * · `pedigree` 只吃关系图（关系边 + 演员目录），删掉宗族切片照样完整；
  * · `selfClanIds` / `clans` 只吃 `state.extensions.family`（权威族表），从不从关系图推成员。
  *
@@ -159,6 +162,7 @@ const snapshotDerivation: SnapshotDerivation = {
   derive(ctx) {
     const clan = deriveClanView(ctx);
     return {
+      // 键 = 扩展 id：宿主只会把这一段原样放进 `snapshot.extensions.family`。
       family: {
         selfClanIds: clan.selfClanIds,
         clans: clan.clans,
@@ -187,6 +191,14 @@ export const familyExtension: ExtensionRuntime = {
 };
 
 export { derivePedigree } from "./pedigree.js";
+export type {
+  FamilyView,
+  PedigreeView,
+  PedigreeNodeView,
+  PedigreeEdgeView,
+  ClanView,
+  ClanHeadView,
+} from "./contract.js";
 export { deriveClanView, type ClanViewBundle } from "./clan-view.js";
 export {
   CLAN_HISTORY_KINDS,

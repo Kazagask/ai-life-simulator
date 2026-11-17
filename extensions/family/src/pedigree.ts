@@ -1,4 +1,4 @@
-import type { PedigreeEdgeView, PedigreeNodeView, PedigreeView } from "@life-sim/shared";
+import type { PedigreeEdgeView, PedigreeNodeView, PedigreeView } from "./contract.js";
 import type { SnapshotDerivationContext } from "@life-sim/game-core";
 import { parseFamilyConfig } from "./config.js";
 

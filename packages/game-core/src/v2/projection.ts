@@ -19,7 +19,7 @@ import { controlOf } from "./battle.js";
 import { projectVisibleRelations } from "./relations.js";
 import {
   assertNoReservedRowFields,
-  assertNoReservedSnapshotKeys,
+  assertOwnSegmentKeys,
   resolveExtensionRuntimes,
   type ResolvedExtension,
   type SnapshotActor,
@@ -322,11 +322,11 @@ export function projectSnapshotV2(
   };
 
   /**
-   * 快照段派生（`docs/CLAN-DESIGN.md` §3 / `docs/EXTENSIONS.md` §2 保证 4）：
-   * 装配完内核段之后、返回之前，逐个调用**模板声明过且已注册**的 `snapshotDerivation`。
+   * 快照段派生（`docs/EXTENSIONS.md` §7）：装配完内核段之后、返回之前，逐个调用
+   * **模板声明过且已注册**的 `snapshotDerivation`，把结果放进 `snapshot.extensions[id]`。
    *
-   * 未声明 ⇒ `extensionRuntimes` 为空数组 ⇒ 这里一次都不调用，`snapshot.family` 保持
-   * `undefined`（零回归门槛）。段键与内核键冲突 ⇒ `assertNoReservedSnapshotKeys` 抛错。
+   * 未声明 ⇒ `extensionRuntimes` 为空数组 ⇒ 这里一次都不调用，`snapshot.extensions`
+   * 保持 `undefined`（零回归门槛）。段键不是扩展 id ⇒ `assertOwnSegmentKeys` 抛错。
    */
   applySnapshotDerivations(snapshot, extensionRuntimes, state.extensions, {
     selfId: selfIdOf(state),
@@ -406,11 +406,11 @@ function buildSnapshotActors(
 }
 
 /**
- * 把扩展返回的段并入快照。
+ * 把扩展返回的段并入 `snapshot.extensions`（按扩展 id 分槽，`docs/EXTENSIONS.md` §7）。
  *
  * **失败策略：跳过并留诊断，不 fail-fast。** 理由：派生段不是事实 —— 一个可选展示
- * 扩展（族谱/宗族）抛错时，世界状态本身仍然可玩；让整张投影崩掉等于「装了个展示插件
- * 就把整局锁死」，违反「卸载全部扩展内核照跑」的边界。契约违规（段键覆盖内核键）
+ * 扩展抛错时，世界状态本身仍然可玩；让整张投影崩掉等于「装了个展示插件
+ * 就把整局锁死」，违反「卸载全部扩展内核照跑」的边界。契约违规（段键不是自己的 id）
  * 仍然**抛错**：那是代码 bug，必须响。
  */
 function applySnapshotDerivations(
@@ -421,6 +421,9 @@ function applySnapshotDerivations(
 ): void {
   if (extensions.length === 0) return;
   const target = snapshot as unknown as Record<string, unknown>;
+  const namespace: Record<string, unknown> = {
+    ...(target.extensions as Record<string, unknown> | undefined),
+  };
   for (const ext of extensions) {
     const derive = ext.runtime.snapshotDerivation?.derive;
     if (derive === undefined) continue;
@@ -440,9 +443,11 @@ function applySnapshotDerivations(
       );
       continue;
     }
-    assertNoReservedSnapshotKeys(ext.id, segment);
-    for (const [key, value] of Object.entries(segment)) target[key] = value;
+    assertOwnSegmentKeys(ext.id, segment);
+    // 段键 = 扩展 id ⇒ 只落在自己那一格，不可能改写别人的段或内核字段。
+    for (const [key, value] of Object.entries(segment)) namespace[key] = value;
   }
+  if (Object.keys(namespace).length > 0) target.extensions = namespace;
 }
 
 /**
