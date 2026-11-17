@@ -25,9 +25,11 @@ import {
 } from "@life-sim/shared";
 import {
   createLookup,
+  hasExtensionRuntime,
   type TemplateLookup,
   type TurnPipelineConfig,
 } from "@life-sim/game-core";
+import { installedExtensionIds } from "./extensions.js";
 
 /**
  * 模板注册表（ADR-0029 / R2.8）：
@@ -134,6 +136,48 @@ export interface TemplateRef {
   version: string;
 }
 
+/**
+ * 模板加载期的**封闭拒载码**：`reason` 是自由文本（给人看），码给程序与运维看。
+ *
+ * 目前只有 `unknown_extension` 一种：模板 `extensions:` 声明了服务端没装的扩展包。
+ * 它必须与「yaml 写错了」的 `template_invalid` 分开 —— 否则运维会去翻模板文件，
+ * 而真正要做的是补一条 `apps/server/src/extensions.ts` 的装配。
+ */
+export type TemplateLoadReasonCode = "unknown_extension";
+
+/** 带封闭码的加载失败：`scanVersion` 的 catch 靠它把码一路带到 Entry 与 API 响应。 */
+class TemplateLoadError extends Error {
+  readonly reasonCode: TemplateLoadReasonCode;
+
+  constructor(reasonCode: TemplateLoadReasonCode, message: string) {
+    super(message);
+    this.name = "TemplateLoadError";
+    this.reasonCode = reasonCode;
+  }
+}
+
+/**
+ * 加载期校验：模板 `extensions:` 声明的每个 id 都必须在**已注册 runtime** 里找得到
+ * （`registerExtensionRuntime` 的产物，由 `apps/server` 启动期装配）。
+ *
+ * 未声明 `extensions` ⇒ 直接返回（保证 4：不声明就一次都不跑，也不该因此拒载）。
+ * 判据用 game-core 的 `hasExtensionRuntime` —— 与投影期 `resolveExtensionRuntimes`
+ * 读的是同一张表，两处口径不可能漂移。
+ */
+function assertExtensionsInstalled(template: WorldTemplateV2): void {
+  const declared = template.extensions;
+  if (declared === undefined) return;
+  const missing = Object.keys(declared).filter((extensionId) => !hasExtensionRuntime(extensionId));
+  if (missing.length === 0) return;
+  const installed = installedExtensionIds();
+  throw new TemplateLoadError(
+    "unknown_extension",
+    `模板声明了未注册的扩展 ${missing.map((extensionId) => `"${extensionId}"`).join(", ")}；` +
+      `已注册的扩展 id：${installed.length > 0 ? installed.join(", ") : "（无）"}` +
+      `（扩展包需在 apps/server 启动期注册，见 apps/server/src/extensions.ts）`,
+  );
+}
+
 interface TemplateEntryBase {
   ref: TemplateRef;
   /** 版本目录内所有文件 mtime 的最大值（顶层文件 + `assets/**` 递归，**不用目录 mtime**）。
@@ -168,6 +212,8 @@ export interface InvalidTemplateEntry extends TemplateEntryBase {
   status: "invalid";
   /** 可诊断原因：含 `(id, version)` 与首个 issue 路径 / 文件路径。 */
   reason: string;
+  /** 封闭拒载码（可机读）：`unknown_extension` 时 `reason` 里带缺失 id 与已注册 id 列表。 */
+  reasonCode?: TemplateLoadReasonCode;
 }
 
 export type TemplateEntry = ReadyTemplateEntry | InvalidTemplateEntry;
@@ -194,7 +240,14 @@ export type TemplateVersionSummary =
       assets?: AssetSummary[];
       loadable: true;
     }
-  | { id: string; version: string; loadable: false; reason: string };
+  | {
+      id: string;
+      version: string;
+      loadable: false;
+      reason: string;
+      /** 封闭拒载码（可机读，随 `reason` 一起下发）。 */
+      reasonCode?: TemplateLoadReasonCode;
+    };
 
 /** 两级模板列表的模板层（先选模板、再选版本）。 */
 export interface TemplateSummary {
@@ -750,7 +803,15 @@ export function readAssetEntries(assetManifest: AssetManifest | undefined): Asse
   }));
 }
 
-type VersionScan = { ok: true; entry: ReadyTemplateEntry } | { ok: false; reason: string; mtime: number };
+type VersionScan =
+  | { ok: true; entry: ReadyTemplateEntry }
+  | {
+      ok: false;
+      reason: string;
+      mtime: number;
+      /** 带封闭码的失败（目前只有 `unknown_extension`）；其它失败留空 ⇒ 归 `template_invalid`。 */
+      reasonCode?: TemplateLoadReasonCode;
+    };
 
 /** stat 计数回调（R-TG-16 AC⑧）：只在运行期 `ensureFresh()` 里挂，启动期不计数。 */
 type StatCounter = (() => void) | undefined;
@@ -849,6 +910,8 @@ function scanVersion(
         `world.yaml: meta.id (${template.meta.id}) 与模板目录名 (${id}) 不一致`,
       );
     }
+    // 扩展层：模板声明了没注册的 id ⇒ 拒载（`unknown_extension`），不是「投影期悄悄跳过」。
+    assertExtensionsInstalled(template);
     const openings = loadOpenings(versionDir, present);
     const endingConfig = loadOptionalConfig(versionDir, "endings.yaml", present, EndingConfigSchema);
     const evaluationConfig = loadOptionalConfig(
@@ -893,7 +956,13 @@ function scanVersion(
     };
     return { ok: true, entry };
   } catch (error) {
-    return { ok: false, reason: `${keyOf(ref)}: ${firstIssue(error)}`, mtime };
+    const reasonCode = error instanceof TemplateLoadError ? error.reasonCode : undefined;
+    return {
+      ok: false,
+      reason: `${keyOf(ref)}: ${firstIssue(error)}`,
+      mtime,
+      ...(reasonCode !== undefined ? { reasonCode } : {}),
+    };
   }
 }
 
@@ -980,13 +1049,31 @@ function scanAll(dir: string, logger: TemplateScanLogger, failFast: boolean): Sc
         continue;
       }
       if (failFast) {
-        throw new Error(`template_invalid: ${scan.reason}`);
+        // 例外：`unknown_extension` 不是模板文件写错了，而是**服务端没装那个扩展包**。
+        // 为此拒整个进程不合理（其它模板照样能玩），所以启动期也只标该版本不可载 ——
+        // 与运行期同一个收敛形状，玩家侧看到 `loadable:false` + 封闭码，服务继续起。
+        if (scan.reasonCode === "unknown_extension") {
+          logger.error(
+            { templateId: id, version, reason: scan.reason },
+            "template_extension_unregistered: 该版本不可载（服务继续启动）",
+          );
+          entries.set(keyOf({ id, version }), {
+            ref: { id, version },
+            status: "invalid",
+            reason: scan.reason,
+            reasonCode: scan.reasonCode,
+            mtime: scan.mtime,
+          });
+          continue;
+        }
+        throw new Error(`${scan.reasonCode ?? "template_invalid"}: ${scan.reason}`);
       }
       logger.error({ templateId: id, version, reason: scan.reason }, "template_reload_failed");
       entries.set(keyOf({ id, version }), {
         ref: { id, version },
         status: "invalid",
         reason: scan.reason,
+        ...(scan.reasonCode !== undefined ? { reasonCode: scan.reasonCode } : {}),
         mtime: scan.mtime,
       });
     }
@@ -1054,7 +1141,13 @@ function createRegistry(dir: string, result: ScanResult, logger: TemplateScanLog
       { templateId: id, version, dir: versionDir, reason: scan.reason },
       "template_reload_failed: 无旧 Entry，标 invalid",
     );
-    byKey.set(key, { ref: { id, version }, status: "invalid", reason: scan.reason, mtime });
+    byKey.set(key, {
+      ref: { id, version },
+      status: "invalid",
+      reason: scan.reason,
+      ...(scan.reasonCode !== undefined ? { reasonCode: scan.reasonCode } : {}),
+      mtime,
+    });
   }
 
   /**
@@ -1174,7 +1267,13 @@ function createRegistry(dir: string, result: ScanResult, logger: TemplateScanLog
               })),
               loadable: true,
             }
-          : { id, version: entry.ref.version, loadable: false, reason: entry.reason },
+          : {
+              id,
+              version: entry.ref.version,
+              loadable: false,
+              reason: entry.reason,
+              ...(entry.reasonCode !== undefined ? { reasonCode: entry.reasonCode } : {}),
+            },
       );
       const nameOfStart = start?.status === "ready" ? start.template.meta.name : (start?.ref.id ?? id);
       return {

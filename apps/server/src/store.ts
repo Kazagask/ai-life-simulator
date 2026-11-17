@@ -84,6 +84,8 @@ export type UnloadableReason =
   | "template_version_missing"
   | "template_version_ambiguous"
   | "template_invalid"
+  /** 模板声明了服务端未装配的扩展（`templates.ts` 的 `unknown_extension`）：与模板写错分开。 */
+  | "unknown_extension"
   | "template_content_drift"
   | "world_state_invalid";
 
@@ -365,7 +367,9 @@ export function loadPersistedWorlds(registry: TemplateRegistry): {
       continue;
     }
     if (entry.status !== "ready") {
-      reject("template_invalid", entry.reason, refs);
+      // 拒载码透传：模板侧 `unknown_extension` 不该被压成 `template_invalid`
+      // （前者要做的是补扩展装配，后者要改模板文件）。
+      reject(entry.reasonCode === "unknown_extension" ? "unknown_extension" : "template_invalid", entry.reason, refs);
       continue;
     }
 

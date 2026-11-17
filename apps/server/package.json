@@ -11,6 +11,7 @@
   "dependencies": {
     "@life-sim/shared": "workspace:*",
     "@life-sim/game-core": "workspace:*",
+    "@life-sim/ext-family": "workspace:*",
     "@life-sim/agent-runtime": "workspace:*",
     "fastify": "^5.3.0",
     "yaml": "^2.4.0",

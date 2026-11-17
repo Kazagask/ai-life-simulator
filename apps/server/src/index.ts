@@ -45,6 +45,7 @@ import type {
   WorldStateV2,
 } from "@life-sim/shared";
 import { compareVersions, loadTemplates, readAssetEntries, type ReadyTemplateEntry } from "./templates.js";
+import { registerServerExtensions } from "./extensions.js";
 import { dataDir, hydrate, loadPersistedWorlds, worldStore } from "./store.js";
 import { createLLMProvider, readLLMConfig, resolveProviderForRequest, type LLMProvider } from "./llm/provider.js";
 import { userCredentials } from "./llm/userCredentials.js";
@@ -98,6 +99,13 @@ app.addContentTypeParser("*", { parseAs: "string" }, (_request, body, done) => {
 });
 
 // ---------- 模板注册（R2.8 / ADR-0029：`<id>/<version>/` 两级，启动期 fail-fast） ----------
+
+/**
+ * 🔴 **顺序不可换**：扩展注册必须早于模板扫描。
+ * 模板加载期要按「已注册 runtime」校验 `extensions:`（未注册 ⇒ `unknown_extension` 拒载），
+ * 晚一步注册就会把声明了 `extensions.family` 的合法模板全部判成未注册。
+ */
+registerServerExtensions();
 
 const registry = loadTemplates(app.log);
 app.log.info({ templatesDir: registry.dir }, "templates_loaded");
@@ -581,7 +589,14 @@ app.post("/api/worlds", async (request, reply) => {
     if (found.status !== "ready") {
       return reply
         .code(409)
-        .send({ error: "template_invalid", templateId, templateVersion, reason: found.reason });
+        .send({
+          error: "template_invalid",
+          templateId,
+          templateVersion,
+          reason: found.reason,
+          // 封闭拒载码（`unknown_extension` 时客户端可直接提示「该剧本需要未安装的扩展」）
+          ...(found.reasonCode !== undefined ? { reasonCode: found.reasonCode } : {}),
+        });
     }
     entry = found;
   } else if (ready.length === 0) {
