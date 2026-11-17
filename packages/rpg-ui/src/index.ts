@@ -46,6 +46,19 @@ export type { NpcCardProps } from "./NpcCard.js";
 export { RelationList } from "./RelationList.js";
 export type { RelationListProps } from "./RelationList.js";
 
+export { CharacterPanel, SlotTile } from "./CharacterPanel.js";
+export type { CharacterPanelProps, SlotTileProps } from "./CharacterPanel.js";
+export { StatsPanel } from "./StatsPanel.js";
+export type { StatsPanelProps } from "./StatsPanel.js";
+export { BagPanel } from "./BagPanel.js";
+export type { BagPanelProps, BagPartition } from "./BagPanel.js";
+export { AssetDetail } from "./AssetDetail.js";
+export type { AssetDetailProps } from "./AssetDetail.js";
+export { SkillList } from "./SkillList.js";
+export type { SkillListProps } from "./SkillList.js";
+export { buildSlotCells, isSlotSelected } from "./personal.js";
+export type { PersonalSelection, SlotCell } from "./personal.js";
+
 export {
   MAX_ACT_TEXT,
   MAX_ACT_TYPE,
@@ -86,6 +99,10 @@ export type {
   PlayerAttributeVM,
   EvaluationDimensionVM,
   NpcRelationVM,
+  EquipmentVM,
+  EquipmentSlotVM,
+  InventoryItemVM,
+  SkillVM,
   StatusVM,
   WheelVM,
   EndingVM,

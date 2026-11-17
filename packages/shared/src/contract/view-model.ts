@@ -11,6 +11,65 @@ import { z } from "zod";
  *  - 字段扩写遵循**追加**原则：既有字段名与语义不变，新字段只增不改。
  */
 
+/** 已装备的一件装备（只含展示字段；补正结果由内核每次结算现算，不下发）。 */
+export const EquipmentVMSchema = z
+  .object({
+    instanceId: z.string(),
+    itemId: z.string(),
+    slot: z.string(),
+    /** 槽位显示名（模板 `equipment.yaml`）；缺省时展示层回退 `slot` id。 */
+    slotLabel: z.string().optional(),
+    stacks: z.number().optional(),
+    durability: z.number().optional(),
+    name: z.string().optional(),
+    description: z.string().optional(),
+    category: z.string().optional(),
+    quality: z.string().optional(),
+  })
+  .strict();
+export type EquipmentVM = z.infer<typeof EquipmentVMSchema>;
+
+/** 装备槽位定义：格子数 / 允许类别 / 摆位全部来自模板，前端不猜（R-EQ-15）。 */
+export const EquipmentSlotVMSchema = z
+  .object({
+    id: z.string(),
+    label: z.string(),
+    maxCount: z.number(),
+    allowedCategories: z.array(z.string()),
+    panelSide: z.enum(["left", "right", "bottom"]),
+  })
+  .strict();
+export type EquipmentSlotVM = z.infer<typeof EquipmentSlotVMSchema>;
+
+/** 背包里的一件物品。 */
+export const InventoryItemVMSchema = z
+  .object({
+    itemId: z.string(),
+    name: z.string(),
+    description: z.string(),
+    count: z.number(),
+    usableOutsideBattle: z.boolean(),
+    usableInBattle: z.boolean(),
+    type: z.enum(["consumable", "material", "key", "equipment"]),
+    slot: z.string().optional(),
+    slotLabel: z.string().optional(),
+    category: z.string().optional(),
+    quality: z.string().optional(),
+  })
+  .strict();
+export type InventoryItemVM = z.infer<typeof InventoryItemVMSchema>;
+
+/** 已习得的技能（只有展示字段）。 */
+export const SkillVMSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string(),
+    kind: z.string(),
+  })
+  .strict();
+export type SkillVM = z.infer<typeof SkillVMSchema>;
+
 /** 角色身上的一条状态 / 补正（玩家卡、NPC 卡、战斗面板共用同一形状，避免两处漂移）。 */
 export const StatusVMSchema = z
   .object({
@@ -62,6 +121,15 @@ export const PlayerVMSchema = z
       .strict(),
     /** 追加：当前状态（名字与层数来自模板）。 */
     statuses: z.array(StatusVMSchema),
+    /** 追加：人生阶段 id / 显示名（显示名为空串表示模板没给文案，展示层不该印 id）。 */
+    lifeStage: z.string(),
+    lifeStageLabel: z.string(),
+    /** 追加：已装备实例（与背包互斥：穿戴中的不在 inventory 里）。 */
+    equipment: z.array(EquipmentVMSchema),
+    /** 追加：背包（穿在身上的不在这里）。 */
+    inventory: z.array(InventoryItemVMSchema),
+    /** 追加：已习得技能。 */
+    skills: z.array(SkillVMSchema),
   })
   .strict();
 export type PlayerVM = z.infer<typeof PlayerVMSchema>;
@@ -96,6 +164,8 @@ export const EvaluationVMSchema = z
     dimensions: z.array(EvaluationDimensionVMSchema).optional(),
     /** 追加：加权总分（与分项同时给出，不取代分项）。 */
     overall: z.number().optional(),
+    /** 追加：命运偏离度（服务端原值，纯展示）。 */
+    canonDeviation: z.number().optional(),
     /**
      * 追加：这一局是否已「盖棺」（`terminated` / `archived`）。
      * 评价是盖棺定论 —— 跑动中整块不渲染，判据由适配器算好，展示层不读状态枚举。
@@ -353,6 +423,8 @@ export const ViewModelSchema = z
     storyChapter: z.number().optional(),
     /** 资源条（HP / MP，标签来自模板）。 */
     statusBar: z.array(StatusBarVMSchema),
+    /** 装备槽位定义（模板 projection）；未配置装备分域的世界为空数组 / 缺省。 */
+    equipmentSlots: z.array(EquipmentSlotVMSchema).optional(),
     battle: BattleVMSchema.nullable(),
     ending: EndingVMSchema.nullable(),
     /** 是否存在待回程的 LLM 调用（稀疏参与标志，展示层可用于「叙事生成中」提示）。 */

@@ -294,6 +294,36 @@ function toPlayerVM(snapshot: V2Snapshot): PlayerVM {
       .sort(([a], [b]) => rank(a) - rank(b))
       .map(([key, value]) => ({ key, label: labels.attributes[key] ?? key, value: Number(value) })),
     statuses: p.statuses.map((s) => ({ id: s.id, name: s.name, stacks: s.stacks })),
+    // 模板没给阶段文案时投影会回退成 id（「adulthood」）；这里把这种情况抹成空串，
+    // 展示层据此不渲染 —— 内部 id 不该出现在界面上（RPA ui-2-personal.png）。
+    lifeStage: snapshot.lifeStage,
+    lifeStageLabel: snapshot.lifeStageLabel === snapshot.lifeStage ? "" : snapshot.lifeStageLabel,
+    equipment: (p.equipment ?? []).map((e) => ({
+      instanceId: e.instanceId,
+      itemId: e.itemId,
+      slot: e.slot,
+      ...(e.slotLabel !== undefined ? { slotLabel: e.slotLabel } : {}),
+      ...(e.stacks !== undefined ? { stacks: e.stacks } : {}),
+      ...(e.durability !== undefined ? { durability: e.durability } : {}),
+      ...(e.name !== undefined ? { name: e.name } : {}),
+      ...(e.description !== undefined ? { description: e.description } : {}),
+      ...(e.category !== undefined ? { category: e.category } : {}),
+      ...(e.quality !== undefined ? { quality: e.quality } : {}),
+    })),
+    inventory: p.inventory.map((i) => ({
+      itemId: i.itemId,
+      name: i.name,
+      description: i.description,
+      count: i.count,
+      usableOutsideBattle: i.usableOutsideBattle,
+      usableInBattle: i.usableInBattle,
+      type: i.type,
+      ...(i.slot !== undefined ? { slot: i.slot } : {}),
+      ...(i.slotLabel !== undefined ? { slotLabel: i.slotLabel } : {}),
+      ...(i.category !== undefined ? { category: i.category } : {}),
+      ...(i.quality !== undefined ? { quality: i.quality } : {}),
+    })),
+    skills: p.skills.map((sk) => ({ id: sk.id, name: sk.name, description: sk.description, kind: sk.kind })),
   };
 }
 
@@ -315,6 +345,7 @@ function toEvaluationVM(snapshot: V2Snapshot): EvaluationVM {
         }
       : {}),
     ...(ev.overall !== undefined ? { overall: ev.overall } : {}),
+    ...(ev.canonDeviation !== undefined ? { canonDeviation: ev.canonDeviation } : {}),
     ended,
   };
 }
@@ -341,6 +372,17 @@ export function toViewModel({ snapshot, content, media }: ToViewModelInput): Vie
     lifeStageLabel: snapshot.lifeStageLabel,
     ...(snapshot.storyChapter !== undefined ? { storyChapter: snapshot.storyChapter } : {}),
     statusBar: deriveStatusBar(snapshot),
+    ...(snapshot.equipmentSlots !== undefined
+      ? {
+          equipmentSlots: snapshot.equipmentSlots.map((sl) => ({
+            id: sl.id,
+            label: sl.label,
+            maxCount: sl.maxCount,
+            allowedCategories: [...sl.allowedCategories],
+            panelSide: sl.panelSide,
+          })),
+        }
+      : {}),
     battle: snapshot.battle === null ? null : toBattleVM(snapshot.battle),
     ending:
       snapshot.ending === undefined || snapshot.ending === null

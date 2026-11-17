@@ -39,15 +39,28 @@ import { deleteLifeRecord, listLifeRecords, saveLifeRecord, shouldAutoArchive } 
 import type { LifeRecordRow } from "./records";
 import {
   BattleBoard,
+  AssetDetail,
+  BagPanel,
+  CharacterPanel,
   CharacterSheet,
   NpcCard,
+  SkillList,
+  StatsPanel,
+  AiNarrativeTag,
   WheelPanel,
   interactionMode,
   toActPayload,
   toViewModel,
   toWheelVM,
 } from "@life-sim/rpg-ui";
-import type { ActHandler, ContentBlockVM, NpcVM, ViewModel } from "@life-sim/rpg-ui";
+import type {
+  ActHandler,
+  BagPartition,
+  ContentBlockVM,
+  NpcVM,
+  PersonalSelection,
+  ViewModel,
+} from "@life-sim/rpg-ui";
 import { ActionDock } from "./ActionDock";
 import { NarrativeStage } from "./NarrativeStage";
 
@@ -74,9 +87,6 @@ function elapsedText(elapsed: { value: number; unit: string }): string {
  * 隐藏结局由服务端保证「不做 LLM 装饰」（narrativeSource 恒非 llm），故不会带此标记，
  * 前端也绝不据此补全或反推 hidden 原文。
  */
-function AiNarrativeTag() {
-  return <span className="tag ai-narrative-tag">AI 叙事</span>;
-}
 
 // ---------- 装备 ----------
 
@@ -85,65 +95,6 @@ function AiNarrativeTag() {
  * （旧存档 / 未配置装备的模板缺省），元素类型直接从 shared 视图类型派生，
  * 前端不再本地重复声明字段。展示层只读展示字段，补正结果属内核现算状态，不接触。
  */
-type EquipmentView = NonNullable<V2Snapshot["player"]["equipment"]>[number];
-type EquipmentSlotView = NonNullable<V2Snapshot["equipmentSlots"]>[number];
-type InventoryView = V2Snapshot["player"]["inventory"][number];
-
-function equipmentOf(player: V2Snapshot["player"]): EquipmentView[] {
-  return player.equipment ?? [];
-}
-
-interface SlotCell {
-  key: string;
-  slotId: string;
-  slotLabel: string;
-  index: number;
-  capacity: number;
-  /** 人物面板摆位（ADR-0009）：left / right 左右两列，bottom 底部方块区 */
-  side: "left" | "right" | "bottom";
-  instance: EquipmentView | null;
-}
-
-/**
- * 槽位定义 → 格子：**槽位全集、格数与摆位全部由模板投影下发**（R-EQ-11 / R-EQ-15），
- * 前端不猜槽位名、不猜件数、也不从「已装备实例」反推槽位（否则空槽会消失）。
- * 同一槽位内按投影顺序落格，多余实例（理论上不会出现）舍弃不渲染。
- */
-function buildSlotCells(slots: EquipmentSlotView[], equipment: EquipmentView[]): SlotCell[] {
-  return slots.flatMap((slot) => {
-    const worn = equipment.filter((e) => e.slot === slot.id);
-    return Array.from({ length: slot.maxCount }, (_, i) => ({
-      key: `${slot.id}-${i}`,
-      slotId: slot.id,
-      slotLabel: slot.label,
-      index: i,
-      capacity: slot.maxCount,
-      side: slot.panelSide,
-      instance: worn[i] ?? null,
-    }));
-  });
-}
-
-const ITEM_TYPE_LABEL: Record<InventoryView["type"], string> = {
-  equipment: "装备",
-  consumable: "消耗品",
-  material: "材料",
-  key: "关键物品",
-};
-
-/** 方格内的类别字形（纯文字符号，不引入图标库）。 */
-function itemGlyph(type: InventoryView["type"]): string {
-  switch (type) {
-    case "equipment":
-      return "◈";
-    case "consumable":
-      return "✚";
-    case "material":
-      return "❖";
-    default:
-      return "▣";
-  }
-}
 
 // ---------- 组件 ----------
 
@@ -676,7 +627,7 @@ function App() {
           />
         )}
         {tab === "personal" && (
-          <PersonalTab snapshot={snapshot} busy={busy} summarySource={summarySource} onUseItem={useItem} onEquip={equip} onUnequip={unequip} />
+          <PersonalTab snapshot={snapshot} view={view} busy={busy} summarySource={summarySource} onUseItem={useItem} onEquip={equip} onUnequip={unequip} />
         )}
         {tab === "world" && <WorldTab snapshot={snapshot} npcs={view.npcs} />}
         {tab === "log" && <LogTab snapshot={snapshot} />}
@@ -699,7 +650,12 @@ function App() {
           </button>
         ))}
       </nav>
-      {interacting && (
+      {/*
+        跨页签的「有东西待处理」浮标。`life` 页不挂：事件区就在这一页的最前面，
+        浮标反而会盖住战斗面板底部的技能按钮（RPA `ui-6-battle.png`：胶囊压住
+        「术式顺转·苍 / 反转·赫」的点击区，且 `pointer-events: none` 让误触直接落到按钮上）。
+      */}
+      {interacting && tab !== "life" && (
         <div className="interact-hint">
           {slot?.kind === "combat" ? "⚔ 战斗进行中" : slot?.kind === "random" ? "⚄ 命运待确认" : "⚡ 事件待决"}
         </div>
@@ -1174,9 +1130,6 @@ function SetupScreen({
 
 // ---------- 人生评价：五维分项（ADR-0016 / D-02） ----------
 
-type EvaluationView = V2Snapshot["evaluation"];
-type EvaluationDimensionView = NonNullable<EvaluationView["dimensions"]>[number];
-
 /**
  * 条形宽度只是**展示近似**：模板可给每个维度声明各自的得分区间（如 `[-50, 100]`），
  * 而快照投影只下发 `score` 不下发区间，所以这里统一按 0–100 截断归一（负分条长为 0）。
@@ -1184,67 +1137,6 @@ type EvaluationDimensionView = NonNullable<EvaluationView["dimensions"]>[number]
  */
 function scoreWidth(score: number): number {
   return Math.min(100, Math.max(0, score));
-}
-
-/** 单维一行：名称 + 等级 + 数值（服务端原值），条为视觉辅助；解释默认收起避免撑高面板。 */
-function EvaluationDimensionRow({ dim }: { dim: EvaluationDimensionView }) {
-  return (
-    <details className="eval-dim">
-      <summary>
-        <span className="eval-dim-name">{dim.label ?? dim.id}</span>
-        <span className="eval-dim-level">{dim.level}</span>
-        <span className="eval-dim-score">{String(dim.score)}</span>
-        <span className="eval-dim-bar" aria-hidden="true">
-          <span className="eval-dim-bar-fill" style={{ width: `${scoreWidth(dim.score)}%` }} />
-        </span>
-      </summary>
-      {dim.explanation && <p className="eval-dim-expl">{dim.explanation}</p>}
-    </details>
-  );
-}
-
-/**
- * 五维人生评价（R2.6 / ADR-0016）。数据全部来自服务端投影 `snapshot.evaluation`：
- * 前端不重算分数、不推导等级、不自备 id→中文映射（`label` 缺失时回退 id）。
- *
- * **只在已结束 / 已归档时展示（D-10，用户 2026-11-12 裁决走 B）**：评价是「盖棺定论」，
- * 跑动中整块不渲染 —— 不是折叠、也不是隐藏高度，是 DOM 里不出现。理由是实测该块净高
- * 379px，挂在玩家卡下方会把本回合的动作区 / 转盘「继续」整块顶出首屏（docH 1594 vs 1190），
- * 而「这一回合要做什么」的信息优先级高于过程评述。
- *
- * `dimensions` / `overall` 在评价尚未生成时缺省 —— 此时也不渲染，不出现空白块或 `undefined`。
- */
-function EvaluationBreakdown({
-  evaluation,
-  status,
-}: {
-  evaluation: EvaluationView;
-  status: V2Snapshot["status"];
-}) {
-  // status 缺省视为 running（与协议 §17 一致），因此缺省时不展示
-  const ended = status === "terminated" || status === "archived";
-  const dims = evaluation.dimensions ?? [];
-  if (!ended || dims.length === 0) return null;
-  return (
-    <div className="eval-dims">
-      <p className="eval-dims-title">评价分项</p>
-      {dims.map((dim) => (
-        <EvaluationDimensionRow key={dim.id} dim={dim} />
-      ))}
-      {typeof evaluation.overall === "number" && (
-        // 总分与分项同时给出，不取代分项（协议 V2.1 §18）
-        <div className="eval-dim eval-dim-total">
-          <span className="eval-dim-name">综合</span>
-          <span className="eval-dim-level">总评</span>
-          <span className="eval-dim-score">{String(evaluation.overall)}</span>
-          <span className="eval-dim-bar" aria-hidden="true">
-            <span className="eval-dim-bar-fill" style={{ width: `${scoreWidth(evaluation.overall)}%` }} />
-          </span>
-        </div>
-      )}
-      <p className="eval-dims-hint">点分项可展开该维度的评分说明</p>
-    </div>
-  );
 }
 
 // ---------- 平台免密 LLM（前端补叙事：后端没做 LLM 时才触发，失败保持模板） ----------
@@ -1679,27 +1571,9 @@ const PERSONAL_SUBTABS: Array<{ key: PersonalSubTab; label: string }> = [
   { key: "skills", label: "技能" },
 ];
 
-/** 背包分区（用户裁决：装备与物品在背包里分区，DNF 式）。按物品类型分栏，不混排。 */
-type BagPartition = "equipment" | "consumable" | "material" | "key";
-
-const BAG_PARTITIONS: Array<{ key: BagPartition; label: string; types: InventoryView["type"][] }> = [
-  { key: "equipment", label: "装备", types: ["equipment"] },
-  { key: "consumable", label: "消耗品", types: ["consumable"] },
-  { key: "material", label: "材料", types: ["material"] },
-  { key: "key", label: "其他", types: ["key"] },
-];
-
-/**
- * 选中项：装备槽（含空槽）/ 背包物品。详情区是唯一的操作入口——
- * 装备在「角色」页穿脱，物品在「背包」页使用（ADR-0008 / ADR-0009）。
- */
-type PersonalSelection =
-  | { kind: "slot"; instanceId: string | null; slotId: string; slotLabel: string; capacity: number }
-  | { kind: "item"; itemId: string }
-  | null;
-
 function PersonalTab({
   snapshot,
+  view,
   busy,
   summarySource,
   onUseItem,
@@ -1707,6 +1581,7 @@ function PersonalTab({
   onUnequip,
 }: {
   snapshot: V2Snapshot;
+  view: ViewModel;
   busy: boolean;
   /** R2.7 / T-S2：归档响应的人生总结来源；缺省 / 非 llm 时展示与改前逐字一致 */
   summarySource?: NarrativeSource;
@@ -1714,18 +1589,24 @@ function PersonalTab({
   onEquip: (itemId: string) => void;
   onUnequip: (instanceId: string) => void;
 }) {
-  // 子页签 / 背包分区 / 选中项都是纯展示状态：切换即时、不触发任何请求。
+  // 子页签 / 背包分区 / 选中项都是纯展示状态，但**选中项跨组件协调**（选中格 → 详情区显示什么），
+  // 还会和「刷新后选中失效」这类业务判断绑在一起，所以状态留在宿主：
+  // rpg-ui 的组件只接受受控的 `selection` + `onSelect`（不传则视为未选中）。
   const [sub, setSub] = useState<PersonalSubTab>("character");
   const [partition, setPartition] = useState<BagPartition>("equipment");
   const [selection, setSelection] = useState<PersonalSelection>(null);
 
-  const equipment = equipmentOf(snapshot.player);
-  const bag = snapshot.player.inventory;
+  const player = view.player;
+  const slots = view.equipmentSlots ?? [];
+  // 人生总结的平台补写仍归宿主（它要读快照状态 + 发请求），组件只接收结果。
+  const platformSummary = usePlatformSummary(snapshot, summarySource);
+  const summary = platformSummary ?? undefined;
+  const summaryFromAi = summarySource === "llm" || platformSummary !== null;
 
   // 投影刷新后选中项可能已失效（刚卸下 / 刚用完），此时按「未选中」处理而不是报错
   const active: PersonalSelection =
     selection?.kind === "slot"
-      ? selection.instanceId && !equipment.some((e) => e.instanceId === selection.instanceId)
+      ? selection.instanceId && !player.equipment.some((e) => e.instanceId === selection.instanceId)
         ? {
             kind: "slot",
             instanceId: null,
@@ -1734,7 +1615,7 @@ function PersonalTab({
             capacity: selection.capacity,
           }
         : selection
-      : selection?.kind === "item" && !bag.some((i) => i.itemId === selection.itemId)
+      : selection?.kind === "item" && !player.inventory.some((i) => i.itemId === selection.itemId)
         ? null
         : selection;
 
@@ -1759,11 +1640,21 @@ function PersonalTab({
 
       {sub === "character" && (
         <>
-          <CharacterPanel snapshot={snapshot} equipment={equipment} selection={active} onSelect={setSelection} />
-          <StatsPanel snapshot={snapshot} summarySource={summarySource} />
+          <CharacterPanel player={player} slots={slots} selection={active} onSelect={setSelection} />
+          <StatsPanel
+            player={player}
+            evaluation={view.evaluation}
+            formattedTime={view.formattedTime}
+            storyChapter={view.storyChapter}
+            turnIndex={view.turnIndex}
+            summary={summary}
+            summaryFromAi={summaryFromAi}
+          />
           <AssetDetail
-            snapshot={snapshot}
             selection={active}
+            equipment={player.equipment}
+            inventory={player.inventory}
+            slots={slots}
             busy={busy}
             onEquip={onEquip}
             onUnequip={onUnequip}
@@ -1775,7 +1666,7 @@ function PersonalTab({
       {sub === "bag" && (
         <>
           <BagPanel
-            snapshot={snapshot}
+            inventory={player.inventory}
             partition={partition}
             onPartition={(key) => {
               setPartition(key);
@@ -1785,8 +1676,10 @@ function PersonalTab({
             onSelect={setSelection}
           />
           <AssetDetail
-            snapshot={snapshot}
             selection={active}
+            equipment={player.equipment}
+            inventory={player.inventory}
+            slots={slots}
             busy={busy}
             onEquip={onEquip}
             onUnequip={onUnequip}
@@ -1795,483 +1688,8 @@ function PersonalTab({
         </>
       )}
 
-      {sub === "skills" && <SkillList snapshot={snapshot} />}
+      {sub === "skills" && <SkillList skills={player.skills} />}
     </div>
-  );
-}
-
-function isSlotSelected(selection: PersonalSelection, cell: SlotCell): boolean {
-  if (selection?.kind !== "slot") return false;
-  return cell.instance
-    ? selection.instanceId === cell.instance.instanceId
-    : selection.instanceId === null && selection.slotId === cell.slotId;
-}
-
-/** 装备格子（左右两列共用）。空槽也可选中——详情区会列出可装备物品。 */
-function SlotTile({
-  cell,
-  selected,
-  onSelect,
-}: {
-  cell: SlotCell;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      className={`cell slot-tile ${selected ? "selected" : ""} ${cell.instance ? "" : "empty"}`}
-      aria-pressed={selected}
-      onClick={onSelect}
-    >
-      <span className="cell-slot">
-        {cell.slotLabel}
-        {cell.capacity > 1 ? ` ${cell.index + 1}` : ""}
-      </span>
-      <span className="cell-glyph">{cell.instance ? "◈" : "＋"}</span>
-      <span className={`cell-name ${cell.instance ? "" : "muted"}`}>{cell.instance?.name ?? "空"}</span>
-    </button>
-  );
-}
-
-/**
- * 人物面板（DNF M 面板思路）：左列 / 中央人物 / 右列，槽位由模板 `panelSide` 决定摆位，
- * 底部锚定的槽位（缺省 bottom）排在面板下方。**格子数 = 槽位 maxCount，全部来自模板**，
- * 前端不猜槽位、不猜件数（R-EQ-15）。
- */
-function CharacterPanel({
-  snapshot,
-  equipment,
-  selection,
-  onSelect,
-}: {
-  snapshot: V2Snapshot;
-  equipment: EquipmentView[];
-  selection: PersonalSelection;
-  onSelect: (next: PersonalSelection) => void;
-}) {
-  const slots = snapshot.equipmentSlots ?? [];
-  const cells = buildSlotCells(slots, equipment);
-  const sideOf = (side: SlotCell["side"]) => cells.filter((c) => c.side === side);
-  const left = sideOf("left");
-  const right = sideOf("right");
-  const bottom = sideOf("bottom");
-  const p = snapshot.player;
-
-  const selectCell = (cell: SlotCell) =>
-    onSelect({
-      kind: "slot",
-      instanceId: cell.instance?.instanceId ?? null,
-      slotId: cell.slotId,
-      slotLabel: cell.slotLabel,
-      capacity: cell.capacity,
-    });
-
-  return (
-    <section className="card">
-      <div className="row">
-        <h3 className="panel-title">角色</h3>
-        <span className="muted equip-count">{equipment.length} 件在身</span>
-      </div>
-
-      {cells.length === 0 ? (
-        <p className="muted">这个世界没有配置装备槽位。</p>
-      ) : (
-        <>
-          <div className="paperdoll">
-            <div className="paperdoll-col">
-              {left.map((cell) => (
-                <SlotTile
-                  key={cell.key}
-                  cell={cell}
-                  selected={isSlotSelected(selection, cell)}
-                  onSelect={() => selectCell(cell)}
-                />
-              ))}
-            </div>
-
-            <div className="paperdoll-figure">
-              <div className="figure-avatar" aria-hidden="true">◈</div>
-              <strong className="figure-name">{p.name}</strong>
-              <span className="figure-sub">
-                {p.age} 岁 · {p.genderLabel}
-              </span>
-              <div className="figure-bars">
-                <MiniBar
-                  label={snapshot.labels.resources.hp ?? "hp"}
-                  value={p.hp}
-                  max={p.maxHp}
-                  cls="hp"
-                />
-                <MiniBar
-                  label={snapshot.labels.resources.mp ?? "mp"}
-                  value={p.mp}
-                  max={p.maxMp}
-                  cls="mp"
-                />
-              </div>
-              <span className="figure-sub">{snapshot.lifeStageLabel}</span>
-            </div>
-
-            <div className="paperdoll-col right">
-              {right.map((cell) => (
-                <SlotTile
-                  key={cell.key}
-                  cell={cell}
-                  selected={isSlotSelected(selection, cell)}
-                  onSelect={() => selectCell(cell)}
-                />
-              ))}
-            </div>
-          </div>
-
-          {bottom.length > 0 && (
-            <div className="cell-grid paperdoll-bottom">
-              {bottom.map((cell) => (
-                <SlotTile
-                  key={cell.key}
-                  cell={cell}
-                  selected={isSlotSelected(selection, cell)}
-                  onSelect={() => selectCell(cell)}
-                />
-              ))}
-            </div>
-          )}
-        </>
-      )}
-      <p className="muted cell-hint">点格子查看详情；装备 / 卸下都在下方详情区完成。</p>
-    </section>
-  );
-}
-
-function MiniBar({ label, value, max, cls }: { label: string; value: number; max: number; cls: string }) {
-  const pct = Math.min(100, Math.max(0, (value / Math.max(1, max)) * 100));
-  return (
-    <div className="mini-bar">
-      <div className="mini-top">
-        <span>{label}</span>
-        <span>
-          {value}/{max}
-        </span>
-      </div>
-      <div className="bar">
-        <div className={`bar-fill ${cls}`} style={{ width: `${pct}%` }} />
-      </div>
-    </div>
-  );
-}
-
-/**
- * 章节进度（D-07）。
- *
- * 只渲染服务端下发的数字：`storyChapter` 缺省 ⇒ 该世界没有章节机，整块**不渲染**
- * （不能出现「第 0 章」这种凭空造的进度）；引擎不编造章节名，这里也不自造，
- * 只写「第 N 章」。合法性判断（1..6）留在服务端，前端仅拒绝 0 / 负数这类非法值兜底。
- */
-function StoryChapterChip({ chapter }: { chapter: number | undefined }) {
-  if (typeof chapter !== "number" || !Number.isFinite(chapter) || chapter < 1) return null;
-  return (
-    <span className="chip chapter-chip" title="主线章节进度">
-      第 {chapter} 章
-    </span>
-  );
-}
-
-/** 属性面板：只复述投影已有字段，不做任何前端推算（与 DNF 的 M 面板信息区对应）。 */
-function StatsPanel({ snapshot, summarySource }: { snapshot: V2Snapshot; summarySource?: NarrativeSource }) {
-  const platformSummary = usePlatformSummary(snapshot, summarySource);
-  const p = snapshot.player;
-  const labels = snapshot.labels.attributes;
-  const order = Object.keys(labels);
-  const rankOf = (key: string) => {
-    const idx = order.indexOf(key);
-    return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
-  };
-  const entries = Object.entries(p.attributes)
-    .filter(([key]) => !key.startsWith("proficiency"))
-    .sort(([a], [b]) => rankOf(a) - rankOf(b));
-
-  return (
-    <section className="card">
-      <div className="row">
-        <h3 className="panel-title">属性</h3>
-        <span className="muted equip-count">第 {snapshot.turnIndex} 轮</span>
-      </div>
-      <div className="stat-grid">
-        {entries.map(([key, value]) => (
-          <div key={key} className="stat">
-            <span>{labels[key] ?? key}</span>
-            <strong>{String(value)}</strong>
-          </div>
-        ))}
-        <div className="stat">
-          <span>{snapshot.labels.mood}</span>
-          <strong>{p.moodBandLabel}</strong>
-        </div>
-      </div>
-      {p.statuses.length > 0 && (
-        <div className="status-chips">
-          {p.statuses.map((s) => (
-            <span key={s.id} className="chip status-chip">
-              {s.name}
-              {s.stacks > 1 ? `×${s.stacks}` : ""}
-            </span>
-          ))}
-        </div>
-      )}
-      <div className="meta-row">
-        <span className="chip">命运偏离度 {snapshot.evaluation.canonDeviation}</span>
-        <span className="chip">{snapshot.formattedTime}</span>
-        <StoryChapterChip chapter={snapshot.storyChapter} />
-      </div>
-      <p className="eval-line">{platformSummary ?? snapshot.evaluation.summary}{(summarySource === "llm" || platformSummary !== null) && <AiNarrativeTag />}</p>
-      <EvaluationBreakdown evaluation={snapshot.evaluation} status={snapshot.status} />
-    </section>
-  );
-}
-
-/** 背包：按类型分区（装备 / 消耗品 / 材料 / 其他），每区独立方格 + 数量角标。 */
-function BagPanel({
-  snapshot,
-  partition,
-  onPartition,
-  selection,
-  onSelect,
-}: {
-  snapshot: V2Snapshot;
-  partition: BagPartition;
-  onPartition: (next: BagPartition) => void;
-  selection: PersonalSelection;
-  onSelect: (next: PersonalSelection) => void;
-}) {
-  const bag = snapshot.player.inventory;
-  const current = BAG_PARTITIONS.find((p) => p.key === partition) ?? BAG_PARTITIONS[0];
-  const items = bag.filter((item) => current.types.includes(item.type));
-  const countOf = (types: InventoryView["type"][]) => bag.filter((i) => types.includes(i.type)).length;
-
-  return (
-    <section className="card">
-      <div className="row">
-        <h3 className="panel-title">背包</h3>
-        <span className="muted equip-count">{bag.length} 种</span>
-      </div>
-
-      <div className="partitionbar" role="tablist" aria-label="背包分区">
-        {BAG_PARTITIONS.map((entry) => (
-          <button
-            key={entry.key}
-            role="tab"
-            aria-selected={partition === entry.key}
-            className={`partition ${partition === entry.key ? "active" : ""}`}
-            onClick={() => onPartition(entry.key)}
-          >
-            {entry.label}
-            <em>{countOf(entry.types)}</em>
-          </button>
-        ))}
-      </div>
-
-      {items.length === 0 ? (
-        <p className="muted">这一格还没有东西。</p>
-      ) : (
-        <div className="cell-grid">
-          {items.map((item) => {
-            const selected = selection?.kind === "item" && selection.itemId === item.itemId;
-            return (
-              <button
-                key={item.itemId}
-                className={`cell bag-cell ${selected ? "selected" : ""}`}
-                aria-pressed={selected}
-                onClick={() => onSelect({ kind: "item", itemId: item.itemId })}
-              >
-                <span className="cell-glyph">{itemGlyph(item.type)}</span>
-                <span className="cell-name">{item.name}</span>
-                {item.count > 1 && <span className="cell-count">×{item.count}</span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
-      <p className="muted cell-hint">穿在身上的装备不在背包里，去「角色」页卸下。</p>
-    </section>
-  );
-}
-
-/** 层数 / 耐久只在投影确实下发时展示，缺失即不渲染（不推算默认值）。 */
-function EquipMeta({ equipment }: { equipment: EquipmentView }) {
-  const stacks = equipment.stacks;
-  const durability = equipment.durability;
-  const hasStacks = typeof stacks === "number" && stacks > 1;
-  const hasDurability = typeof durability === "number";
-  if (!hasStacks && !hasDurability) return null;
-  return (
-    <div className="tag-row equip-meta">
-      {hasStacks && <span className="tag">×{stacks}</span>}
-      {hasDurability && <span className="tag">耐久 {durability}</span>}
-    </div>
-  );
-}
-
-/**
- * 详情区：唯一操作入口。
- * - 已装备：展示说明 + 卸下；
- * - 空槽：展示槽位允许类别 + 背包内可装备物品（就地装备）；
- * - 背包物品：展示说明 + 使用 / 装备（装备件按定义槽位落位）。
- */
-function AssetDetail({
-  snapshot,
-  selection,
-  busy,
-  onEquip,
-  onUnequip,
-  onUseItem,
-}: {
-  snapshot: V2Snapshot;
-  selection: PersonalSelection;
-  busy: boolean;
-  onEquip: (itemId: string) => void;
-  onUnequip: (instanceId: string) => void;
-  onUseItem: (itemId: string) => void;
-}) {
-  const equipment = equipmentOf(snapshot.player);
-  const bag = snapshot.player.inventory;
-
-  if (!selection) {
-    return (
-      <section className="card detail-card">
-        <p className="muted">选中上方任意格子查看详情。</p>
-      </section>
-    );
-  }
-
-  if (selection.kind === "slot") {
-    const slot = (snapshot.equipmentSlots ?? []).find((s) => s.id === selection.slotId);
-    const worn = selection.instanceId
-      ? equipment.find((e) => e.instanceId === selection.instanceId)
-      : undefined;
-    if (worn) {
-      return (
-        <section className="card detail-card">
-          <div className="row">
-            <h3>{worn.name ?? worn.itemId}</h3>
-            <span className="tag">{worn.slotLabel ?? worn.slot}</span>
-          </div>
-          <div className="tag-row">
-            <span className="tag">已装备</span>
-            {worn.category && <span className="tag">类别 {worn.category}</span>}
-            {worn.quality && <span className="tag">品质 {worn.quality}</span>}
-          </div>
-          {worn.description && <p className="item-desc">{worn.description}</p>}
-          <EquipMeta equipment={worn} />
-          <div className="detail-actions">
-            <button className="ghost" disabled={busy} onClick={() => onUnequip(worn.instanceId)}>
-              卸下
-            </button>
-          </div>
-        </section>
-      );
-    }
-    const allowed = slot?.allowedCategories ?? [];
-    const candidates = bag.filter(
-      (i) => i.type === "equipment" && allowed.includes(i.category ?? ""),
-    );
-    return (
-      <section className="card detail-card">
-        <div className="row">
-          <h3>{selection.slotLabel} · 空</h3>
-          <span className="tag">可装备 {candidates.length}</span>
-        </div>
-        <p className="muted">
-          {allowed.length > 0 ? `此槽位接受类别：${allowed.join(" / ")}` : "槽位未声明允许类别。"}
-        </p>
-        {candidates.length === 0 ? (
-          <p className="muted">背包里没有可放进这个槽位的装备。</p>
-        ) : (
-          <div className="stack-sm">
-            {candidates.map((item) => (
-              <div key={item.itemId} className="detail-row">
-                <div>
-                  <strong>{item.name}</strong>
-                  <p className="muted">
-                    {item.quality ? `${item.quality} · ` : ""}
-                    {item.category ?? "无类别"}
-                    {item.count > 1 ? ` · 备用 ${item.count}` : ""}
-                  </p>
-                </div>
-                <button className="primary" disabled={busy} onClick={() => onEquip(item.itemId)}>
-                  装备
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-    );
-  }
-
-  const item = bag.find((i) => i.itemId === selection.itemId);
-  if (!item) {
-    return (
-      <section className="card detail-card">
-        <p className="muted">选中上方任意格子查看详情。</p>
-      </section>
-    );
-  }
-  const isEquipment = item.type === "equipment";
-  return (
-    <section className="card detail-card">
-      <div className="row">
-        <h3>
-          {item.name}
-          {item.count > 1 ? ` ×${item.count}` : ""}
-        </h3>
-        <span className="tag">{ITEM_TYPE_LABEL[item.type]}</span>
-      </div>
-      <div className="tag-row">
-        {item.slotLabel && <span className="tag">槽位 {item.slotLabel}</span>}
-        {item.category && <span className="tag">类别 {item.category}</span>}
-        {item.quality && <span className="tag">品质 {item.quality}</span>}
-        {item.usableInBattle && <span className="tag">战斗可用</span>}
-      </div>
-      {item.description && <p className="item-desc">{item.description}</p>}
-      <div className="detail-actions">
-        {isEquipment && (
-          <button className="primary" disabled={busy} onClick={() => onEquip(item.itemId)}>
-            装备
-          </button>
-        )}
-        {item.usableOutsideBattle && (
-          <button className="primary" disabled={busy} onClick={() => onUseItem(item.itemId)}>
-            使用
-          </button>
-        )}
-        {!isEquipment && !item.usableOutsideBattle && !item.usableInBattle && (
-          <p className="muted">这件物品无法直接使用，会在剧情里派上用场。</p>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function SkillList({ snapshot }: { snapshot: V2Snapshot }) {
-  const skills = snapshot.player.skills;
-  if (skills.length === 0) {
-    return (
-      <section className="card">
-        <p className="muted">尚未习得技能。</p>
-      </section>
-    );
-  }
-  return (
-    <section className="card">
-      <div className="stack-sm">
-        {skills.map((skill) => (
-          <div key={skill.id} className="event-card">
-            <strong>{skill.name}</strong>
-            <p className="muted">{skill.description}</p>
-          </div>
-        ))}
-      </div>
-    </section>
   );
 }
 
