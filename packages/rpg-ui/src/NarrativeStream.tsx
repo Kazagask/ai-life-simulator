@@ -27,6 +27,11 @@ export interface NarrativeStreamProps {
    */
   renderers?: Partial<Record<string, BlockRenderer>>;
   /**
+   * 逐字动画开关（默认开）。**流式叙事的那一轮必须传 `false`**：
+   * 正文已经在 SSE 草稿里逐字出现过，正式块再打一遍等于让玩家看两遍。
+   */
+  typewriter?: boolean;
+  /**
    * @deprecated 与 `onAct` 同因：叙事区已无可点块，忙态由事件区 / 行动坞表达。
    * 保留只为兼容既有调用点。
    */
@@ -75,6 +80,12 @@ export interface TypewriterOptions {
   charsPerSecond?: number;
   /** 单块总时长上限（毫秒）：默认 650。长段落宁可一步多字，也不拖成几秒。 */
   maxDurationMs?: number;
+  /**
+   * 是否启用逐字动画。**流式叙事必须传 `false`**：
+   * 正文在 SSE 草稿里已经一个字一个字给玩家看过了，收尾后再用正式块打一遍字 =
+   * 「都生成完了还要重新打一遍」。关掉动画不是"少个特效"，是避免重复呈现同一段文字。
+   */
+  enabled?: boolean;
 }
 
 /** 打字机的一帧：只描述「当前该被揭示的那一块」现在该显示的前缀。 */
@@ -138,7 +149,7 @@ export function revealStep(textLength: number, charsPerSecond: number, maxDurati
  *  - `prefers-reduced-motion: reduce`（含 SSR / 无 `window`）⇒ 全程全文，不启动定时器。
  */
 export function useTypewriter(content: ContentBlockVM[], options: TypewriterOptions = {}): TypewriterFrame | null {
-  const { charsPerSecond = TYPE_DEFAULT_CPS, maxDurationMs = TYPE_DEFAULT_MAX_MS } = options;
+  const { charsPerSecond = TYPE_DEFAULT_CPS, maxDurationMs = TYPE_DEFAULT_MAX_MS, enabled = true } = options;
   const index = typingIndex(content);
   const target = index >= 0 ? content[index] : undefined;
   const blockId = target?.blockId;
@@ -183,7 +194,7 @@ export function useTypewriter(content: ContentBlockVM[], options: TypewriterOpti
     }
     // 新块（含首块晚到）：旧块立刻恢复全文，新块从头播。
     startedRef.current = { blockId, text };
-    if (reduced || text.length === 0) {
+    if (!enabled || reduced || text.length === 0) {
       setFrame({ blockId, visible: text });
       return;
     }
@@ -202,7 +213,7 @@ export function useTypewriter(content: ContentBlockVM[], options: TypewriterOpti
       });
     }, TYPE_TICK_MS);
     return () => clearInterval(timer);
-  }, [blockId, text, reduced, charsPerSecond, maxDurationMs]);
+  }, [blockId, text, reduced, enabled, charsPerSecond, maxDurationMs]);
 
   return frame;
 }
@@ -218,10 +229,10 @@ export function useTypewriter(content: ContentBlockVM[], options: TypewriterOpti
  *
  * 状态条 / 战斗面板**不在这里**：它们是常驻 HUD，绝不插进叙事流中间。
  */
-export function NarrativeStream({ content, onAct, media = [], renderers, disabled = false }: NarrativeStreamProps) {
+export function NarrativeStream({ content, onAct, media = [], renderers, typewriter = true, disabled = false }: NarrativeStreamProps) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   // hooks 必须在任何 early return 之前调用（空叙事那一支也要走到这里）。
-  const frame = useTypewriter(content);
+  const frame = useTypewriter(content, { enabled: typewriter });
 
   /**
    * 叙事区只放 narrative / flavor / asset：**选项是「要点」，不是散文**。

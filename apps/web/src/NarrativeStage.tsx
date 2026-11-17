@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { CgStage, NarrativeStream, Portrait, firstInlineCgBlock, isPortraitSlot } from "@life-sim/rpg-ui";
 import type { ActHandler, MediaVM, ViewModel } from "@life-sim/rpg-ui";
 
@@ -47,6 +48,25 @@ export function NarrativeStage({
    */
   draft?: string;
 }) {
+  /**
+   * 流式那一轮不要再打字（用户 2026-11-17 反馈）：正文已经通过 SSE 草稿逐字给玩家看过了，
+   * 收尾后正式块再逐字打一遍 = 「都生成完了还要重新打一遍」。
+   *
+   * 判据是**跨渲染的两步**，不能只看当前 props：
+   * 草稿是在上一轮渲染里到的（那时 `view.turnIndex` 还是旧值），正式块要等这次响应回来才出现。
+   * 所以用 ref 记「这一趟来过草稿」，在 turnIndex 前进的那一刻把它记成「该轮跳过动画」。
+   */
+  const sawDraftRef = useRef(false);
+  const [instantTurn, setInstantTurn] = useState<number | null>(null);
+  useEffect(() => {
+    if (draft !== undefined && draft.length > 0) sawDraftRef.current = true;
+  }, [draft]);
+  useEffect(() => {
+    if (!sawDraftRef.current) return;
+    sawDraftRef.current = false;
+    setInstantTurn(view.turnIndex);
+  }, [view.turnIndex]);
+
   const portraits = portraitsOf(view.media);
   const inlineCg = firstInlineCgBlock(view);
   const bannerMedia = inlineCg === undefined ? view.media : [];
@@ -67,7 +87,13 @@ export function NarrativeStage({
             ))}
           </div>
         )}
-        <NarrativeStream content={view.content} media={view.media} onAct={onAct} disabled={busy} />
+        <NarrativeStream
+          content={view.content}
+          media={view.media}
+          onAct={onAct}
+          disabled={busy}
+          typewriter={instantTurn !== view.turnIndex}
+        />
         {draft !== undefined && draft.length > 0 && (
           <p
             className="narrative-draft"

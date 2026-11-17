@@ -148,6 +148,29 @@ function dedupeCodes(codes: readonly DiagnosticCode[]): DiagnosticCode[] {
   return [...new Set(codes)];
 }
 
+/**
+ * 格式清洗：把**排版噪声**去掉，不动语义、不改写句子。
+ *
+ * 真实模型（glm-5.3）会稳定犯两类格式错，靠提示词压不住：
+ * - 用 ASCII 引号写对话（`"南"`），读起来像代码；中文散文该用「」；
+ * - 段落开头带 markdown 标记（`**`、`#`、`- `、`1. `），在正文里就是符号噪声。
+ *
+ * 全部是确定性替换：同一输入必得同一输出。
+ */
+function sanitizeNarrative(text: string): string {
+  let out = text;
+  // ASCII 成对双引号 → 中文引号（只处理成对的，落单的不动，避免误伤）。
+  out = out.replace(/"([^"\n]{1,120})"/g, "「$1」");
+  // 行首 markdown 标记（列表 / 标题 / 引用 / 加粗）。
+  out = out
+    .split(/\n/)
+    .map((line) => line.replace(/^\s{0,3}(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s+)/, ""))
+    .join("\n");
+  // 行内加粗 / 斜体 / 代码标记。
+  out = out.replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/`([^`\n]+)`/g, "$1");
+  return out;
+}
+
 /** 正文字符上限：超过就按段落边界截断（保留整段，不切半句）。 */
 const NARRATIVE_MAX_CHARS = 420;
 
@@ -164,7 +187,8 @@ const NARRATIVE_MAX_CHARS = 420;
  * - 再按段落累加，超过 `NARRATIVE_MAX_CHARS` 就停（不截断半句）。
  */
 function normalizeNarrative(text: string): { text: string; droppedParagraphs: number } {
-  const paragraphs = text
+  const cleaned = sanitizeNarrative(text);
+  const paragraphs = cleaned
     .split(/\n\s*\n/)
     .map((p) => p.trim())
     .filter((p) => p.length > 0);
