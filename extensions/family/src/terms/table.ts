@@ -47,7 +47,13 @@ const PARENT_TERM: Record<Sex, string> = { male: "爸爸", female: "妈妈" };
 const SPOUSE_TERM: Record<Sex, string> = { male: "老公", female: "老婆" };
 const CHILD_TERM: Record<Sex, string> = { male: "儿子", female: "女儿" };
 
-/** 父母的父母：按「父/母 → 父/母」两跳取词。 */
+/**
+ * 父母的父母：按「父/母 → 父/母」两跳取词。
+ *
+ * 注：同一人同时是祖父与外祖父时（近亲婚配），主称谓选哪个由比较器的 kind
+ * 字典序裁决（father 先于 mother）—— 那是**硬编码的父系惯例**，**不读模板的
+ * `descent`**。`valmont` 的 `patrilineal` 只是恰好一致，换母系/双系模板仍是爷爷。
+ */
 const GRANDPARENT_TERM: Record<Sex, Record<Sex, string>> = {
   male: { male: "爷爷", female: "奶奶" },
   female: { male: "外公", female: "外婆" },

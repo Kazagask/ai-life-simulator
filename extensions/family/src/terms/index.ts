@@ -105,7 +105,15 @@ function collateralRank(r: KinshipReading): number {
   return r.signature?.pattern.filter((a) => a.role === "sibling").length ?? 0;
 }
 
-/** kind 串字典序（模式一里与旧 `shortestPath` 的决胜口径一致：father 先于 mother）。 */
+/**
+ * kind 串字典序（同跳数、同 tier、同精确度时的最终裁决）。
+ *
+ * ⚠ `father` 先于 `mother` 是一条**硬编码的中文父系惯例**，**不读模板的 `descent`**：
+ * 巴尔多同时是休的祖父（父之父）与外祖父（母之父）时，主称谓取「爷爷」、「外公」
+ * 进附加读法。`valmont` 声明 `descent: patrilineal` 只是恰好一致；`bilateral` /
+ * 母系模板目前也会给爷爷。接 `descent` 之前先记着 —— **不要在这个函数里偷读模板配置**
+ * （`docs/FAMILY-GRAPH.md` §9 未决；阶段三再议）。
+ */
 function lexLessKinds(a: readonly string[], b: readonly string[]): boolean {
   const n = Math.min(a.length, b.length);
   for (let i = 0; i < n; i++) {
