@@ -29,6 +29,7 @@ import {
   collectExtensionConditions,
   createLookup,
   hasExtensionRuntime,
+  isKinshipKind,
   resolveExtensionRuntimes,
   type TemplateLookup,
   type TurnPipelineConfig,
@@ -149,11 +150,16 @@ export interface TemplateRef {
  * - `unknown_effect_type` / `unknown_condition_op`：模板用了**开放形**效果 / 条件
  *   （`{ type }` / `{ op, args }`），但既不在内核白名单里、也没有任何**已声明**的扩展
  *   注册它。两者都是「模板作者以为有这个能力、其实没人实现」⇒ 拒载比运行期静默强。
+ * - `kinship_conflict`：模板声明了 `extensions.family`，却仍在 `characters[].relations[]`
+ *   里写亲属边。两种亲缘模式互斥（`docs/FAMILY-GRAPH.md` §1/§2）：装了扩展就只写
+ *   `fatherId`/`motherId` 指针。当前实现不是「扩展覆盖模板」，而是模板那条先占位、
+ *   扩展推导出的行被 `factCounterpartIds` 静默丢弃 —— 模板作者以为在用扩展，其实扩展被架空。
  */
 export type TemplateLoadReasonCode =
   | "unknown_extension"
   | "unknown_effect_type"
-  | "unknown_condition_op";
+  | "unknown_condition_op"
+  | "kinship_conflict";
 
 /** 带封闭码的加载失败：`scanVersion` 的 catch 靠它把码一路带到 Entry 与 API 响应。 */
 class TemplateLoadError extends Error {
@@ -169,14 +175,18 @@ class TemplateLoadError extends Error {
 /**
  * 启动期也**只标该版本 invalid、不拒进程**的封闭码集合（「能力缺失」类）。
  *
- * 共同点：模板文件本身没错，错在「服务端装的东西 / 模板声明的能力」对不上，
- * 且只影响这一个版本（其它模板照样能玩）。`template_invalid`（yaml 写错）不在其中 ——
- * 那是模板缺陷，启动期仍 fail-fast 报警。
+ * 共同点：都不是「yaml 语法 / 取值非法」（那是 `template_invalid`，启动期仍 fail-fast），
+ * 而是「服务端装的东西 / 模板声明的能力 / 模板内部自洽性」这一层的问题，
+ * 且只影响这一个版本（其它模板照样能玩）。
+ *
+ * `kinship_conflict` 是「模板自相矛盾」（声明了 family 又自己写亲属边），错误在模板内容，
+ * 但同样只废一个版本、不需要整台服务陪葬，故与 `unknown_extension` 同一处置方式。
  */
 const SOFT_REASON_CODES: ReadonlySet<TemplateLoadReasonCode> = new Set<TemplateLoadReasonCode>([
   "unknown_extension",
   "unknown_effect_type",
   "unknown_condition_op",
+  "kinship_conflict",
 ]);
 
 /**
@@ -198,6 +208,49 @@ function assertExtensionsInstalled(template: WorldTemplateV2): void {
     `模板声明了未注册的扩展 ${missing.map((extensionId) => `"${extensionId}"`).join(", ")}；` +
       `已注册的扩展 id：${installed.length > 0 ? installed.join(", ") : "（无）"}` +
       `（扩展包需在 apps/server 启动期注册，见 apps/server/src/extensions.ts）`,
+  );
+}
+
+/**
+ * 加载期校验：亲缘的两种合规写法互斥（`docs/FAMILY-GRAPH.md` §1/§2）。
+ *
+ * - 模式一（不装 `extensions.family`）：模板自己写 `father` / `mother` / `wife` … 亲属边；
+ * - 模式二（装 `extensions.family`）：**只写 `fatherId` / `motherId` 指针**，亲缘由扩展建图推导。
+ *
+ * 同时占两样 ⇒ `kinship_conflict`。这不是「扩展覆盖模板」的问题：投影时模板那条边先进
+ * `factCounterpartIds`，扩展从指针推出的行发现该对手已存在便**静默丢弃**，全程无报错 ——
+ * 模板作者以为在用扩展，实际扩展被架空，比直接崩更难查。所以冲突必须在加载期炸。
+ *
+ * 判据用 game-core 的 `isKinshipKind`（由 shared 的 `KinshipKindSchema` 派生），
+ * 不手抄枚举：`relative` / `husband` 这类将来增删时两处口径不可能漂移。
+ *
+ * **覆盖面**：只查 `characters[].relations[]`，即模板的**静态声明**。
+ * 事件效果里运行期建的边（`addRelationEdge` / 效果建边）不在本闸门范围 —— 那是运行期
+ * 数据，加载期看不到；运行期边与扩展推导如何共存是另一件事，别把这里的通过当成
+ * 「全链路已查过亲属边」。
+ *
+ * 非亲属 kind（`friend` / `enemy` / `mentor` / `colleague` …）不受影响：两种模式下都能写。
+ */
+function assertNoKinshipConflict(template: WorldTemplateV2): void {
+  if (template.extensions?.family === undefined) return;
+
+  const conflicts: string[] = [];
+  for (const character of template.characters) {
+    for (const relation of character.relations ?? []) {
+      if (!isKinshipKind(relation.kind)) continue;
+      conflicts.push(`${character.id} → ${relation.to}, ${relation.kind}`);
+    }
+  }
+  if (conflicts.length === 0) return;
+
+  // 大模板（valmont 12 人）能写出几十条：全量塞进 reason 会淹没重点，只点名前 5 条 + 总数。
+  const shown = conflicts.slice(0, 5).join("；");
+  const suffix = conflicts.length > 5 ? `；…共 ${conflicts.length} 条` : "";
+  throw new TemplateLoadError(
+    "kinship_conflict",
+    `模板声明了 family 扩展，但 characters 里仍写了亲属边（${shown}${suffix}）。` +
+      `装了扩展时亲缘应由 fatherId/motherId 指针提供；` +
+      `要么删掉这些边，要么撤掉 extensions.family。`,
   );
 }
 
@@ -1055,6 +1108,8 @@ function scanVersion(
     }
     // 扩展层：模板声明了没注册的 id ⇒ 拒载（`unknown_extension`），不是「投影期悄悄跳过」。
     assertExtensionsInstalled(template);
+    // 亲缘模式互斥：装了 family 又自己写亲属边 ⇒ 加载期拒载（`kinship_conflict`）。
+    assertNoKinshipConflict(template);
     const openings = loadOpenings(versionDir, present);
     const endingConfig = loadOptionalConfig(versionDir, "endings.yaml", present, EndingConfigSchema);
     const evaluationConfig = loadOptionalConfig(
