@@ -154,6 +154,8 @@ export interface TemplateRef {
  *   里写亲属边。两种亲缘模式互斥（`docs/FAMILY-GRAPH.md` §1/§2）：装了扩展就只写
  *   `fatherId`/`motherId` 指针。当前实现不是「扩展覆盖模板」，而是模板那条先占位、
  *   扩展推导出的行被 `factCounterpartIds` 静默丢弃 —— 模板作者以为在用扩展，其实扩展被架空。
+ *   **闸门已实现（`assertKinshipCompliance`）但本轮未接入 `loadTemplate`**：现有三个模板
+ *   尚未迁移到指针，单独接入会让它们同时不可载；接入时机见该函数上的 TODO。
  */
 export type TemplateLoadReasonCode =
   | "unknown_extension"
@@ -231,7 +233,8 @@ function assertExtensionsInstalled(template: WorldTemplateV2): void {
  *
  * 非亲属 kind（`friend` / `enemy` / `mentor` / `colleague` …）不受影响：两种模式下都能写。
  */
-function assertNoKinshipConflict(template: WorldTemplateV2): void {
+// TODO(kin-gate): 与模板迁移同一提交接入 loadTemplate —— 单独接入会让现有三个模板同时不可载。
+export function assertKinshipCompliance(template: WorldTemplateV2): void {
   if (template.extensions?.family === undefined) return;
 
   const conflicts: string[] = [];
@@ -1108,8 +1111,8 @@ function scanVersion(
     }
     // 扩展层：模板声明了没注册的 id ⇒ 拒载（`unknown_extension`），不是「投影期悄悄跳过」。
     assertExtensionsInstalled(template);
-    // 亲缘模式互斥：装了 family 又自己写亲属边 ⇒ 加载期拒载（`kinship_conflict`）。
-    assertNoKinshipConflict(template);
+    // 亲缘模式互斥（`assertKinshipCompliance`）**本轮有意未接入**：现有模板尚未迁移到
+    // fatherId/motherId 指针，单独接入会让它们同时不可载。接入时机见该函数上的 TODO。
     const openings = loadOpenings(versionDir, present);
     const endingConfig = loadOptionalConfig(versionDir, "endings.yaml", present, EndingConfigSchema);
     const evaluationConfig = loadOptionalConfig(
