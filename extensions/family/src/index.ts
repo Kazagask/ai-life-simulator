@@ -19,7 +19,7 @@ import { deriveClanView } from "./clan-view.js";
 import { parseFamilyConfig } from "./config.js";
 import { reachableKinshipNodeIds } from "./graph.js";
 import { derivePedigree } from "./pedigree.js";
-import { kinshipReadings, kinshipTerm, SELF_TITLE, type KinshipReading } from "./terms.js";
+import { kinshipReadings, kinshipTerm, SELF_TITLE, type KinshipReading } from "./terms/index.js";
 
 /**
  * 家族扩展（extension id = `family`）：把关系**事实图**解释成称谓与族谱。
@@ -242,5 +242,5 @@ export {
   kinshipTerm,
   type KinshipReading,
   type KinshipTerm,
-} from "./terms.js";
+} from "./terms/index.js";
 export { inbreedingCoefficient, kinshipCoefficient, pedigreeOf } from "./coefficient.js";

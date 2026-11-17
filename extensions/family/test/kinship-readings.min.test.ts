@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { KinshipKind, RelationEdge } from "@life-sim/shared";
 import { inbreedingCoefficient, kinshipCoefficient } from "../src/coefficient.js";
-import { kinshipReadings } from "../src/terms.js";
+import { kinshipReadings } from "../src/terms/index.js";
 
 /**
  * 亲缘读法（多身份推导）的行为固定。
@@ -184,7 +184,10 @@ describe("亲缘读法 · 姻亲不得伪装成血亲", () => {
 describe("亲缘读法 · 词与路必须同质", () => {
   it("子女称谓只能一跳：妻子的儿子是继子，不是儿子", () => {
     const rs = readings("godfrey", "reynard");
-    expect(rs[0]!.term).toBe("继子");
+    // 这一对在新模型下有两条真读法：妻子的儿子（继子）与姐姐的儿子（外甥）。
+    // 血亲读法优先，所以主称谓是「外甥」；但「儿子」绝不能出现。
+    // 旧实现因为「半血亲不得当作推理中转」把姐姐那条路径整条禁掉了，才只剩继子。
+    expect(rs.map((r) => r.term)).toContain("继子");
     expect(rs.map((r) => r.term)).not.toContain("儿子");
   });
 

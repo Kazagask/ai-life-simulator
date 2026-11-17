@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { WorldStateV2 } from "@life-sim/shared";
 import { addEdge } from "@life-sim/game-core";
-import { kinshipTerm } from "../src/terms.js";
+import { kinshipTerm } from "../src/terms/index.js";
 
 /**
  * 亲缘系数的参照实现 + 关系推导的现状固定。

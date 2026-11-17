@@ -1,3 +1,10 @@
+/**
+ * 【对照实现，已不在主路径上】`relationship.js` 版的中文称谓推导。
+ *
+ * 自 `src/terms/index.ts` 起，扩展改为「路径 → 结构签名 → 中文表」，
+ * 本文件保留作**对账基准**（`scripts/audit-terms.ts` 同时调用新旧两套）。
+ * 阶段二确认换库后再删除，勿在新代码里 import 本文件。
+ */
 import relationship from "relationship.js";
 import type { KinshipKind, RelationEdge } from "@life-sim/shared";
 import { buildRelationGraph, isKinshipKind, shortestPath } from "@life-sim/game-core";
