@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { TaskConditionSchema, TemplateEffectSchema, LifeStageSchema, TimeAmountSchema, asKernelEffect } from "./common.js";
+import { TaskConditionSchema, TemplateEffectSchema, LifeStageSchema, TimeAmountSchema, isCoreEffect } from "./common.js";
 import { CharacterSchema, GenderDefSchema } from "./character.js";
 import { PLAYER_ID } from "./relation.js";
 import { SkillSchema } from "./skill.js";
@@ -436,10 +436,9 @@ export const WorldTemplateV2Schema = z
 
     // 物品 use 效果引用
     w.items.forEach((item, i) => {
-      (item.use ?? []).forEach((raw, j) => {
-        // 开放形（扩展效果）的字段归扩展解释，这里只校验内核效果的引用完整性。
-        const e = asKernelEffect(raw);
-        if (e === undefined) return;
+      (item.use ?? []).forEach((e, j) => {
+        // 开放形（扩展效果）的字段归扩展解释，内核的 id 交叉校验跳过它们。
+        if (!isCoreEffect(e)) return;
         if (e.type === "cureStatus" && !statusIds.has(e.status)) add(["items", i, "use", j], `未知补正：${e.status}`);
         if (e.type === "grantItem" && !itemIds.has(e.itemId)) add(["items", i, "use", j], `未知物品：${e.itemId}`);
       });
@@ -673,11 +672,10 @@ export const WorldTemplateV2Schema = z
 
     // NPC 行动效果引用完整性
     (w.npcActions ?? []).forEach((action, i) => {
-      (action.effects ?? []).forEach((raw, j) => {
+      (action.effects ?? []).forEach((eff, j) => {
         const path = ["npcActions", i, "effects", j];
         // 开放形效果由扩展解释字段（内核只认 type 归属），不在这里做引用校验。
-        const eff = asKernelEffect(raw);
-        if (eff === undefined) return;
+        if (!isCoreEffect(eff)) return;
         if ((eff.type === "startChain" || eff.type === "advanceChain" || eff.type === "cancelChain") && !chainIds.has(eff.chainId)) {
           add(path, `未知事件链：${eff.chainId}`);
         }

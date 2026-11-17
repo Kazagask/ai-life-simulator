@@ -357,14 +357,20 @@ export const TemplateEffectSchema = z
 export type TemplateEffect = z.infer<typeof TemplateEffectSchema>;
 
 /**
- * 把一条模板效果收窄成**内核闭合形**：`type` 属于内核 27 种时返回它，开放形返回
- * `undefined`（开放形归扩展，由 `applyEffectsV2` 分发）。
+ * 内核效果守卫：能过 `EffectSchema` 的才是**内核闭合形** `Effect`，开放形（扩展效果）
+ * 一律 false。
  *
- * 为什么这里可以断言：`TemplateEffectSchema` 的 superRefine 已经保证「内核 type ⇒
- * 必然通过 `EffectSchema`」，所以运行期只需判别 type 归属，不必再 parse 一遍。
+ * 用途只有一个：模板侧的类型是 `Effect ∪ 开放形`，而内核的加载期交叉引用校验
+ * （`spawnNpc.ruleId` / `adjustRelation.with` 这类 id 是否存在、战斗内物品效果是否可结算…）
+ * **只读得懂 27 种内核效果**。校验点第一行 `if (!isCoreEffect(e)) continue;` 跳过开放形，
+ * 之后 `e` 已被窄化成 `Effect`，原来的 `switch` / 字段访问全部照旧可用。
+ *
+ * 别用 `as Effect` 代替：那会让写错字段的内核效果在校验层也静默通过，等于把 fail-fast
+ * 拆了。扩展效果的合法性由**加载期词表扫描**（`apps/server/src/templates.ts` 的
+ * `unknown_effect_type`）与扩展自己的 `schema` 负责，两处分工不重叠。
  */
-export function asKernelEffect(effect: TemplateEffect): Effect | undefined {
-  return KERNEL_EFFECT_TYPES.has(effect.type) ? (effect as Effect) : undefined;
+export function isCoreEffect(effect: unknown): effect is Effect {
+  return EffectSchema.safeParse(effect).success;
 }
 
 /**
