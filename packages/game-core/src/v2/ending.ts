@@ -9,7 +9,7 @@ import type {
   TerminationSource,
   WorldStateV2,
 } from "@life-sim/shared";
-import { checkAllConditions, checkCondition, type ConditionContext } from "./engine.js";
+import { checkAllConditions, type ConditionContext } from "./engine.js";
 import { recordFire } from "./scheduler.js";
 import { createTimeAdapter } from "./time.js";
 import { resolveEndingNarrative, type NarrativeAdapter } from "./narrative.js";
@@ -123,7 +123,7 @@ function conditionMatches(
   const declared = condition.params.conditions;
   const baseOk =
     condition.combinator === "OR"
-      ? declared.length > 0 && declared.some((c) => checkCondition(c, ctx))
+      ? declared.length > 0 && declared.some((c) => checkAllConditions([c], ctx))
       : checkAllConditions(declared, ctx);
   switch (condition.type) {
     case "playerRequested":

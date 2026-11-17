@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ConditionSchema, EffectSchema, LifeStageSchema, TimeAmountSchema } from "./common.js";
+import { TaskConditionSchema, TemplateEffectSchema, LifeStageSchema, TimeAmountSchema, asKernelEffect } from "./common.js";
 import { CharacterSchema, GenderDefSchema } from "./character.js";
 import { PLAYER_ID } from "./relation.js";
 import { SkillSchema } from "./skill.js";
@@ -141,7 +141,7 @@ export const NpcSpawnRuleSchema = z
      * 自动刷新条件（**可选**）：每轮 tail 求值一次，全部满足即走 `spawnNpc` 路径。
      * 缺省 ⇒ 该规则**永不自动**（零回归：旧模板无此字段，行为与改前逐字段一致）。
      */
-    when: z.array(ConditionSchema).min(1).optional(),
+    when: z.array(TaskConditionSchema).min(1).optional(),
   })
   .strict();
 
@@ -232,7 +232,7 @@ export const WorldTemplateV2Schema = z
             duration: TimeAmountSchema.optional(),
             /** 绝对推进目标（剧情节点）：相对世界起始的偏移量；存在时忽略 duration，将世界时间直接推进到该目标（不倒退）。 */
             advanceTo: TimeAmountSchema.optional(),
-            effects: z.array(EffectSchema).optional(),
+            effects: z.array(TemplateEffectSchema).optional(),
           })
           .strict(),
       )
@@ -436,7 +436,10 @@ export const WorldTemplateV2Schema = z
 
     // 物品 use 效果引用
     w.items.forEach((item, i) => {
-      (item.use ?? []).forEach((e, j) => {
+      (item.use ?? []).forEach((raw, j) => {
+        // 开放形（扩展效果）的字段归扩展解释，这里只校验内核效果的引用完整性。
+        const e = asKernelEffect(raw);
+        if (e === undefined) return;
         if (e.type === "cureStatus" && !statusIds.has(e.status)) add(["items", i, "use", j], `未知补正：${e.status}`);
         if (e.type === "grantItem" && !itemIds.has(e.itemId)) add(["items", i, "use", j], `未知物品：${e.itemId}`);
       });
@@ -670,8 +673,11 @@ export const WorldTemplateV2Schema = z
 
     // NPC 行动效果引用完整性
     (w.npcActions ?? []).forEach((action, i) => {
-      (action.effects ?? []).forEach((eff, j) => {
+      (action.effects ?? []).forEach((raw, j) => {
         const path = ["npcActions", i, "effects", j];
+        // 开放形效果由扩展解释字段（内核只认 type 归属），不在这里做引用校验。
+        const eff = asKernelEffect(raw);
+        if (eff === undefined) return;
         if ((eff.type === "startChain" || eff.type === "advanceChain" || eff.type === "cancelChain") && !chainIds.has(eff.chainId)) {
           add(path, `未知事件链：${eff.chainId}`);
         }

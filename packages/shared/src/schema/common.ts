@@ -317,6 +317,56 @@ export const EffectSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("log"), text: z.string().min(1), visibility: z.enum(["public", "hidden"]) }).strict(),
 ]);
 
+/** 内核效果 type 集合（从 `EffectSchema` 派生，不手抄名单）。 */
+const KERNEL_EFFECT_TYPES: ReadonlySet<string> = new Set(
+  EffectSchema.options.map((option) => option.shape.type.value),
+);
+
+/**
+ * 开放形效果（模板边界专用）：`{ type }` + 任意其它字段，**由扩展自己解释**。
+ *
+ * 引擎不会解释它 —— `applyEffectsV2` 对白名单外的 type 走扩展分发，没命中就
+ * `unknown_effect` 抛错。「这个 type 到底有没有人实现」由模板加载期扫描裁定
+ * （`apps/server/src/templates.ts` 的 `unknown_effect_type`），不是 schema 的事。
+ */
+export const OpenEffectSchema = z.object({ type: z.string().min(1) }).catchall(z.unknown());
+export type OpenEffect = z.infer<typeof OpenEffectSchema>;
+
+/**
+ * 模板侧效果联合：内核 27 种（闭合，strict）∪ 开放形（交给扩展）。
+ *
+ * 判别顺序有讲究：`OpenEffectSchema` 的 catchall 会吞下**任何**带 `type` 的对象，
+ * 包括写错字段的内核效果（`{ type: "setFlag", id: "x" }` 少了 `value`）。所以命中
+ * 开放形后还要按内核 type 复核一遍：type 属于内核白名单却过不了 `EffectSchema` ⇒
+ * 仍然报错。否则一条漏字段的内核效果会被静默当扩展效果，运行期把 `undefined` 写进存档。
+ */
+export const TemplateEffectSchema = z
+  .union([EffectSchema, OpenEffectSchema])
+  .superRefine((effect, ctx) => {
+    if (!KERNEL_EFFECT_TYPES.has(effect.type)) return;
+    const strict = EffectSchema.safeParse(effect);
+    if (strict.success) return;
+    for (const issue of strict.error.issues) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: issue.path,
+        message: issue.message,
+      });
+    }
+  });
+export type TemplateEffect = z.infer<typeof TemplateEffectSchema>;
+
+/**
+ * 把一条模板效果收窄成**内核闭合形**：`type` 属于内核 27 种时返回它，开放形返回
+ * `undefined`（开放形归扩展，由 `applyEffectsV2` 分发）。
+ *
+ * 为什么这里可以断言：`TemplateEffectSchema` 的 superRefine 已经保证「内核 type ⇒
+ * 必然通过 `EffectSchema`」，所以运行期只需判别 type 归属，不必再 parse 一遍。
+ */
+export function asKernelEffect(effect: TemplateEffect): Effect | undefined {
+  return KERNEL_EFFECT_TYPES.has(effect.type) ? (effect as Effect) : undefined;
+}
+
 /**
  * T-00 开放注册位（前向 seam）：仅预留 Effect 类型扩展点，
  * 不改现有 24 个判别联合分支的语义、不为它重构。

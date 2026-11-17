@@ -10,6 +10,7 @@ import type {
   V2Player,
   WorldStateV2,
 } from "@life-sim/shared";
+import { asKernelEffect } from "@life-sim/shared";
 import { pickWeighted, type Rng } from "../rng.js";
 import { computeMax, effectiveAttributes, maxHp, maxMp, moodBand, rollFormula, applyStatusToPlayer, checkCondition, zeroRng } from "./engine.js";
 import { buildPublicConditionContext, decide } from "./combat-ai.js";
@@ -590,15 +591,20 @@ export function performBattleAction(
     if (!item || !item.usableInBattle) throw new Error("item_not_usable_in_battle");
     if ((state.player.inventory[item.id] ?? 0) <= 0) throw new Error("item_not_owned");
     // 先校验效果可结算再扣库存：避免「物品已消耗但效果被静默丢弃」
-    for (const effect of item.use ?? []) {
-      if (!BATTLE_ITEM_EFFECTS.has(effect.type)) {
-        throw new Error(`item_effect_unsupported_in_battle: ${item.id}/${effect.type}`);
+    for (const raw of item.use ?? []) {
+      // 扩展效果在战斗内没有结算通道（`applyEffectsV2` 只在战斗外跑）⇒ 同样拒用，
+      // 不静默跳过（「吃了没反应」比「用不了」难查得多）。
+      const effect = asKernelEffect(raw);
+      if (effect === undefined || !BATTLE_ITEM_EFFECTS.has(effect.type)) {
+        throw new Error(`item_effect_unsupported_in_battle: ${item.id}/${raw.type}`);
       }
     }
     state.player.inventory[item.id] -= 1;
     if (state.player.inventory[item.id] <= 0) delete state.player.inventory[item.id];
     // 战斗内物品效果仅结算资源/补正（作用于玩家镜像）
-    for (const effect of item.use ?? []) {
+    for (const raw of item.use ?? []) {
+      const effect = asKernelEffect(raw);
+      if (effect === undefined) continue;
       if (effect.type === "adjustResource") {
         if (effect.resource === "hp") {
           pc.hp = Math.min(maxHp(state.player, lookup.template), pc.hp + effect.value);

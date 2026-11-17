@@ -12,6 +12,7 @@ import {
   EventTriggerSchema,
   OpeningTemplateSchema,
   RulesSchema,
+  TemplateEffectSchema,
   TimeSpecSchema,
   WorldTemplateV2Schema,
   type AssetManifest,
@@ -24,8 +25,11 @@ import {
   type WorldTemplateV2,
 } from "@life-sim/shared";
 import {
+  BUILTIN_CONDITION_OPS,
+  collectExtensionConditions,
   createLookup,
   hasExtensionRuntime,
+  resolveExtensionRuntimes,
   type TemplateLookup,
   type TurnPipelineConfig,
 } from "@life-sim/game-core";
@@ -139,11 +143,17 @@ export interface TemplateRef {
 /**
  * 模板加载期的**封闭拒载码**：`reason` 是自由文本（给人看），码给程序与运维看。
  *
- * 目前只有 `unknown_extension` 一种：模板 `extensions:` 声明了服务端没装的扩展包。
- * 它必须与「yaml 写错了」的 `template_invalid` 分开 —— 否则运维会去翻模板文件，
- * 而真正要做的是补一条 `apps/server/src/extensions.ts` 的装配。
+ * - `unknown_extension`：模板 `extensions:` 声明了服务端没装的扩展包。
+ *   它必须与「yaml 写错了」的 `template_invalid` 分开 —— 否则运维会去翻模板文件，
+ *   而真正要做的是补一条 `apps/server/src/extensions.ts` 的装配。
+ * - `unknown_effect_type` / `unknown_condition_op`：模板用了**开放形**效果 / 条件
+ *   （`{ type }` / `{ op, args }`），但既不在内核白名单里、也没有任何**已声明**的扩展
+ *   注册它。两者都是「模板作者以为有这个能力、其实没人实现」⇒ 拒载比运行期静默强。
  */
-export type TemplateLoadReasonCode = "unknown_extension";
+export type TemplateLoadReasonCode =
+  | "unknown_extension"
+  | "unknown_effect_type"
+  | "unknown_condition_op";
 
 /** 带封闭码的加载失败：`scanVersion` 的 catch 靠它把码一路带到 Entry 与 API 响应。 */
 class TemplateLoadError extends Error {
@@ -155,6 +165,19 @@ class TemplateLoadError extends Error {
     this.reasonCode = reasonCode;
   }
 }
+
+/**
+ * 启动期也**只标该版本 invalid、不拒进程**的封闭码集合（「能力缺失」类）。
+ *
+ * 共同点：模板文件本身没错，错在「服务端装的东西 / 模板声明的能力」对不上，
+ * 且只影响这一个版本（其它模板照样能玩）。`template_invalid`（yaml 写错）不在其中 ——
+ * 那是模板缺陷，启动期仍 fail-fast 报警。
+ */
+const SOFT_REASON_CODES: ReadonlySet<TemplateLoadReasonCode> = new Set<TemplateLoadReasonCode>([
+  "unknown_extension",
+  "unknown_effect_type",
+  "unknown_condition_op",
+]);
 
 /**
  * 加载期校验：模板 `extensions:` 声明的每个 id 都必须在**已注册 runtime** 里找得到
@@ -177,6 +200,125 @@ function assertExtensionsInstalled(template: WorldTemplateV2): void {
       `（扩展包需在 apps/server 启动期注册，见 apps/server/src/extensions.ts）`,
   );
 }
+
+/**
+ * 内核效果 type 集合：从 `EffectSchema` 派生（与 `engine.ts` 的 `KNOWN_EFFECT_TYPES`
+ * 同源 —— 手抄第二份名单必然在某次加效果时漂移）。
+ */
+const KERNEL_EFFECT_TYPES: ReadonlySet<string> = new Set(
+  EffectSchema.options.map((option) => option.shape.type.value),
+);
+
+/**
+ * 模板里**装着效果数组**的键名。
+ *
+ * 不全量按 `type` 字段识别效果：`items[].type` / `statuses[].id` / 结局条件的
+ * `type: worldState` 也叫 `type`，一把抓会把它们误判成效果。效果只出现在这两个键下
+ * （`effects`：事件选项 / 转盘段 / 战斗结算 / actions / NPC 行动 / 开局 / 分支；
+ * `use`：物品使用），与 schema 的 `TemplateEffectSchema` 使用点一一对应。
+ */
+const EFFECT_ARRAY_KEYS: ReadonlySet<string> = new Set(["effects", "use"]);
+
+interface OpenUsage {
+  /** 效果 type 或条件 op。 */
+  readonly name: string;
+  /** 可诊断路径（`events[0].settle.normal.options[0].effects[0]`）。 */
+  readonly path: string;
+}
+
+/**
+ * 递归收集模板里所有**开放形**效果与条件。
+ *
+ * 开放形判据：
+ * - 效果 = 位于 `effects` / `use` 数组里、且 `type` 是字符串的对象（闭合形已由
+ *   `TemplateEffectSchema` 校验过，走到这里说明是开放形）；
+ * - 条件 = 带字符串 `op` 的对象（`OpenConditionSchema` 是 strict 的 `{ op, args }`，
+ *   与扁平条件不可能混淆）。
+ */
+function collectOpenUsages(
+  node: unknown,
+  path: string,
+  key: string | undefined,
+  out: { effects: OpenUsage[]; conditions: OpenUsage[] },
+): void {
+  if (Array.isArray(node)) {
+    node.forEach((item, index) => collectOpenUsages(item, `${path}[${index}]`, key, out));
+    return;
+  }
+  const record = asRecord(node);
+  if (record === null) return;
+  if (key !== undefined && EFFECT_ARRAY_KEYS.has(key) && typeof record.type === "string") {
+    out.effects.push({ name: record.type, path });
+  }
+  if (typeof record.op === "string") {
+    out.conditions.push({ name: record.op, path });
+  }
+  for (const [childKey, child] of Object.entries(record)) {
+    collectOpenUsages(child, path === "" ? childKey : `${path}.${childKey}`, childKey, out);
+  }
+}
+
+/**
+ * 开放形词表的加载期裁定（fail-fast 的关键一步）。
+ *
+ * 开放形（`{ type }` / `{ op, args }`）让模板能写扩展定义的效果与条件，代价是
+ * **schema 不再知道某个 type / op 是否真的有人实现**。这里把它补回去：
+ *
+ * - 效果：内核 27 种 ⇒ 通过；否则必须在模板**已声明**扩展注册的 `effects[].type` 里；
+ * - 条件：内核内置 op（`always` / `random` / `flagSet` / `eventResolved`，与
+ *   `rules.yaml` 触发器同一张注册表）⇒ 通过；否则必须在已声明扩展的 `conditions` 里；
+ * - 都不满足 ⇒ `unknown_effect_type` / `unknown_condition_op`。
+ *
+ * 「已声明」是硬条件（`docs/EXTENSIONS.md` 保证 4）：未在 `world.yaml` 的 `extensions:`
+ * 里写过的扩展，即使包装着也不跑 —— 所以它的 type / op 在模板里同样不合法。
+ *
+ * 覆盖面：主域（事件 / 转盘 / 战斗结算 / actions / NPC 行动 / NPC 刷新规则 / 物品）、
+ * `opening.yaml`、`endings.yaml`。`rules.yaml` 不在扫描范围：它的开放形 op 本来就走
+ * 注册表 + `unknown_reference` 运行期诊断（R11 老口径），另立加载期规则会造第二套判据。
+ */
+function assertOpenVocabularyDeclared(
+  template: WorldTemplateV2,
+  openings: readonly OpeningTemplate[],
+  endingConfig: EndingConfig | undefined,
+): void {
+  const used: { effects: OpenUsage[]; conditions: OpenUsage[] } = { effects: [], conditions: [] };
+  collectOpenUsages(template, "", undefined, used);
+  collectOpenUsages(openings, "opening.yaml", undefined, used);
+  if (endingConfig !== undefined) collectOpenUsages(endingConfig, "endings.yaml", undefined, used);
+  if (used.effects.length === 0 && used.conditions.length === 0) return;
+
+  const declared = Object.keys(template.extensions ?? {});
+  const declaredLabel = declared.length > 0 ? declared.join(", ") : "（未声明任何扩展）";
+
+  const declaredEffectTypes = new Set<string>();
+  for (const extension of resolveExtensionRuntimes(template)) {
+    for (const handler of extension.runtime.effects ?? []) declaredEffectTypes.add(handler.type);
+  }
+  const unknownEffect = used.effects.find(
+    (usage) => !KERNEL_EFFECT_TYPES.has(usage.name) && !declaredEffectTypes.has(usage.name),
+  );
+  if (unknownEffect !== undefined) {
+    throw new TemplateLoadError(
+      "unknown_effect_type",
+      `${unknownEffect.path}: 效果类型 "${unknownEffect.name}" 不在内核 ${KERNEL_EFFECT_TYPES.size} 种效果里，` +
+        `也没有任何模板已声明的扩展注册它；模板 extensions: ${declaredLabel}` +
+        `（想在模板里写扩展效果，先在 world.yaml 的 extensions: 声明提供它的扩展）`,
+    );
+  }
+
+  const knownOps = new Set<string>([...BUILTIN_CONDITION_OPS, ...Object.keys(collectExtensionConditions(template))]);
+  const unknownOp = used.conditions.find((usage) => !knownOps.has(usage.name));
+  if (unknownOp !== undefined) {
+    throw new TemplateLoadError(
+      "unknown_condition_op",
+      `${unknownOp.path}: 条件 op "${unknownOp.name}" 既不是内核内置 op` +
+        `（${BUILTIN_CONDITION_OPS.join(", ")}），也没有任何模板已声明的扩展注册它；` +
+        `模板 extensions: ${declaredLabel}` +
+        `（想在模板里写扩展条件，先在 world.yaml 的 extensions: 声明提供它的扩展）`,
+    );
+  }
+}
+
 
 interface TemplateEntryBase {
   ref: TemplateRef;
@@ -212,7 +354,8 @@ export interface InvalidTemplateEntry extends TemplateEntryBase {
   status: "invalid";
   /** 可诊断原因：含 `(id, version)` 与首个 issue 路径 / 文件路径。 */
   reason: string;
-  /** 封闭拒载码（可机读）：`unknown_extension` 时 `reason` 里带缺失 id 与已注册 id 列表。 */
+  /** 封闭拒载码（可机读）：`unknown_extension` 时 `reason` 里带缺失 id 与已注册 id 列表；
+   *  `unknown_effect_type` / `unknown_condition_op` 时带可诊断路径与非法 type / op。 */
   reasonCode?: TemplateLoadReasonCode;
 }
 
@@ -432,7 +575,7 @@ const TemplateBranchNodeSchema = z
              * 调关系 + 调资源」——上限 4 是从 LLM 那套扁平 DSL 抄来的，对模板太紧。
              * 提到 8：够写完整的一幕，又不至于让一个选项变成脚本。
              */
-            effects: z.array(EffectSchema).max(8).optional(),
+            effects: z.array(TemplateEffectSchema).max(8).optional(),
             /** 分支内跳转：只能指本 branch 的节点。 */
             goto: TemplateBranchGotoSchema.optional(),
             /**
@@ -809,7 +952,7 @@ type VersionScan =
       ok: false;
       reason: string;
       mtime: number;
-      /** 带封闭码的失败（目前只有 `unknown_extension`）；其它失败留空 ⇒ 归 `template_invalid`。 */
+      /** 带封闭码的失败（见 `TemplateLoadReasonCode`）；其它失败留空 ⇒ 归 `template_invalid`。 */
       reasonCode?: TemplateLoadReasonCode;
     };
 
@@ -920,6 +1063,10 @@ function scanVersion(
       present,
       EvaluationConfigSchema,
     );
+    // 开放形词表裁定：模板写了扩展效果 / 条件就必须有「谁实现它」的答案 ——
+    // 内核白名单之外一律要求在 `extensions:` 里声明过（`unknown_effect_type` /
+    // `unknown_condition_op`）。放在 opening / endings 解析之后，因为扫描要覆盖它们。
+    assertOpenVocabularyDeclared(template, openings, endingConfig);
     // T-06：两个新声明式文件各有独立 loader，**加载期即 schema 校验并 fail-fast**——
     // 坏 `rules.yaml` / `assets/manifest.yaml` 走与其它白名单文件同一条失败通道（catch → reason），
     // 不再「warn + 静默丢文件」（否则 malformed rules 会退化成 undefined，运行时才炸）。
@@ -1049,13 +1196,15 @@ function scanAll(dir: string, logger: TemplateScanLogger, failFast: boolean): Sc
         continue;
       }
       if (failFast) {
-        // 例外：`unknown_extension` 不是模板文件写错了，而是**服务端没装那个扩展包**。
+        // 例外：封装码类失败不是「yaml 写错了」而是「能力对不上」——
+        // `unknown_extension` 是服务端没装那个扩展包；`unknown_effect_type` /
+        // `unknown_condition_op` 是模板要的能力没有任何已声明扩展提供。
         // 为此拒整个进程不合理（其它模板照样能玩），所以启动期也只标该版本不可载 ——
         // 与运行期同一个收敛形状，玩家侧看到 `loadable:false` + 封闭码，服务继续起。
-        if (scan.reasonCode === "unknown_extension") {
+        if (scan.reasonCode !== undefined && SOFT_REASON_CODES.has(scan.reasonCode)) {
           logger.error(
-            { templateId: id, version, reason: scan.reason },
-            "template_extension_unregistered: 该版本不可载（服务继续启动）",
+            { templateId: id, version, reason: scan.reason, reasonCode: scan.reasonCode },
+            "template_capability_missing: 该版本不可载（服务继续启动）",
           );
           entries.set(keyOf({ id, version }), {
             ref: { id, version },

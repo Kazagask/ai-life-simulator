@@ -46,6 +46,26 @@ export interface ConditionRegistry {
 }
 
 /**
+ * 内核内置条件 op（`{ op, args }` 开放形的白名单底座）。
+ *
+ * 与扩展贡献的 op 同表求值（`createConditionRegistry` 先铺这张，再叠扩展）。
+ * **导出**是因为模板加载期要拿它做 fail-fast 判据（`apps/server/src/templates.ts`）：
+ * 「这个 op 有没有人实现」必须与运行期读同一份名单，否则扫描会漂移。
+ */
+export const BUILTIN_CONDITION_EVALUATORS: Readonly<Record<string, ConditionEvalFn>> = {
+  always: () => true,
+  random: (args, ctx) =>
+    ctx.rng() < (typeof args.probability === "number" ? args.probability : 1),
+  flagSet: (args, ctx) => ctx.state.flags[String(args.flag)] === (args.value ?? true),
+  // 「事件结算后」触发（设计 §3.4 列的第五类）：只认**本轮**结算过的事件，
+  // 不查历史 eventFires —— 否则同一条规则会在之后每一轮重复命中。
+  eventResolved: (args, ctx) => ctx.resolvedEventIds?.has(String(args.eventId)) ?? false,
+};
+
+/** 内置 op 名单（从求值表派生，不手抄）。 */
+export const BUILTIN_CONDITION_OPS: readonly string[] = Object.keys(BUILTIN_CONDITION_EVALUATORS);
+
+/**
  * 数据化条件注册表：内置几条结构化 op（仍以 Map 数据注册，不是 switch），
  * 模板可通过 `register` / `extra` 扩展新 op，符合「条件集合不写死枚举」。
  */
@@ -53,16 +73,7 @@ export function createConditionRegistry(
   extra: Record<string, ConditionEvalFn> = {},
 ): ConditionRegistry {
   const ops = new Map<string, ConditionEvalFn>(
-    Object.entries({
-      always: () => true,
-      random: (args, ctx) =>
-        ctx.rng() < (typeof args.probability === "number" ? args.probability : 1),
-      flagSet: (args, ctx) => ctx.state.flags[String(args.flag)] === (args.value ?? true),
-      // 「事件结算后」触发（设计 §3.4 列的第五类）：只认**本轮**结算过的事件，
-      // 不查历史 eventFires —— 否则同一条规则会在之后每一轮重复命中。
-      eventResolved: (args, ctx) => ctx.resolvedEventIds?.has(String(args.eventId)) ?? false,
-      ...extra,
-    }),
+    Object.entries({ ...BUILTIN_CONDITION_EVALUATORS, ...extra }),
   );
   return {
     has: (op) => ops.has(op),

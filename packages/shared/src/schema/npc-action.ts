@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ConditionSchema, EffectSchema } from "./common.js";
+import { TaskConditionSchema, TemplateEffectSchema } from "./common.js";
 
 /**
  * NPC 自主行动定义（A6：触发式 + 效用评分，替代 V1 的每轮轮询）。
@@ -22,7 +22,7 @@ export const NpcActionSchema = z
         /** 兜底随机触发概率（0-1）；缺省 1（满足条件即候选） */
         probability: z.number().min(0).max(1).optional(),
         /** 触发条件（数组内 AND） */
-        conditions: z.array(ConditionSchema).optional(),
+        conditions: z.array(TaskConditionSchema).optional(),
         /** NPC 的 knowledge 必须包含全部标签才可选（信息差约束） */
         requireKnowledge: z.array(z.string().min(1)).optional(),
       })
@@ -37,7 +37,7 @@ export const NpcActionSchema = z
         traitAffinity: z.array(z.string().min(1)).optional(),
       })
       .strict(),
-    effects: z.array(EffectSchema).optional(),
+    effects: z.array(TemplateEffectSchema).optional(),
   })
   .strict();
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EffectSchema, type Effect } from "./common.js";
+import { TemplateEffectSchema, type TemplateEffect } from "./common.js";
 import { EquipmentDefinitionFields, type DynamicModifierSpec } from "./equipment.js";
 
 /**
@@ -49,7 +49,7 @@ const ItemShape = z
     stackable: z.boolean(),
     usableInBattle: z.boolean(),
     usableOutsideBattle: z.boolean(),
-    use: z.array(EffectSchema).optional(),
+    use: z.array(TemplateEffectSchema).optional(),
     ...EquipmentDefinitionFields,
   })
   .passthrough();
@@ -63,7 +63,7 @@ type ItemClean = {
   stackable: boolean;
   usableInBattle: boolean;
   usableOutsideBattle: boolean;
-  use?: Effect[];
+  use?: TemplateEffect[];
   slot?: string;
   category?: string;
   quality?: string;

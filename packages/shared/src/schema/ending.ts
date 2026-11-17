@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ConditionSchema } from "./common.js";
+import { TaskConditionSchema } from "./common.js";
 
 /**
  * 终止记录（ADR-0004）：运行 / 已终止二态的唯一终止事实来源。
@@ -69,7 +69,7 @@ function referencesHpAsCriterion(conditions: unknown): boolean {
 export const EndingConditionParamsSchema = z
   .object({
     /** 声明式条件（§12），由 combinator 组合；不接收自由表达式 */
-    conditions: z.array(ConditionSchema).default([]),
+    conditions: z.array(TaskConditionSchema).default([]),
     /** eventOccurred 专用：需在 firedEvents 中已登记的事件 id */
     eventIds: z.array(z.string().min(1)).optional(),
   })
@@ -125,13 +125,13 @@ export const EndingTemplateSchema = z
     endingId: z.string().min(1),
     name: z.string().min(1),
     description: z.string().default(""),
-    triggerConditions: z.array(ConditionSchema).default([]),
+    triggerConditions: z.array(TaskConditionSchema).default([]),
     priority: z.number().int().default(0),
     endingType: z.string().min(1).default("neutral"),
     narrativeConfig: NarrativeConfigSchema.default({ source: "template" }),
     exclusiveGroup: z.string().min(1).optional(),
     fallback: z.boolean().default(false),
-    unlockConditions: z.array(ConditionSchema).default([]),
+    unlockConditions: z.array(TaskConditionSchema).default([]),
   })
   .strict();
 
@@ -158,7 +158,7 @@ export const DeathRouteSchema = z
     deathMode: z.enum(["event", "direct"]),
     /** event 路径：复用既有事件定义，不新增 source 枚举 */
     deathEventId: z.string().min(1).optional(),
-    conditions: z.array(ConditionSchema).default([]),
+    conditions: z.array(TaskConditionSchema).default([]),
   })
   .strict()
   .superRefine((r, ctx) => {

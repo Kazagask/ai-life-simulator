@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ConditionSchema, EffectSchema, TimeAmountSchema, TimeSpecSchema } from "./common.js";
+import { TaskConditionSchema, TemplateEffectSchema, TimeAmountSchema, TimeSpecSchema } from "./common.js";
 import { OpposedCheckSchema } from "./skill.js";
 
 /**
@@ -38,7 +38,7 @@ export const EventTriggerSchema = z
     /** `action-hook` 保留旧名（Q-R25-01 已裁决）；既可立即也可延时 */
     source: z.enum(["pool", "chain", "schedule", "action-hook"]),
     /** 配置域只读：出队终判读定义现值，实例不得复制（R-EV-15） */
-    conditions: z.array(ConditionSchema).optional(),
+    conditions: z.array(TaskConditionSchema).optional(),
     probability: z.number().min(0).max(1).optional(),
     weight: z.number().positive().optional(),
     once: z.boolean().optional(),
@@ -56,7 +56,7 @@ export const EventTriggerSchema = z
     /** 事件结算轮的 worldTime 增量；缺省 0（只占槽不耗时，R-EV-14） */
     timeCost: TimeSpecSchema.optional(),
     /** 触发前提永久失效谓词；命中即错失出队（原因 miss_when），与 conditions 同一 DSL */
-    missWhen: z.array(ConditionSchema).optional(),
+    missWhen: z.array(TaskConditionSchema).optional(),
     /** 错失事实的人类可读标签，仅 miss_when 有意义 */
     missLabel: z.string().min(1).optional(),
 
@@ -104,8 +104,8 @@ export const EventOptionSchema = z
     id: z.string().min(1),
     text: z.string().min(1),
     /** 选项出现条件：全部满足才进入玩家可见投影 */
-    visibleWhen: z.array(ConditionSchema).optional(),
-    effects: z.array(EffectSchema).optional(),
+    visibleWhen: z.array(TaskConditionSchema).optional(),
+    effects: z.array(TemplateEffectSchema).optional(),
     nextEventId: z.string().min(1).optional(),
   })
   .strict();
@@ -125,7 +125,7 @@ export const WheelSegmentSchema = z
     /** 属性加权：属性 id → 每点加成系数（可为负，如"凶"随幸运降低） */
     weightBy: z.record(z.string(), z.number()).optional(),
     label: z.string().min(1),
-    effects: z.array(EffectSchema).optional(),
+    effects: z.array(TemplateEffectSchema).optional(),
     nextEventId: z.string().min(1).optional(),
   })
   .strict();
@@ -151,7 +151,7 @@ export const EnemyRefSchema = z
 
 export const SettleOutcomeSchema = z
   .object({
-    effects: z.array(EffectSchema).optional(),
+    effects: z.array(TemplateEffectSchema).optional(),
     nextEventId: z.string().min(1).optional(),
   })
   .strict();

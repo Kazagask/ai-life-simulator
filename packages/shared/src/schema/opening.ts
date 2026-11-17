@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ConditionSchema, EffectSchema, TimeAmountSchema } from "./common.js";
+import { TaskConditionSchema, TemplateEffectSchema, TimeAmountSchema } from "./common.js";
 import { EventInstanceSchema } from "./event-instance.js";
 
 /**
@@ -30,13 +30,13 @@ export const OpeningPoolEventSchema = z
     id: z.string().min(1),
     tags: z.array(z.string().min(1)).optional(),
     weight: z.number().nonnegative().optional(),
-    conditions: z.array(ConditionSchema).optional(),
+    conditions: z.array(TaskConditionSchema).optional(),
     required: z.boolean().optional(),
     countRange: CountRangeSchema.optional(),
     exclusiveGroup: z.string().min(1).optional(),
     sequence: z.number().int().nonnegative().optional(),
     seed: z.number().int().optional(),
-    effects: z.array(EffectSchema).optional(),
+    effects: z.array(TemplateEffectSchema).optional(),
     nextEvents: z.array(z.string().min(1)).optional(),
   })
   .strict();
@@ -57,7 +57,7 @@ export const OpeningEventPoolSchema = z
 /** 通用初始化块：用既有声明式效果 DSL 与世界 flag 表达，不硬编码世界观内容。 */
 export const OpeningSetupSchema = z
   .object({
-    effects: z.array(EffectSchema).optional(),
+    effects: z.array(TemplateEffectSchema).optional(),
     flags: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
   })
   .strict();
@@ -84,7 +84,7 @@ export const OpeningScheduledEventSchema = z
   .object({
     eventId: z.string().min(1),
     at: TimeAmountSchema.optional(),
-    conditions: z.array(ConditionSchema).optional(),
+    conditions: z.array(TaskConditionSchema).optional(),
   })
   .strict();
 
@@ -102,7 +102,7 @@ export const OpeningTemplateSchema = z
     openingId: z.string().min(1),
     name: z.string().min(1),
     description: z.string().min(1),
-    entryConditions: z.array(ConditionSchema),
+    entryConditions: z.array(TaskConditionSchema),
     steps: z.array(OpeningStepSchema),
     characterSetup: OpeningSetupSchema,
     worldSetup: OpeningSetupSchema,
@@ -110,7 +110,7 @@ export const OpeningTemplateSchema = z
     eventPools: z.array(OpeningEventPoolSchema),
     objectives: OpeningSetupSchema,
     choices: OpeningSetupSchema,
-    completionConditions: z.array(ConditionSchema).min(1),
+    completionConditions: z.array(TaskConditionSchema).min(1),
     handoff: OpeningHandoffSchema,
   })
   .strict()

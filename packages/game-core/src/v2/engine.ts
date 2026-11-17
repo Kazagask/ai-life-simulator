@@ -3,7 +3,9 @@ import type {
   Effect,
   EquipmentInstance,
   Formula,
+  OpenCondition,
   StatusInstance,
+  TaskCondition,
   V2Npc,
   V2Player,
   WorldStateV2,
@@ -19,7 +21,12 @@ import { enqueueCandidate, hasFired } from "./scheduler.js";
 import { EffectSchema, PLAYER_ID } from "@life-sim/shared";
 import { addEdge, freezeOnDeath } from "./relations.js";
 import { isAliveActor, selfIdOf } from "./actors.js";
-import { resolveExtensionEffect } from "./extensions.js";
+import { resolveExtensionEffect, collectExtensionConditions } from "./extensions.js";
+import {
+  createConditionRegistry,
+  type ConditionEvalContext,
+  type ConditionRegistry,
+} from "./condition-evaluator.js";
 
 // ---------- 资源公式（规格 4.4：上限 = base + perLevel × growthLevel + Σ perAttribute[attr] × 基础属性值） ----------
 
@@ -269,9 +276,39 @@ export function checkCondition(cond: Condition, ctx: ConditionContext): boolean 
   return false;
 }
 
-export function checkAllConditions(conditions: Condition[] | undefined, ctx: ConditionContext): boolean {
+/**
+ * 条件数组内 AND（事件的 `conditions` / `missWhen` / `visibleWhen`、开局条件、结局条件
+ * 与 NPC 刷新规则共用同一个入口）。
+ *
+ * 开放形 `{ op, args }` 与 `rules.yaml` 的触发器**同一张注册表**求值（内置 op +
+ * 模板**已声明**扩展贡献的 op，见 `collectExtensionConditions`）——「这个 op 是什么语义」
+ * 只允许有一个答案。注册表惰性构建：没有开放形条件时一次都不建。
+ *
+ * 未注册的 op ⇒ `false`（绝不静默当成 true）。加载期已按「模板声明的扩展」拒载
+ * （`unknown_condition_op`），所以这里只可能是扩展在装配期被摘掉的防御路径。
+ */
+export function checkAllConditions(
+  conditions: readonly TaskCondition[] | undefined,
+  ctx: ConditionContext,
+): boolean {
   if (!conditions || conditions.length === 0) return true;
-  return conditions.every((c) => checkCondition(c, ctx));
+  let registry: ConditionRegistry | undefined;
+  for (const cond of conditions) {
+    if ("op" in cond) {
+      registry ??= createConditionRegistry(collectExtensionConditions(ctx.lookup.template));
+      const open = cond as OpenCondition;
+      if (!registry.has(open.op)) return false;
+      const evalCtx: ConditionEvalContext = {
+        state: ctx.state,
+        rng: ctx.rng,
+        turnIndex: ctx.state.turnIndex,
+      };
+      if (!registry.evaluate(open.op, open.args, evalCtx)) return false;
+      continue;
+    }
+    if (!checkCondition(cond, ctx)) return false;
+  }
+  return true;
 }
 
 function compareValues(value: boolean | number | string, cond: Extract<Condition, { flag: string }>): boolean {
