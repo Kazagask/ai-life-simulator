@@ -1,7 +1,10 @@
 # 剧本模板 · 瓦勒蒙家族（valmont）
 #
-# 这张模板是把「八类婚配交织图」落成运行时资产：每一对结合都在 characters.yaml
-# 里留下成对的关系边，每一类结合在 events.yaml 里对应一幕。
+# 这张模板是把「八类婚配交织图」落成运行时资产。亲缘走**指针模式**（`docs/FAMILY-GRAPH.md` §2）：
+#   · 父/母 = `characters.yaml` 里孩子身上的 `fatherId` / `motherId`（写一次，唯一真源）；
+#   · 婚配 = 下面 `extensions.family.spouses` 的 `[{ a, b }]`（无向，数组顺序即先后）；
+#   · 兄弟姐妹 / 祖孙 / 叔伯全部由前两者派生，模板不写第二份。
+# 每一类结合在 events.yaml 里对应一幕：
 #
 #   ① 无血缘    巴尔多 × 希尔达        两支撑起全部后代
 #   ② 多配偶    巴尔多 × 希尔达、伊尔玛  嫡庶两支同源
@@ -37,6 +40,23 @@ extensions:
     # 默认窗口 4 会让玩家（g4）只看到 ±3 代，最老的 g0 始祖（bardo / hilda）整代被丢，
     # 家族的根在演示里看不到。放开到 5 才能把 g0..g4 五代都留在屏上。
     maxGenerations: 5
+
+    # 婚配表（`docs/FAMILY-GRAPH.md` §3.2）：指针模式下这是配偶行**唯一**的来源，
+    # 建世界时原样播种进 `state.extensions.family.spouses`。
+    # 无向（`a`/`b` 顺序不表示方向），但**数组顺序就是先后**：巴尔多的两位妻子按希尔达、
+    # 伊尔玛排列；伊尔玛的两位丈夫按康拉德（前夫）、巴尔多（续娶）排列。
+    # 每条对应上面注释里的一类结合，逐条可对照。
+    spouses:
+      - { a: npc-bardo, b: npc-hilda } # ① 无血缘
+      - { a: npc-konrad, b: npc-irma } # ② 多配偶（伊尔玛的前夫）
+      - { a: npc-bardo, b: npc-irma } # ② 多配偶（续娶，嫡庶两支同源）
+      - { a: npc-aldric, b: npc-mathilde } # ③ 兄妹（同父同母）
+      - { a: npc-mathilde, b: npc-godfrey } # ④ 半血缘（同父异母，转房）
+      - { a: npc-godfrey, b: npc-rosa } # ⑤ 纯伦理（零共同祖先）
+      - { a: npc-hugh, b: npc-mathilde } # ⑥ 母子
+      - { a: npc-aldric, b: npc-cecily } # ⑦ 父女
+      - { a: npc-aldric, b: npc-blanche } # ⑧ 隔代（祖孙）
+      - { a: npc-reynard, b: npc-blanche } # ⑨ 汇合
 
     # 宗族声明（`docs/CLAN-DESIGN.md` 第二部分）：**和上面三个族谱开关是两件事**。
     # 上面管「关系图怎么展示」（纯派生，零 state，删掉它族谱就少几代/少几种读法）；

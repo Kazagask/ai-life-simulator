@@ -1,11 +1,26 @@
 # 瓦勒蒙家族角色表。
 #
-# 关系声明读法（与全仓一致）：`{ to: B, kind: X }` 读作「B 是 A 的 X」。
-# 婚配要写两条边：男方 → 女方 [wife]，女方 → 男方 [husband]。
-# 同一对端点可以并存多条不同 kind 的边 —— 本表刻意用了三处：
-#   奥德里克 ↔ 塞西莉：father/daughter 与 husband/wife 并存（父女婚）
-#   奥德里克 ↔ 布兰奇：同上（隔代婚，布兰奇同时是他的孙女与妻子）
-#   休 ↔ 玛蒂尔达：mother/son 与 husband/wife 并存（母子婚）
+# 亲缘写法（`docs/FAMILY-GRAPH.md` §1/§2 的模式二 —— 本模板声明了 `extensions.family`）：
+#   · 父/母只写在**孩子**身上：`fatherId` / `motherId` 指向角色 id。写一次即唯一真源，
+#     不要再给孩子写 `son` / `daughter` 反向边（那是边模式的重复来源）。
+#   · 婚配不进本表，写在 `world.yaml` 的 `extensions.family.spouses`（`[{ a, b }]`，无向，
+#     数组顺序 = 先后）。指针模式没有婚姻边，配偶行/配偶称谓全部从那张表推。
+#   · 兄弟姐妹、祖孙、叔伯、堂表**一律不写**：由共同父/母派生。
+#   · 本表 `relations` 只留给社会关系（朋友/同僚）；本模板没有这类关系，故整段省略。
+#
+# 八类婚配与「九种结合」在这套写法下的落点（逐条可核对）：
+#   ① 无血缘  巴尔多 × 希尔达    spouses + 两人的孩子写同一对父/母指针
+#   ② 多配偶  巴尔多 × 希尔达、伊尔玛  spouses 两条（顺序即先后）；戈弗雷的 motherId 指伊尔玛
+#   ③ 兄妹    奥德里克 × 玛蒂尔达  spouses 一条；两人的 fatherId/motherId 都是巴尔多/希尔达
+#   ④ 半血缘  玛蒂尔达 × 戈弗雷    spouses 一条；同父异母由 motherId 不同自然浮现
+#   ⑤ 纯伦理  戈弗雷 × 罗莎      spouses 一条；两人没有任何共同祖先（罗莎的父是康拉德）
+#   ⑥ 母子    休 × 玛蒂尔达      spouses 一条；休的 motherId 指玛蒂尔达
+#   ⑦ 父女    奥德里克 × 塞西莉    spouses 一条；塞西莉的 fatherId 指奥德里克
+#   ⑧ 隔代    奥德里克 × 布兰奇    spouses 一条；布兰奇的父/母是奥德里克/塞西莉（孙辈）
+#   ⑨ 汇合    雷纳德 × 布兰奇      spouses 一条；玩家（罗兰）的父/母指向这两人
+#
+# 罗莎**不写 motherId**：她是康拉德前妻之女，伊尔玛只是继母（零血缘）。
+# 指针模型下「不写」就是「不详」，继母女关系由「父之妻」推出，不需要额外注释解释。
 #
 # 十二个人：六人在册已故，六人在世。已故者由首幕的 setNpcLifecycle 置为 inactive。
 characters:
@@ -28,12 +43,6 @@ characters:
       goals: [merge-branches]
       traits: [stern]
     relationship: 0
-    relations:
-      - { to: npc-hilda, kind: wife, visibility: known, value: 60 }
-      - { to: npc-irma, kind: wife, visibility: known, value: 40 }
-      - { to: npc-aldric, kind: son, visibility: known, value: 55 }
-      - { to: npc-mathilde, kind: daughter, visibility: known, value: 50 }
-      - { to: npc-godfrey, kind: son, visibility: known, value: 35 }
 
   - id: npc-hilda
     isEnemy: false
@@ -54,10 +63,6 @@ characters:
       goals: []
       traits: [quiet]
     relationship: 0
-    relations:
-      - { to: npc-bardo, kind: husband, visibility: known, value: 60 }
-      - { to: npc-aldric, kind: son, visibility: known, value: 55 }
-      - { to: npc-mathilde, kind: daughter, visibility: known, value: 55 }
 
   - id: npc-irma
     isEnemy: false
@@ -78,14 +83,8 @@ characters:
       goals: [seat-daughter]
       traits: [guarded]
     relationship: 0
-    relations:
-      - { to: npc-bardo, kind: husband, visibility: known, value: 40 }
-      - { to: npc-konrad, kind: husband, visibility: known, value: 45 }
-      - { to: npc-godfrey, kind: son, visibility: known, value: 50 }
-      # ⚠ 罗莎是康拉德**前妻**之女，伊尔玛只是继母 —— 故此处**不写** mother 边。
-      # 按最小边集设计，罗莎→伊尔玛 应当由「父之妻」推理得出，而不会存边。
-      # 但 relationship.js 把「爸爸的妻子」硬编码成「妈妈」（实测），
-      # 于是零血缘的继母会被推成生母 —— 见事件 evt:ethics 的备注。
+    # 罗莎是康拉德**前妻**之女，伊尔玛只是继母 —— 故罗莎不写 motherId。
+    # 「父之妻」推出的继母女关系不会落成生母：指针模式没有「爸爸的妻子 = 妈妈」这条硬编码。
 
   - id: npc-konrad
     isEnemy: false
@@ -106,9 +105,6 @@ characters:
       goals: []
       traits: [absent]
     relationship: 0
-    relations:
-      - { to: npc-irma, kind: wife, visibility: known, value: 45 }
-      - { to: npc-rosa, kind: daughter, visibility: known, value: 45 }
 
   # ── 第三代：三处血亲婚配的起点都集中在他身上 ──
   - id: npc-aldric
@@ -130,19 +126,10 @@ characters:
       goals: [concentrate-line]
       traits: [exact, cold]
     relationship: 10
-    relations:
-      - { to: npc-bardo, kind: father, visibility: known, value: 55 }
-      - { to: npc-hilda, kind: mother, visibility: known, value: 50 }
-      # ③ 兄妹婚
-      - { to: npc-mathilde, kind: wife, visibility: known, value: 65 }
-      - { to: npc-mathilde, kind: younger-sister, visibility: known, value: 55 }
-      - { to: npc-hugh, kind: son, visibility: known, value: 40 }
-      # ⑦ 父女婚：塞西莉既是女儿又是妻子，两条边并存
-      - { to: npc-cecily, kind: daughter, visibility: known, value: 45 }
-      - { to: npc-cecily, kind: wife, visibility: known, value: 50 }
-      # ⑧ 隔代婚：布兰奇既是孙女又是妻子
-      - { to: npc-blanche, kind: daughter, visibility: known, value: 30 }
-      - { to: npc-blanche, kind: wife, visibility: known, value: 35 }
+    fatherId: npc-bardo
+    motherId: npc-hilda
+    # ③ 兄妹婚 / ⑦ 父女婚 / ⑧ 隔代婚的对端都在 spouses 表里；
+    # 他作为父亲的三处（休、塞西莉、布兰奇）由孩子那侧的指针表达。
 
   - id: npc-mathilde
     isEnemy: false
@@ -163,20 +150,9 @@ characters:
       goals: [hold-line]
       traits: [fragile]
     relationship: 5
-    relations:
-      - { to: npc-bardo, kind: father, visibility: known, value: 50 }
-      - { to: npc-hilda, kind: mother, visibility: known, value: 50 }
-      # ③ 兄妹婚的另一侧
-      - { to: npc-aldric, kind: husband, visibility: known, value: 65 }
-      - { to: npc-aldric, kind: elder-brother, visibility: known, value: 55 }
-      # ④ 半血缘：同父异母，转房为妻
-      - { to: npc-godfrey, kind: husband, visibility: known, value: 30 }
-      - { to: npc-godfrey, kind: younger-brother, visibility: known, value: 30 }
-      - { to: npc-cecily, kind: daughter, visibility: known, value: 45 }
-      # ⑥ 母子婚：休既是她的儿子又是她的丈夫
-      - { to: npc-hugh, kind: son, visibility: known, value: 40 }
-      - { to: npc-hugh, kind: husband, visibility: known, value: 40 }
-      - { to: npc-reynard, kind: son, visibility: known, value: 45 }
+    fatherId: npc-bardo
+    motherId: npc-hilda
+    # ③ 兄妹 / ④ 半血缘 / ⑥ 母子三种身份各一条 spouses；孩子都写她的 motherId。
 
   - id: npc-godfrey
     isEnemy: false
@@ -197,13 +173,9 @@ characters:
       goals: [seat-branch]
       traits: [exact, stubborn]
     relationship: 20
-    relations:
-      - { to: npc-bardo, kind: father, visibility: known, value: 40 }
-      - { to: npc-irma, kind: mother, visibility: known, value: 50 }
-      - { to: npc-mathilde, kind: wife, visibility: known, value: 30 }
-      - { to: npc-mathilde, kind: elder-sister, visibility: known, value: 30 }
-      # ⑤ 纯伦理：罗莎与他没有一个共同祖先
-      - { to: npc-rosa, kind: wife, visibility: known, value: 55 }
+    fatherId: npc-bardo
+    # ④ 半血缘的另一半：与玛蒂尔达同父异母，差别只在 motherId。
+    motherId: npc-irma
 
   - id: npc-rosa
     isEnemy: false
@@ -224,10 +196,8 @@ characters:
       goals: [stay-listed]
       traits: [detached]
     relationship: 25
-    relations:
-      - { to: npc-konrad, kind: father, visibility: known, value: 40 }
-      # 不写 mother：她与伊尔玛零血缘。继母女关系由「父之妻」推理，不落边。
-      - { to: npc-godfrey, kind: husband, visibility: known, value: 55 }
+    fatherId: npc-konrad
+    # ⑤ 纯伦理：她与戈弗雷没有一个共同祖先；婚配在 spouses 表。
 
   - id: npc-hugh
     isEnemy: false
@@ -248,12 +218,9 @@ characters:
       goals: [survive]
       traits: [dimmed]
     relationship: 15
-    relations:
-      - { to: npc-aldric, kind: father, visibility: known, value: 40 }
-      - { to: npc-mathilde, kind: mother, visibility: known, value: 30 }
-      # ⑥ 母子婚：同一条边上两个身份
-      - { to: npc-mathilde, kind: wife, visibility: known, value: 25 }
-      - { to: npc-reynard, kind: son, visibility: known, value: 40 }
+    fatherId: npc-aldric
+    # ⑥ 母子婚：同一个人在父亲栏与配偶栏里各出现一次 —— 指针与 spouses 各写一份。
+    motherId: npc-mathilde
 
   - id: npc-cecily
     isEnemy: false
@@ -274,12 +241,9 @@ characters:
       goals: [free-daughter]
       traits: [resolved]
     relationship: 10
-    relations:
-      - { to: npc-aldric, kind: father, visibility: known, value: 20 }
-      # ⑦ 父女婚的另一侧
-      - { to: npc-aldric, kind: husband, visibility: known, value: 15 }
-      - { to: npc-mathilde, kind: mother, visibility: known, value: 45 }
-      - { to: npc-blanche, kind: daughter, visibility: known, value: 60 }
+    # ⑦ 父女婚：父栏与配偶栏同一个 id（父亲在指针里，婚姻在 spouses 表）。
+    fatherId: npc-aldric
+    motherId: npc-mathilde
 
   - id: npc-reynard
     isEnemy: false
@@ -300,12 +264,8 @@ characters:
       goals: [free-son]
       traits: [haunted]
     relationship: 30
-    relations:
-      - { to: npc-hugh, kind: father, visibility: known, value: 35 }
-      - { to: npc-mathilde, kind: mother, visibility: known, value: 30 }
-      # ⑨ 汇合
-      - { to: npc-blanche, kind: wife, visibility: known, value: 60 }
-      - { to: player, kind: son, visibility: known, value: 70 }
+    fatherId: npc-hugh
+    motherId: npc-mathilde
 
   - id: npc-blanche
     isEnemy: false
@@ -326,16 +286,14 @@ characters:
       goals: [find-outsider]
       traits: [willful]
     relationship: 35
-    relations:
-      - { to: npc-aldric, kind: father, visibility: known, value: 15 }
-      # ⑧ 隔代婚的另一侧
-      - { to: npc-aldric, kind: husband, visibility: known, value: 10 }
-      - { to: npc-cecily, kind: mother, visibility: known, value: 55 }
-      - { to: npc-cecily, kind: elder-sister, visibility: known, value: 20 }
-      - { to: npc-reynard, kind: husband, visibility: known, value: 60 }
-      - { to: player, kind: son, visibility: known, value: 75 }
+    # ⑧ 隔代婚的另一侧：父/母是祖辈的两个人，自己又在 spouses 表里嫁给祖父。
+    fatherId: npc-aldric
+    motherId: npc-cecily
 
 playerTemplate:
   identity: { gender: male, age: 20 }
   mood: 35
   attributes: { body: 5, mind: 7, will: 6 }
+  # ⑨ 汇合：玩家（罗兰）是雷纳德 × 布兰奇的孩子。玩家也走指针，不走边。
+  fatherId: npc-reynard
+  motherId: npc-blanche

@@ -7,10 +7,10 @@ meta:
   startYear: 2006
   engineProtocol: v2
 
-# 亲缘称谓由 `family` 扩展提供（推导逻辑在 extensions/family，不在内核）。
-# 不声明它，NPC 卡上的「爸爸/哥哥/舅舅」这类称谓全部消失。
-extensions:
-  family: true
+# 亲缘走**模式一（边）**：本模板只有一条 `npc-megumi → enemy-toji [father]`
+# 和一条 `gap: true` 的远亲边，值不上家族扩展（`docs/FAMILY-GRAPH.md` §6 的迁移结论）。
+# 因此**不声明** `extensions.family`，亲属称谓由模板自己写的边直接给出；
+# 声明了反而会与本文件的亲属边冲突（加载期 `kinship_conflict`）。
 
 time:
   # 一轮 = 一天：本模板是「一学年」节奏的人生切片，靠剧情节点的 advanceTo 跳月/跳季，
