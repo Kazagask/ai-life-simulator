@@ -315,6 +315,8 @@ export interface RelationSignature {
   readonly seniority: readonly (Seniority | null)[];
   /** 归约后的原子串 —— 称谓表按它取词。 */
   readonly pattern: readonly SignatureAtom[];
+  /** 路径本身的 kind 串（同跳数平手时的确定性次序：直系/父系优先）。 */
+  readonly kinds: readonly MoveKind[];
   readonly targetSex: Sex;
   /** 路径含配偶步，或是继亲关系（结构事实，不靠词表猜）。 */
   readonly affinal: boolean;
@@ -594,6 +596,7 @@ export function signatureOfMoves(
     linkSexes: pattern.map((p) => p.sex),
     seniority: pattern.map((p) => p.seniority),
     pattern,
+    kinds: moves.map((m) => m.kind),
     targetSex: atoms[atoms.length - 1]!.sex,
     affinal: spouseSteps > 0 || stepKind !== null,
     gapped,

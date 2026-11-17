@@ -316,14 +316,17 @@ describe("valmont · 派生行只是投影，不是事实边", () => {
 });
 
 describe("valmont · 关系行显示标签", () => {
-  it("派生行以推出来的称谓为主标签（外公），不是占位的「亲戚」", () => {
+  it("派生行以推出来的称谓为主标签（爷爷），不是占位的「亲戚」", () => {
     const snap = snapshot(newWorld(12));
     const vm = toViewModel({ snapshot: snap, content: [], media: [] });
     const hugh = vm.npcs.find((n) => n.id === "npc-hugh")!;
 
     const maternal = hugh.relations.find((r) => r.withId === "npc-bardo");
     expect(maternal?.kind).toBe("relative");
-    expect(maternal?.kindLabel).toBe("外公");
+    // 巴尔多同时是休的祖父（父之父）与外祖父（母之父）：同跳数、同层时结构次序取父系。
+    expect(maternal?.kindLabel).toBe("爷爷");
+    // 外祖父仍作为附加读法保留。
+    expect(maternal?.kinshipTerms ?? []).toContain("外公");
 
     // 一级事实行不替换：kind 本身就是准的（父亲），标签照 kind 翻。
     const father = hugh.relations.find((r) => r.kind === "father");

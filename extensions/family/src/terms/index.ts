@@ -21,8 +21,8 @@ import {
  * 管线：`KinGraph`（边或指针 + 婚配 + 收养）→ 简单路径 → 结构签名 → 中文表。
  *
  * 推导按三层走（`docs/FAMILY-GRAPH.md` §4.5）：血亲（tier 1）→ 拟制/婚配（tier 2）
- * → 收养（tier 3）。排序**层号升序优先**，再比跳数，所以血亲读法天然排在
- * 拟制/收养前面，展示层不需要再过滤。
+ * → 收养（tier 3）。排序**跳数优先，tier 作平手裁决**：短路径先赢（「我老婆的哥哥」
+ * 就是大舅子），同跳数时血亲先于拟制/收养。
  *
  * 公开接口与旧实现（`src/terms.ts`，保留作对照）逐字段一致；额外提供
  * `kinshipTermIn` / `kinshipReadingsIn` 直接吃 `KinGraph`（指针模型用）。
@@ -100,17 +100,13 @@ export interface KinshipReading {
 
 const VIS_RANK: Record<string, number> = { known: 3, inferred: 2, unknown: 1, hidden: 0 };
 
-/** 可见性合成：取路径上最保守的一档。 */
-function composeVisibility(pathVis: readonly string[]): string {
-  let min = "known";
-  for (const v of pathVis) {
-    if ((VIS_RANK[v] ?? 0) < (VIS_RANK[min] ?? 0)) min = v;
-  }
-  return min;
+/** 同跳数平手时，直系（没有同胞分叉）先于旁系。 */
+function collateralRank(r: KinshipReading): number {
+  return r.signature?.pattern.filter((a) => a.role === "sibling").length ?? 0;
 }
 
-/** 关系链字典序比较（等长路径决胜，与 core 的 `shortestPath` 同一口径）。 */
-function lexLess(a: readonly string[], b: readonly string[]): boolean {
+/** kind 串字典序（模式一里与旧 `shortestPath` 的决胜口径一致：father 先于 mother）。 */
+function lexLessKinds(a: readonly string[], b: readonly string[]): boolean {
   const n = Math.min(a.length, b.length);
   for (let i = 0; i < n; i++) {
     if (a[i] === b[i]) continue;
@@ -119,66 +115,27 @@ function lexLess(a: readonly string[], b: readonly string[]): boolean {
   return a.length < b.length;
 }
 
-interface MovePath {
-  readonly moves: readonly KinMove[];
-  /** 等长决胜用的 kind 串（不是中文记号）。 */
-  readonly keys: readonly string[];
-  /** 路径的推导层（1 血亲 / 2 拟制 / 3 收养）：**先比层，再比字典序**。 */
-  readonly tier: 1 | 2 | 3;
-  readonly gapped: boolean;
-}
+/** 不带长幼/不分性别的中性谱系词：同跳数时让位给更具体的读法。 */
+const NEUTRAL_TERMS: ReadonlySet<string> = new Set([
+  "兄弟",
+  "姐妹",
+  "叔伯",
+  "姑姑",
+  "舅舅",
+  "姨妈",
+  "姻亲",
+  "养亲",
+  "远亲",
+  "继亲",
+]);
 
-/** 单步带来的层：血亲 1、婚配/继亲 2、收养 3。 */
-function moveTier(kind: KinMove["kind"]): 1 | 2 | 3 {
-  if (kind === "adoptive-father" || kind === "adoptive-mother" || kind === "adoptive-son" || kind === "adoptive-daughter") {
-    return 3;
+/** 可见性合成：取路径上最保守的一档。 */
+function composeVisibility(pathVis: readonly string[]): string {
+  let min = "known";
+  for (const v of pathVis) {
+    if ((VIS_RANK[v] ?? 0) < (VIS_RANK[min] ?? 0)) min = v;
   }
-  if (kind === "husband" || kind === "wife") return 2;
-  return 1;
-}
-
-/**
- * 最短移动路径（BFS 逐层，等长取 kind 字典序最小）。
- *
- * 与 core 的 `shortestPath` 同算法，只是走 `KinGraph` 的移动表，
- * 因此收养也能进路径。`from === to` 返回空路径；不可达返回 `null`。
- */
-function shortestMoves(
-  graph: KinGraph,
-  from: string,
-  to: string,
-  maxHops: number,
-): MovePath | null {
-  if (from === to) return { moves: [], keys: [], tier: 1, gapped: false };
-  const best = new Map<string, MovePath>();
-  let frontier = new Map<string, MovePath>([[from, { moves: [], keys: [], tier: 1, gapped: false }]]);
-
-  for (let hop = 0; hop < maxHops && frontier.size > 0; hop++) {
-    const next = new Map<string, MovePath>();
-    for (const [node, st] of frontier) {
-      for (const mv of movesOf(graph, node)) {
-        if (mv.to === from) continue; // 简单路径：不折返起点
-        if (best.has(mv.to)) continue; // 已更短到达
-        const stepTier = moveTier(mv.kind);
-        const cand: MovePath = {
-          moves: [...st.moves, mv],
-          keys: [...st.keys, mv.kind],
-          tier: (st.tier > stepTier ? st.tier : stepTier) as 1 | 2 | 3,
-          gapped: st.gapped || mv.gapped === true,
-        };
-        const prev = next.get(mv.to);
-        // 同长度路径：层号小的优先（血亲 > 拟制 > 收养），再按 kind 字典序定夺。
-        if (prev === undefined || cand.tier < prev.tier || (cand.tier === prev.tier && lexLess(cand.keys, prev.keys))) {
-          next.set(mv.to, cand);
-        }
-      }
-    }
-    for (const [node, st] of next) best.set(node, st);
-    const hit = best.get(to);
-    if (hit !== undefined) return hit;
-    frontier = next;
-  }
-  return null;
+  return min;
 }
 
 // ---------------- kinshipTerm ----------------
@@ -198,50 +155,39 @@ export function kinshipTermIn(
   if (from === to) {
     return { term: SELF_TITLE, alternatives: [SELF_TITLE], tokens: [], gapped: false, exact: true };
   }
-  const maxHops = opts.maxHops ?? 8;
-  const path = shortestMoves(graph, from, to, maxHops);
-  if (path === null) return null;
-
-  const tokens = path.moves.map((m) => MOVE_TOKEN[m.kind]);
-  const coarse = (gapped: boolean): KinshipTerm => ({
-    term: COARSE_KINSHIP_TITLE,
-    alternatives: [COARSE_KINSHIP_TITLE],
-    tokens,
-    gapped,
-    exact: false,
-  });
-
-  if (path.gapped || tokens.length === 0) return coarse(path.gapped);
-
-  const facts = graph.facts;
-  const resolved = signatureOfMoves(path.moves, facts, from, path.gapped);
-  if (resolved.kind === "signed") {
-    // 主称谓不带「同父异母的」前缀：半血亲读法仍会出现在 `kinshipReadings` 里。
-    const term = nameAtoms(resolved.atoms, facts, from, { halfPrefix: false });
-    // 粗称谓（姻亲/养亲）是兜底：同长度若还有能叫出名字的路径，走下面的读法枚举。
-    if (term !== null && !isCoarseTerm(term)) {
-      return { term, alternatives: [term], tokens, gapped: false, exact: true };
-    }
-  }
-
   /**
-   * 最短路径不可命名时的兜底：回头枚举读法，取第一条**能命名**的。
+   * `kinshipTerm(pair)` **就是** `readings[0]`：同一比较器、同一套规则。
    *
-   * 同长度路径按 kind 字典序决胜，可能恰好选中一条结构上不成立的路径，
-   * 而同一对端点其实还有一条可命名的同长度路径。只在这一档付出枚举代价。
+   * 以前这里另走一条「最短移动路径」选择逻辑，会和 `kinshipReadings` 的首项不一致
+   * （同一个「她」，事实行一个称谓、派生行另一个）。现在只保留一条选择路径。
+   *
+   * 事实行「只看这一条边」的场景请用 `termForEdge(edge)`，语义不同，名字也不同。
    */
-  const rs = kinshipReadingsIn(graph, from, to, { maxHops });
-  const best = rs.find((r) => !isCoarseTerm(r.term)) ?? rs[0];
-  if (best !== undefined) {
-    return {
-      term: best.term,
-      alternatives: [best.term],
-      tokens: best.tokens,
-      gapped: best.gapped,
-      exact: !isCoarseTerm(best.term) && !best.gapped,
-    };
-  }
-  return coarse(path.gapped);
+  const rs = kinshipReadingsIn(graph, from, to, { maxHops: opts.maxHops ?? 8 });
+  const best = rs[0];
+  if (best === undefined) return null;
+  return {
+    term: best.term,
+    alternatives: [best.term],
+    tokens: best.tokens,
+    gapped: best.gapped,
+    exact: !isCoarseTerm(best.term) && !best.gapped,
+  };
+}
+
+/**
+ * 「这条边本身叫什么」——**只用于事实行**，与「这两个人之间怎么称呼」分开。
+ *
+ * 与 `kinshipTerm(pair)` 的差别在语义而不是实现：这里拿单边图跑同一套规则，
+ * 所以 `father` 边出爸爸、`wife` 边出老婆，不会被同一对端点的其他身份挤掉。
+ */
+export function termForEdge(
+  edge: RelationEdge,
+  opts: { readonly maxHops?: number } = {},
+): KinshipTerm | null {
+  return kinshipTermIn(kinGraphFromEdges([edge]), edge.from, edge.to, {
+    maxHops: opts.maxHops ?? 1,
+  });
 }
 
 /**
@@ -263,9 +209,9 @@ export function kinshipTerm(
 /**
  * 枚举 `from → to` 的**全部读法**（简单路径，跳数 ≤ maxHops）。
  *
- * 顺序：**tier 升序（血亲 → 拟制 → 收养）→ 跳数升序 → 称谓字典序**。
- * 第一项即主称谓。半血亲的「同父异母的」前缀在这里加（一个读法就是一条路径）；
- * `kinshipTerm` 的主称谓不加。
+ * 顺序：**跳数升序 → tier 升序（血亲 → 拟制 → 收养）→ 精确词先于粗称谓 → 称谓字典序**。
+ * 第一项即主称谓（`kinshipTerm(pair)` 就是它）。半血亲的「同父异母的」前缀在
+ * 读法里加（一个读法就是一条路径）；只描述单条边的事实行请用 `termForEdge`。
  */
 export function kinshipReadingsIn(
   graph: KinGraph,
@@ -352,9 +298,16 @@ export function kinshipReadingsIn(
           });
           continue;
         }
-        // 直接配偶（一跳妻子/丈夫，或「儿子的妈妈」这种共亲）不在这里取名：
-        // 它就是事实行本身，或是一条推测出来的婚配 —— 交给事实行/主称谓。
-        if (resolved.atoms.length === 1 && resolved.atoms[0]!.role === "spouse") continue;
+        // 只跳过**共亲推断**的配偶（「儿子的妈妈」）：婚配状态没有落边，不能因此叫老婆。
+        // 事实婚配（一跳妻子/丈夫）保留 —— `kinshipTerm(pair)` 就是 `readings[0]`，
+        // 两口子之间「怎么称呼」本来就该是老婆/老公。
+        if (
+          resolved.atoms.length === 1 &&
+          resolved.atoms[0]!.role === "spouse" &&
+          resolved.atoms[0]!.inferred
+        ) {
+          continue;
+        }
 
         const term = nameAtoms(resolved.atoms, facts, from);
         const fallbackTerm =
@@ -402,15 +355,26 @@ export function kinshipReadingsIn(
   const collected =
     precise.length > 0 ? [...precise, ...coarseAffinal] : [...coarseAffinal, ...coarseBlood];
 
-  // 排序：tier 升序 → 精确词先于粗称谓 → 跳数升序 → 称谓字典序。
-  // 粗称谓（姻亲/养亲/远亲）是兜底，同层同跳数时不该压过能叫出名字的读法。
+  // 排序：**跳数升序 → tier 升序 → 精确词先于粗称谓 → 有长幼先于中性词
+  //        → 直系先于旁系 → kind 字典序 → 称谓字典序**。
+  //
+  // 跳数优先是语感：「我老婆的哥哥」就是大舅子，不会因为另有一条三跳血亲路径
+  // 就被叫成远房表叔。tier 只在**同跳数**时裁决（同跳数血亲优先）。
+  // 最后一条「有长幼先于中性词」是为了不让同跳数的 `爸爸/儿子` 用「兄弟」压掉
+  // 另一条带 `elder-sister + elder-brother` 的「哥哥」—— 信息在就不要丢。
   const rank = (r: KinshipReading): number => r.signature?.tier ?? 1;
   const coarseRank = (r: KinshipReading): number => (isCoarseTerm(r.term) ? 1 : 0);
+  const neutralRank = (r: KinshipReading): number =>
+    NEUTRAL_TERMS.has(r.term.replace(/^同父异母的|^同母异父的/, "")) ? 1 : 0;
   collected.sort(
     (a, b) =>
+      a.hops - b.hops ||
       rank(a) - rank(b) ||
       coarseRank(a) - coarseRank(b) ||
-      a.hops - b.hops ||
+      neutralRank(a) - neutralRank(b) ||
+      collateralRank(a) - collateralRank(b) ||
+      (lexLessKinds(a.signature?.kinds ?? [], b.signature?.kinds ?? []) ? -1 : 0) ||
+      (lexLessKinds(b.signature?.kinds ?? [], a.signature?.kinds ?? []) ? 1 : 0) ||
       (a.term < b.term ? -1 : a.term > b.term ? 1 : 0),
   );
   const seen = new Set<string>();

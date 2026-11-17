@@ -137,11 +137,20 @@ describe("亲缘读法 · 主称谓必须走血亲短路径", () => {
     expect(rs[0]!.tokens).toEqual(["妈妈", "妈妈"]);
   });
 
-  it("血亲读法全部排在姻亲读法之前", () => {
+  it("跳数升序；同跳数内血亲读法排在姻亲之前", () => {
     const rs = readings("blanche", "mathilde");
     const firstAffinal = rs.findIndex((r) => r.affinal);
     expect(firstAffinal).toBeGreaterThan(0);
-    expect(rs.slice(firstAffinal).every((r) => r.affinal)).toBe(true);
+    // 整体按跳数升序（短路径优先，哪怕它是姻亲）
+    for (let i = 1; i < rs.length; i++) {
+      expect(rs[i]!.hops).toBeGreaterThanOrEqual(rs[i - 1]!.hops);
+    }
+    // 同跳数时血亲先于姻亲（「外婆」与「继母」都是 2 跳，外婆在前）
+    for (let i = 1; i < rs.length; i++) {
+      if (rs[i]!.hops !== rs[i - 1]!.hops) continue;
+      expect(!rs[i - 1]!.affinal || rs[i]!.affinal).toBe(true);
+    }
+    expect(rs[0]!.term).toBe("外婆");
   });
 
   it("继母作为姻亲读法保留，且标记 affinal", () => {
@@ -159,25 +168,42 @@ describe("亲缘读法 · 主称谓必须走血亲短路径", () => {
 });
 
 describe("亲缘读法 · 姻亲不得伪装成血亲", () => {
-  it("戈弗雷看罗莎（零血缘、母亲改嫁带来的继女）：继姐妹，不是妹妹", () => {
+  it("戈弗雷看罗莎：老婆（1 跳事实婚配）在前，继姐妹仍在，但绝不出现「妹妹」", () => {
     const rs = readings("godfrey", "rosa");
     expect(rs.length).toBeGreaterThan(0);
-    expect(rs[0]!.term).toBe("继姐妹");
+    // 两人是事实婚配（1 跳），pair 级主称谓就是老婆；继姐妹是另一条 3 跳的姻亲读法。
+    expect(rs[0]!.term).toBe("老婆");
     expect(rs[0]!.affinal).toBe(true);
+    expect(rs.map((r) => r.term)).toContain("继姐妹");
     // 库会把「妈妈的丈夫的女儿」硬解成「妹妹」—— 那是把姻亲当成血亲，必须丢掉。
     expect(rs.map((r) => r.term)).not.toContain("妹妹");
   });
 
-  it("继亲关系不产生配偶称谓（儿子的妈妈 ≠ 老婆）", () => {
+  it("共亲推断不产生配偶称谓（儿子的妈妈 ≠ 老婆）；事实婚配除外", () => {
     for (const [a, b] of [
       ["blanche", "mathilde"],
-      ["godfrey", "rosa"],
       ["blanche", "hilda"],
     ] as const) {
       const terms = readings(a, b).map((r) => r.term);
       expect(terms).not.toContain("老婆");
       expect(terms).not.toContain("老公");
     }
+    // 任何「老婆/老公」读法都必须是**声明过的婚配边**（1 跳、非共亲推断），
+    // 不能是「儿子的妈妈」这种推测。
+    for (const [a, b] of [
+      ["blanche", "mathilde"],
+      ["godfrey", "rosa"],
+      ["blanche", "hilda"],
+    ] as const) {
+      for (const r of readings(a, b)) {
+        if (r.term !== "老婆" && r.term !== "老公") continue;
+        expect(r.signature?.pattern).toHaveLength(1);
+        expect(r.signature?.pattern[0]?.role).toBe("spouse");
+        expect(r.signature?.pattern[0]?.inferred).toBe(false);
+      }
+    }
+    // 对照：哥弗雷与罗莎是事实婚配，老婆 是合法读法。
+    expect(readings("godfrey", "rosa").map((r) => r.term)).toContain("老婆");
   });
 });
 

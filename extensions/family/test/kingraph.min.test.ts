@@ -151,7 +151,8 @@ describe("长幼 · 只靠 birthTime", () => {
   });
 
   it("同父异母的兄长也按 birthTime 定长幼", () => {
-    expect(term("half", "bro")).toBe("哥哥");
-    expect(term("bro", "half")).toBe("弟弟");
+    // pair 级主称谓带「同父异母的」前缀（readings[0] 自带）；事实行用 termForEdge，不带前缀。
+    expect(term("half", "bro")).toBe("同父异母的哥哥");
+    expect(term("bro", "half")).toBe("同父异母的弟弟");
   });
 });

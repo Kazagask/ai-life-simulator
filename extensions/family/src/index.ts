@@ -19,7 +19,7 @@ import { deriveClanView } from "./clan-view.js";
 import { parseFamilyConfig } from "./config.js";
 import { reachableKinshipNodeIds } from "./graph.js";
 import { derivePedigree } from "./pedigree.js";
-import { kinshipReadings, kinshipTerm, SELF_TITLE, type KinshipReading } from "./terms/index.js";
+import { kinshipReadings, termForEdge, SELF_TITLE, type KinshipReading } from "./terms/index.js";
 
 /**
  * 家族扩展（extension id = `family`）：把关系**事实图**解释成称谓与族谱。
@@ -101,7 +101,8 @@ function decorate(ctx: RelationRowContext): RelationFields | null {
   if (!ctx.outgoing || !isKinshipKind(ctx.edge.kind)) return null;
   const cfg = parseFamilyConfig(ctx.config);
   const withId = ctx.edge.to;
-  const term = kinshipTerm([ctx.edge], ctx.viewerId, withId, { maxHops: 1 });
+  // 事实行只描述**这一条边**本身，所以用 `termForEdge`（不是 pair 级 `kinshipTerm`）。
+  const term = termForEdge(ctx.edge);
   if (term === null) return null;
   const extra = pickExtras(visibleReadings(ctx, withId, cfg.maxHops), term.term, cfg.showAllRoles);
   return {
