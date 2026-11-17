@@ -29,6 +29,9 @@ export type { OptionDeckProps } from "./OptionDeck.js";
 export { BattleBoard } from "./BattleBoard.js";
 export type { BattleBoardProps } from "./BattleBoard.js";
 
+export { WheelPanel } from "./WheelPanel.js";
+export type { WheelPanelProps } from "./WheelPanel.js";
+
 export {
   MAX_ACT_TEXT,
   MAX_ACT_TYPE,
@@ -50,7 +53,7 @@ export { isPortraitSlot } from "./slots.js";
 export { StatusBars } from "./StatusBars.js";
 export type { StatusBarsProps } from "./StatusBars.js";
 
-export { toViewModel, toBattleVM, DANGER_RATIO, firstInlineCgBlock } from "./adapter.js";
+export { toViewModel, toBattleVM, toWheelVM, DANGER_RATIO, firstInlineCgBlock } from "./adapter.js";
 export type { ToViewModelInput } from "./adapter.js";
 
 export type {
@@ -66,5 +69,6 @@ export type {
   BattleVM,
   BattlePlayerVM,
   BattleCombatantVM,
+  WheelVM,
   EndingVM,
 } from "@life-sim/shared";

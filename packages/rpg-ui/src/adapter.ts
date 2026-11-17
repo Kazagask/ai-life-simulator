@@ -5,6 +5,8 @@ import type {
   MediaVM,
   V2Snapshot,
   ViewModel,
+  WheelResultView,
+  WheelVM,
 } from "@life-sim/shared";
 import { isVisualSlot } from "./slots.js";
 
@@ -26,6 +28,18 @@ export interface ToViewModelInput {
   content?: ContentBlockVM[];
   /** 显式覆盖媒体列表；缺省用 `snapshot.media`。 */
   media?: MediaVM[];
+}
+
+/**
+ * 转盘结果 → 展示模型（只搬展示需要的字段：命中标签 + 全扇区权重）。
+ * `title` 不在这里：它来自事件槽（`slot.title`），由宿主与 wheel 配对传入。
+ */
+export function toWheelVM(wheel: WheelResultView): WheelVM {
+  return {
+    eventId: wheel.eventId,
+    label: wheel.label,
+    segments: wheel.segments.map((s) => ({ label: s.label, weight: s.weight })),
+  };
 }
 
 /** 战斗镜像 → 展示模型（`id` 取引擎实例 id，只作 React key / 目标标识）。 */

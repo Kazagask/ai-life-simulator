@@ -193,6 +193,28 @@ export const BattleVMSchema = z
   .strict();
 export type BattleVM = z.infer<typeof BattleVMSchema>;
 
+/** 转盘的一个扇区（权重用于切分面积：玩家看到的概率就是真实概率）。 */
+export const WheelSegmentVMSchema = z
+  .object({
+    label: z.string(),
+    weight: z.number(),
+  })
+  .strict();
+export type WheelSegmentVM = z.infer<typeof WheelSegmentVMSchema>;
+
+/**
+ * 随机转盘的结算结果（展示用）：服务端已经抽完，前端只负责把它转出来。
+ * `label` 是命中扇区，`segments` 是全部扇区（含权重）。
+ */
+export const WheelVMSchema = z
+  .object({
+    eventId: z.string(),
+    label: z.string(),
+    segments: z.array(WheelSegmentVMSchema),
+  })
+  .strict();
+export type WheelVM = z.infer<typeof WheelVMSchema>;
+
 /** 结局摘要：隐藏结局的掩码文案由服务端给出，展示层只照抄，不反推原文。 */
 export const EndingVMSchema = z
   .object({
