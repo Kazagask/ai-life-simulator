@@ -24,7 +24,7 @@ import {
   type TemplateLookup,
   type TurnPipelineConfig,
 } from "@life-sim/game-core";
-import { familyExtension } from "../src/index.js";
+import { familyExtension, type FamilyView } from "../src/index.js";
 
 /**
  * 集成回归：**直接拿可玩的 `valmont` 模板当夹具**，不另造测试专用剧本。
@@ -214,6 +214,29 @@ describe("valmont · 关系投影（玩家真正看到的那一行）", () => {
     expect(kinds).toEqual(["father", "husband"]);
     expect(rows.find((r) => r.kind === "father")?.kinshipTerm).toBe("爸爸");
     expect(rows.find((r) => r.kind === "husband")?.kinshipTerm).toBe("老公");
+  });
+});
+
+describe("valmont · 族谱边没有重影", () => {
+  it("pedigree.edges 里不存在重复的 (from,to,kind) 三元组", () => {
+    const snap = snapshot(newWorld(11));
+    // 宿主只搬运 `unknown`：这里用扩展自己的契约类型收窄（与 UI 同一种读法）。
+    const family = snap.extensions?.family as FamilyView | undefined;
+    const edges = family?.pedigree?.edges ?? [];
+    expect(edges.length).toBeGreaterThan(0);
+
+    const triples = edges.map((e) => `${e.from}\u0000${e.to}\u0000${e.kind}`);
+    expect(new Set(triples).size).toBe(triples.length);
+  });
+
+  it("模板同时写 son 与 father 的那一对（奥德里克→布兰奇）只出一条边，parentRole 是 father", () => {
+    const snap = snapshot(newWorld(11));
+    const edges = (snap.extensions?.family as FamilyView | undefined)?.pedigree?.edges ?? [];
+    const pair = edges.filter(
+      (e) => e.kind === "parent" && e.from === "npc-aldric" && e.to === "npc-blanche",
+    );
+    expect(pair).toHaveLength(1);
+    expect(pair[0]!.parentRole).toBe("father");
   });
 });
 
