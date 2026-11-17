@@ -1,6 +1,8 @@
 import type {
   ActionVM,
   BattleVM,
+  ClanVM,
+  ClanView,
   ContentBlockVM,
   EvaluationVM,
   MediaVM,
@@ -395,6 +397,52 @@ export function toPedigreeVM(pedigree: PedigreeView): PedigreeVM {
   };
 }
 
+/**
+ * 宗族段 → 展示模型（`docs/CLAN-DESIGN.md` §2.4）。
+ *
+ * 同族的形状逐字段搬，**不重算任何计数**：隐藏成员、离族者、已故者的口径是服务端
+ * 基于可见性算的，前端只有 `ViewModel`，再算一遍必然漂移（也会泄露服务端故意不数的部分）。
+ */
+export function toClanVM(clan: ClanView): ClanVM {
+  return {
+    id: clan.id,
+    name: clan.name,
+    ...(clan.seat !== undefined ? { seat: clan.seat } : {}),
+    status: clan.status,
+    prestige: clan.prestige,
+    ...(clan.head !== undefined
+      ? {
+          head: {
+            id: clan.head.id,
+            name: clan.head.name,
+            hasCard: clan.head.hasCard,
+            isSelf: clan.head.isSelf,
+            alive: clan.head.alive,
+          },
+        }
+      : {}),
+    livingCount: clan.livingCount,
+    memberCount: clan.memberCount,
+    selfRelation: clan.selfRelation,
+    ...(clan.selfStanding !== undefined ? { selfStanding: clan.selfStanding } : {}),
+    ...(clan.legacies !== undefined
+      ? {
+          legacies: clan.legacies.map((legacy) => ({
+            id: legacy.id,
+            name: legacy.name,
+            unlocked: legacy.unlocked,
+          })),
+        }
+      : {}),
+    history: clan.history.map((entry) => ({
+      at: entry.at,
+      formattedAt: entry.formattedAt,
+      kind: entry.kind,
+      text: entry.text,
+    })),
+  };
+}
+
 export function toViewModel({ snapshot, content, media }: ToViewModelInput): ViewModel {
   const slot = snapshot.slotEvent;
   return {
@@ -442,6 +490,10 @@ export function toViewModel({ snapshot, content, media }: ToViewModelInput): Vie
     // 族谱：只有模板声明了 `extensions.family` 才有这一段（缺省不渲染面板）。
     ...(snapshot.family?.pedigree !== undefined
       ? { pedigree: toPedigreeVM(snapshot.family.pedigree) }
+      : {}),
+    // 宗族：空数组 = 这个世界没有可展示的宗族 ⇒ 不给 `clans` 键（展示层据此不出页签）。
+    ...(snapshot.family?.clans !== undefined && snapshot.family.clans.length > 0
+      ? { clans: snapshot.family.clans.map((clan) => toClanVM(clan)) }
       : {}),
   };
 }

@@ -486,6 +486,60 @@ export const PedigreeVMSchema = z
   .strict();
 export type PedigreeVM = z.infer<typeof PedigreeVMSchema>;
 
+/** 宗族家主（`docs/CLAN-DESIGN.md` §2.4）。`id` 仅作 key / 跳转键，不显示。 */
+export const ClanHeadVMSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    /** false ⇒ 点不了（与 `RelationList` 的 `rel-nocard` 同口径）。 */
+    hasCard: z.boolean(),
+    isSelf: z.boolean(),
+    /** 已故家主仍在任：照常显示，展示层可加「已故」标记。 */
+    alive: z.boolean(),
+  })
+  .strict();
+export type ClanHeadVM = z.infer<typeof ClanHeadVMSchema>;
+
+/** 一条大事记：`text` 原样来自 state（**不实时调 LLM 复述史**）。 */
+export const ClanHistoryVMSchema = z
+  .object({
+    at: z.number(),
+    formattedAt: z.string(),
+    kind: z.string(),
+    text: z.string(),
+  })
+  .strict();
+export type ClanHistoryVM = z.infer<typeof ClanHistoryVMSchema>;
+
+export const ClanLegacyVMSchema = z
+  .object({ id: z.string(), name: z.string(), unlocked: z.boolean() })
+  .strict();
+export type ClanLegacyVM = z.infer<typeof ClanLegacyVMSchema>;
+
+/**
+ * 宗族视图模型：每个族一张卡片（竖屏可用，不画图）。
+ *
+ * 计数是**玩家视角**的（不含隐藏成员 / 离族者）；`memberCount` 含已故。
+ * 血缘看族谱、归族看这里 —— 两者冲突时**显示冲突**，不在展示层消解。
+ */
+export const ClanVMSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    seat: z.string().optional(),
+    status: z.enum(["active", "extinct", "exiled"]),
+    prestige: z.number(),
+    head: ClanHeadVMSchema.optional(),
+    livingCount: z.number(),
+    memberCount: z.number(),
+    selfRelation: z.enum(["head", "member", "affine", "outsider"]),
+    selfStanding: z.string().optional(),
+    legacies: z.array(ClanLegacyVMSchema).optional(),
+    history: z.array(ClanHistoryVMSchema),
+  })
+  .strict();
+export type ClanVM = z.infer<typeof ClanVMSchema>;
+
 export const ViewModelSchema = z
   .object({
     player: PlayerVMSchema,
@@ -519,6 +573,11 @@ export const ViewModelSchema = z
      * 缺省表示这个世界没有族谱页签，展示层不要渲染空面板。
      */
     pedigree: PedigreeVMSchema.optional(),
+    /**
+     * 宗族（追加，可选）：只有快照带 `family.clans` 且**非空**时才有 ——
+     * 缺省表示这个世界没有宗族页签，展示层不要渲染空面板。
+     */
+    clans: z.array(ClanVMSchema).optional(),
   })
   .strict();
 export type ViewModel = z.infer<typeof ViewModelSchema>;

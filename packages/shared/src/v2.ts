@@ -643,12 +643,68 @@ export interface PedigreeView {
 }
 
 /**
+ * 宗族的家主（`docs/CLAN-DESIGN.md` §2.4）。
+ *
+ * `hasCard` 与族谱节点同一口径：隐藏/未登场的人**不出现在投影里**，所以这里只在
+ * 家主本人可见时才有值（否则 `head` 整个缺省，不编一个「无名的家主」）。
+ */
+export interface ClanHeadView {
+  /** 演员 id —— 仅作 key / 跳转键，不许当显示名。 */
+  id: string;
+  name: string;
+  hasCard: boolean;
+  isSelf: boolean;
+  /** 已故的家主仍然在任（族里没换人），UI 照常显示但可以加「已故」标记。 */
+  alive: boolean;
+}
+
+/**
+ * 宗族视图（`docs/CLAN-DESIGN.md` §2.4）：读 `state.extensions.family` 的**权威数据**，
+ * 不从关系图推成员（那是族谱的事，§3）。
+ */
+export interface ClanView {
+  /**
+   * 稳定 key（模板声明的宗族 id）。**只作 React key / 跳转键，不许当显示名**：
+   * 显示名是 `name`（可被改姓/易主），id 是数据锚，两者不是一个东西。
+   */
+  id: string;
+  name: string;
+  /** 郡望 / 祖宅。 */
+  seat?: string;
+  status: "active" | "extinct" | "exiled";
+  prestige: number;
+  /** 家主；空缺（族老摄政）或家主不可见 ⇒ 缺省。 */
+  head?: ClanHeadView;
+  /** **玩家视角数得出来的**在世人数（不含已故、不含离族、不含隐藏成员）。 */
+  livingCount: number;
+  /**
+   * **玩家视角数得出来的**成员数：含已故（死者仍是族人，只是不再在世），
+   * 不含离族者与隐藏成员。与 `livingCount` 的差 = 族里死了多少人。
+   */
+  memberCount: number;
+  /** 玩家与本族的关系：家主 / 在族 / 姻亲 / 外人。`outsider` 是合法态。 */
+  selfRelation: "head" | "member" | "affine" | "outsider";
+  /** 行辈（"第三代 · 二房"）。走族谱派生，不是族表；v1 暂不产出。 */
+  selfStanding?: string;
+  /** 族学 / 家训（候选由模板声明，`unlocked` = 运行时已解锁）。 */
+  legacies?: Array<{ id: string; name: string; unlocked: boolean }>;
+  /** append-only 大事记，投影原样透传 `text`（不实时调 LLM 复述史）。按时间正序。 */
+  history: Array<{ at: number; formattedAt: string; kind: string; text: string }>;
+}
+
+/**
  * 家族扩展的快照段（`docs/CLAN-DESIGN.md`）。
  *
- * 本轮只落 **A 段族谱**（`pedigree`）；宗族的 `clans` / `selfClanIds` 是 B 段，
- * 它们是 `state.extensions.family` 里的权威数据，与这里互不依赖。
+ * 两段**互不依赖**：`pedigree` 只吃关系图；`clans` / `selfClanIds` 只吃
+ * `state.extensions.family`。删掉宗族切片，族谱照样完整；反过来也一样。
+ *
+ * `clans` / `selfClanIds` 恒为数组（空数组合法：没声明族，或玩家不属于任何族），
+ * 展示层据此决定是否出「宗族」页签 —— 不靠 `undefined` 表达「没有」。
  */
 export interface FamilyView {
+  /** 玩家当前在族的宗族 id（一人同时只能有一个在族身份；空数组 = 不属于任何族）。 */
+  selfClanIds: string[];
+  clans: ClanView[];
   pedigree?: PedigreeView;
 }
 

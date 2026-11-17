@@ -172,6 +172,19 @@ export interface SnapshotDerivationContext {
   readonly turnIndex: number;
   /** 模板 `extensions.<id>` 的值（`true` = 默认配置），扩展自己校验。 */
   readonly config: unknown;
+  /**
+   * 本扩展自己的 state 切片：`state.extensions[<id>]`，**可能缺省**
+   * （模板声明了扩展但存档早于该扩展引入，或这段数据压根没有）。
+   *
+   * 只读引用，扩展**不许写回**（投影期改 state 等于在渲染路径上制造事实）。
+   * 缺省时返回「空视图」而不是抛错：一个可选展示段坏掉不该锁死整张快照。
+   */
+  readonly extensionState?: unknown;
+  /**
+   * 世界时间（分钟）→ 历法显示文本，走**内核时间适配器**（与 `snapshot.formattedTime`
+   * 同一口径）。扩展不要自己按固定年长折算 —— 两处口径必然漂移。
+   */
+  readonly formatWorldTime?: (worldTime: number) => string;
   /** 生命周期 = 一次快照；跨快照缓存会串味（照 `RelationRowContext.memo` 的先例）。 */
   readonly memo: Map<string, unknown>;
 }

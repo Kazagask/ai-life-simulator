@@ -810,3 +810,259 @@
   -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent 100%);
   mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent 100%);
 }
+
+/* ---------- 宗族（B 段，`docs/CLAN-DESIGN.md` §2.4）：一族一卡，竖屏优先 ---------- */
+
+.ls-clan {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ls-clan__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ls-clan__title {
+  margin: 0;
+  font-family: var(--ls-serif);
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  color: var(--ls-text);
+}
+
+.ls-clan__empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ls-text-dim);
+}
+
+.ls-clan__list,
+.ls-clan__item {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ls-clan__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ls-clan__card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--ls-border);
+  border-radius: var(--ls-radius);
+  background: var(--ls-surface-2);
+}
+
+/* 自己所属的族：左边加一道金线，不抢「状态徽记」的视觉位。 */
+.ls-clan__card--self {
+  border-left: 3px solid rgba(201, 162, 39, 0.7);
+}
+
+/* 已绝的族保留可读性，但整体压暗 —— 「它不在了」本身是信息。 */
+.ls-clan__card--extinct {
+  opacity: 0.78;
+}
+
+.ls-clan__card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ls-clan__name {
+  margin: 0;
+  font-family: var(--ls-serif);
+  font-size: 16px;
+  letter-spacing: 0.04em;
+  color: var(--ls-text);
+}
+
+.ls-clan__status {
+  flex: 0 0 auto;
+  padding: 1px 8px;
+  border: 1px solid var(--ls-border);
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ls-text-dim);
+}
+
+.ls-clan__status--active {
+  border-color: rgba(201, 162, 39, 0.55);
+  color: var(--ls-gold);
+}
+
+.ls-clan__status--extinct {
+  border-color: var(--ls-wine);
+  color: var(--ls-wine);
+}
+
+.ls-clan__status--exiled {
+  border-color: rgba(224, 137, 74, 0.6);
+  color: var(--ls-ember);
+}
+
+.ls-clan__meta,
+.ls-clan__counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ls-text-dim);
+}
+
+.ls-clan__prestige {
+  color: var(--ls-gold);
+}
+
+.ls-clan__relation {
+  padding: 0 6px;
+  border: 1px dashed var(--ls-border);
+  border-radius: 999px;
+}
+
+.ls-clan__card--self .ls-clan__relation {
+  border-color: rgba(201, 162, 39, 0.55);
+  border-style: solid;
+  color: var(--ls-gold);
+}
+
+.ls-clan__headline--vacant {
+  color: var(--ls-text-dim);
+  font-style: italic;
+}
+
+.ls-clan__head-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--ls-text);
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.ls-clan__head-name:hover,
+.ls-clan__head-name:focus-visible {
+  color: var(--ls-gold);
+}
+
+.ls-clan__head-name--nocard {
+  color: var(--ls-text-dim);
+  text-decoration: none;
+  cursor: default;
+}
+
+.ls-clan__nocard,
+.ls-clan__dead,
+.ls-clan__legacy-lock {
+  margin-left: 6px;
+  padding: 0 6px;
+  border: 1px solid var(--ls-border);
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.7;
+  color: var(--ls-text-dim);
+}
+
+.ls-clan__dead-note {
+  color: var(--ls-text-dim);
+}
+
+.ls-clan__section-title {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: normal;
+  letter-spacing: 0.08em;
+  color: var(--ls-text-dim);
+}
+
+.ls-clan__legacy-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ls-clan__legacy {
+  padding: 1px 8px;
+  border: 1px dashed var(--ls-border);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--ls-text-dim);
+}
+
+.ls-clan__legacy--unlocked {
+  border-style: solid;
+  border-color: rgba(201, 162, 39, 0.5);
+  color: var(--ls-text);
+}
+
+.ls-clan__notice {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ls-ember);
+}
+
+.ls-clan__history {
+  padding-top: 8px;
+  border-top: 1px dashed var(--ls-border);
+}
+
+.ls-clan__history-summary {
+  font-size: 12px;
+  color: var(--ls-text-dim);
+  cursor: pointer;
+}
+
+.ls-clan__history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.ls-clan__history-item {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ls-clan__history-at {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ls-gold);
+  opacity: 0.8;
+}
+
+.ls-clan__history-text {
+  color: var(--ls-text);
+}
+
+.ls-clan__history-empty {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--ls-text-dim);
+}

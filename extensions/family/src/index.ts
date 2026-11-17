@@ -15,6 +15,7 @@ import {
   clanStateSchema,
   initClanState,
 } from "./clan.js";
+import { deriveClanView } from "./clan-view.js";
 import { parseFamilyConfig } from "./config.js";
 import { reachableKinshipNodeIds } from "./graph.js";
 import { derivePedigree } from "./pedigree.js";
@@ -146,15 +147,24 @@ function extendRows(ctx: RelationCardContext): RelationRowDraft[] {
 const relationDerivation: RelationDerivation = { decorate, extendRows };
 
 /**
- * 每次快照一次：产出 `snapshot.family.pedigree`（`docs/CLAN-DESIGN.md` 第一部分）。
+ * 每次快照一次：产出 `snapshot.family`（`docs/CLAN-DESIGN.md`）。
  *
- * 段键只有 `family` —— 它不在内核保留键名单里（那是留给扩展的槽位），
- * 而 `pedigree` 之下的形状由扩展负责。宗族（`clans` / `selfClanIds`）是 B 段，
- * 那部分要读 `state.extensions.family`，族谱**只吃关系图**，两者互不依赖。
+ * 两段**互不依赖**（§0/§3）：
+ * · `pedigree` 只吃关系图（关系边 + 演员目录），删掉宗族切片照样完整；
+ * · `selfClanIds` / `clans` 只吃 `state.extensions.family`（权威族表），从不从关系图推成员。
+ *
+ * 没声明宗族 ⇒ 前两者是空数组，`pedigree` 照出；展示层按 `clans.length > 0` 决定是否出页签。
  */
 const snapshotDerivation: SnapshotDerivation = {
   derive(ctx) {
-    return { family: { pedigree: derivePedigree(ctx) } };
+    const clan = deriveClanView(ctx);
+    return {
+      family: {
+        selfClanIds: clan.selfClanIds,
+        clans: clan.clans,
+        pedigree: derivePedigree(ctx),
+      },
+    };
   },
 };
 
@@ -177,6 +187,7 @@ export const familyExtension: ExtensionRuntime = {
 };
 
 export { derivePedigree } from "./pedigree.js";
+export { deriveClanView, type ClanViewBundle } from "./clan-view.js";
 export {
   CLAN_HISTORY_KINDS,
   CLAN_MEMBER_VIAS,

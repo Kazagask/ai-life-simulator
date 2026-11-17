@@ -46,6 +46,7 @@ import {
   EventPanel,
   GmWorkingStrip,
   NpcCard,
+  ClanPanel,
   PedigreePanel,
   SkillList,
   StatsPanel,
@@ -59,6 +60,7 @@ import {
 import type {
   ActHandler,
   BagPartition,
+  ClanVM,
   ContentBlockVM,
   NpcVM,
   PedigreeVM,
@@ -638,6 +640,7 @@ function App() {
             snapshot={snapshot}
             npcs={view.npcs}
             pedigree={view.pedigree}
+            clans={view.clans}
             onSelectSelf={() => setTab("personal")}
           />
         )}
@@ -1661,7 +1664,7 @@ function PersonalTab({
 
 // ---------- 世界 Tab（R2.8 / FE-02：NPC 记录收敛进「世界」视图，分子页签展开） ----------
 
-type WorldSubTab = "overview" | "npc" | "pedigree";
+type WorldSubTab = "overview" | "npc" | "pedigree" | "clan";
 
 const WORLD_SUBTABS: Array<{ key: WorldSubTab; label: string }> = [
   { key: "overview", label: "概览" },
@@ -1672,7 +1675,8 @@ const WORLD_SUBTABS: Array<{ key: WorldSubTab; label: string }> = [
  * 世界页。
  *
  * 「族谱」子页签**只在快照带 `family.pedigree` 时出现**（模板声明了 `extensions.family`
- * 才有这一行）—— 不声明的世界，子页签与改动前逐字一致（零回归门槛）。
+ * 才有这一行）；「宗族」同理，只在 `family.clans` 非空时出现 —— 不声明的世界，子页签与
+ * 改动前逐字一致（零回归门槛）。
  *
  * 点族谱节点复用「人物/NPC」这一页的卡片：切到该子页签并把对应卡片滚进视野。
  * 选中态归宿主（`packages/rpg-ui` 的既有约定），组件只回调 id。
@@ -1681,11 +1685,13 @@ function WorldTab({
   snapshot,
   npcs,
   pedigree,
+  clans,
   onSelectSelf,
 }: {
   snapshot: V2Snapshot;
   npcs: NpcVM[];
   pedigree?: PedigreeVM;
+  clans?: ClanVM[];
   onSelectSelf: () => void;
 }) {
   const [sub, setSub] = useState<WorldSubTab>("overview");
@@ -1707,8 +1713,12 @@ function WorldTab({
     window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
   }, [sub, focusNpcId]);
 
-  const subtabs: Array<{ key: WorldSubTab; label: string }> =
-    pedigree === undefined ? WORLD_SUBTABS : [...WORLD_SUBTABS, { key: "pedigree", label: "族谱" }];
+  const subtabs: Array<{ key: WorldSubTab; label: string }> = [
+    ...WORLD_SUBTABS,
+    ...(pedigree === undefined ? [] : [{ key: "pedigree" as const, label: "族谱" }]),
+    // 「宗族」只在快照真的带宗族时出现（空数组 = 这个世界没有宗族数据，不出空页签）。
+    ...(clans === undefined || clans.length === 0 ? [] : [{ key: "clan" as const, label: "宗族" }]),
+  ];
 
   return (
     <div className="stack">
@@ -1759,6 +1769,16 @@ function WorldTab({
             setSub("npc");
           }}
           onSelectSelf={onSelectSelf}
+        />
+      )}
+
+      {sub === "clan" && clans !== undefined && clans.length > 0 && (
+        <ClanPanel
+          clans={clans}
+          onSelectNpc={(id) => {
+            setFocusNpcId(id);
+            setSub("npc");
+          }}
         />
       )}
     </div>

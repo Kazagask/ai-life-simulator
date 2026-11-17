@@ -328,13 +328,15 @@ export function projectSnapshotV2(
    * 未声明 ⇒ `extensionRuntimes` 为空数组 ⇒ 这里一次都不调用，`snapshot.family` 保持
    * `undefined`（零回归门槛）。段键与内核键冲突 ⇒ `assertNoReservedSnapshotKeys` 抛错。
    */
-  applySnapshotDerivations(snapshot, extensionRuntimes, {
+  applySnapshotDerivations(snapshot, extensionRuntimes, state.extensions, {
     selfId: selfIdOf(state),
     visibleEdges: observableRelations,
     hiddenNodeIds,
     actors: buildSnapshotActors(state, hiddenNodeIds, adapter, lookup),
     worldTime: state.worldTime,
     turnIndex: state.turnIndex,
+    // 历法口径与 `snapshot.formattedTime` 同源：扩展要展示历史时刻时不得自算。
+    formatWorldTime: (minutes: number) => adapter.format(minutes),
   });
   return snapshot;
 }
@@ -414,7 +416,8 @@ function buildSnapshotActors(
 function applySnapshotDerivations(
   snapshot: V2Snapshot,
   extensions: readonly ResolvedExtension[],
-  base: Omit<SnapshotDerivationContext, "config" | "memo">,
+  extensionSlices: Readonly<Record<string, unknown>> | undefined,
+  base: Omit<SnapshotDerivationContext, "config" | "memo" | "extensionState">,
 ): void {
   if (extensions.length === 0) return;
   const target = snapshot as unknown as Record<string, unknown>;
@@ -423,7 +426,13 @@ function applySnapshotDerivations(
     if (derive === undefined) continue;
     let segment: Record<string, unknown>;
     try {
-      segment = derive({ ...base, config: ext.config, memo: new Map<string, unknown>() });
+      segment = derive({
+        ...base,
+        config: ext.config,
+        // 每个扩展只看得见**自己的**切片（别的扩展的 state 不是它的数据源）。
+        extensionState: extensionSlices?.[ext.id],
+        memo: new Map<string, unknown>(),
+      });
     } catch (err) {
       console.warn(
         `[extensions] "${ext.id}".snapshotDerivation 抛错，本次投影跳过该段：`,
