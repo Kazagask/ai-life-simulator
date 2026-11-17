@@ -4,18 +4,28 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./ui": "./src/ui/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@life-sim/game-core": "workspace:*",
+    "@life-sim/rpg-ui": "workspace:*",
     "@life-sim/shared": "workspace:*",
     "relationship.js": "^1.2.9",
     "zod": "^3.25.0"
   },
+  "peerDependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
   "devDependencies": {
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
     "typescript": "^5.8.0",
     "vitest": "^3.2.0"
   }

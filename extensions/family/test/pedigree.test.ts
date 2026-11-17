@@ -142,7 +142,7 @@ describe("族谱：配偶边无向去重", () => {
 });
 
 describe("族谱：环", () => {
-  it("三代互婚成环：标回边与 cyclic，世代仍然有限且稳定", () => {
+  it("三代互婚成环：回边整条不产出，世代仍然有限且稳定", () => {
     const edges = [
       edge("b", "a", "father"),
       edge("c", "b", "father"),
@@ -150,9 +150,12 @@ describe("族谱：环", () => {
     ];
     const view = derivePedigree(ctx({ edges, selfId: "player" }));
 
-    const backs = view.edges.filter((e) => e.back === true);
-    expect(backs).toHaveLength(1);
-    expect(view.nodes.some((n) => n.cyclic === true)).toBe(true);
+    // 回边（b→a）不在 edges 里：不是 `back: true` 的边，是**没有这条边**。
+    expect(view.edges.some((e) => e.kind === "parent" && e.from === "b" && e.to === "a")).toBe(false);
+    expect(view.edges.filter((e) => e.kind === "parent")).toHaveLength(2);
+    // 视图契约里既没有 back 也没有 cyclic 字段（检测仍做，但不下发）。
+    expect(view.edges.every((e) => !("back" in e))).toBe(true);
+    expect(view.nodes.every((n) => !("cyclic" in n))).toBe(true);
     for (const node of view.nodes) {
       expect(Number.isFinite(node.generation)).toBe(true);
     }

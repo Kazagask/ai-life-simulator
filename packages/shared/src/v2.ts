@@ -601,8 +601,6 @@ export interface PedigreeNodeView {
   lifecycle: { state: NpcLifecycleState; reasonCode?: string };
   /** 此人是其配偶的第几位配偶（1 起；只有多配偶时才下发，避免给普通夫妻加噪音）。 */
   spouseOrdinal?: number;
-  /** 落在亲缘环上（近亲婚配）：世代仍有限，但该节点不参与世代推导的主链。 */
-  cyclic?: boolean;
 }
 
 /** 族谱边：`from` / `to` 是关系图节点 id（仅作 key / 跳转键）。 */
@@ -618,8 +616,9 @@ export interface PedigreeEdgeView {
   step?: boolean;
   /** true = 不是模板声明的边，而是由推导得出（仍不是"可信度更低"）。 */
   derived?: boolean;
-  /** 回边：造成亲缘环的那一条，不参与世代计算；UI 用弧线画。 */
-  back?: boolean;
+  // 回边**不下发**（`docs/EXTENSIONS.md` §7.4）：检测仍然做（世代计算必须跳过回边，
+  // 否则死循环），但造成亲缘环的那条 parent 边**整条不产出**，不在 `edges` 里标 flag。
+  // 现实里人不可能是自己的祖先，这类边只会来自数据错误或极端设定。
 }
 
 /** 族谱视图（`docs/CLAN-DESIGN.md` §1.5）：全部从关系图现算，**不进 state**。 */

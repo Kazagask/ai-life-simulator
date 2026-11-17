@@ -63,6 +63,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@life-sim/ext-family':
+        specifier: workspace:*
+        version: link:../../extensions/family
       '@life-sim/rpg-ui':
         specifier: workspace:*
         version: link:../../packages/rpg-ui
@@ -100,6 +103,9 @@ importers:
       '@life-sim/game-core':
         specifier: workspace:*
         version: link:../../packages/game-core
+      '@life-sim/rpg-ui':
+        specifier: workspace:*
+        version: link:../../packages/rpg-ui
       '@life-sim/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -110,6 +116,18 @@ importers:
         specifier: ^3.25.0
         version: 3.25.76
     devDependencies:
+      '@types/react':
+        specifier: ^19.1.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: ^19.1.0
+        version: 19.3.0(@types/react@19.3.0)
+      react:
+        specifier: ^19.1.0
+        version: 19.3.1
+      react-dom:
+        specifier: ^19.1.0
+        version: 19.3.1(react@19.3.1)
       typescript:
         specifier: ^5.8.0
         version: 5.9.3

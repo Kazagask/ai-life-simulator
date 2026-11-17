@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ClanVM } from "@life-sim/shared";
+import type { ClanVM } from "./view-model.js";
 
 /**
  * 宗族面板（`docs/CLAN-DESIGN.md` §2.4 / §3）。

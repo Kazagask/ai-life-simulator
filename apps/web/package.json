@@ -8,6 +8,7 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@life-sim/ext-family": "workspace:*",
     "@life-sim/shared": "workspace:*",
     "@life-sim/rpg-ui": "workspace:*",
     "@tencent-ai/workbuddy-cloud-sdk": "dev",

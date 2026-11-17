@@ -1,14 +1,10 @@
 import type {
   ActionVM,
   BattleVM,
-  ClanVM,
-  ClanView,
   ContentBlockVM,
   EvaluationVM,
   MediaVM,
   NpcVM,
-  PedigreeVM,
-  PedigreeView,
   PlayerVM,
   V2Snapshot,
   ViewModel,
@@ -351,98 +347,6 @@ function toEvaluationVM(snapshot: V2Snapshot): EvaluationVM {
   };
 }
 
-/**
- * 族谱段 → 展示模型（`docs/CLAN-DESIGN.md` §1.5）。
- *
- * 形状与 `PedigreeView` 一致，仍然逐字段搬一遍：组件因此**不需要认识引擎快照类型**
- * （源码守卫会拦 `V2Snapshot`），引擎字段改名时也只改本文件。
- * 世代号 / 配偶序 / 有没有卡都是服务端算好的，这里只做拷贝，不重算。
- */
-export function toPedigreeVM(pedigree: PedigreeView): PedigreeVM {
-  return {
-    rootIds: [...pedigree.rootIds],
-    nodes: pedigree.nodes.map((node) => ({
-      id: node.id,
-      name: node.name,
-      isSelf: node.isSelf,
-      hasCard: node.hasCard,
-      genderLabel: node.genderLabel,
-      age: node.age,
-      lifeStageLabel: node.lifeStageLabel,
-      generation: node.generation,
-      ...(node.generationBasis !== undefined ? { generationBasis: node.generationBasis } : {}),
-      lifecycle: {
-        state: node.lifecycle.state,
-        ...(node.lifecycle.reasonCode !== undefined ? { reasonCode: node.lifecycle.reasonCode } : {}),
-      },
-      ...(node.spouseOrdinal !== undefined ? { spouseOrdinal: node.spouseOrdinal } : {}),
-      ...(node.cyclic !== undefined ? { cyclic: node.cyclic } : {}),
-    })),
-    edges: pedigree.edges.map((edge) => ({
-      from: edge.from,
-      to: edge.to,
-      kind: edge.kind,
-      ...(edge.parentRole !== undefined ? { parentRole: edge.parentRole } : {}),
-      ...(edge.affinal !== undefined ? { affinal: edge.affinal } : {}),
-      ...(edge.step !== undefined ? { step: edge.step } : {}),
-      ...(edge.derived !== undefined ? { derived: edge.derived } : {}),
-      ...(edge.back !== undefined ? { back: edge.back } : {}),
-    })),
-    generationRange: { min: pedigree.generationRange.min, max: pedigree.generationRange.max },
-    ...(pedigree.incomplete !== undefined ? { incomplete: pedigree.incomplete } : {}),
-    ...(pedigree.truncated !== undefined ? { truncated: pedigree.truncated } : {}),
-    ...(pedigree.looseEnds !== undefined
-      ? { looseEnds: pedigree.looseEnds.map((loose) => ({ id: loose.id, name: loose.name, gap: true as const })) }
-      : {}),
-  };
-}
-
-/**
- * 宗族段 → 展示模型（`docs/CLAN-DESIGN.md` §2.4）。
- *
- * 同族的形状逐字段搬，**不重算任何计数**：隐藏成员、离族者、已故者的口径是服务端
- * 基于可见性算的，前端只有 `ViewModel`，再算一遍必然漂移（也会泄露服务端故意不数的部分）。
- */
-export function toClanVM(clan: ClanView): ClanVM {
-  return {
-    id: clan.id,
-    name: clan.name,
-    ...(clan.seat !== undefined ? { seat: clan.seat } : {}),
-    status: clan.status,
-    prestige: clan.prestige,
-    ...(clan.head !== undefined
-      ? {
-          head: {
-            id: clan.head.id,
-            name: clan.head.name,
-            hasCard: clan.head.hasCard,
-            isSelf: clan.head.isSelf,
-            alive: clan.head.alive,
-          },
-        }
-      : {}),
-    livingCount: clan.livingCount,
-    memberCount: clan.memberCount,
-    selfRelation: clan.selfRelation,
-    ...(clan.selfStanding !== undefined ? { selfStanding: clan.selfStanding } : {}),
-    ...(clan.legacies !== undefined
-      ? {
-          legacies: clan.legacies.map((legacy) => ({
-            id: legacy.id,
-            name: legacy.name,
-            unlocked: legacy.unlocked,
-          })),
-        }
-      : {}),
-    history: clan.history.map((entry) => ({
-      at: entry.at,
-      formattedAt: entry.formattedAt,
-      kind: entry.kind,
-      text: entry.text,
-    })),
-  };
-}
-
 export function toViewModel({ snapshot, content, media }: ToViewModelInput): ViewModel {
   const slot = snapshot.slotEvent;
   return {
@@ -487,13 +391,8 @@ export function toViewModel({ snapshot, content, media }: ToViewModelInput): Vie
         : { title: snapshot.ending.title, summary: snapshot.ending.summary },
     ...(snapshot.llmPending !== undefined ? { llmPending: snapshot.llmPending } : {}),
     turnIndex: snapshot.turnIndex,
-    // 族谱：只有模板声明了 `extensions.family` 才有这一段（缺省不渲染面板）。
-    ...(snapshot.family?.pedigree !== undefined
-      ? { pedigree: toPedigreeVM(snapshot.family.pedigree) }
-      : {}),
-    // 宗族：空数组 = 这个世界没有可展示的宗族 ⇒ 不给 `clans` 键（展示层据此不出页签）。
-    ...(snapshot.family?.clans !== undefined && snapshot.family.clans.length > 0
-      ? { clans: snapshot.family.clans.map((clan) => toClanVM(clan)) }
-      : {}),
+    // 扩展命名空间：宿主只做**原样搬运**（`docs/EXTENSIONS.md` §7.1）——不解析、不映射、
+    // 不校验；数据怎么解释是扩展自带 UI 的事（它只该看自己那一格）。
+    ...(snapshot.family !== undefined ? { extensions: { family: snapshot.family } } : {}),
   };
 }

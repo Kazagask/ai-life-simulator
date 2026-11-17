@@ -183,13 +183,13 @@ function normalize(ctx: PedigreeInput): Normalized {
  * 不能直接用内核对亲属图的 `detectCycles` —— 那边把配偶也当亲缘边，会把
  * 「父女婚」这种合法输入误判成世代环；而且它只报环，不告诉你哪条是回边。
  *
- * 命中灰色节点 ⇒ 回边：`back = true`、两端标 `cyclic`，**该边不参与世代计算**。
+ * 命中灰色节点 ⇒ 回边：该边**不参与世代计算**，且最终**整条不产出**（`docs/EXTENSIONS.md` §7.4）。
  * 节点按 id 升序起始、出边按输入顺序展开 ⇒ 结果稳定可复现（不依赖 Map 序）。
  */
 function detectBackEdges(
   nodeIds: ReadonlySet<string>,
   parents: readonly ParentEdge[],
-): { back: Set<ParentEdge>; cyclic: Set<string> } {
+): Set<ParentEdge> {
   const children = new Map<string, ParentEdge[]>();
   for (const e of parents) {
     const list = children.get(e.parent);
@@ -202,7 +202,6 @@ function detectBackEdges(
   const BLACK = 2;
   const color = new Map<string, number>();
   const back = new Set<ParentEdge>();
-  const cyclic = new Set<string>();
 
   const visit = (node: string): void => {
     color.set(node, GRAY);
@@ -210,8 +209,6 @@ function detectBackEdges(
       const c = color.get(e.child) ?? WHITE;
       if (c === GRAY) {
         back.add(e);
-        cyclic.add(node);
-        cyclic.add(e.child);
       } else if (c === WHITE) {
         visit(e.child);
       }
@@ -222,7 +219,7 @@ function detectBackEdges(
   for (const node of [...nodeIds].sort()) {
     if ((color.get(node) ?? WHITE) === WHITE) visit(node);
   }
-  return { back, cyclic };
+  return back;
 }
 
 /**
@@ -322,7 +319,7 @@ export function derivePedigree(ctx: PedigreeInput): PedigreeView {
   const cfg = parseFamilyConfig(ctx.config);
   const norm = normalize(ctx);
 
-  const { back, cyclic } = detectBackEdges(norm.nodeIds, norm.parents);
+  const back = detectBackEdges(norm.nodeIds, norm.parents);
   /** 世代计算用的 DAG：剔除回边（它们只做标记，不参与定代）。 */
   const dagParents = norm.parents.filter((e) => !back.has(e));
   const parentEdgesOf = new Map<string, ParentEdge[]>();
@@ -443,7 +440,6 @@ export function derivePedigree(ctx: PedigreeInput): PedigreeView {
           ...(actor?.reasonCode !== undefined ? { reasonCode: actor.reasonCode } : {}),
         },
         ...(spouseOrdinal !== undefined ? { spouseOrdinal } : {}),
-        ...(cyclic.has(id) ? { cyclic: true as const } : {}),
       };
     });
 
@@ -470,13 +466,17 @@ export function derivePedigree(ctx: PedigreeInput): PedigreeView {
     return false;
   };
 
+  /**
+   * 回边**整条不产出**（`docs/EXTENSIONS.md` §7.4）：不是标个 flag 让 UI 忽略，而是连
+   * 边都不给 —— 现实里人不可能是自己的祖先，画出来只会让玩家看到「引擎出错的样子」。
+   */
   for (const e of norm.parents) {
+    if (back.has(e)) continue;
     push({
       from: e.parent,
       to: e.child,
       kind: "parent",
       ...(e.role !== undefined ? { parentRole: e.role } : {}),
-      ...(back.has(e) ? { back: true } : {}),
     });
   }
 

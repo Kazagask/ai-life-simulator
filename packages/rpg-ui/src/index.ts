@@ -46,11 +46,13 @@ export type { NpcCardProps } from "./NpcCard.js";
 export { RelationList } from "./RelationList.js";
 export type { RelationListProps } from "./RelationList.js";
 
-export { PedigreePanel } from "./PedigreePanel.js";
-export type { PedigreePanelProps } from "./PedigreePanel.js";
-
-export { ClanPanel } from "./ClanPanel.js";
-export type { ClanPanelProps } from "./ClanPanel.js";
+/** 扩展前端槽（`docs/EXTENSIONS.md` §7）：宿主给槽，扩展挂载。 */
+export {
+  registerExtensionUi,
+  resetExtensionUi,
+  extensionViewsFor,
+} from "./extension-slots.js";
+export type { ExtensionView, ExtensionUiRuntime, ExtensionViewHost } from "./extension-slots.js";
 
 export { CharacterPanel, SlotTile } from "./CharacterPanel.js";
 export type { CharacterPanelProps, SlotTileProps } from "./CharacterPanel.js";
@@ -90,7 +92,7 @@ export { isPortraitSlot } from "./slots.js";
 export { StatusBars } from "./StatusBars.js";
 export type { StatusBarsProps } from "./StatusBars.js";
 
-export { toViewModel, toBattleVM, toWheelVM, toPedigreeVM, toClanVM, DANGER_RATIO, firstInlineCgBlock } from "./adapter.js";
+export { toViewModel, toBattleVM, toWheelVM, DANGER_RATIO, firstInlineCgBlock } from "./adapter.js";
 export type { ToViewModelInput } from "./adapter.js";
 
 export type {
@@ -117,11 +119,4 @@ export type {
   StatusVM,
   WheelVM,
   EndingVM,
-  PedigreeVM,
-  PedigreeNodeVM,
-  PedigreeEdgeVM,
-  ClanVM,
-  ClanHeadVM,
-  ClanHistoryVM,
-  ClanLegacyVM,
 } from "@life-sim/shared";

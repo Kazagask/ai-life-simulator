@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { PedigreeEdgeVM, PedigreeNodeVM, PedigreeVM } from "@life-sim/shared";
+import type { PedigreeEdgeVM, PedigreeNodeVM, PedigreeVM } from "./view-model.js";
 
 /**
  * 族谱面板（`docs/CLAN-DESIGN.md` §1.6）。
@@ -32,7 +32,6 @@ const LABELS = {
     parent: "血缘",
     spouse: "姻亲",
     step: "继亲",
-    back: "回边",
   },
   ordinal: (n: number): string => `第 ${n} 位配偶`,
   age: (n: number): string => `${n} 岁`,
@@ -160,19 +159,11 @@ function edgePath(
     };
   }
 
-  // parent：从父/母下沿到子女上沿。回边（近亲婚配）画成侧向弧线，避免与正常父子线纠缠。
+  // parent：从父/母下沿到子女上沿。回边不下发（`docs/EXTENSIONS.md` §7.4），无需特殊线型。
   const sx = from.x + NODE_W / 2;
   const sy = from.y + NODE_H;
   const ex = to.x + NODE_W / 2;
   const ey = to.y;
-  if (edge.back === true) {
-    const bow = Math.min(140, Math.abs(ex - sx) + 70);
-    const dir = ex >= sx ? 1 : -1;
-    return {
-      d: `M ${sx} ${sy} C ${sx + dir * bow} ${sy + 30}, ${ex + dir * bow} ${ey - 30}, ${ex} ${ey}`,
-      cls: "ls-pedigree__edge--back",
-    };
-  }
   if (edge.step === true) {
     const midY = (sy + ey) / 2;
     return {
@@ -266,7 +257,6 @@ export function PedigreePanel({ pedigree, onSelectNpc, onSelectSelf, title }: Pe
         <li className="ls-pedigree__legend-item ls-pedigree__legend-item--parent">{LABELS.legend.parent}</li>
         <li className="ls-pedigree__legend-item ls-pedigree__legend-item--spouse">{LABELS.legend.spouse}</li>
         <li className="ls-pedigree__legend-item ls-pedigree__legend-item--step">{LABELS.legend.step}</li>
-        <li className="ls-pedigree__legend-item ls-pedigree__legend-item--back">{LABELS.legend.back}</li>
       </ul>
 
       {notice !== null && <p className="ls-pedigree__notice">{notice}</p>}
@@ -294,7 +284,6 @@ export function PedigreePanel({ pedigree, onSelectNpc, onSelectSelf, title }: Pe
               node.isSelf ? "ls-pedigree__node--self" : "",
               node.hasCard ? "" : "ls-pedigree__node--nocard",
               dead ? "ls-pedigree__node--dead" : "",
-              node.cyclic === true ? "ls-pedigree__node--cyclic" : "",
             ]
               .filter((s) => s !== "")
               .join(" ");

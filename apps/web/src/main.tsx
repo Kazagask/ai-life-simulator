@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { CloudSession } from "@tencent-ai/workbuddy-cloud-sdk";
 import "./style.css";
+// 扩展前端的静态注册（`docs/EXTENSIONS.md` §7.1）：必须在首次渲染前跑一次。
+import "./extensions";
 import {
   ApiError,
   api,
@@ -46,13 +48,12 @@ import {
   EventPanel,
   GmWorkingStrip,
   NpcCard,
-  ClanPanel,
-  PedigreePanel,
   SkillList,
   StatsPanel,
   AiNarrativeTag,
   WheelPanel,
   interactionMode,
+  extensionViewsFor,
   toActPayload,
   toViewModel,
   toWheelVM,
@@ -60,10 +61,9 @@ import {
 import type {
   ActHandler,
   BagPartition,
-  ClanVM,
   ContentBlockVM,
+  ExtensionViewHost,
   NpcVM,
-  PedigreeVM,
   PersonalSelection,
   ViewModel,
 } from "@life-sim/rpg-ui";
@@ -639,8 +639,7 @@ function App() {
           <WorldTab
             snapshot={snapshot}
             npcs={view.npcs}
-            pedigree={view.pedigree}
-            clans={view.clans}
+            vm={view}
             onSelectSelf={() => setTab("personal")}
           />
         )}
@@ -1664,7 +1663,7 @@ function PersonalTab({
 
 // ---------- 世界 Tab（R2.8 / FE-02：NPC 记录收敛进「世界」视图，分子页签展开） ----------
 
-type WorldSubTab = "overview" | "npc" | "pedigree" | "clan";
+type WorldSubTab = string;
 
 const WORLD_SUBTABS: Array<{ key: WorldSubTab; label: string }> = [
   { key: "overview", label: "概览" },
@@ -1674,24 +1673,22 @@ const WORLD_SUBTABS: Array<{ key: WorldSubTab; label: string }> = [
 /**
  * 世界页。
  *
- * 「族谱」子页签**只在快照带 `family.pedigree` 时出现**（模板声明了 `extensions.family`
- * 才有这一行）；「宗族」同理，只在 `family.clans` 非空时出现 —— 不声明的世界，子页签与
- * 改动前逐字一致（零回归门槛）。
+ * 子页签 = 宿主自带的两个 + **扩展挂到 `world.subview` 槽里的视图**
+ * （`docs/EXTENSIONS.md` §7）：宿主不认识族谱 / 宗族这类具体扩展，只按
+ * `extensionViewsFor(slot, vm)` 的结果渲染页签与组件。槽为空 ⇒ 不画空页签。
  *
- * 点族谱节点复用「人物/NPC」这一页的卡片：切到该子页签并把对应卡片滚进视野。
- * 选中态归宿主（`packages/rpg-ui` 的既有约定），组件只回调 id。
+ * 点族谱节点复用「人物/NPC」这一页的卡片：扩展通过槽的可选 `host.openNpc` 回宿主，
+ * 宿主切到该子页签并把对应卡片滚进视野。选中态归宿主（`packages/rpg-ui` 的既有约定）。
  */
 function WorldTab({
   snapshot,
   npcs,
-  pedigree,
-  clans,
+  vm,
   onSelectSelf,
 }: {
   snapshot: V2Snapshot;
   npcs: NpcVM[];
-  pedigree?: PedigreeVM;
-  clans?: ClanVM[];
+  vm: ViewModel;
   onSelectSelf: () => void;
 }) {
   const [sub, setSub] = useState<WorldSubTab>("overview");
@@ -1713,12 +1710,21 @@ function WorldTab({
     window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
   }, [sub, focusNpcId]);
 
+  const extensionViews = extensionViewsFor("world.subview", vm);
   const subtabs: Array<{ key: WorldSubTab; label: string }> = [
     ...WORLD_SUBTABS,
-    ...(pedigree === undefined ? [] : [{ key: "pedigree" as const, label: "族谱" }]),
-    // 「宗族」只在快照真的带宗族时出现（空数组 = 这个世界没有宗族数据，不出空页签）。
-    ...(clans === undefined || clans.length === 0 ? [] : [{ key: "clan" as const, label: "宗族" }]),
+    ...extensionViews.map((view) => ({ key: view.id, label: view.label })),
   ];
+  const activeExtension = extensionViews.find((view) => view.id === sub);
+  const ActiveComponent = activeExtension?.Component;
+  /** 宿主给扩展的导航能力（可选）；扩展不读也不影响渲染。 */
+  const host: ExtensionViewHost = {
+    openNpc: (id) => {
+      setFocusNpcId(id);
+      setSub("npc");
+    },
+    openSelf: onSelectSelf,
+  };
 
   return (
     <div className="stack">
@@ -1761,26 +1767,7 @@ function WorldTab({
         </>
       )}
 
-      {sub === "pedigree" && pedigree !== undefined && (
-        <PedigreePanel
-          pedigree={pedigree}
-          onSelectNpc={(id) => {
-            setFocusNpcId(id);
-            setSub("npc");
-          }}
-          onSelectSelf={onSelectSelf}
-        />
-      )}
-
-      {sub === "clan" && clans !== undefined && clans.length > 0 && (
-        <ClanPanel
-          clans={clans}
-          onSelectNpc={(id) => {
-            setFocusNpcId(id);
-            setSub("npc");
-          }}
-        />
-      )}
+      {ActiveComponent !== undefined && <ActiveComponent vm={vm} host={host} />}
     </div>
   );
 }
