@@ -417,6 +417,75 @@ export const EndingVMSchema = z
   .strict();
 export type EndingVM = z.infer<typeof EndingVMSchema>;
 
+/**
+ * 族谱节点（`docs/CLAN-DESIGN.md` §1.5/§1.6）。
+ *
+ * 与 `PedigreeNodeView` 同形：**投影口径全部在服务端算好**（世代 / 配偶序 / 生死态 /
+ * 有没有卡），展示层不重算、不按关系边自己猜辈分。
+ */
+export const PedigreeNodeVMSchema = z
+  .object({
+    /** 关系图节点 id。**仅作 React key / 跳转键**，不能当人名显示。 */
+    id: z.string(),
+    /** 显示名（服务端已从 actor 目录解析；绝不是裸 id）。 */
+    name: z.string(),
+    isSelf: z.boolean(),
+    /** `false` ⇒ 没有档案：展示层标「无档案」，点了不跳转。 */
+    hasCard: z.boolean(),
+    genderLabel: z.string(),
+    age: z.number(),
+    lifeStageLabel: z.string(),
+    /** 世代号（0 = 始祖，只按血缘）。 */
+    generation: z.number(),
+    generationBasis: z.enum(["blood", "marriage", "root"]).optional(),
+    lifecycle: z
+      .object({
+        state: z.enum(["alive", "inactive", "unspawned"]),
+        reasonCode: z.string().optional(),
+      })
+      .strict(),
+    /** 多配偶时的位次（1 起；普通夫妻不下发）。 */
+    spouseOrdinal: z.number().optional(),
+    /** 落在亲缘环上（近亲婚配）。 */
+    cyclic: z.boolean().optional(),
+  })
+  .strict();
+export type PedigreeNodeVM = z.infer<typeof PedigreeNodeVMSchema>;
+
+/** 族谱边（`from` / `to` 只是 id，展示层用 `kind` 选线型）。 */
+export const PedigreeEdgeVMSchema = z
+  .object({
+    from: z.string(),
+    to: z.string(),
+    kind: z.enum(["parent", "spouse", "sibling"]),
+    parentRole: z.enum(["father", "mother"]).optional(),
+    affinal: z.boolean().optional(),
+    step: z.boolean().optional(),
+    derived: z.boolean().optional(),
+    back: z.boolean().optional(),
+  })
+  .strict();
+export type PedigreeEdgeVM = z.infer<typeof PedigreeEdgeVMSchema>;
+
+/** 族谱视图模型：世代自上而下、同代横排、配偶相邻。 */
+export const PedigreeVMSchema = z
+  .object({
+    rootIds: z.array(z.string()),
+    nodes: z.array(PedigreeNodeVMSchema),
+    edges: z.array(PedigreeEdgeVMSchema),
+    generationRange: z.object({ min: z.number(), max: z.number() }).strict(),
+    /** 有人的父/母被判隐藏 ⇒ 展示层画 "?"，不编一个根。 */
+    incomplete: z.boolean().optional(),
+    /** 被规模上限截断过。 */
+    truncated: z.boolean().optional(),
+    /** 说不清代数的远亲（不进树）。 */
+    looseEnds: z
+      .array(z.object({ id: z.string(), name: z.string(), gap: z.literal(true) }).strict())
+      .optional(),
+  })
+  .strict();
+export type PedigreeVM = z.infer<typeof PedigreeVMSchema>;
+
 export const ViewModelSchema = z
   .object({
     player: PlayerVMSchema,
@@ -445,6 +514,11 @@ export const ViewModelSchema = z
     llmPending: z.boolean().optional(),
     /** 当前轮次（0 起的回合序号，原样来自快照）。 */
     turnIndex: z.number(),
+    /**
+     * 族谱（追加，可选）：只有模板声明 `extensions.family` 且宿主装了该扩展时才有 ——
+     * 缺省表示这个世界没有族谱页签，展示层不要渲染空面板。
+     */
+    pedigree: PedigreeVMSchema.optional(),
   })
   .strict();
 export type ViewModel = z.infer<typeof ViewModelSchema>;

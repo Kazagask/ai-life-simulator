@@ -46,6 +46,9 @@ export type { NpcCardProps } from "./NpcCard.js";
 export { RelationList } from "./RelationList.js";
 export type { RelationListProps } from "./RelationList.js";
 
+export { PedigreePanel } from "./PedigreePanel.js";
+export type { PedigreePanelProps } from "./PedigreePanel.js";
+
 export { CharacterPanel, SlotTile } from "./CharacterPanel.js";
 export type { CharacterPanelProps, SlotTileProps } from "./CharacterPanel.js";
 export { StatsPanel } from "./StatsPanel.js";
@@ -84,7 +87,7 @@ export { isPortraitSlot } from "./slots.js";
 export { StatusBars } from "./StatusBars.js";
 export type { StatusBarsProps } from "./StatusBars.js";
 
-export { toViewModel, toBattleVM, toWheelVM, DANGER_RATIO, firstInlineCgBlock } from "./adapter.js";
+export { toViewModel, toBattleVM, toWheelVM, toPedigreeVM, DANGER_RATIO, firstInlineCgBlock } from "./adapter.js";
 export type { ToViewModelInput } from "./adapter.js";
 
 export type {
@@ -111,4 +114,7 @@ export type {
   StatusVM,
   WheelVM,
   EndingVM,
+  PedigreeVM,
+  PedigreeNodeVM,
+  PedigreeEdgeVM,
 } from "@life-sim/shared";

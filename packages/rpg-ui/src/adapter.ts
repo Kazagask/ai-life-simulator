@@ -5,6 +5,8 @@ import type {
   EvaluationVM,
   MediaVM,
   NpcVM,
+  PedigreeVM,
+  PedigreeView,
   PlayerVM,
   V2Snapshot,
   ViewModel,
@@ -347,6 +349,52 @@ function toEvaluationVM(snapshot: V2Snapshot): EvaluationVM {
   };
 }
 
+/**
+ * 族谱段 → 展示模型（`docs/CLAN-DESIGN.md` §1.5）。
+ *
+ * 形状与 `PedigreeView` 一致，仍然逐字段搬一遍：组件因此**不需要认识引擎快照类型**
+ * （源码守卫会拦 `V2Snapshot`），引擎字段改名时也只改本文件。
+ * 世代号 / 配偶序 / 有没有卡都是服务端算好的，这里只做拷贝，不重算。
+ */
+export function toPedigreeVM(pedigree: PedigreeView): PedigreeVM {
+  return {
+    rootIds: [...pedigree.rootIds],
+    nodes: pedigree.nodes.map((node) => ({
+      id: node.id,
+      name: node.name,
+      isSelf: node.isSelf,
+      hasCard: node.hasCard,
+      genderLabel: node.genderLabel,
+      age: node.age,
+      lifeStageLabel: node.lifeStageLabel,
+      generation: node.generation,
+      ...(node.generationBasis !== undefined ? { generationBasis: node.generationBasis } : {}),
+      lifecycle: {
+        state: node.lifecycle.state,
+        ...(node.lifecycle.reasonCode !== undefined ? { reasonCode: node.lifecycle.reasonCode } : {}),
+      },
+      ...(node.spouseOrdinal !== undefined ? { spouseOrdinal: node.spouseOrdinal } : {}),
+      ...(node.cyclic !== undefined ? { cyclic: node.cyclic } : {}),
+    })),
+    edges: pedigree.edges.map((edge) => ({
+      from: edge.from,
+      to: edge.to,
+      kind: edge.kind,
+      ...(edge.parentRole !== undefined ? { parentRole: edge.parentRole } : {}),
+      ...(edge.affinal !== undefined ? { affinal: edge.affinal } : {}),
+      ...(edge.step !== undefined ? { step: edge.step } : {}),
+      ...(edge.derived !== undefined ? { derived: edge.derived } : {}),
+      ...(edge.back !== undefined ? { back: edge.back } : {}),
+    })),
+    generationRange: { min: pedigree.generationRange.min, max: pedigree.generationRange.max },
+    ...(pedigree.incomplete !== undefined ? { incomplete: pedigree.incomplete } : {}),
+    ...(pedigree.truncated !== undefined ? { truncated: pedigree.truncated } : {}),
+    ...(pedigree.looseEnds !== undefined
+      ? { looseEnds: pedigree.looseEnds.map((loose) => ({ id: loose.id, name: loose.name, gap: true as const })) }
+      : {}),
+  };
+}
+
 export function toViewModel({ snapshot, content, media }: ToViewModelInput): ViewModel {
   const slot = snapshot.slotEvent;
   return {
@@ -391,5 +439,9 @@ export function toViewModel({ snapshot, content, media }: ToViewModelInput): Vie
         : { title: snapshot.ending.title, summary: snapshot.ending.summary },
     ...(snapshot.llmPending !== undefined ? { llmPending: snapshot.llmPending } : {}),
     turnIndex: snapshot.turnIndex,
+    // 族谱：只有模板声明了 `extensions.family` 才有这一段（缺省不渲染面板）。
+    ...(snapshot.family?.pedigree !== undefined
+      ? { pedigree: toPedigreeVM(snapshot.family.pedigree) }
+      : {}),
   };
 }

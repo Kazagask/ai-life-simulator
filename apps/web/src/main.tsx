@@ -46,6 +46,7 @@ import {
   EventPanel,
   GmWorkingStrip,
   NpcCard,
+  PedigreePanel,
   SkillList,
   StatsPanel,
   AiNarrativeTag,
@@ -60,6 +61,7 @@ import type {
   BagPartition,
   ContentBlockVM,
   NpcVM,
+  PedigreeVM,
   PersonalSelection,
   ViewModel,
 } from "@life-sim/rpg-ui";
@@ -631,7 +633,14 @@ function App() {
         {tab === "personal" && (
           <PersonalTab snapshot={snapshot} view={view} busy={busy} summarySource={summarySource} onUseItem={useItem} onEquip={equip} onUnequip={unequip} />
         )}
-        {tab === "world" && <WorldTab snapshot={snapshot} npcs={view.npcs} />}
+        {tab === "world" && (
+          <WorldTab
+            snapshot={snapshot}
+            npcs={view.npcs}
+            pedigree={view.pedigree}
+            onSelectSelf={() => setTab("personal")}
+          />
+        )}
         {tab === "log" && <LogTab snapshot={snapshot} />}
         {tab === "records" && <RecordsTab authReady={authReady} session={session} />}
       </main>
@@ -1652,20 +1661,50 @@ function PersonalTab({
 
 // ---------- 世界 Tab（R2.8 / FE-02：NPC 记录收敛进「世界」视图，分子页签展开） ----------
 
-type WorldSubTab = "overview" | "npc";
+type WorldSubTab = "overview" | "npc" | "pedigree";
 
 const WORLD_SUBTABS: Array<{ key: WorldSubTab; label: string }> = [
   { key: "overview", label: "概览" },
   { key: "npc", label: "人物/NPC" },
 ];
 
-function WorldTab({ snapshot, npcs }: { snapshot: V2Snapshot; npcs: NpcVM[] }) {
+/**
+ * 世界页。
+ *
+ * 「族谱」子页签**只在快照带 `family.pedigree` 时出现**（模板声明了 `extensions.family`
+ * 才有这一行）—— 不声明的世界，子页签与改动前逐字一致（零回归门槛）。
+ *
+ * 点族谱节点复用「人物/NPC」这一页的卡片：切到该子页签并把对应卡片滚进视野。
+ * 选中态归宿主（`packages/rpg-ui` 的既有约定），组件只回调 id。
+ */
+function WorldTab({
+  snapshot,
+  npcs,
+  pedigree,
+  onSelectSelf,
+}: {
+  snapshot: V2Snapshot;
+  npcs: NpcVM[];
+  pedigree?: PedigreeVM;
+  onSelectSelf: () => void;
+}) {
   const [sub, setSub] = useState<WorldSubTab>("overview");
+  /** 从族谱跳过来时要定位的那张卡（null = 没有待定位目标）。 */
+  const [focusNpcId, setFocusNpcId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (sub !== "npc" || focusNpcId === null) return;
+    const el = document.getElementById(`npc-${focusNpcId}`);
+    el?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [sub, focusNpcId]);
+
+  const subtabs: Array<{ key: WorldSubTab; label: string }> =
+    pedigree === undefined ? WORLD_SUBTABS : [...WORLD_SUBTABS, { key: "pedigree", label: "族谱" }];
 
   return (
     <div className="stack">
       <div className="subtabbar" role="tablist" aria-label="世界子页签">
-        {WORLD_SUBTABS.map((entry) => (
+        {subtabs.map((entry) => (
           <button
             key={entry.key}
             role="tab"
@@ -1696,9 +1735,22 @@ function WorldTab({ snapshot, npcs }: { snapshot: V2Snapshot; npcs: NpcVM[] }) {
         <>
           {npcs.length === 0 && <p className="muted">这个世界还没有出现在你身边的人。</p>}
           {npcs.map((npc) => (
-            <NpcCard key={npc.id} npc={npc} />
+            <div key={npc.id} id={`npc-${npc.id}`}>
+              <NpcCard npc={npc} />
+            </div>
           ))}
         </>
+      )}
+
+      {sub === "pedigree" && pedigree !== undefined && (
+        <PedigreePanel
+          pedigree={pedigree}
+          onSelectNpc={(id) => {
+            setFocusNpcId(id);
+            setSub("npc");
+          }}
+          onSelectSelf={onSelectSelf}
+        />
       )}
     </div>
   );

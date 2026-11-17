@@ -6,43 +6,22 @@ import type {
   RelationFields,
   RelationRowContext,
   RelationRowDraft,
+  SnapshotDerivation,
 } from "@life-sim/game-core";
 import type { RelationEdge } from "@life-sim/shared";
+import { parseFamilyConfig } from "./config.js";
 import { reachableKinshipNodeIds } from "./graph.js";
+import { derivePedigree } from "./pedigree.js";
 import { kinshipReadings, kinshipTerm, SELF_TITLE, STEP_TERMS, type KinshipReading } from "./terms.js";
 
 /**
- * 家族扩展（extension id = `family`）：把关系**事实图**解释成称谓。
+ * 家族扩展（extension id = `family`）：把关系**事实图**解释成称谓与族谱。
  *
  * 它是 `docs/EXTENSIONS.md` 的 `derivations` 口的第一个用户。边界：
- * · 只加列（`kinshipTerm` / `kinshipTerms`）与推导行，不改事实、不改可见性、不给别人起名字；
+ * · 只加列（`kinshipTerm` / `kinshipTerms`）、推导行、以及快照上的 `family` 段；
+ * · 不改事实、不改可见性、不给别人起名字；
  * · 全部产物由模板 `extensions.family` 声明后才出现 —— 不声明时本文件一行都不跑。
  */
-
-/** 模板 `extensions.family` 的配置（`true` = 全默认）。 */
-export interface FamilyConfig {
-  /** 是否并排展示第二种及以后的读法（默认 false：只显示主称谓）。 */
-  readonly showAllRoles: boolean;
-  /** 多跳推导的最多跳数（默认 3，夹在 1..8）。 */
-  readonly maxHops: number;
-}
-
-const DEFAULT_CONFIG: FamilyConfig = { showAllRoles: false, maxHops: 3 };
-
-/**
- * 读模板配置。**不抛错**：投影期抛错会让一局直接崩在渲染上，
- * 而配置错误应该在模板加载期被拒（那是加载器的职责）。越界值就地夹紧。
- */
-export function parseFamilyConfig(raw: unknown): FamilyConfig {
-  if (raw === undefined || raw === null || raw === true) return DEFAULT_CONFIG;
-  if (typeof raw !== "object" || Array.isArray(raw)) return DEFAULT_CONFIG;
-  const obj = raw as Record<string, unknown>;
-  const rawHops = typeof obj.maxHops === "number" && Number.isFinite(obj.maxHops) ? obj.maxHops : 3;
-  return {
-    showAllRoles: obj.showAllRoles === true,
-    maxHops: Math.min(8, Math.max(1, Math.trunc(rawHops))),
-  };
-}
 
 /** memo 键前缀：同一张卡的 memo 里，不同扩展与不同用途必须分得开。 */
 const READINGS_KEY = "family:readings:";
@@ -160,12 +139,28 @@ function extendRows(ctx: RelationCardContext): RelationRowDraft[] {
 
 const relationDerivation: RelationDerivation = { decorate, extendRows };
 
+/**
+ * 每次快照一次：产出 `snapshot.family.pedigree`（`docs/CLAN-DESIGN.md` 第一部分）。
+ *
+ * 段键只有 `family` —— 它不在内核保留键名单里（那是留给扩展的槽位），
+ * 而 `pedigree` 之下的形状由扩展负责。宗族（`clans` / `selfClanIds`）是 B 段，
+ * 那部分要读 `state.extensions.family`，族谱**只吃关系图**，两者互不依赖。
+ */
+const snapshotDerivation: SnapshotDerivation = {
+  derive(ctx) {
+    return { family: { pedigree: derivePedigree(ctx) } };
+  },
+};
+
 /** 宿主注册的那一份实现。`id` 与模板 `extensions.family` 的键对齐。 */
 export const familyExtension: ExtensionRuntime = {
   id: "family",
   relationDerivation,
+  snapshotDerivation,
 };
 
+export { derivePedigree } from "./pedigree.js";
+export { parseFamilyConfig, type FamilyConfig } from "./config.js";
 export { reachableKinshipNodeIds, isKinshipReachable } from "./graph.js";
 export {
   KINSHIP_TOKEN,

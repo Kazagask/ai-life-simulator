@@ -1,4 +1,4 @@
-import type { RelationEdge, WorldTemplateV2 } from "@life-sim/shared";
+import type { NpcLifecycleState, RelationEdge, WorldTemplateV2 } from "@life-sim/shared";
 
 /**
  * 扩展层接缝（`docs/EXTENSIONS.md` §2）。**契约在本文件，实现各在各的包**。
@@ -18,6 +18,7 @@ export type RelationFields = Record<string, RelationFieldValue>;
 export interface ExtensionRuntime {
   readonly id: string;
   readonly relationDerivation?: RelationDerivation;
+  readonly snapshotDerivation?: SnapshotDerivation;
 }
 
 /** 给**一条事实行**加字段（逐行调用）。 */
@@ -67,6 +68,103 @@ export interface RelationRowDraft {
   /** 缺省 `"known"` */
   readonly visibility?: "known" | "inferred";
   readonly fields?: RelationFields;
+}
+
+// ---------- 快照段派生（每次投影一次，`docs/CLAN-DESIGN.md` §3） ----------
+
+/**
+ * 演员目录里的一项（投影期现算，扩展只读）。
+ *
+ * `genderLabel` / `lifeStageLabel` / `lifeState` / `reasonCode` 是**可选**的展示派生：
+ * 内核已经把「按模板解析成中文」「已故年龄冻结」这类口径算完了，扩展不该自己再算一遍
+ * （两处口径必然漂移）。扩展只负责「谁跟谁有关系、隔几代」。
+ */
+export interface SnapshotActor {
+  readonly id: string;
+  readonly name: string;
+  /** 有没有卡：`false` = 隐藏/未登场/敌人——关系是真的，但点不出档案。 */
+  readonly visible: boolean;
+  readonly alive: boolean;
+  /** 投影口径的当前年龄（已故者冻结在 `sinceWorldTime`）。 */
+  readonly age: number;
+  readonly genderLabel?: string;
+  readonly lifeStageLabel?: string;
+  readonly lifeState?: NpcLifecycleState;
+  readonly reasonCode?: string;
+}
+
+/**
+ * 给**整张快照**加段（每次投影调用一次，不是每张卡）。
+ *
+ * 与 `RelationDerivation` 的分工：那边给「一张卡上的一行」加解释，这边给「整个快照」
+ * 加一段独立视图（族谱、宗族这类与卡片无一一对应关系的结构）。
+ */
+export interface SnapshotDerivationContext {
+  /** 玩家节点 id —— 用 `selfIdOf(state)` 来的值，**不许**字面量 `"player"`。 */
+  readonly selfId: string;
+  /** 全部 known/inferred 边（与内核投影同一份口径，不是另一份过滤）。 */
+  readonly visibleEdges: readonly RelationEdge[];
+  /** 内核判定不可上屏的节点。扩展**不许**越过它（越界的段由内核在装配处拒绝）。 */
+  readonly hiddenNodeIds: ReadonlySet<string>;
+  readonly actors: ReadonlyMap<string, SnapshotActor>;
+  readonly worldTime: number;
+  readonly turnIndex: number;
+  /** 模板 `extensions.<id>` 的值（`true` = 默认配置），扩展自己校验。 */
+  readonly config: unknown;
+  /** 生命周期 = 一次快照；跨快照缓存会串味（照 `RelationRowContext.memo` 的先例）。 */
+  readonly memo: Map<string, unknown>;
+}
+
+export interface SnapshotDerivation {
+  /** 返回要并入快照的段；键名与内核键冲突 ⇒ **抛错**，不许静默覆盖（见 `assertNoReservedSnapshotKeys`）。 */
+  derive(ctx: SnapshotDerivationContext): Record<string, unknown>;
+}
+
+/**
+ * 内核快照键：扩展段**不得覆盖**（`docs/EXTENSIONS.md` §2 保证 1 的同一条纪律）。
+ *
+ * 故意**不含**扩展自己拥有的顶层键（如 `family`）—— 那些是留给扩展段的槽位，
+ * 名字由 `V2Snapshot` 声明，内容由扩展填。名单与 `V2Snapshot` 的键集同步维护；
+ * 漏一个的后果是「扩展悄悄改写了内核字段」，所以这里宁可多列（含可选键）。
+ */
+const RESERVED_SNAPSHOT_KEYS: ReadonlySet<string> = new Set([
+  "worldId",
+  "templateId",
+  "worldName",
+  "turnIndex",
+  "worldTime",
+  "formattedTime",
+  "lifeStage",
+  "lifeStageLabel",
+  "startYear",
+  "storyChapter",
+  "labels",
+  "player",
+  "equipmentSlots",
+  "npcs",
+  "slotEvent",
+  "battle",
+  "lastWheel",
+  "lastWheels",
+  "availableActions",
+  "evaluation",
+  "status",
+  "ending",
+  "media",
+  "llmPending",
+]);
+
+/** 段与内核键同名 ⇒ 抛错（与 `assertNoReservedRowFields` 同一纪律，不静默忽略）。 */
+export function assertNoReservedSnapshotKeys(
+  extensionId: string,
+  segment: Record<string, unknown>,
+): void {
+  for (const key of Object.keys(segment)) {
+    if (!RESERVED_SNAPSHOT_KEYS.has(key)) continue;
+    throw new Error(
+      `extension "${extensionId}" 试图覆盖内核快照键 "${key}"：扩展只能加段，不能改段（docs/EXTENSIONS.md §2 保证 1）`,
+    );
+  }
 }
 
 /**

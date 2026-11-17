@@ -552,6 +552,82 @@ export interface EndingView {
 /** 本局运行状态：running=可继续；terminated=已终止；archived=已封存（只读） */
 export type WorldRunStatus = "running" | "terminated" | "archived";
 
+// ---------- 扩展段：族谱（A 段，纯派生，零 state） ----------
+
+/**
+ * 族谱节点（`docs/CLAN-DESIGN.md` §1.5）。
+ *
+ * ⚠ `id` **只作 React key / 跳转键**，不是显示名 —— 玩家看到的永远是 `name`。
+ * （`docs/CLAN-DESIGN.md` §1.5 投影纪律：裸 id 不上屏。）
+ */
+export interface PedigreeNodeView {
+  /** 关系图节点 id（React key / 打开 NPC 卡的键）。**不得当人名显示。** */
+  id: string;
+  /** 显示名（来自 actor 目录；未知者用占位名，绝不是裸 id）。 */
+  name: string;
+  isSelf: boolean;
+  /** `false` = 没有 NPC 卡（隐藏 / 未登场 / 敌人）：可显示，但点不出档案。 */
+  hasCard: boolean;
+  genderLabel: string;
+  age: number;
+  lifeStageLabel: string;
+  /** 世代号：0 = 始祖，**只按血缘**（婚姻不参与，见 §1.2）。 */
+  generation: number;
+  /**
+   * 这一代的依据：`blood` = 由父母边最长路算出；`marriage` = 图里没有父母、继承配偶世代
+   * （外来配偶，否则全挤 g0）；`root` = 无父母也无配偶的孤立根。
+   */
+  generationBasis?: "blood" | "marriage" | "root";
+  lifecycle: { state: NpcLifecycleState; reasonCode?: string };
+  /** 此人是其配偶的第几位配偶（1 起；只有多配偶时才下发，避免给普通夫妻加噪音）。 */
+  spouseOrdinal?: number;
+  /** 落在亲缘环上（近亲婚配）：世代仍有限，但该节点不参与世代推导的主链。 */
+  cyclic?: boolean;
+}
+
+/** 族谱边：`from` / `to` 是关系图节点 id（仅作 key / 跳转键）。 */
+export interface PedigreeEdgeView {
+  from: string;
+  to: string;
+  kind: "parent" | "spouse" | "sibling";
+  /** `kind === "parent"` 时：这条边说的是父还是母（`son` / `daughter` 方向无法区分男女时缺省）。 */
+  parentRole?: "father" | "mother";
+  /** 姻亲边（配偶，以及由配偶关系派生出来的继亲边）。 */
+  affinal?: boolean;
+  /** 继亲：父/母的配偶但不是自己的父/母（`docs/CLAN-DESIGN.md` §1.2 第 3 条的反面）。 */
+  step?: boolean;
+  /** true = 不是模板声明的边，而是由推导得出（仍不是"可信度更低"）。 */
+  derived?: boolean;
+  /** 回边：造成亲缘环的那一条，不参与世代计算；UI 用弧线画。 */
+  back?: boolean;
+}
+
+/** 族谱视图（`docs/CLAN-DESIGN.md` §1.5）：全部从关系图现算，**不进 state**。 */
+export interface PedigreeView {
+  /** 最上一代（`generation` 最小）的节点 id，按 id 升序。 */
+  rootIds: string[];
+  nodes: PedigreeNodeView[];
+  edges: PedigreeEdgeView[];
+  generationRange: { min: number; max: number };
+  /** 可见节点的父/母被判 hidden ⇒ UI 画 "?"，不编一个根。 */
+  incomplete?: boolean;
+  /** 因 `maxGenerations` / `maxNodes` 截断过。 */
+  truncated?: boolean;
+  /** 有边但说不清代数的远亲（`gap: true`），不进树。 */
+  looseEnds?: Array<{ id: string; name: string; gap: true }>;
+}
+
+/**
+ * 家族扩展的快照段（`docs/CLAN-DESIGN.md`）。
+ *
+ * 本轮只落 **A 段族谱**（`pedigree`）；宗族的 `clans` / `selfClanIds` 是 B 段，
+ * 它们是 `state.extensions.family` 里的权威数据，与这里互不依赖。
+ */
+export interface FamilyView {
+  pedigree?: PedigreeView;
+}
+
+
 export interface V2Snapshot {
   worldId: string;
   templateId: string;
@@ -756,6 +832,13 @@ export interface V2Snapshot {
   media?: Array<{ slot: string; assetId: string; url: string; alt: string }>;
   /** 是否存在待回程的 LLM 调用（F3 稀疏参与标志）。 */
   llmPending?: boolean;
+  /**
+   * 扩展段：家族（`extensions.family`）。
+   *
+   * **可选且只在模板声明该扩展时出现** —— 不声明的世界逐字段不变（零回归门槛）。
+   * 内容由扩展的 `snapshotDerivation` 产出，内核只负责装配，不认识「族谱」这个词。
+   */
+  family?: FamilyView;
 }
 
 export interface V2TurnResult {

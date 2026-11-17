@@ -5,6 +5,7 @@ import type {
   EvaluationRecord,
   RelationEdge,
   TerminationRecord,
+  V2Npc,
   V2Snapshot,
   WorldRunStatus,
   WorldStateV2,
@@ -18,10 +19,13 @@ import { controlOf } from "./battle.js";
 import { projectVisibleRelations } from "./relations.js";
 import {
   assertNoReservedRowFields,
+  assertNoReservedSnapshotKeys,
   resolveExtensionRuntimes,
   type ResolvedExtension,
+  type SnapshotActor,
+  type SnapshotDerivationContext,
 } from "./extensions.js";
-import { actorName, buildActorDirectory } from "./actors.js";
+import { actorName, buildActorDirectory, selfIdOf } from "./actors.js";
 
 /** 关系行（`V2Snapshot.npcs[].relations[]` 的元素）。 */
 type RelationRow = V2Snapshot["npcs"][number]["relations"][number];
@@ -148,7 +152,7 @@ export function projectSnapshotV2(
   const shownHp = battle && !battle.over ? battle.player.hp : player.hp;
   const shownMp = battle && !battle.over ? battle.player.mp : player.mp;
 
-  return {
+  const snapshot: V2Snapshot = {
     worldId: state.id,
     templateId: state.templateId,
     worldName: template.meta.name,
@@ -237,18 +241,13 @@ export function projectSnapshotV2(
       // P1-2 任务 C（ADR-0024 补遗）：**已故/被占据/未登场者的年龄冻结在 `sinceWorldTime`**。
       // 否则人物面板会出现「天内理子 · 已故 · 阵亡 · 26 岁」并且年年长岁——死人不会变老。
       // 用 lifecycle 作为单一判据（不新引入字段）：alive 走 worldTime，其余走 sinceWorldTime。
-      // `lifeStage` / `lifeStageLabel` 都由下面这个 npcAge 派生 ⇒ 阶段也自动冻结，不另设基准。
+      // `lifeStage` / `lifeStageLabel` 都由同一份展示派生 ⇒ 阶段也自动冻结，不另设基准。
       // 复活（回 alive）后自动恢复按 worldTime 增长，与状态机语义一致。
-      const ageBasis = npc.lifecycle.state === "alive" ? state.worldTime : npc.lifecycle.sinceWorldTime;
-      const npcAge = adapter.ageAt(
-        npc.birthTime ?? birthTimeFromAge(npc.age, adapter),
-        ageBasis,
-      );
-      const npcStage = adapter.resolveLifeStage(npcAge);
+      const shown = npcPresentation(npc, state.worldTime, adapter);
       return {
         id: npc.id,
         name: npc.name,
-        age: npcAge,
+        age: shown.age,
         genderLabel: lookup.genderLabel(npc.gender),
         personality: npc.personality,
         relationship: npc.relationship,
@@ -262,8 +261,8 @@ export function projectSnapshotV2(
               : null;
           })
           .filter((s): s is { id: string; name: string; stacks: number } => s !== null),
-        lifeStage: npcStage,
-        lifeStageLabel: adapter.lifeStageLabel(npcStage),
+        lifeStage: shown.stage,
+        lifeStageLabel: shown.lifeStageLabel,
         // ADR-0020：生命周期与上屏解耦——inactive 照常上屏，只是带状态标注。
         // 旧档加载时 schema 已补默认 alive，故这里不必兜底。
         lifecycle: {
@@ -321,6 +320,120 @@ export function projectSnapshotV2(
     status,
     ending: state.termination ? buildEndingView(state.termination, endings, state) : null,
   };
+
+  /**
+   * 快照段派生（`docs/CLAN-DESIGN.md` §3 / `docs/EXTENSIONS.md` §2 保证 4）：
+   * 装配完内核段之后、返回之前，逐个调用**模板声明过且已注册**的 `snapshotDerivation`。
+   *
+   * 未声明 ⇒ `extensionRuntimes` 为空数组 ⇒ 这里一次都不调用，`snapshot.family` 保持
+   * `undefined`（零回归门槛）。段键与内核键冲突 ⇒ `assertNoReservedSnapshotKeys` 抛错。
+   */
+  applySnapshotDerivations(snapshot, extensionRuntimes, {
+    selfId: selfIdOf(state),
+    visibleEdges: observableRelations,
+    hiddenNodeIds,
+    actors: buildSnapshotActors(state, hiddenNodeIds, adapter, lookup),
+    worldTime: state.worldTime,
+    turnIndex: state.turnIndex,
+  });
+  return snapshot;
+}
+
+/**
+ * NPC 的投影期展示派生（当前年龄 / 人生阶段 / 阶段文案）。
+ *
+ * **只在这里算一次**：NPC 列表与「快照段派生」的演员目录必须同源 —— 两处各算一遍，
+ * 迟早会出现「卡片写 26 岁、族谱写 27 岁」。
+ *
+ * ADR-0021 决策 4.1：年龄投影期现算（`ageAt(birthTime, worldTime)`），不回写
+ * `state.npcs[].age`；旧档缺 `birthTime` 按同一反推口径兜底。
+ * P1-2 / ADR-0024 补遗：**已故/被占据/未登场者的年龄冻结在 `sinceWorldTime`**（死人不会变老）。
+ */
+function npcPresentation(
+  npc: V2Npc,
+  worldTime: number,
+  adapter: ReturnType<typeof createTimeAdapter>,
+): { age: number; stage: string; lifeStageLabel: string } {
+  const ageBasis = npc.lifecycle.state === "alive" ? worldTime : npc.lifecycle.sinceWorldTime;
+  const age = adapter.ageAt(npc.birthTime ?? birthTimeFromAge(npc.age, adapter), ageBasis);
+  const stage = adapter.resolveLifeStage(age);
+  return { age, stage, lifeStageLabel: adapter.lifeStageLabel(stage) };
+}
+
+/**
+ * 快照段派生用的演员目录（含玩家）。
+ *
+ * 与关系行的 `actorDirectory` 不是一回事：那边要「名字」，这里还要**展示派生**
+ * （年龄 / 阶段 / 生死态 / 有没有卡）。名字仍以实例与玩家为准，不另立真源。
+ */
+function buildSnapshotActors(
+  state: WorldStateV2,
+  hiddenNodeIds: ReadonlySet<string>,
+  adapter: ReturnType<typeof createTimeAdapter>,
+  lookup: TemplateLookup,
+): Map<string, SnapshotActor> {
+  const selfId = selfIdOf(state);
+  const actors = new Map<string, SnapshotActor>();
+  for (const npc of state.npcs) {
+    const shown = npcPresentation(npc, state.worldTime, adapter);
+    actors.set(npc.id, {
+      id: npc.id,
+      name: npc.name,
+      visible: !hiddenNodeIds.has(npc.id),
+      alive: npc.lifecycle.state === "alive",
+      age: shown.age,
+      genderLabel: lookup.genderLabel(npc.gender),
+      lifeStageLabel: shown.lifeStageLabel,
+      lifeState: npc.lifecycle.state,
+      ...(npc.lifecycle.reasonCode !== undefined ? { reasonCode: npc.lifecycle.reasonCode } : {}),
+    });
+  }
+  const player = state.player;
+  // 玩家没有 lifecycle：恒在世、恒可见（见 hiddenNodeIds 的硬保留说明）。
+  actors.set(selfId, {
+    id: selfId,
+    name: player.name,
+    visible: true,
+    alive: true,
+    age: player.age,
+    genderLabel: lookup.genderLabel(player.gender),
+    lifeStageLabel: adapter.lifeStageLabel(adapter.resolveLifeStage(player.age)),
+    lifeState: "alive",
+  });
+  return actors;
+}
+
+/**
+ * 把扩展返回的段并入快照。
+ *
+ * **失败策略：跳过并留诊断，不 fail-fast。** 理由：派生段不是事实 —— 一个可选展示
+ * 扩展（族谱/宗族）抛错时，世界状态本身仍然可玩；让整张投影崩掉等于「装了个展示插件
+ * 就把整局锁死」，违反「卸载全部扩展内核照跑」的边界。契约违规（段键覆盖内核键）
+ * 仍然**抛错**：那是代码 bug，必须响。
+ */
+function applySnapshotDerivations(
+  snapshot: V2Snapshot,
+  extensions: readonly ResolvedExtension[],
+  base: Omit<SnapshotDerivationContext, "config" | "memo">,
+): void {
+  if (extensions.length === 0) return;
+  const target = snapshot as unknown as Record<string, unknown>;
+  for (const ext of extensions) {
+    const derive = ext.runtime.snapshotDerivation?.derive;
+    if (derive === undefined) continue;
+    let segment: Record<string, unknown>;
+    try {
+      segment = derive({ ...base, config: ext.config, memo: new Map<string, unknown>() });
+    } catch (err) {
+      console.warn(
+        `[extensions] "${ext.id}".snapshotDerivation 抛错，本次投影跳过该段：`,
+        err instanceof Error ? err.message : err,
+      );
+      continue;
+    }
+    assertNoReservedSnapshotKeys(ext.id, segment);
+    for (const [key, value] of Object.entries(segment)) target[key] = value;
+  }
 }
 
 /**

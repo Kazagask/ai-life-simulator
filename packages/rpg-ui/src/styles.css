@@ -554,3 +554,236 @@
     width: 84px;
   }
 }
+
+/* ---------- 族谱（docs/CLAN-DESIGN.md §1.6） ---------- */
+
+/*
+ * 竖屏画布：世代自上而下（老在上）、同代横排、配偶相邻。
+ * 坐标全部由组件按「代 → 列」算好写成内联 left/top（不靠 flex，线才连得准）；
+ * 这里只负责观感与线型，不改布局结构。
+ */
+.ls-pedigree {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ls-pedigree__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ls-pedigree__title {
+  margin: 0;
+  font-family: var(--ls-serif);
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  color: var(--ls-text);
+}
+
+.ls-pedigree__range {
+  font-size: 12px;
+  color: var(--ls-text-dim);
+}
+
+.ls-pedigree__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: var(--ls-text-dim);
+}
+
+.ls-pedigree__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ls-pedigree__legend-item::before {
+  content: "";
+  display: inline-block;
+  width: 18px;
+  border-top-width: 2px;
+  border-top-style: solid;
+  border-top-color: rgba(201, 162, 39, 0.6);
+}
+
+.ls-pedigree__legend-item--spouse::before {
+  border-top-style: dashed;
+  border-top-color: var(--ls-ember);
+}
+
+.ls-pedigree__legend-item--step::before {
+  border-top-style: dotted;
+  border-top-color: var(--ls-wine);
+}
+
+.ls-pedigree__legend-item--back::before {
+  border-top-style: dashed;
+  border-top-color: var(--ls-text-dim);
+}
+
+.ls-pedigree__scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 2px;
+}
+
+.ls-pedigree__canvas {
+  position: relative;
+  min-width: 100%;
+}
+
+.ls-pedigree__edges {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.ls-pedigree__edge--parent {
+  fill: none;
+  stroke: rgba(201, 162, 39, 0.55);
+  stroke-width: 1.4;
+}
+
+.ls-pedigree__edge--spouse {
+  fill: none;
+  stroke: var(--ls-ember);
+  stroke-width: 1.2;
+  stroke-dasharray: 5 4;
+  opacity: 0.85;
+}
+
+.ls-pedigree__edge--step {
+  fill: none;
+  stroke: var(--ls-wine);
+  stroke-width: 1.2;
+  stroke-dasharray: 2 4;
+  opacity: 0.9;
+}
+
+.ls-pedigree__edge--sibling {
+  fill: none;
+  stroke: var(--ls-text-dim);
+  stroke-width: 1;
+  stroke-dasharray: 1 4;
+  opacity: 0.6;
+}
+
+.ls-pedigree__edge--back {
+  fill: none;
+  stroke: var(--ls-text-dim);
+  stroke-width: 1.2;
+  stroke-dasharray: 6 5;
+  opacity: 0.7;
+}
+
+.ls-pedigree__node {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 6px 9px;
+  border: 1px solid var(--ls-border);
+  border-radius: 10px;
+  background: var(--ls-surface-2);
+  color: var(--ls-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.ls-pedigree__node:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.ls-pedigree__node--self {
+  border-color: var(--ls-gold);
+  box-shadow: 0 0 0 1px rgba(201, 162, 39, 0.35);
+}
+
+.ls-pedigree__node--dead {
+  opacity: 0.62;
+}
+
+.ls-pedigree__node--nocard {
+  border-style: dashed;
+}
+
+.ls-pedigree__node--cyclic {
+  border-color: var(--ls-wine);
+}
+
+.ls-pedigree__name {
+  font-size: 13px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ls-pedigree__meta {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--ls-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ls-pedigree__nocard {
+  position: absolute;
+  top: 5px;
+  right: 7px;
+  font-size: 10px;
+  color: var(--ls-text-dim);
+}
+
+.ls-pedigree__empty,
+.ls-pedigree__hint,
+.ls-pedigree__notice {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ls-text-dim);
+}
+
+.ls-pedigree__notice {
+  color: var(--ls-gold);
+}
+
+.ls-pedigree__loose {
+  border-top: 1px dashed var(--ls-border);
+  padding-top: 8px;
+}
+
+.ls-pedigree__loose-title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: normal;
+  color: var(--ls-text-dim);
+}
+
+.ls-pedigree__loose-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ls-pedigree__loose-item {
+  padding: 2px 8px;
+  border: 1px dashed var(--ls-border);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--ls-text-dim);
+}
