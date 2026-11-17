@@ -243,3 +243,35 @@ export function extensionViewsFor(slot: string, vm: ViewModel): ExtensionView[];
 检测仍然要做（世代计算必须跳过回边，否则死循环），但**不再下发、不再渲染**。
 理由：现实里人不可能是自己的祖先，这类边只会来自数据错误或极端设定，
 画出来是给玩家看一个"引擎出错的样子"。
+
+### 7.5 「一整套玩法」= 宿主零知识
+
+> 用户追加：「扩展的内容就是一整套玩法，所以你应该把 ui、引擎、契约都放到这个拓展下面。
+> 至于怎么和宿主本体交互，你自己想办法。」
+
+**宿主对扩展的全部认知，只有三样东西**：
+
+| # | 东西 | 位置 | 宿主知道什么 |
+|---|---|---|---|
+| 1 | 三个**不透明命名空间** | `WorldStateV2.extensions` / `V2Snapshot.extensions` / `ViewModel.extensions` | 只知道 `Record<string, unknown>`，逐层原样搬运 |
+| 2 | 两个**注册表** | `ExtensionRuntime`（内核）/ `ExtensionUiRuntime`（前端） | 只知道 id 与契约形状 |
+| 3 | 一张**槽表** | `package/rpg-ui/src/extension-slots.ts` | 只知道槽名（`world.subview` …） |
+
+搬运链是一条直线，每层都**不解析**：
+
+```
+state.extensions.family  →  snapshot.extensions.family  →  vm.extensions.family  →  扩展 UI 自己 narrow
+      （扩展写）                  （扩展 derive）              （宿主原样搬）           （扩展 zod 校验）
+```
+
+**为什么 `snapshot` 也必须不透明**：只把 UI 搬走、把 `FamilyView` 留在 `packages/shared`，
+宿主仍然认识"家族"——那是半成品，第二个扩展来了又要改一次 shared。
+**契约是玩法的一部分，不是宿主的一部分。**
+
+**守卫（可机械检查）**：
+
+```bash
+git grep -n "clan\|pedigree\|family" -- packages/ ':!packages/rpg-ui/src/extension-slots.ts'
+```
+
+除注释外应为空。任何出现在宿主包里的 `clan` / `pedigree` 字段名，都说明这一刀没切干净。
