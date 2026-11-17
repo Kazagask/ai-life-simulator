@@ -221,3 +221,17 @@ interface FamilyState {
      直接违反 §1 的"宿主零知识"。
   2. **算据**：由 `fatherId` / `realFatherId` / 婚配表推出，**不要**从"父母之间有没有配偶边"反推
      —— 后者是边模型的临时等价物，指针模型落地后就是错的。
+
+### 7.1 迁移前必须先解决的两处（否则会静默降级）
+
+1. **行级称谓在指针模式会消失**。NPC 卡上的「关系」行来自 `state.relations`；指针模式下那里没有亲属边
+   ⇒ 没有行可装饰，`relationDerivation`（`RelationRowContext`）无从下手。
+   解法：给 `RelationCardContext` 补 `actors` + `extensionState`（两者都通用，不含家族语义），
+   由扩展在指针模式下**自行合成亲属行**。**不是**模板问题，是接缝缺字段。
+2. **切片重建会抹掉婚配表**。`FamilyStateSchema` 目前是 strict 的 `{ clans, members }`，而
+   `writeClanState` 会**重建整个切片**。现在往里写 `spouses` / `adoptions`，任何 clan effect
+   （`joinClan` 等）一跑就整块覆盖 ⇒ 亲属图当场塌。
+   解法：先扩 schema 加 `spouses` / `adoptions`，并让所有写点保留这两个字段。**这条必须早于模板迁移。**
+
+> 顺序：`3a 切片 schema + 写点保留` → `3b 接缝补 actors/extensionState + 合成亲属行` → `3c 模板迁移 + 闸门接入`。
+> 3a 是纯增量零行为变化；3b 会改变"关系行长什么样"，应当在有人盯着的时候做。
