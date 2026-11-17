@@ -206,8 +206,8 @@ place:
 
 | 口 | 现有缝 | 说明 |
 |---|---|---|
-| `conditions` | **已有** `ConditionRegistry`（`condition-evaluator.ts:42`） | 新增条件原语 `op` |
-| `effects` | 21 种闭合 `z.union` + `engine.ts:323` 的 switch | 新增效果类型 |
+| `conditions` | **已有** `ConditionRegistry`（`condition-evaluator.ts:42`） | 新增条件原语 `op`。⚠️ 事件的 `conditions`/`visibleWhen`/`missWhen` 用的是**闭合**的 `ConditionSchema`，扩展 `op` 目前只能在 `rules.yaml` 触发器里用 |
+| `effects` | **27 种**闭合 `z.union` + `engine.ts:323` 的 switch。⚠️ 该 switch **没有 `default`** ⇒ 未知 type 静默 no-op | 新增效果类型 |
 | `derivations` | 无（投影里写死） | 投影期派生，如称谓、系谱 |
 
 **明确不开 `settle kind`**（现在只有 `normal` / `random` / `combat`）。它是 `discriminatedUnion`，
