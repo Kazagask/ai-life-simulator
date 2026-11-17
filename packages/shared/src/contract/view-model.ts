@@ -100,17 +100,57 @@ export const StatusBarVMSchema = z
   .strict();
 export type StatusBarVM = z.infer<typeof StatusBarVMSchema>;
 
-/** 战斗中的一名参战者（只含展示字段：血量条 + 是否倒下）。 */
+/**
+ * 战斗中的一条补正（追加字段）。
+ * 名字一律来自模板，展示层不自己造「眩晕」这类词；`stacks > 1` 时显示 ×N。
+ *
+ * 必须定义在 `BattleCombatantVMSchema` 之前：zod schema 是模块加载期求值的常量，
+ * 向后引用会撞 TDZ（`Cannot access before initialization`）。
+ */
+export const BattleStatusVMSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    stacks: z.number(),
+  })
+  .strict();
+export type BattleStatusVM = z.infer<typeof BattleStatusVMSchema>;
+
+/** 战斗中的一名参战者（只含展示字段：血量条 + 是否倒下 + 补正）。 */
 export const BattleCombatantVMSchema = z
   .object({
+    /** 战斗实例 id（同一模板角色换一场战斗就是另一个 id；UI 的目标选择键）。 */
     id: z.string(),
     name: z.string(),
     hp: z.number(),
     maxHp: z.number(),
     alive: z.boolean(),
+    /** 追加：当前补正（与玩家一致，名字来自模板）。 */
+    statuses: z.array(BattleStatusVMSchema),
   })
   .strict();
 export type BattleCombatantVM = z.infer<typeof BattleCombatantVMSchema>;
+
+/** 战斗内可用技能（只下发展示与禁用判定要用的字段，不含效果数值）。 */
+export const BattleSkillVMSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    costMp: z.number(),
+    cooldownLeft: z.number(),
+  })
+  .strict();
+export type BattleSkillVM = z.infer<typeof BattleSkillVMSchema>;
+
+/** 战斗内可用道具。 */
+export const BattleItemVMSchema = z
+  .object({
+    itemId: z.string(),
+    name: z.string(),
+    count: z.number(),
+  })
+  .strict();
+export type BattleItemVM = z.infer<typeof BattleItemVMSchema>;
 
 /** 战斗中的玩家资源镜像（以战斗态为准，不是存档态）。 */
 export const BattlePlayerVMSchema = z
@@ -119,6 +159,18 @@ export const BattlePlayerVMSchema = z
     maxHp: z.number(),
     mp: z.number(),
     maxMp: z.number(),
+    /** 追加：当前补正（控制类补正的名字就是「无法行动」提示的来源）。 */
+    statuses: z.array(BattleStatusVMSchema),
+    /** 追加：本场可用技能（`cooldownLeft > 0` ⇒ 前端置灰，引擎也会拒）。 */
+    skills: z.array(BattleSkillVMSchema),
+    /** 追加：本场可用道具（`count` 是剩余数量）。 */
+    items: z.array(BattleItemVMSchema),
+    /** 追加：本回合能否正常行动（`cannot_act` 压制时 false，引擎不报错只跳过）。 */
+    canAct: z.boolean(),
+    /** 追加：本回合能否使用道具（false ⇒ 引擎以 `bound_items` 拒绝）。 */
+    canUseItems: z.boolean(),
+    /** 追加：本回合能否逃跑（false ⇒ 引擎以 `flee_not_allowed` / `cannot_flee` 拒绝）。 */
+    canFlee: z.boolean(),
   })
   .strict();
 export type BattlePlayerVM = z.infer<typeof BattlePlayerVMSchema>;

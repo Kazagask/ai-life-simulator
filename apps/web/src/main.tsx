@@ -37,7 +37,7 @@ import {
 } from "./platformLlm";
 import { deleteLifeRecord, listLifeRecords, saveLifeRecord, shouldAutoArchive } from "./records";
 import type { LifeRecordRow } from "./records";
-import { interactionMode, toActPayload, toViewModel } from "@life-sim/rpg-ui";
+import { BattleBoard, interactionMode, toActPayload, toViewModel } from "@life-sim/rpg-ui";
 import type { ActHandler, ContentBlockVM, ViewModel } from "@life-sim/rpg-ui";
 import { ActionDock } from "./ActionDock";
 import { NarrativeStage } from "./NarrativeStage";
@@ -1515,11 +1515,12 @@ function LifeTab({
                   </button>
                 </div>
               )}
-              {slot !== null && slot.kind === "combat" && (
-                <BattlePanel
-                  snapshot={snapshot}
+              {slot !== null && slot.kind === "combat" && view.battle !== null && (
+                <BattleBoard
+                  battle={view.battle}
+                  labels={snapshot.labels.resources}
                   busy={busy}
-                  onBattle={onBattle}
+                  onCommand={onBattle}
                   onContinue={onConfirmWheel}
                 />
               )}
@@ -2091,212 +2092,6 @@ function EventPanel({
         ))}
       </div>
       {options.length === 0 && <p className="muted">（没有可选项……）</p>}
-    </div>
-  );
-}
-
-// ---------- 战斗面板 ----------
-
-function BattlePanel({
-  snapshot,
-  busy,
-  onBattle,
-  onContinue,
-}: {
-  snapshot: V2Snapshot;
-  busy: boolean;
-  onBattle: (command: BattleCommand) => void;
-  onContinue: () => void;
-}) {
-  const b = snapshot.battle!;
-  const labels = snapshot.labels;
-  const [target, setTarget] = useState<string>("");
-  /**
-   * 本回合能否行动（D-13）：`canAct === false` 表示被 `cannot_act` 类补正（眩晕等）压制。
-   * 引擎此时**不报错**——只记一行「你无法行动。」并跳过玩家动作、照常推进回合，
-   * 所以前端必须主动告知，否则玩家看到的是「点了技能、什么都没变、回合没了」。
-   * 战斗结束（b.over）后不再提示。
-   */
-  const locked = !b.over && !b.player.canAct;
-  // 原因只从投影里已有的 statuses 读，不自造文案、不改引擎：眩晕的名字就来自模板
-  const stunName = b.player.statuses.find((s) => s.id === "stun")?.name;
-  const [lockedTapped, setLockedTapped] = useState(false);
-  useEffect(() => {
-    if (!locked) setLockedTapped(false);
-  }, [locked]);
-
-  const aliveEnemies = b.enemies.filter((e) => e.alive);
-  const effectiveTarget = target && aliveEnemies.some((e) => e.instanceId === target) ? target : aliveEnemies[0]?.instanceId;
-
-  return (
-    <div className={`battle-body ${b.over ? "battle-over" : ""}`}>
-      <div className="row">
-        <h3>⚔ 战斗 · 第 {b.round} 回合</h3>
-        {b.over && (
-          <span className={`tag ${b.over}`}>
-            {b.over === "victory" ? "胜利" : b.over === "defeat" ? "败北" : "撤离"}
-          </span>
-        )}
-      </div>
-
-      {/* 我方资源：战斗内以战斗镜像为准，消耗实时可见 */}
-      <div className="battle-self">
-        <div className="attr">
-          <span className="attr-name">{labels.resources.hp ?? "hp"}</span>
-          <div className="bar">
-            <div className="bar-fill hp" style={{ width: `${(b.player.hp / Math.max(1, b.player.maxHp)) * 100}%` }} />
-          </div>
-          <span className="attr-value">{b.player.hp}/{b.player.maxHp}</span>
-        </div>
-        <div className="attr">
-          <span className="attr-name">{labels.resources.mp ?? "mp"}</span>
-          <div className="bar">
-            <div className="bar-fill mp" style={{ width: `${(b.player.mp / Math.max(1, b.player.maxMp)) * 100}%` }} />
-          </div>
-          <span className="attr-value">{b.player.mp}/{b.player.maxMp}</span>
-        </div>
-      </div>
-
-      {b.allies.length > 0 && (
-        <div className="ally-list">
-          <span className="muted">友军</span>
-          {b.allies.map((a) => (
-            <div key={a.instanceId} className={`ally ${!a.alive ? "dead" : ""}`}>
-              <strong>{a.name}</strong>
-              <div className="bar">
-                <div className="bar-fill ally-hp" style={{ width: `${(a.hp / Math.max(1, a.maxHp)) * 100}%` }} />
-              </div>
-              <span className="attr-value">{a.hp}/{a.maxHp}</span>
-              {a.statuses.length > 0 && (
-                <span className="enemy-status">{a.statuses.map((s) => `${s.name}${s.stacks > 1 ? `×${s.stacks}` : ""}`).join("、")}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div className="enemy-list">
-        {b.enemies.map((e) => (
-          <button
-            key={e.instanceId}
-            className={`enemy ${!e.alive ? "dead" : ""} ${effectiveTarget === e.instanceId && e.alive ? "targeting" : ""}`}
-            disabled={!e.alive}
-            onClick={() => setTarget(e.instanceId)}
-          >
-            <strong>{e.name}</strong>
-            <div className="bar">
-              <div className="bar-fill enemy-hp" style={{ width: `${(e.hp / Math.max(1, e.maxHp)) * 100}%` }} />
-            </div>
-            <span className="attr-value">{e.hp}/{e.maxHp}</span>
-            {e.statuses.length > 0 && (
-              <span className="enemy-status">{e.statuses.map((s) => `${s.name}${s.stacks > 1 ? `×${s.stacks}` : ""}`).join("、")}</span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {!b.over && (
-        <>
-          <div className="battle-action-zone">
-            <div className="battle-actions">
-              {b.player.skills.map((skill) => (
-                <button
-                  key={skill.id}
-                  className="action"
-                  disabled={busy || locked || skill.cooldownLeft > 0 || b.player.mp < skill.costMp}
-                  aria-disabled={busy || locked || skill.cooldownLeft > 0 || b.player.mp < skill.costMp}
-                  onClick={() => onBattle({ type: "skill", skillId: skill.id, targetInstanceId: effectiveTarget })}
-                >
-                  <strong>{skill.name}</strong>
-                  <span>
-                    {skill.costMp > 0 ? `${labels.resources.mp ?? "mp"} ${skill.costMp}` : "无消耗"}
-                    {skill.cooldownLeft > 0 ? ` · 冷却 ${skill.cooldownLeft}` : ""}
-                  </span>
-                </button>
-              ))}
-              {b.player.items.map((item) => (
-                <button
-                  key={item.itemId}
-                  className="action"
-                  // D-08：canUseItems 由投影层用与引擎**同一个**控制判定算出，
-                  // 前端不自己查 status id；false ⇒ 引擎必然以 bound_items 拒绝，先禁用。
-                  disabled={busy || locked || !b.player.canUseItems}
-                  aria-disabled={busy || locked || !b.player.canUseItems}
-                  onClick={() => onBattle({ type: "item", itemId: item.itemId })}
-                >
-                  <strong>{item.name} ×{item.count}</strong>
-                  <span>{b.player.canUseItems ? "使用道具" : "受制于人，用不了道具"}</span>
-                </button>
-              ))}
-              {/*
-                D-12：逃跑按钮常显但按 canFlee 禁用。
-                旧实现直接不渲染按钮，玩家会以为「没有逃跑这个选项」；现在给按钮 + 原因，
-                原因用文字写在按钮上（不只靠置灰/颜色），并加 aria-disabled 供读屏器识别。
-              */}
-              <button
-                className="action flee"
-                disabled={busy || locked || !b.player.canFlee}
-                aria-disabled={busy || locked || !b.player.canFlee}
-                onClick={() => onBattle({ type: "flee" })}
-              >
-                <strong>逃跑</strong>
-                <span>{b.player.canFlee ? "尝试脱离战斗" : "退路已被封死"}</span>
-              </button>
-            </div>
-
-            {/*
-              D-13：眩晕等 cannot_act 压制时，用一个覆盖层盖住整个行动区，而不是把技能/道具/逃跑
-              逐个置灰——三者同时不可用，逐个禁用会让玩家以为是三个独立问题。
-              覆盖层保留一个明确的推进出口：`cannot_act` 分支里引擎只记一行日志、跳过玩家动作、
-              照常推进回合，必须有人提交一次命令回合才会前进（否则眩晕永远不会到期、战斗卡死）。
-              该命令是 D-14 的 `{type:"pass"}`（空过一回合）：不消耗 MP/道具/冷却、不掷逃跑判定，
-              眩晕下引擎忽略它并记「你无法行动。」，未眩晕下记「你按兵不动。」——两种都只消耗
-              一个战斗回合，正是这个按钮要的语义。
-            */}
-            {locked && (
-              <div
-                className={`battle-locked ${lockedTapped ? "is-tapped" : ""}`}
-                role="status"
-                aria-live="polite"
-                aria-disabled="true"
-                onClick={() => setLockedTapped(true)}
-              >
-                <strong className="battle-locked-title">无法行动{stunName ? ` · ${stunName}` : ""}</strong>
-                <p className="battle-locked-sub">
-                  {lockedTapped
-                    ? "已确认：本回合你没有任何可执行的动作。"
-                    : "技能、道具、逃跑本回合全部不可用，只能硬撑过去。"}
-                </p>
-                <button
-                  className="primary battle-locked-pass"
-                  disabled={busy}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onBattle({ type: "pass" });
-                  }}
-                >
-                  硬撑过这一回合
-                </button>
-              </div>
-            )}
-          </div>
-          {!locked && !b.player.canFlee && <p className="battle-limit-hint">此战无法逃离：局势不允许脱身。</p>}
-          {!locked && !b.player.canUseItems && <p className="battle-limit-hint">你被束缚住了：本回合无法使用道具。</p>}
-          <p className="muted target-hint">点击敌人选择目标（默认最前者）</p>
-        </>
-      )}
-
-      {b.over && (
-        <button className="primary" disabled={busy} onClick={onContinue}>
-          离开战场，继续前行
-        </button>
-      )}
-
-      <div className="battle-log">
-        {b.log.map((line, i) => (
-          <p key={i}>{line}</p>
-        ))}
-      </div>
     </div>
   );
 }

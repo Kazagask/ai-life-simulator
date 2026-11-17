@@ -30,6 +30,8 @@ export interface ToViewModelInput {
 
 /** 战斗镜像 → 展示模型（`id` 取引擎实例 id，只作 React key / 目标标识）。 */
 export function toBattleVM(battle: NonNullable<V2Snapshot["battle"]>): BattleVM {
+  const statuses = (list: Array<{ id: string; name: string; stacks: number }>) =>
+    list.map((s) => ({ id: s.id, name: s.name, stacks: s.stacks }));
   return {
     round: battle.round,
     over: battle.over,
@@ -38,6 +40,18 @@ export function toBattleVM(battle: NonNullable<V2Snapshot["battle"]>): BattleVM 
       maxHp: battle.player.maxHp,
       mp: battle.player.mp,
       maxMp: battle.player.maxMp,
+      // 控制判定的结论与「为什么」都由投影层下发，展示层不自己查补正表（D-08 / D-12 / D-13）。
+      statuses: statuses(battle.player.statuses),
+      skills: battle.player.skills.map((s) => ({
+        id: s.id,
+        name: s.name,
+        costMp: s.costMp,
+        cooldownLeft: s.cooldownLeft,
+      })),
+      items: battle.player.items.map((i) => ({ itemId: i.itemId, name: i.name, count: i.count })),
+      canAct: battle.player.canAct,
+      canUseItems: battle.player.canUseItems,
+      canFlee: battle.player.canFlee,
     },
     enemies: battle.enemies.map((e) => ({
       id: e.instanceId,
@@ -45,6 +59,7 @@ export function toBattleVM(battle: NonNullable<V2Snapshot["battle"]>): BattleVM 
       hp: e.hp,
       maxHp: e.maxHp,
       alive: e.alive,
+      statuses: statuses(e.statuses),
     })),
     allies: battle.allies.map((a) => ({
       id: a.instanceId,
@@ -52,6 +67,7 @@ export function toBattleVM(battle: NonNullable<V2Snapshot["battle"]>): BattleVM 
       hp: a.hp,
       maxHp: a.maxHp,
       alive: a.alive,
+      statuses: statuses(a.statuses),
     })),
     log: [...battle.log],
   };

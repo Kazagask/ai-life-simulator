@@ -26,6 +26,9 @@ export type { NarrativeStreamProps, BlockRenderer } from "./NarrativeStream.js";
 export { OptionDeck } from "./OptionDeck.js";
 export type { OptionDeckProps } from "./OptionDeck.js";
 
+export { BattleBoard } from "./BattleBoard.js";
+export type { BattleBoardProps } from "./BattleBoard.js";
+
 export {
   MAX_ACT_TEXT,
   MAX_ACT_TYPE,
