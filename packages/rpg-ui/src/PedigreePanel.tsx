@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PedigreeEdgeVM, PedigreeNodeVM, PedigreeVM } from "@life-sim/shared";
 
 /**
@@ -25,6 +25,8 @@ const LABELS = {
   noCard: "无档案",
   incomplete: "有些人的父母不在已知范围内，谱系不完整。",
   truncated: "谱系已按规模截断，只显示与你最近的那几代。",
+  /** 只在画布真的比容器宽时出现 —— 与 `truncated`（节点被丢弃）是两件事。 */
+  scrollHint: "左右滑动查看更多 →",
   looseEnds: "据称的远亲",
   legend: {
     parent: "血缘",
@@ -193,6 +195,36 @@ function lifeText(node: PedigreeNodeVM): string {
 
 export function PedigreePanel({ pedigree, onSelectNpc, onSelectSelf, title }: PedigreePanelProps) {
   const [notice, setNotice] = useState<string | null>(null);
+  /** 画布比滚动容器宽（有节点横向滚出视野）—— 只看布局事实，不看 `truncated`。 */
+  const [overflowing, setOverflowing] = useState(false);
+  /** 玩家第一次横向滚走后就不再提示（一次性，不常驻）。 */
+  const [scrolled, setScrolled] = useState(false);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // 布局必须先算：effect 依赖画布尺寸，且 hooks 不能在下面的空态 early-return 之后声明。
+  const { placed, width, height } = layout(pedigree);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el === null) return;
+    setScrolled(false);
+    const measure = (): void => {
+      setOverflowing(el.scrollWidth > el.clientWidth + 1);
+    };
+    measure();
+    const onScroll = (): void => {
+      if (el.scrollLeft > 0) setScrolled(true);
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    // 容器宽度会随视口变化（转屏 / 分屏）；只重算是否溢出，不重置「已滚过」。
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(el);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      observer?.disconnect();
+    };
+  }, [width, height]);
 
   if (pedigree.nodes.length === 0) {
     return (
@@ -205,7 +237,6 @@ export function PedigreePanel({ pedigree, onSelectNpc, onSelectSelf, title }: Pe
     );
   }
 
-  const { placed, width, height } = layout(pedigree);
   const byId = new Map(placed.map((p) => [p.node.id, p]));
 
   const select = (node: PedigreeNodeVM): void => {
@@ -238,7 +269,10 @@ export function PedigreePanel({ pedigree, onSelectNpc, onSelectSelf, title }: Pe
 
       {notice !== null && <p className="ls-pedigree__notice">{notice}</p>}
 
-      <div className="ls-pedigree__scroll">
+      {/* 提示放在滚动容器**外面**：出现/消失不会改变容器宽度，避免测量反馈循环。 */}
+      {overflowing && !scrolled && <p className="ls-pedigree__scroll-hint">{LABELS.scrollHint}</p>}
+
+      <div className="ls-pedigree__scroll" ref={scrollRef}>
         <div className="ls-pedigree__canvas" style={{ width, height }}>
           <svg className="ls-pedigree__edges" width={width} height={height} aria-hidden="true">
             {pedigree.edges.map((edge, i) => {

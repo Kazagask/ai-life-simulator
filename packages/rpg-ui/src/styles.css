@@ -787,3 +787,26 @@
   font-size: 12px;
   color: var(--ls-text-dim);
 }
+
+/*
+ * 横向溢出提示：只有画布比滚动容器宽时才渲染（组件按 scrollWidth/clientWidth
+ * 实测，和 `truncated` 无关）；玩家第一次横向滚走后组件自行移除，不常驻。
+ */
+.ls-pedigree__scroll-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ls-text-dim);
+  text-align: right;
+  transition: opacity 160ms ease;
+}
+
+/* 横向溢出提示：仅在画布比容器宽、且玩家还没横向滚过时出现
+   （判据见 PedigreePanel 的 overflowing / scrolled，与 truncated 是两件事）。 */
+.ls-pedigree__scroll-hint {
+  margin: 0 0 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ls-text-dim);
+  text-align: right;
+}
