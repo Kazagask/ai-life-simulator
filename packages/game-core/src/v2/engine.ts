@@ -16,9 +16,10 @@ import type { TemplateLookup } from "./lookup.js";
 // 调度器与效果执行器互为依赖（scheduler 读 checkAllConditions、engine 写入队），
 // 但双方只在函数体内互相调用、无顶层求值，ESM 函数声明提升可保证初始化期安全。
 import { enqueueCandidate, hasFired } from "./scheduler.js";
-import { PLAYER_ID } from "@life-sim/shared";
+import { EffectSchema, PLAYER_ID } from "@life-sim/shared";
 import { addEdge, freezeOnDeath } from "./relations.js";
-import { isAliveActor } from "./actors.js";
+import { isAliveActor, selfIdOf } from "./actors.js";
+import { resolveExtensionEffect } from "./extensions.js";
 
 // ---------- 资源公式（规格 4.4：上限 = base + perLevel × growthLevel + Σ perAttribute[attr] × 基础属性值） ----------
 
@@ -295,6 +296,20 @@ function compareNumber(
 
 // ---------- 效果执行器（EffectSchema 全量白名单） ----------
 
+/** 扩展效果在运行期的形状：内核只认 `type`，其余字段一律交给扩展自己的 schema。 */
+export type UnknownEffect = { readonly type: string } & Record<string, unknown>;
+
+/**
+ * 内核认识的效果 type 集合 —— **直接从 `EffectSchema` 派生**，不手抄名单。
+ *
+ * 手抄一份 27 项的 Set 会在下次加效果时静默漂移（schema 放行、执行器当未知、
+ * 或者反过来）。派生自 schema 的代价是 engine 依赖 schema 的值（不只是类型），
+ * 换来「白名单 = 协议白名单」这条结构保证。
+ */
+const KNOWN_EFFECT_TYPES: ReadonlySet<string> = new Set(
+  EffectSchema.options.map((option) => option.shape.type.value),
+);
+
 export interface EffectContextV2 {
   state: WorldStateV2;
   lookup: TemplateLookup;
@@ -320,10 +335,19 @@ function isAliveNode(state: WorldStateV2, nodeId: string): boolean {
   return isAliveActor(state, nodeId);
 }
 
-export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefined): void {
+export function applyEffectsV2(
+  ctx: EffectContextV2,
+  effects: readonly (Effect | UnknownEffect)[] | undefined,
+): void {
   if (!effects) return;
   const { state, lookup, rng } = ctx;
-  for (const effect of effects) {
+  for (const raw of effects) {
+    // 白名单外的 type 一律交给扩展分发；没命中就是 unknown_effect（绝不静默 no-op）。
+    if (!KNOWN_EFFECT_TYPES.has(raw.type)) {
+      applyExtensionEffect(ctx, raw);
+      continue;
+    }
+    const effect = raw as Effect;
     switch (effect.type) {
       case "setFlag":
         state.flags[effect.id] = effect.value;
@@ -584,6 +608,33 @@ export function applyEffectsV2(ctx: EffectContextV2, effects: Effect[] | undefin
         break;
     }
   }
+}
+
+/**
+ * 白名单外的 effect type 分发（`docs/EXTENSIONS.md` §2 保证 6）。
+ *
+ * 顺序：模板**已声明**的扩展里找同名 handler → 命中就调它（字段由扩展自己 parse）；
+ * 没命中 ⇒ **抛 `unknown_effect`**（消息带 type 名），不静默 no-op。
+ *
+ * 为什么必须抛：schema 放行而 handler 忘注册时，静默跳过会表现为「效果凭空消失」，
+ * 是最难查的一类 bug；抛出至少能在模板/测试第一次跑到时定位。
+ *
+ * `cancelChain` / `advanceChain` 不在此列 —— 它们是**协议内**的有意 no-op
+ * （ADR-0034 §5 删掉了链游标），仍在 switch 里显式列着。
+ */
+function applyExtensionEffect(ctx: EffectContextV2, raw: UnknownEffect): void {
+  const found = resolveExtensionEffect(raw.type, ctx.lookup.template);
+  if (found === undefined) {
+    throw new Error(
+      `unknown_effect: 效果类型 "${raw.type}" 既不在内核白名单（${KNOWN_EFFECT_TYPES.size} 种），也没有任何已声明的扩展注册同名 handler`,
+    );
+  }
+  found.handler.apply(ctx.state, raw, {
+    selfId: selfIdOf(ctx.state),
+    ...(ctx.selfNpcId !== undefined ? { selfNpcId: ctx.selfNpcId } : {}),
+    config: found.config,
+    ...(ctx.logs !== undefined ? { logs: ctx.logs } : {}),
+  });
 }
 
 /**

@@ -40,6 +40,7 @@ import {
   type ConditionRegistry,
 } from "./condition-evaluator.js";
 import { computeKnowledgeGrants } from "./knowledge-grants.js";
+import { collectExtensionConditions, resolveExtensionRuntimes } from "./extensions.js";
 import { createRng, deriveTurnSeed, pickWeighted, type Rng } from "../rng.js";
 import type { RunnerContext } from "./runner-context.js";
 import { evaluateLifeV2 } from "./life-evaluation.js";
@@ -269,6 +270,14 @@ export function createWorldV2(
       ...(event.trigger.window?.end !== undefined ? { end: event.trigger.window.end } : {}),
       calendar: initCalendar,
     });
+  }
+  /**
+   * 扩展的状态切片初始化（`docs/EXTENSIONS.md` §2）。只对模板**已声明**的扩展调用，
+   * 且放在 state 全部字段就位之后 —— 扩展看到的是可直接落盘的完整状态。
+   * 不声明 `extensions:` ⇒ 一次都不调，`state.extensions` 保持缺省（零回归）。
+   */
+  for (const ext of resolveExtensionRuntimes(template)) {
+    ext.runtime.onWorldCreated?.(state, ext.config, template);
   }
   return state;
 }
@@ -1021,6 +1030,14 @@ function runSettlementHooks(
 ): void {
   if (pipeline?.rules === undefined) return;
   const registry = pipeline.conditionRegistry ?? createConditionRegistry();
+  /**
+   * 扩展条件（`docs/EXTENSIONS.md` §2）：只并**模板已声明**的扩展贡献的 op。
+   * 未声明 ⇒ 不并，`evaluateAll` 对同名 op 仍产出 `unknown_reference` 诊断（不静默放过）。
+   * 注册是幂等的（同 op 后注册者覆盖），每轮重并的成本可以忽略。
+   */
+  for (const [op, fn] of Object.entries(collectExtensionConditions(lookup.template))) {
+    registry.register(op, fn);
+  }
   // 结算 tail 顺序：**知识授予 → 触发器求值**。
   assignKnowledgeGrants(
     state,

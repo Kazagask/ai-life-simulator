@@ -1,4 +1,7 @@
-import type { NpcLifecycleState, RelationEdge, WorldTemplateV2 } from "@life-sim/shared";
+import type { NpcLifecycleState, RelationEdge, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
+import { setExtensionStateSliceValidators, type ExtensionStateSliceValidator } from "@life-sim/shared";
+import type { ZodTypeAny } from "zod";
+import type { ConditionEvalFn } from "./condition-evaluator.js";
 
 /**
  * 扩展层接缝（`docs/EXTENSIONS.md` §2）。**契约在本文件，实现各在各的包**。
@@ -19,6 +22,64 @@ export interface ExtensionRuntime {
   readonly id: string;
   readonly relationDerivation?: RelationDerivation;
   readonly snapshotDerivation?: SnapshotDerivation;
+  /**
+   * 本扩展自己实现的效果类型（`{ schema, type, apply }` **成对**）。
+   *
+   * `applyEffectsV2` 的 switch 只认内核那 27 种；其余 type 一律按「已注册扩展的效果」分发
+   * （见 `applyExtensionEffect`）。没命中 ⇒ **抛 `unknown_effect`**，不静默吞
+   * （`docs/EXTENSIONS.md` §2 保证 6）。`schema` 由扩展在 `apply` 里自行 parse —— 内核不看字段。
+   */
+  readonly effects?: readonly ExtensionEffectHandler[];
+  /**
+   * 本扩展贡献的条件 op（`{ op, args }` 开放形的求值函数）。
+   *
+   * **只有模板声明了本扩展**（`extensions:` 里有这个 id）时才会并进条件注册表 ——
+   * 未声明 ⇒ 模板里写同名 op 仍然得到 `unknown_reference` 诊断，不是静默放过（保证 4）。
+   */
+  readonly conditions?: Readonly<Record<string, ConditionEvalFn>>;
+  /**
+   * `state.extensions[<id>]` 的存档校验（读档期应用）。切片**缺省时不校验**
+   * （模板声明了扩展但存档早于该扩展引入 —— 必须能直载），校验失败 ⇒ 读档拒载，
+   * 归入既有封闭码 `world_state_invalid`（见 `packages/shared/src/v2-state.ts`
+   * 的 `setExtensionStateSliceValidators`）。
+   */
+  readonly stateSchema?: ZodTypeAny;
+  /**
+   * 建世界期初始化本扩展的状态切片（`createWorldV2` 尾部调用一次，仅对模板**已声明**的扩展）。
+   *
+   * 与 `stateSchema` 的分工：这里造初值，那里校存档。两者都 optional ——
+   * 不写就不产生切片，`state.extensions` 保持缺省（零回归）。
+   */
+  readonly onWorldCreated?: (
+    state: WorldStateV2,
+    config: unknown,
+    template: WorldTemplateV2,
+  ) => void;
+}
+
+/**
+ * 扩展效果的上下文。
+ *
+ * 刻意**不含** `lookup` / `rng`：扩展效果只写自己的切片，不查模板表、不掷骰
+ * （掷骰会扰动主轮 RNG，破坏确定性）。
+ */
+export interface ExtensionEffectContext {
+  /** 当前执行行动的 NPC（`__self__` 的解析基准；玩家直接驱动的效果没有这个值）。 */
+  readonly selfNpcId?: string;
+  /** 玩家节点 id（`selfIdOf(state)`）。扩展不得写死 `"player"` 字面量。 */
+  readonly selfId: string;
+  /** 本扩展在模板 `extensions.<id>` 里的配置值（`true` = 默认配置）。 */
+  readonly config: unknown;
+  /** 玩家可见日志收集器（与内核 `log` 效果同一个数组）。 */
+  readonly logs?: string[];
+}
+
+/** 一条扩展效果：type 是分发键，schema 是自校验，apply 是唯一写点。 */
+export interface ExtensionEffectHandler {
+  readonly type: string;
+  /** 该效果的 zod schema。**内核不替扩展 parse**（字段解释权归扩展）。 */
+  readonly schema: ZodTypeAny;
+  apply(state: WorldStateV2, raw: unknown, ctx: ExtensionEffectContext): void;
 }
 
 /** 给**一条事实行**加字段（逐行调用）。 */
@@ -189,16 +250,44 @@ const RESERVED_ROW_FIELDS: ReadonlySet<string> = new Set([
 const RUNTIMES = new Map<string, ExtensionRuntime>();
 
 /**
+ * 把各扩展的 `stateSchema` 镜像到 `shared` 的读档校验钩子里。
+ *
+ * 为什么要有这一步：存档的唯一校验入口是 `WorldStateV2Schema`（`shared`），而注册表在 core。
+ * `shared` 不能反向依赖 core，所以由这里在**装配期**把校验器推过去；`stateSchema` 缺省
+ * 的扩展不注册（它的切片就是「不许校验、原样保留」的遗留数据）。
+ */
+function syncStateSliceValidators(): void {
+  const validators: Record<string, ExtensionStateSliceValidator> = {};
+  for (const [id, runtime] of RUNTIMES) {
+    const schema = runtime.stateSchema;
+    if (schema === undefined) continue;
+    validators[id] = (slice) => {
+      const parsed = schema.safeParse(slice);
+      if (parsed.success) return { ok: true };
+      const issue = parsed.error.issues[0];
+      return {
+        ok: false,
+        message: issue?.message ?? "扩展状态切片校验失败",
+        ...(issue !== undefined ? { path: issue.path.map((p) => p as string | number) } : {}),
+      };
+    };
+  }
+  setExtensionStateSliceValidators(validators);
+}
+
+/**
  * 启动期注册（`apps/server` bootstrap 调一次）。
  * 运行期不再改 —— 这是「放弃热加载」的落点，也让投影保持确定。
  */
 export function registerExtensionRuntime(runtime: ExtensionRuntime): void {
   RUNTIMES.set(runtime.id, runtime);
+  syncStateSliceValidators();
 }
 
-/** 仅供测试：清空注册表，回到「零扩展」状态。 */
+/** 仅供测试：清空注册表，回到「零扩展」状态（连同读档校验钩子一起清）。 */
 export function resetExtensionRuntimes(): void {
   RUNTIMES.clear();
+  syncStateSliceValidators();
 }
 
 /** 模板加载期用：某个 id 有没有装包（`unknown_extension` 拒载的判据）。 */
@@ -244,4 +333,41 @@ export function assertNoReservedRowFields(extensionId: string, fields: RelationF
       `extension "${extensionId}" 试图写内核字段 "${key}"：扩展只能加列，不能改列（docs/EXTENSIONS.md §2 保证 1）`,
     );
   }
+}
+
+// ---------- 效果 / 条件分发（内核只做查表，不解释字段） ----------
+
+/**
+ * 找一条扩展效果：只在模板**已声明**的扩展里找（保证 4：未声明即不跑）。
+ *
+ * 命中第一个即返回，多条同名 handler 不叠加 —— 同名 type 的冲突应在装配期解决，
+ * 运行期做「都跑一遍」会让效果写两次，是最难查的一类 bug。
+ */
+export function resolveExtensionEffect(
+  type: string,
+  template: WorldTemplateV2,
+): { readonly handler: ExtensionEffectHandler; readonly config: unknown } | undefined {
+  for (const ext of resolveExtensionRuntimes(template)) {
+    const handler = ext.runtime.effects?.find((h) => h.type === type);
+    if (handler !== undefined) return { handler, config: ext.config };
+  }
+  return undefined;
+}
+
+/**
+ * 把模板**已声明**扩展贡献的条件 op 并成一张表，供 `createConditionRegistry` 使用。
+ *
+ * 未声明 ⇒ 不并；模板里写同名 op 仍会命中 `unknown_reference` 诊断（R11 的老口径：
+ * 未注册的 op 绝不静默放过）。同名 op 后注册者覆盖前者（与 `ConditionRegistry.register` 一致）。
+ */
+export function collectExtensionConditions(
+  template: WorldTemplateV2,
+): Record<string, ConditionEvalFn> {
+  const out: Record<string, ConditionEvalFn> = {};
+  for (const ext of resolveExtensionRuntimes(template)) {
+    for (const [op, fn] of Object.entries(ext.runtime.conditions ?? {})) {
+      out[op] = fn;
+    }
+  }
+  return out;
 }

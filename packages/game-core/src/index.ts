@@ -20,6 +20,9 @@ export * from "./v2/equipment-turn.js";
 export * from "./v2/relations.js";
 // 扩展层接缝（docs/EXTENSIONS.md §2）：注册表 + 派生契约，扩展从这里 import
 export * from "./v2/extensions.js";
+// 演员表访问层（A 期 seam）：扩展需要 `selfIdOf` / `actorOf` 时从这里取，
+// 不许自己写 `state.selfId ?? "player"` 这类第二份兜底。
+export * from "./v2/actors.js";
 
 // ---------- 确定性随机源（V2 引擎共用，非 V1 遗留） ----------
 export * from "./rng.js";

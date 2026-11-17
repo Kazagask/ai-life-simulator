@@ -203,6 +203,66 @@ const LastFiredIndexEntrySchema = z
   })
   .strict();
 
+// ---------- 扩展 state 切片校验接缝（`docs/EXTENSIONS.md` §2） ----------
+
+/** 单条切片校验的结论。失败只带人话消息与相对路径，**不带错误码**（码由读档层给）。 */
+export type ExtensionStateSliceValidation =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly message: string; readonly path?: readonly (string | number)[] };
+
+export type ExtensionStateSliceValidator = (slice: unknown) => ExtensionStateSliceValidation;
+
+/**
+ * 扩展 id → 切片校验器。
+ *
+ * 为什么这份表在 `shared` 而不是 `game-core`：读档的唯一入口是 `WorldStateV2Schema`
+ * （`apps/server/src/store.ts` 的 `worldStateV2Schema.safeParse` → 封闭码 `world_state_invalid`），
+ * 而 `shared` 是读档层的依赖方向，**不能反向依赖 game-core 的注册表**。所以这里只留一个
+ * 由装配层注入的钩子：`@life-sim/game-core` 的 `registerExtensionRuntime` 把每个扩展的
+ * `stateSchema` 包成校验器塞进来，`resetExtensionRuntimes` 清空。
+ *
+ * 语义三条：
+ * 1. **只校验已注册的 id**；未注册的 id 留在 `state.extensions` 里不报错（可能是已卸载扩展的
+ *    遗留数据），**不丢**。
+ * 2. **切片缺省 = 不校验**（不是失败）：模板 `extensions:` 声明了某个扩展、但存档是该扩展
+ *    引入之前落盘的时候，`state.extensions` 整段都不存在 —— 这必须能直载，
+ *    否则「加一个扩展」会废掉所有在跑存档（沿用 `spawnRules` / `lastWheels` 的兼容策略）。
+ * 3. 校验失败由读档层归到既有封闭码 **`world_state_invalid`**（`apps/server/src/store.ts` 的
+ *    `UnloadableReason`），本文件不新造码、不改拒载通道。
+ */
+const EXTENSION_STATE_VALIDATORS = new Map<string, ExtensionStateSliceValidator>();
+
+/**
+ * 装配期注入（只有 `@life-sim/game-core` 的 `registerExtensionRuntime` /
+ * `resetExtensionRuntimes` 调；业务代码不要直接调）。整表替换，不累加。
+ */
+export function setExtensionStateSliceValidators(
+  validators: Readonly<Record<string, ExtensionStateSliceValidator>>,
+): void {
+  EXTENSION_STATE_VALIDATORS.clear();
+  for (const [id, validate] of Object.entries(validators)) {
+    EXTENSION_STATE_VALIDATORS.set(id, validate);
+  }
+}
+
+/**
+ * `state.extensions` 的存档校验：每个**已注册**的 id 用它的 `stateSchema` 校验自己的切片，
+ * 失败即读档失败（路径 `extensions.<id>.<…>`）。未注册的 id 原样放行。
+ */
+const ExtensionsBagSchema = z.record(z.string(), z.unknown()).superRefine((bag, ctx) => {
+  for (const [id, slice] of Object.entries(bag)) {
+    const validate = EXTENSION_STATE_VALIDATORS.get(id);
+    if (validate === undefined) continue;
+    const result = validate(slice);
+    if (result.ok) continue;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [id, ...(result.path ?? [])],
+      message: result.message,
+    });
+  }
+});
+
 export const WorldStateV2Schema = z
   .object({
     id: z.string().min(1),
@@ -303,6 +363,12 @@ export const WorldStateV2Schema = z
           .strict(),
       )
       .optional(),
+    /**
+     * 扩展状态切片（`docs/EXTENSIONS.md` §2）：键 = 扩展 id，值由扩展自己的 `stateSchema` 解释。
+     * 可选 ⇒ 旧档直载、不声明扩展的世界逐字段不变（**不升 `schemaVersion`**）。
+     * 值形状**故意是 `unknown`**：`shared` 不依赖任何扩展；切片校验走上面的注入钩子。
+     */
+    extensions: ExtensionsBagSchema.optional(),
   })
   .strict();
 

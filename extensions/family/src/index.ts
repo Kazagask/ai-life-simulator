@@ -9,6 +9,12 @@ import type {
   SnapshotDerivation,
 } from "@life-sim/game-core";
 import type { RelationEdge } from "@life-sim/shared";
+import {
+  clanConditions,
+  clanEffectHandlers,
+  clanStateSchema,
+  initClanState,
+} from "./clan.js";
 import { parseFamilyConfig } from "./config.js";
 import { reachableKinshipNodeIds } from "./graph.js";
 import { derivePedigree } from "./pedigree.js";
@@ -152,14 +158,54 @@ const snapshotDerivation: SnapshotDerivation = {
   },
 };
 
-/** 宿主注册的那一份实现。`id` 与模板 `extensions.family` 的键对齐。 */
+/**
+ * 宿主注册的那一份实现。`id` 与模板 `extensions.family` 的键对齐。
+ *
+ * 四个口（`docs/EXTENSIONS.md` §2）：
+ * · `relationDerivation` / `snapshotDerivation` —— 称谓与族谱（**只读事实图**）；
+ * · `effects` / `conditions` / `stateSchema` / `onWorldCreated` —— 宗族（**权威 state 切片**）。
+ * 两者互不依赖（`docs/CLAN-DESIGN.md` §0/§3）：删掉宗族切片，族谱照样完整。
+ */
 export const familyExtension: ExtensionRuntime = {
   id: "family",
   relationDerivation,
   snapshotDerivation,
+  effects: clanEffectHandlers,
+  conditions: clanConditions,
+  stateSchema: clanStateSchema,
+  onWorldCreated: initClanState,
 };
 
 export { derivePedigree } from "./pedigree.js";
+export {
+  CLAN_HISTORY_KINDS,
+  CLAN_MEMBER_VIAS,
+  CLAN_STATUSES,
+  ClanFactSchema,
+  ClanHistoryEntrySchema,
+  ClanMemberSchema,
+  AdjustClanPrestigeEffectSchema,
+  ClanHistoryEffectSchema,
+  JoinClanEffectSchema,
+  LeaveClanEffectSchema,
+  SetClanHeadEffectSchema,
+  UnlockLegacyEffectSchema,
+  clanConditions,
+  clanEffectHandlers,
+  clanStateSchema,
+  initClanState,
+  parseClanConfig,
+  readClanState,
+  type ClanConfig,
+  type ClanDeclaration,
+  type ClanFact,
+  type ClanHistoryEntry,
+  type ClanHistoryKind,
+  type ClanMember,
+  type ClanMemberVia,
+  type ClanState,
+  type ClanStatus,
+} from "./clan.js";
 export { parseFamilyConfig, type FamilyConfig } from "./config.js";
 export { reachableKinshipNodeIds, isKinshipReachable } from "./graph.js";
 export {

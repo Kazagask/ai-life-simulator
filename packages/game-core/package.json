@@ -10,7 +10,8 @@
     "build": "tsc --noEmit -p ../../tsconfig.json"
   },
   "dependencies": {
-    "@life-sim/shared": "workspace:*"
+    "@life-sim/shared": "workspace:*",
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "typescript": "^5.8.0",
