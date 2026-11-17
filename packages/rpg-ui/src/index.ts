@@ -32,6 +32,20 @@ export type { BattleBoardProps } from "./BattleBoard.js";
 export { WheelPanel } from "./WheelPanel.js";
 export type { WheelPanelProps } from "./WheelPanel.js";
 
+export { CharacterSheet } from "./CharacterSheet.js";
+export type { CharacterSheetProps } from "./CharacterSheet.js";
+
+export { EvaluationPanel } from "./EvaluationPanel.js";
+export type { EvaluationPanelProps } from "./EvaluationPanel.js";
+
+export { AiNarrativeTag } from "./AiNarrativeTag.js";
+
+export { NpcCard } from "./NpcCard.js";
+export type { NpcCardProps } from "./NpcCard.js";
+
+export { RelationList } from "./RelationList.js";
+export type { RelationListProps } from "./RelationList.js";
+
 export {
   MAX_ACT_TEXT,
   MAX_ACT_TYPE,
@@ -69,6 +83,10 @@ export type {
   BattleVM,
   BattlePlayerVM,
   BattleCombatantVM,
+  PlayerAttributeVM,
+  EvaluationDimensionVM,
+  NpcRelationVM,
+  StatusVM,
   WheelVM,
   EndingVM,
 } from "@life-sim/shared";

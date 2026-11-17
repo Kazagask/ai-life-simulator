@@ -11,10 +11,57 @@ import { z } from "zod";
  *  - 字段扩写遵循**追加**原则：既有字段名与语义不变，新字段只增不改。
  */
 
+/** 角色身上的一条状态 / 补正（玩家卡、NPC 卡、战斗面板共用同一形状，避免两处漂移）。 */
+export const StatusVMSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    stacks: z.number(),
+  })
+  .strict();
+export type StatusVM = z.infer<typeof StatusVMSchema>;
+
+/** 玩家卡上的一条属性（`label` 来自模板 `labels.attributes`，数组顺序即展示顺序）。 */
+export const PlayerAttributeVMSchema = z
+  .object({
+    key: z.string(),
+    label: z.string(),
+    value: z.number(),
+  })
+  .strict();
+export type PlayerAttributeVM = z.infer<typeof PlayerAttributeVMSchema>;
+
 export const PlayerVMSchema = z
   .object({
     id: z.string(),
     name: z.string(),
+    /** 追加：岁数（卡头「19 岁 · 女」）。 */
+    age: z.number(),
+    /** 追加：性别显示名（模板给出，展示层不映射 gender 枚举）。 */
+    genderLabel: z.string(),
+    /** 追加：资源与心情（卡头三条资源条）。 */
+    hp: z.number(),
+    maxHp: z.number(),
+    mp: z.number(),
+    maxMp: z.number(),
+    mood: z.number(),
+    /** 追加：心情档位显示名（与数值一起显示成「心境 · 平和」）。 */
+    moodBandLabel: z.string(),
+    /**
+     * 追加：属性条。**顺序已在适配器按模板 `labels.attributes` 排好**，
+     * 且 `proficiency*` 这类派生键已剔除 —— 排序与过滤是投影口径，不该散落到每个前端。
+     */
+    attributes: z.array(PlayerAttributeVMSchema),
+    /** 追加：资源与心情的显示名（模板 `labels`；`hp` / `mp` 的缺省回填已在适配器完成）。 */
+    labels: z
+      .object({
+        hp: z.string(),
+        mp: z.string(),
+        mood: z.string(),
+      })
+      .strict(),
+    /** 追加：当前状态（名字与层数来自模板）。 */
+    statuses: z.array(StatusVMSchema),
   })
   .strict();
 export type PlayerVM = z.infer<typeof PlayerVMSchema>;
@@ -29,9 +76,31 @@ export const SlotSceneVMSchema = z
   .strict();
 export type SlotSceneVM = z.infer<typeof SlotSceneVMSchema>;
 
+/** 五维评价的单个分项（分数与等级都是服务端原值，展示层不重算）。 */
+export const EvaluationDimensionVMSchema = z
+  .object({
+    id: z.string(),
+    /** 维度中文名（模板 label）；缺省时展示层回退 id。（注意与 line 一致：`label` 可选） */
+    label: z.string().optional(),
+    level: z.string(),
+    score: z.number(),
+    explanation: z.string().optional(),
+  })
+  .strict();
+export type EvaluationDimensionVM = z.infer<typeof EvaluationDimensionVMSchema>;
+
 export const EvaluationVMSchema = z
   .object({
     summary: z.string(),
+    /** 追加：五维分项；评价尚未生成时缺省（此时整块不渲染）。 */
+    dimensions: z.array(EvaluationDimensionVMSchema).optional(),
+    /** 追加：加权总分（与分项同时给出，不取代分项）。 */
+    overall: z.number().optional(),
+    /**
+     * 追加：这一局是否已「盖棺」（`terminated` / `archived`）。
+     * 评价是盖棺定论 —— 跑动中整块不渲染，判据由适配器算好，展示层不读状态枚举。
+     */
+    ended: z.boolean().optional(),
   })
   .strict();
 export type EvaluationVM = z.infer<typeof EvaluationVMSchema>;
@@ -64,10 +133,58 @@ export const ContentBlockVMSchema = z
   .strict();
 export type ContentBlockVM = z.infer<typeof ContentBlockVMSchema>;
 
+/**
+ * NPC 的一条关系（只含**出边**：这个人怎么看别人）。
+ *
+ * `kindLabel` / `visibilityLabel` 由适配器翻译好 —— 关系词表与可见性词表是内核词汇，
+ * 不该让每个前端各抄一份；`withName` 也已解析（含把玩家解析成「你」）。
+ */
+export const NpcRelationVMSchema = z
+  .object({
+    withId: z.string(),
+    /** 对方显示名（已解析；缺省时展示层回退 id）。 */
+    withName: z.string().optional(),
+    kind: z.string(),
+    kindLabel: z.string(),
+    visibility: z.string(),
+    visibilityLabel: z.string(),
+    value: z.number().optional(),
+    /** 亲缘称谓（「女儿」「孙女」…）；缺省表示这条边不是亲缘。 */
+    kinshipTerm: z.string().optional(),
+    /** 同一段亲缘的其它读法（模板打开 showAllRoles 时才有）。 */
+    kinshipTerms: z.array(z.string()).optional(),
+    /** 对方是否有可打开的档案（false ⇒ 标「无档案」，不假装能点开一个人）。 */
+    counterpartVisible: z.boolean().optional(),
+  })
+  .strict();
+export type NpcRelationVM = z.infer<typeof NpcRelationVMSchema>;
+
 export const NpcVMSchema = z
   .object({
     id: z.string(),
     name: z.string(),
+    /** 追加：岁数 / 性别 / 人生阶段显示名（卡头与标签用）。 */
+    age: z.number(),
+    genderLabel: z.string(),
+    lifeStageLabel: z.string(),
+    /** 追加：对玩家的关系值（-100..100，条长只是视觉辅助）。 */
+    relationship: z.number(),
+    /** 追加：性格一句话。 */
+    personality: z.string(),
+    /** 追加：已知目标（玩家可见的那部分）。 */
+    knownGoals: z.array(z.string()),
+    /** 追加：状态（与玩家卡同形状）。 */
+    statuses: z.array(StatusVMSchema),
+    /** 追加：属性（顺序即模板 `attributes.order`，标签已回填）。 */
+    attributes: z.array(PlayerAttributeVMSchema),
+    /** 追加：是否在世（非在世时卡片整体弱化）。 */
+    alive: z.boolean(),
+    /** 追加：生命周期原始态（`alive` / `inactive` / `unspawned`，作样式钩子）。 */
+    lifeState: z.string(),
+    /** 追加：生命周期文案（原因码优先，缺省回退状态词；已 trim）。 */
+    lifeText: z.string(),
+    /** 追加：关系出边（投影仍下发双向，出边过滤属投影口径）。 */
+    relations: z.array(NpcRelationVMSchema),
   })
   .strict();
 export type NpcVM = z.infer<typeof NpcVMSchema>;
@@ -101,20 +218,12 @@ export const StatusBarVMSchema = z
 export type StatusBarVM = z.infer<typeof StatusBarVMSchema>;
 
 /**
- * 战斗中的一条补正（追加字段）。
+ * 战斗中的一条补正 —— 与玩家 / NPC 卡上的状态是**同一形状**，直接复用 `StatusVMSchema`。
+ * 保留这个名字只为不打断既有引用（`BattleCombatantVMSchema` / `BattlePlayerVMSchema` 在用）。
  * 名字一律来自模板，展示层不自己造「眩晕」这类词；`stacks > 1` 时显示 ×N。
- *
- * 必须定义在 `BattleCombatantVMSchema` 之前：zod schema 是模块加载期求值的常量，
- * 向后引用会撞 TDZ（`Cannot access before initialization`）。
  */
-export const BattleStatusVMSchema = z
-  .object({
-    id: z.string(),
-    name: z.string(),
-    stacks: z.number(),
-  })
-  .strict();
-export type BattleStatusVM = z.infer<typeof BattleStatusVMSchema>;
+export const BattleStatusVMSchema = StatusVMSchema;
+export type BattleStatusVM = StatusVM;
 
 /** 战斗中的一名参战者（只含展示字段：血量条 + 是否倒下 + 补正）。 */
 export const BattleCombatantVMSchema = z

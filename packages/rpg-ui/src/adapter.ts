@@ -2,7 +2,10 @@ import type {
   ActionVM,
   BattleVM,
   ContentBlockVM,
+  EvaluationVM,
   MediaVM,
+  NpcVM,
+  PlayerVM,
   V2Snapshot,
   ViewModel,
   WheelResultView,
@@ -147,11 +150,180 @@ export function firstInlineCgBlock(
   });
 }
 
+// ---------- NPC 卡投影 ----------
+
+/**
+ * 关系种类词表（内核词汇 → 中文）。放在适配器而不是组件里：这是**数据**不是排版，
+ * 换语言/换主题只该改一处，自定义前端不该各自维护一份。
+ */
+const RELATION_KIND_LABEL: Record<string, string> = {
+  father: "父亲",
+  mother: "母亲",
+  son: "儿子",
+  daughter: "女儿",
+  husband: "丈夫",
+  wife: "妻子",
+  "elder-brother": "兄长",
+  "younger-brother": "弟弟",
+  "elder-sister": "姐姐",
+  "younger-sister": "妹妹",
+  relative: "亲戚",
+  mentor: "师父",
+  disciple: "弟子",
+  friend: "朋友",
+  rival: "对手",
+  enemy: "敌手",
+  colleague: "同僚",
+};
+
+const RELATION_VISIBILITY_LABEL: Record<string, string> = {
+  known: "确知",
+  inferred: "推断",
+};
+
+/**
+ * 生命周期三态（ADR-0012 / ADR-0020）只是 `reasonCode` 缺失时的**兜底**文案。
+ * `inactive` 的兜底必须中性写「已离场」：「已故」「失联」都是在替模板猜具体死因，
+ * 而模板可能表达的是叛逃、被封印、转学离开……真正的原因由 `reasonCode` 原样下发。
+ */
+const NPC_LIFECYCLE_LABEL: Record<string, string> = {
+  alive: "在世",
+  inactive: "已离场",
+  unspawned: "尚未登场",
+};
+
+/**
+ * 生命周期文案（ADR-0021 / T3）：`reasonCode` 存在且 trim 后非空时**只显示原因**，
+ * 否则回退状态词。顶部芯片与「生命周期」区块共用这一份，保证两处永远一致。
+ *
+ * 必须 trim 判空：模板 schema 对 `reasonCode` 只约束 `min(1)`，`" "`（单个空格）是合法值，
+ * 用真值判断会渲染出一个近乎空白的胶囊且不回退（QA D-3）。
+ */
+function lifecycleText(state: string, reasonCode?: string): string {
+  const code = reasonCode?.trim();
+  if (code !== undefined && code !== "") return code;
+  return NPC_LIFECYCLE_LABEL[state] ?? state;
+}
+
+/**
+ * NPC 卡投影。
+ *
+ * 三处口径都在这里定死，不让前端各抄一份：
+ *  - 属性顺序 = 模板 `attributes.order`（`labels.attributes` 的键序），标签回填；
+ *  - 关系**只给 out 边**（「这个人怎么看别人」），双向渲染等于把同一句话写两遍，
+ *    而且「A 视 B 为远亲 ≠ B 视 A 为远亲」的不对称语义会打架（2026-11-16 用户裁决）；
+ *  - `withName` 在这里解析成显示名（玩家 → 「你」），组件不再需要名字表。
+ */
+function toNpcVM(snapshot: V2Snapshot, npc: V2Snapshot["npcs"][number]): NpcVM {
+  const attrLabels = snapshot.labels.attributes;
+  const nameOf = (id: string): string => {
+    if (id === "player") return "你";
+    const hit = snapshot.npcs.find((n) => n.id === id);
+    return hit?.name ?? id;
+  };
+  return {
+    id: npc.id,
+    name: npc.name,
+    age: npc.age,
+    genderLabel: npc.genderLabel,
+    lifeStageLabel: npc.lifeStageLabel,
+    relationship: npc.relationship,
+    personality: npc.personality,
+    knownGoals: [...npc.knownGoals],
+    statuses: npc.statuses.map((s) => ({ id: s.id, name: s.name, stacks: s.stacks })),
+    attributes: Object.entries(npc.attributes)
+      // 顺序即模板 attributes.order：投影已按 order 构造，这里不重排、不过滤（0 是有效值）。
+      .map(([key, value]) => ({ key, label: attrLabels[key] ?? key, value: Number(value) })),
+    alive: npc.lifecycle.state === "alive",
+    lifeState: npc.lifecycle.state,
+    lifeText: lifecycleText(npc.lifecycle.state, npc.lifecycle.reasonCode),
+    relations: npc.relations
+      .filter((rel) => rel.direction === "out")
+      .map((rel) => {
+        // `kinshipTerms`（同一段亲缘的其它读法）目前还在 packages/shared/src/v2.ts 的未提交改动里，
+        // 这里用结构化收窄读它，避免本提交绑死别人的未落库类型。那笔改动落库后删掉这层 cast 即可。
+        const extra = rel as { kinshipTerms?: string[] };
+        return {
+        withId: rel.withId,
+        withName: rel.withName ?? nameOf(rel.withId),
+        kind: rel.kind,
+        kindLabel: RELATION_KIND_LABEL[rel.kind] ?? rel.kind,
+        visibility: rel.visibility,
+        visibilityLabel: RELATION_VISIBILITY_LABEL[rel.visibility] ?? rel.visibility,
+        ...(rel.value !== undefined ? { value: rel.value } : {}),
+        ...(rel.kinshipTerm !== undefined ? { kinshipTerm: rel.kinshipTerm } : {}),
+        ...(extra.kinshipTerms !== undefined ? { kinshipTerms: [...extra.kinshipTerms] } : {}),
+        ...(rel.counterpartVisible !== undefined ? { counterpartVisible: rel.counterpartVisible } : {}),
+        };
+      }),
+  };
+}
+
+/**
+ * 玩家卡投影：属性条的顺序与「哪些属性不算属性」都是**投影口径**，在这里一次算清，
+ * 不然每个自定义前端都要各自抄一遍 `labels.attributes` 的排序和 `proficiency*` 过滤。
+ */
+function toPlayerVM(snapshot: V2Snapshot): PlayerVM {
+  const p = snapshot.player;
+  const labels = snapshot.labels;
+  const order = Object.keys(labels.attributes);
+  const rank = (key: string): number => {
+    const idx = order.indexOf(key);
+    return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
+  };
+  return {
+    id: p.id,
+    name: p.name,
+    age: p.age,
+    genderLabel: p.genderLabel,
+    hp: p.hp,
+    maxHp: p.maxHp,
+    mp: p.mp,
+    maxMp: p.maxMp,
+    mood: p.mood,
+    moodBandLabel: p.moodBandLabel,
+    // 标签缺省回填放在这里：`labels.resources.hp ?? "hp"` 是旧前端的兜底，展示层不该各抄一份。
+    labels: {
+      hp: labels.resources.hp ?? "hp",
+      mp: labels.resources.mp ?? "mp",
+      mood: labels.mood,
+    },
+    attributes: Object.entries(p.attributes)
+      // 熟练度（`proficiency*`）是派生键，不算面板上的属性条（与既有视觉一致）。
+      .filter(([key]) => !key.startsWith("proficiency"))
+      .sort(([a], [b]) => rank(a) - rank(b))
+      .map(([key, value]) => ({ key, label: labels.attributes[key] ?? key, value: Number(value) })),
+    statuses: p.statuses.map((s) => ({ id: s.id, name: s.name, stacks: s.stacks })),
+  };
+}
+
+/** 评价投影：`ended` 是「盖棺」判据（跑动中分项整块不渲染），由适配器算好交给展示层。 */
+function toEvaluationVM(snapshot: V2Snapshot): EvaluationVM {
+  const ev = snapshot.evaluation;
+  const ended = snapshot.status === "terminated" || snapshot.status === "archived";
+  return {
+    summary: ev.summary,
+    ...(ev.dimensions !== undefined
+      ? {
+          dimensions: ev.dimensions.map((d) => ({
+            id: d.id,
+            ...(d.label !== undefined ? { label: d.label } : {}),
+            level: d.level,
+            score: d.score,
+            ...(d.explanation !== undefined ? { explanation: d.explanation } : {}),
+          })),
+        }
+      : {}),
+    ...(ev.overall !== undefined ? { overall: ev.overall } : {}),
+    ended,
+  };
+}
+
 export function toViewModel({ snapshot, content, media }: ToViewModelInput): ViewModel {
   const slot = snapshot.slotEvent;
   return {
-    player: { id: snapshot.player.id, name: snapshot.player.name },
-    npcs: snapshot.npcs.map((n) => ({ id: n.id, name: n.name })),
+    player: toPlayerVM(snapshot),
+    npcs: snapshot.npcs.map((n) => toNpcVM(snapshot, n)),
     slot:
       slot === null
         ? null
@@ -160,7 +332,7 @@ export function toViewModel({ snapshot, content, media }: ToViewModelInput): Vie
             title: slot.title,
             narrative: slot.narrative,
           },
-    evaluation: { summary: snapshot.evaluation.summary },
+    evaluation: toEvaluationVM(snapshot),
     media: media ?? snapshot.media ?? [],
     content: content ?? [],
     availableActions: toActions(snapshot),

@@ -37,8 +37,17 @@ import {
 } from "./platformLlm";
 import { deleteLifeRecord, listLifeRecords, saveLifeRecord, shouldAutoArchive } from "./records";
 import type { LifeRecordRow } from "./records";
-import { BattleBoard, WheelPanel, interactionMode, toActPayload, toViewModel, toWheelVM } from "@life-sim/rpg-ui";
-import type { ActHandler, ContentBlockVM, ViewModel } from "@life-sim/rpg-ui";
+import {
+  BattleBoard,
+  CharacterSheet,
+  NpcCard,
+  WheelPanel,
+  interactionMode,
+  toActPayload,
+  toViewModel,
+  toWheelVM,
+} from "@life-sim/rpg-ui";
+import type { ActHandler, ContentBlockVM, NpcVM, ViewModel } from "@life-sim/rpg-ui";
 import { ActionDock } from "./ActionDock";
 import { NarrativeStage } from "./NarrativeStage";
 
@@ -669,7 +678,7 @@ function App() {
         {tab === "personal" && (
           <PersonalTab snapshot={snapshot} busy={busy} summarySource={summarySource} onUseItem={useItem} onEquip={equip} onUnequip={unequip} />
         )}
-        {tab === "world" && <WorldTab snapshot={snapshot} />}
+        {tab === "world" && <WorldTab snapshot={snapshot} npcs={view.npcs} />}
         {tab === "log" && <LogTab snapshot={snapshot} />}
         {tab === "records" && <RecordsTab authReady={authReady} session={session} />}
       </main>
@@ -1287,69 +1296,6 @@ function usePlatformEnding(ending: EndingView): { title: string; summary: string
   return text;
 }
 
-// ---------- 玩家状态卡 ----------
-
-function PlayerCard({ snapshot, summarySource }: { snapshot: V2Snapshot; summarySource?: NarrativeSource }) {
-  const platformSummary = usePlatformSummary(snapshot, summarySource);
-  const p = snapshot.player;
-  const labels = snapshot.labels;
-  const labelOrder = Object.keys(labels.attributes);
-  const rankOf = (key: string) => {
-    const idx = labelOrder.indexOf(key);
-    return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
-  };
-  const attrEntries = Object.entries(p.attributes)
-    .filter(([key]) => !key.startsWith("proficiency"))
-    .sort(([a], [b]) => rankOf(a) - rankOf(b));
-  return (
-    <section className="card player-card">
-      <div className="row">
-        <h2>{p.name}</h2>
-        <span className="tag">{p.age} 岁 · {p.genderLabel}</span>
-      </div>
-      <div className="attrs">
-        <ResourceBar label={labels.resources.hp ?? "hp"} value={p.hp} max={p.maxHp} cls="hp" />
-        <ResourceBar label={labels.resources.mp ?? "mp"} value={p.mp} max={p.maxMp} cls="mp" />
-        <ResourceBar label={`${labels.mood} · ${p.moodBandLabel}`} value={p.mood} max={100} cls="mood" />
-      </div>
-      <div className="attrs">
-        {attrEntries.map(([key, value]) => (
-          <div key={key} className="attr">
-            <span className="attr-name">{labels.attributes[key] ?? key}</span>
-            <div className="bar">
-              <div className="bar-fill" style={{ width: `${Math.min(100, Math.max(4, Number(value)))}%` }} />
-            </div>
-            <span className="attr-value">{String(value)}</span>
-          </div>
-        ))}
-      </div>
-      {p.statuses.length > 0 && (
-        <div className="status-chips">
-          {p.statuses.map((s) => (
-            <span key={s.id} className="chip status-chip">
-              {s.name}{s.stacks > 1 ? `×${s.stacks}` : ""}
-            </span>
-          ))}
-        </div>
-      )}
-      <p className="eval-line">{platformSummary ?? snapshot.evaluation.summary}{(summarySource === "llm" || platformSummary !== null) && <AiNarrativeTag />}</p>
-      <EvaluationBreakdown evaluation={snapshot.evaluation} status={snapshot.status} />
-    </section>
-  );
-}
-
-function ResourceBar({ label, value, max, cls }: { label: string; value: number; max: number; cls: string }) {
-  const pct = Math.min(100, Math.max(0, (value / Math.max(1, max)) * 100));
-  return (
-    <div className="attr">
-      <span className="attr-name">{label}</span>
-      <div className="bar">
-        <div className={`bar-fill ${cls}`} style={{ width: `${pct}%` }} />
-      </div>
-      <span className="attr-value">{value}/{max}</span>
-    </div>
-  );
-}
 
 // ---------- 人生 Tab ----------
 
@@ -1395,6 +1341,8 @@ function LifeTab({
 }) {
   // 已终止 / 已归档：世界不再接受动作，只呈现结局（服务端同时清空 availableActions）
   const ended = snapshot.status === "terminated" || snapshot.status === "archived";
+  // 人生总结的平台补写（后端没出 LLM 且用户没配 key 时才触发；失败保持模板总结）。
+  const platformSummary = usePlatformSummary(snapshot, summarySource);
 
   // 呈现位（ADR-0034 §5）：唯一真源是 `snapshot.slotEvent`，前端只按 `kind` 选面板：
   // normal → 选项面板 / random → 转盘（已掷好的那一格）/ combat → 战斗面板 / 空槽 → 自由行动。
@@ -1465,7 +1413,12 @@ function LifeTab({
   return (
     <>
       <div className="stack">
-        <PlayerCard snapshot={snapshot} summarySource={summarySource} />
+        <CharacterSheet
+          player={view.player}
+          evaluation={view.evaluation}
+          summary={platformSummary ?? undefined}
+          summaryFromAi={summarySource === "llm" || platformSummary !== null}
+        />
 
         {/*
           AI 叙事区（T-09a）：紧贴角色卡下方，是默认前端的**主文本面**。
@@ -2322,207 +2275,6 @@ function SkillList({ snapshot }: { snapshot: V2Snapshot }) {
   );
 }
 
-// ---------- 人物 Tab ----------
-
-/**
- * 关系 kind 的中文显示名。
- *
- * 语义来自 `packages/shared/src/schema/relation.ts`：`{from:A, to:B, kind}` 读作
- * **「B 是 A 的 <kind>」**。所以界面上不能只写「父亲」——必须标明**是谁视谁为**，
- * 否则同一条边在不同方向下会被读反。称谓（`kinshipTerm`）由投影给出，只有亲属边才有。
- */
-const RELATION_KIND_LABEL: Record<string, string> = {
-  father: "父亲",
-  mother: "母亲",
-  son: "儿子",
-  daughter: "女儿",
-  husband: "丈夫",
-  wife: "妻子",
-  "elder-brother": "兄长",
-  "younger-brother": "弟弟",
-  "elder-sister": "姐姐",
-  "younger-sister": "妹妹",
-  relative: "亲戚",
-  mentor: "师父",
-  disciple: "弟子",
-  friend: "朋友",
-  rival: "对手",
-  enemy: "敌手",
-  colleague: "同僚",
-};
-
-const RELATION_VISIBILITY_LABEL: Record<string, string> = {
-  known: "确知",
-  inferred: "推断",
-};
-
-/**
- * 生命周期三态（ADR-0012 / ADR-0020）。
- *
- * 这三条只是 `reasonCode` 缺失时的**兜底**文案。`inactive` 的兜底必须中性写「已离场」：
- * 「已故」「失联」都是在替模板猜具体死因，而模板可能表达的是叛逃、被封印、转学离开……
- * 真正的原因由 `lifecycle.reasonCode` 原样下发，前端不解释、不推断（引擎也不对它分支）。
- */
-const NPC_LIFECYCLE_LABEL: Record<string, string> = {
-  alive: "在世",
-  inactive: "已离场",
-  unspawned: "尚未登场",
-};
-
-/**
- * 生命周期文案（ADR-0021 / T3）。
- *
- * 规则：`reasonCode` **存在且 trim 后非空时只显示原因**（「阵亡」「失踪」「叛逃」「被封」），
- * 不再拼接状态词；只有缺失原因时才回退到状态兜底词。顶部 `npc-life-chip`
- * 与「生命周期」区块共用这一个函数，保证两处文案永远一致。
- *
- * 为什么必须 trim 判空：模板 schema 对 `reasonCode` 只约束 `min(1)`，所以 `" "`（单个空格）
- * 是**合法值**。若用真值判断，这种值会渲染出一个近乎空白的胶囊且不回退到状态词
- * （QA D-3）。显示时同样用 trim 后的值，避免前后带空格把胶囊撑宽。
- */
-function lifecycleText(state: string, reasonCode?: string): string {
-  const code = reasonCode?.trim();
-  if (code) return code;
-  return NPC_LIFECYCLE_LABEL[state] ?? state;
-}
-
-function NpcCard({
-  npc,
-  names,
-  attrLabels,
-}: {
-  npc: V2Snapshot["npcs"][number];
-  names: Record<string, string>;
-  /** 属性 id → 中文名（`snapshot.labels.attributes`，与玩家面板同源，前端不另建映射） */
-  attrLabels: Record<string, string>;
-}) {
-  const nameOf = (id: string) => (id === "player" ? "你" : names[id] ?? id);
-  // 顺序即模板 `attributes.order`（projection 已按 order 构造）：不重排、不过滤，
-  // 值为服务端 base 原值——前端不重算、不叠补正。0 是有效值，照常显示。
-  const attrEntries = Object.entries(npc.attributes);
-  /**
-   * 关系只展示**出边**（`direction: "out"`，即「这个人怎么看别人」）。
-   *
-   * 2026-11-16 用户裁决：「单边即可…0 卷时五条悟视乙骨为远亲，但是乙骨这边完全可以不要这条边」。
-   * 同一条边的两个方向本来就是同一件事实，两边都渲染等于把同一句话写两遍，
-   * 而且「谁把谁当什么」的不对称语义会互相打架（A 视 B 为远亲 ≠ B 视 A 为远亲）。
-   * 投影仍下发两个方向（契约不砍），将来要做「被谁看重」这类反向视图时，
-   * 在这里改成 `.filter((r) => r.direction === "in")` 或两段分区即可，不用动引擎。
-   */
-  const relationRows = npc.relations.filter((r) => r.direction === "out");
-  return (
-    <section className={`card npc-card${npc.lifecycle.state === "alive" ? "" : " npc-card-inactive"}`}>
-      <div className="row">
-        <h2>{npc.name}</h2>
-        <span className="tag">
-          {npc.age} 岁 · {npc.genderLabel}
-        </span>
-      </div>
-      <div className="chip-row npc-meta">
-        <span className="chip">{npc.lifeStageLabel}</span>
-        <span className="chip">关系 {npc.relationship}</span>
-        {npc.lifecycle.state !== "alive" && (
-          <span className="chip npc-life-chip">
-            {lifecycleText(npc.lifecycle.state, npc.lifecycle.reasonCode)}
-          </span>
-        )}
-      </div>
-      <p className="muted">{npc.personality}</p>
-      <div className="attr">
-        <span className="attr-name">好感</span>
-        <div className="bar">
-          <div
-            className="bar-fill relation"
-            style={{ width: `${((npc.relationship + 100) / 200) * 100}%` }}
-          />
-        </div>
-        <span className="attr-value">{npc.relationship}</span>
-      </div>
-      {npc.knownGoals.length > 0 && (
-        <p className="known-goals">已知目标：{npc.knownGoals.join("；")}</p>
-      )}
-      <details className="npc-details">
-        <summary>
-          关系 {relationRows.length} · 状态 {npc.statuses.length} · 属性 {attrEntries.length}
-        </summary>
-
-        <div className="npc-block">
-          <h3>关系</h3>
-          {relationRows.length === 0 ? (
-            <p className="muted">尚无已知的人际关系。</p>
-          ) : (
-            <ul className="rel-list">
-              {relationRows.map((rel, i) => {
-                const kindLabel = RELATION_KIND_LABEL[rel.kind] ?? rel.kind;
-                // 关系是独立事实：对方可能没有 NPC 卡（敌人/未登场/隐藏），
-                // 投影已给全名字，所以直接用它，不再从列表里反查。
-                const other = rel.withName ?? nameOf(rel.withId);
-                const sentence = `${npc.name}视${other}为${kindLabel}`;
-                return (
-                  <li key={`${rel.withId}-${rel.kind}-${i}`} className="rel-row">
-                    <span className="rel-text">{sentence}</span>
-                    {rel.kinshipTerm && <span className="rel-term">{rel.kinshipTerm}</span>}
-                    {/* 关系是独立事实：对方可能没有人物卡（敌人 / 尚未登场）。
-                        名字照给，但明确标出「没有档案」，不假装能点开一个人。 */}
-                    {rel.counterpartVisible === false && <span className="rel-nocard">无档案</span>}
-                    <span className={`rel-vis rel-vis-${rel.visibility}`}>
-                      {RELATION_VISIBILITY_LABEL[rel.visibility] ?? rel.visibility}
-                    </span>
-                    {typeof rel.value === "number" && <span className="rel-value">{rel.value}</span>}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-
-        <div className="npc-block">
-          <h3>状态</h3>
-          {npc.statuses.length === 0 ? (
-            <p className="muted">无异常状态。</p>
-          ) : (
-            <div className="chip-row">
-              {npc.statuses.map((s) => (
-                <span key={s.id} className="chip">
-                  {s.name}
-                  {s.stacks > 1 ? ` ×${s.stacks}` : ""}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="npc-block">
-          <h3>属性</h3>
-          {attrEntries.length === 0 ? (
-            <p className="muted">暂无属性数据</p>
-          ) : (
-            <div className="npc-attrs">
-              {attrEntries.map(([key, value]) => (
-                <div key={key} className="npc-attr">
-                  <span className="npc-attr-name">{attrLabels[key] ?? key}</span>
-                  <span className="npc-attr-value">{value}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="npc-block">
-          <h3>生命周期</h3>
-          <p className="muted">
-            <span className={`npc-life npc-life-${npc.lifecycle.state}`}>
-              {lifecycleText(npc.lifecycle.state, npc.lifecycle.reasonCode)}
-            </span>
-            {" · "}
-            {npc.lifeStageLabel} · {npc.age} 岁
-          </p>
-        </div>
-      </details>
-    </section>
-  );
-}
-
 // ---------- 世界 Tab（R2.8 / FE-02：NPC 记录收敛进「世界」视图，分子页签展开） ----------
 
 type WorldSubTab = "overview" | "npc";
@@ -2532,10 +2284,8 @@ const WORLD_SUBTABS: Array<{ key: WorldSubTab; label: string }> = [
   { key: "npc", label: "人物/NPC" },
 ];
 
-function WorldTab({ snapshot }: { snapshot: V2Snapshot }) {
+function WorldTab({ snapshot, npcs }: { snapshot: V2Snapshot; npcs: NpcVM[] }) {
   const [sub, setSub] = useState<WorldSubTab>("overview");
-  // 关系边只给 id，这里建一次 id→名 的索引，避免每行重复查找（沿用原 PeopleTab 逻辑）。
-  const names = Object.fromEntries(snapshot.npcs.map((n) => [n.id, n.name]));
 
   return (
     <div className="stack">
@@ -2569,14 +2319,9 @@ function WorldTab({ snapshot }: { snapshot: V2Snapshot }) {
 
       {sub === "npc" && (
         <>
-          {snapshot.npcs.length === 0 && <p className="muted">这个世界还没有出现在你身边的人。</p>}
-          {snapshot.npcs.map((npc) => (
-            <NpcCard
-              key={npc.id}
-              npc={npc}
-              names={names}
-              attrLabels={snapshot.labels.attributes}
-            />
+          {npcs.length === 0 && <p className="muted">这个世界还没有出现在你身边的人。</p>}
+          {npcs.map((npc) => (
+            <NpcCard key={npc.id} npc={npc} />
           ))}
         </>
       )}
