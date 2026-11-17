@@ -34,6 +34,9 @@ extensions:
   family:
     showAllRoles: true
     maxHops: 3
+    # 默认窗口 4 会让玩家（g4）只看到 ±3 代，最老的 g0 始祖（bardo / hilda）整代被丢，
+    # 家族的根在演示里看不到。放开到 5 才能把 g0..g4 五代都留在屏上。
+    maxGenerations: 5
 
 time:
   defaultStep: { value: 1, unit: day }

@@ -201,6 +201,24 @@ describe("族谱：隐藏节点", () => {
     // 死者/隐藏者都不该用裸 id 当名字；这里没有 h，就不用管。
     expect(view.nodes.every((n) => n.name !== n.id)).toBe(true);
   });
+
+  it("有隐藏父母的人被截断掉时，不挂 incomplete（那是假警报）", () => {
+    // player → c1 → … → c5；c5 的另一个父亲 h2 是隐藏者，但 c5 在 4 代窗口外，不上屏。
+    const edges: RelationEdge[] = [
+      edge("c1", "player", "father"),
+      edge("c2", "c1", "father"),
+      edge("c3", "c2", "father"),
+      edge("c4", "c3", "father"),
+      edge("c5", "c4", "father"),
+      edge("c5", "h2", "father"),
+    ];
+    const view = derivePedigree(ctx({ edges, hidden: ["h2"], selfId: "player" }));
+
+    expect(view.nodes.some((n) => n.id === "c5")).toBe(false);
+    expect(view.truncated).toBe(true);
+    // 唯一带隐藏父母的人没上屏 ⇒ 不该提示「父母不在已知范围内」。
+    expect(view.incomplete).toBeUndefined();
+  });
 });
 
 describe("族谱：确定性截断", () => {
@@ -233,6 +251,63 @@ describe("族谱：确定性截断", () => {
     expect(Math.min(...gens)).toBe(6);
     expect(Math.max(...gens)).toBe(9);
     expect(view.nodes.some((n) => n.id === "g9" && n.isSelf)).toBe(true);
+    expect(view.truncated).toBe(true);
+  });
+});
+
+describe("族谱：incomplete 只看已渲染节点", () => {
+  it("上屏节点的父被隐藏 ⇒ incomplete 为真（与 truncated 各管一件事，可同时为真）", () => {
+    // player 的父 h 隐藏 ⇒ player 缺父；同时一条 3 代子孙链超出 maxGenerations: 2 的窗口。
+    const view = derivePedigree(
+      ctx({
+        edges: [
+          edge("player", "h", "father"),
+          edge("player", "kid", "son"),
+          edge("kid", "grandkid", "son"),
+          edge("grandkid", "great", "son"),
+        ],
+        hidden: ["h"],
+        selfId: "player",
+        config: { maxGenerations: 2 },
+      }),
+    );
+
+    expect(view.nodes.some((n) => n.id === "player")).toBe(true);
+    expect(view.incomplete).toBe(true);
+    expect(view.truncated).toBe(true);
+  });
+
+  it("父只是被世代窗口截掉 ⇒ incomplete 为假，truncated 为真", () => {
+    // g0←g1←g2←g3(self)：maxGenerations: 3 只留 g1..g3，g0 被截掉但**不是隐藏**。
+    const edges: RelationEdge[] = [];
+    for (let i = 1; i <= 3; i++) edges.push(edge(`g${i}`, `g${i - 1}`, "father"));
+    const view = derivePedigree(
+      ctx({ edges, selfId: "g3", config: { maxGenerations: 3 } }),
+    );
+
+    expect(view.nodes.map((n) => n.id).sort()).toEqual(["g1", "g2", "g3"]);
+    expect(view.truncated).toBe(true);
+    // 父母被窗口截掉属于 truncated，不该让 UI 以为「有人的父母被隐藏了」。
+    expect(view.incomplete).toBeUndefined();
+    // g1 的父边没进视图（g0 不在），世代仍是它自己的 1。
+    expect(view.edges.some((e) => e.kind === "parent" && e.to === "g1")).toBe(false);
+  });
+
+  it("只剩 self 一个节点时不自称不完整（jjk-2006 回归锁）", () => {
+    // kid 的父 h 被隐藏（归一化阶段会进 incompleteChildIds），但 kid 在 g1、窗口只留 g0，
+    // 于是屏上只有 player 自己 —— 面板不许挂「谱系不完整」。
+    const view = derivePedigree(
+      ctx({
+        edges: [edge("player", "kid", "son"), edge("kid", "h", "father")],
+        hidden: ["h"],
+        selfId: "player",
+        config: { maxGenerations: 1 },
+      }),
+    );
+
+    expect(view.nodes).toHaveLength(1);
+    expect(view.nodes[0]).toMatchObject({ id: "player", isSelf: true });
+    expect(view.incomplete).toBeUndefined();
     expect(view.truncated).toBe(true);
   });
 });

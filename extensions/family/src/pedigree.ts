@@ -48,8 +48,14 @@ interface Normalized {
   readonly siblings: readonly SiblingEdge[];
   /** 节点 id → 该节点配偶（按边出现序，去重）。 */
   readonly spousePartners: ReadonlyMap<string, readonly string[]>;
-  /** 可见节点的父/母被隐藏：树是不完整的。 */
-  readonly incomplete: boolean;
+  /**
+   * 父/母被隐藏的**可见**子女（不是布尔值）。
+   *
+   * 为什么要留 id 而不是当场定成 true：可见性判定在归一化阶段，而「谁真的上屏」要等
+   * 世代窗口 / 规模上限截断之后才知道。一个被截掉的人有隐藏父母，不该让整张图挂上
+   * 「父母不在已知范围内」——**只有活下来的节点才算**（`derivePedigree` 末尾再收口）。
+   */
+  readonly incompleteChildIds: ReadonlySet<string>;
   /** `gap: true` 的远亲（只保留可见端）。 */
   readonly looseEndIds: ReadonlySet<string>;
   readonly nodeIds: ReadonlySet<string>;
@@ -59,8 +65,13 @@ interface Normalized {
  * 归一化：把关系边缩成「父子 / 配偶 / 兄弟」三类，顺手做可见性剔除。
  *
  * 可见性口径（§1.5 投影纪律）：**隐藏节点与它的所有连带边都不出现** —— 出现了就等于
- * 告诉玩家「有这么个人」。唯一的痕迹是 `incomplete`：某可见节点的父/母被隐藏，
+ * 告诉玩家「有这么个人」。唯一的痕迹是 `incompleteChildIds`：某可见节点的父/母被隐藏，
  * UI 画 "?" 而不是把那个人补出来，也不把该节点错当根。
+ *
+ * 注意这条纪律的副作用（**是设计，不是 bug**）：既然隐藏端点整条被丢，走到最后的节点
+ * 全部都是可见的 ⇒ `PedigreeNodeView.hasCard` 目前恒为 `true`。前端读 `!hasCard` 的
+ * 分支因此是**保留分支**（给将来「可见但没卡」的节点，例如只听说过的某人），
+ * **不是死代码、不要删**。
  */
 function normalize(ctx: SnapshotDerivationContext): Normalized {
   const hidden = ctx.hiddenNodeIds;
@@ -70,7 +81,7 @@ function normalize(ctx: SnapshotDerivationContext): Normalized {
   const siblings: SiblingEdge[] = [];
   const looseEndIds = new Set<string>();
   const spouseSeen = new Set<string>();
-  let incomplete = false;
+  const incompleteChildIds = new Set<string>();
 
   ctx.visibleEdges.forEach((edge, order) => {
     switch (edge.kind) {
@@ -79,7 +90,7 @@ function normalize(ctx: SnapshotDerivationContext): Normalized {
       case "mother": {
         if (!visible(edge.from)) return;
         if (!visible(edge.to)) {
-          incomplete = true;
+          incompleteChildIds.add(edge.from);
           return;
         }
         parents.push({ parent: edge.to, child: edge.from, role: edge.kind, order });
@@ -90,7 +101,7 @@ function normalize(ctx: SnapshotDerivationContext): Normalized {
       case "daughter": {
         if (!visible(edge.to)) return;
         if (!visible(edge.from)) {
-          incomplete = true;
+          incompleteChildIds.add(edge.to);
           return;
         }
         parents.push({ parent: edge.from, child: edge.to, order });
@@ -154,7 +165,7 @@ function normalize(ctx: SnapshotDerivationContext): Normalized {
     else spousePartners.set(e.b, [e.a]);
   }
 
-  return { parents, spouses, siblings, spousePartners, incomplete, looseEndIds, nodeIds };
+  return { parents, spouses, siblings, spousePartners, incompleteChildIds, looseEndIds, nodeIds };
 }
 
 /**
@@ -379,6 +390,24 @@ export function derivePedigree(ctx: SnapshotDerivationContext): PedigreeView {
   const kept = new Set(ordered.slice(0, cfg.maxNodes));
   const truncated = kept.size < norm.nodeIds.size;
 
+  /**
+   * `incomplete` 与 `truncated` 分工（别混回去）：
+   *
+   * - `truncated`：**有人没上屏**（世代窗口 / 规模上限截断）。
+   * - `incomplete`：**上屏的人里**有人缺父/母 —— 那个父/母已知但被隐藏（`hiddenNodeIds`）。
+   *
+   * 因此 `incomplete` 只能在截断**之后**、按 `kept`（最终渲染的节点）判定：拿归一化阶段的
+   * 全量图去算，会把「压根没画出来的人缺的父母」也算进来，面板就会对着只有玩家一个节点的
+   * 图说「谱系不完整」。父母只是被世代窗口截掉**不算** `incomplete`（那是 `truncated`）。
+   */
+  let incomplete = false;
+  for (const id of kept) {
+    if (norm.incompleteChildIds.has(id)) {
+      incomplete = true;
+      break;
+    }
+  }
+
   // ---- 节点 ----
   const nodes: PedigreeNodeView[] = [...kept]
     .sort((a, b) => generationOf(a) - generationOf(b) || (a < b ? -1 : a > b ? 1 : 0))
@@ -391,6 +420,9 @@ export function derivePedigree(ctx: SnapshotDerivationContext): PedigreeView {
         id,
         name: actor?.name ?? UNKNOWN_ACTOR,
         isSelf: id === ctx.selfId,
+        // 恒为 `true`：隐藏端点的边在 `normalize` 里整条被剔除 ⇒ 走到这里的节点必然可见。
+        // 字段留着固定视图契约（将来「可见但没卡」的模式才有 false），前端 `!hasCard`
+        // 分支是保留分支，不是死代码。
         hasCard: !ctx.hiddenNodeIds.has(id),
         genderLabel: actor?.genderLabel ?? "",
         age: actor?.age ?? 0,
@@ -500,7 +532,7 @@ export function derivePedigree(ctx: SnapshotDerivationContext): PedigreeView {
     nodes,
     edges,
     generationRange: { min, max },
-    ...(norm.incomplete ? { incomplete: true } : {}),
+    ...(incomplete ? { incomplete: true } : {}),
     ...(truncated ? { truncated: true } : {}),
     ...(looseEnds.length > 0 ? { looseEnds } : {}),
   };
