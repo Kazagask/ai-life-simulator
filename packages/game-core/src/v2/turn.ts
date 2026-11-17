@@ -13,6 +13,8 @@ import type {
   LlmBudget,
   LlmGateway,
   LlmTrace,
+  LoreEntry,
+  LoreRule,
   Perspective,
   Rules,
   SlotEventView,
@@ -904,7 +906,7 @@ function revalidateThenProject(
   // 本轮真正结算过的事件 id：`eventResolved` 条件的唯一判据（不查历史 eventFires）。
   const resolvedEventIds = new Set(result.triggered.map((t) => t.id));
   // 结算 tail 唯一 hook 位：无 rules / 无 gateway 时为空操作（零回归）。
-  runSettlementHooks(state, pipeline, resolvedEventIds, atTurnBoundary);
+  runSettlementHooks(state, pipeline, resolvedEventIds, atTurnBoundary, lookup);
   return projectWithConfig(state, template, lookup, pipeline);
 }
 
@@ -921,6 +923,8 @@ export interface TurnPipelineConfig {
   gateway?: LlmGateway;
   /** 触发 / 授权规则（内联 fixture 注入；缺省则本轮不发 invocation）。 */
   rules?: Rules;
+  /** `lore.md` 的解析结果（含 keys/always/p）；由 server 注入，内核只做可见文本匹配。 */
+  lore?: readonly LoreRule[];
   conditionRegistry?: ConditionRegistry;
   toolRegistry?: ToolRegistry;
   trace?: LlmTrace[];
@@ -956,12 +960,64 @@ export interface TurnPipelineConfig {
  *
  * 硬不变量：不传 `gateway` 且不传 `rules` ⇒ 完全 no-op，state / 返回结果逐字段不变（零回归）。
  */
+/**
+ * 引擎侧设定筛选（agent-runtime 不做匹配，这条边界与 F4 一致）。
+ *
+ * 语料 = 当前槽事件 title+narrative + 最近 8 条非 hidden 的 history.summary
+ *      + 本次 contextHints 字符串值。
+ * 常驻条目全进；关键词条目只要任一 key 出现在语料里就进。
+ * 排序 p 降序 → id 升序；最多 6 条 / 总字符 6000（按排序截断）。
+ */
+export function selectInvocationLore(
+  state: WorldStateV2,
+  lookup: TemplateLookup,
+  contextHints: readonly string[] | undefined,
+  entries: readonly LoreRule[],
+): LoreEntry[] {
+  if (entries.length === 0) return [];
+  const slot = slotEventView(state, lookup);
+  const corpus = [
+    slot?.title ?? "",
+    slot?.narrative ?? "",
+    ...state.history
+      .slice(-8)
+      .filter((entry) => entry.visibility !== "hidden")
+      .map((entry) => entry.summary),
+    ...(contextHints ?? []),
+  ]
+    .filter((text) => text.length > 0)
+    .join("\n")
+    .toLowerCase();
+
+  const picked = entries.filter(
+    (entry) =>
+      entry.always || entry.keys.some((key) => corpus.includes(key.toLowerCase())),
+  );
+  picked.sort((a, b) => (b.priority - a.priority) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+  const out: LoreEntry[] = [];
+  let chars = 0;
+  for (const entry of picked) {
+    if (out.length >= 6) break;
+    if (chars + entry.text.length > 6_000) break;
+    out.push({
+      id: entry.id,
+      title: entry.title,
+      text: entry.text,
+      always: entry.always,
+    });
+    chars += entry.text.length;
+  }
+  return out;
+}
+
 function runSettlementHooks(
   state: WorldStateV2,
   pipeline: TurnPipelineConfig | undefined,
   resolvedEventIds: ReadonlySet<string>,
   /** 只有真正推进了回合的入口才唤起 agent（轮内小动作不调 LLM）。 */
   atTurnBoundary: boolean,
+  lookup: TemplateLookup,
 ): void {
   if (pipeline?.rules === undefined) return;
   const registry = pipeline.conditionRegistry ?? createConditionRegistry();
@@ -1018,6 +1074,15 @@ function runSettlementHooks(
    * 被挤掉的调用没有 contextHash / templateRef，编一个只会污染 trace 的取证价值）。
    */
   const [chosen, ...displaced] = invocations;
+  const enriched = {
+    ...chosen,
+    ...(pipeline.rules.prompt?.style !== undefined
+      ? { promptStyle: pipeline.rules.prompt.style }
+      : {}),
+    ...(pipeline.lore !== undefined
+      ? { lore: selectInvocationLore(state, lookup, chosen.context.contextHints, pipeline.lore) }
+      : {}),
+  };
   for (const inv of displaced) {
     pipeline.callLog?.push({
       callId: inv.invocationId,
@@ -1028,7 +1093,7 @@ function runSettlementHooks(
     });
   }
   // 落账到 pendingInvocation（写入动作在 api/engine-api.ts，源码守卫据此断言）。
-  assignPendingInvocation(state, chosen);
+  assignPendingInvocation(state, enriched);
   /**
    * `deferInvocation`：交给编排层在**本回合事务内**执行（ADR-0035 D2）。
    *
@@ -1039,7 +1104,7 @@ function runSettlementHooks(
    */
   if (pipeline.deferInvocation === true) return;
   // fire-and-forget：invoke 返回 Promise，内核不 await；回程由 agent-runtime 经 dispatch 提交。
-  void pipeline.gateway.invoke(chosen).catch(() => undefined);
+  void pipeline.gateway.invoke(enriched).catch(() => undefined);
 }
 
 /**

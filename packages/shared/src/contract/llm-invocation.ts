@@ -34,6 +34,27 @@ export const ToolDescriptorSchema = z
 export type ToolDescriptor = z.infer<typeof ToolDescriptorSchema>;
 
 /**
+ * 设定条目（`lore.md` 的运行时切片）。`always` 由引擎按模板元信息标记：
+ * true ⇒ 进 stable prefix；false/缺省 ⇒ 只进本次 reactive `[设定]` 段。
+ */
+export const LoreEntrySchema = z
+  .object({
+    id: z.string().min(1),
+    title: z.string().min(1),
+    text: z.string().min(1),
+    always: z.boolean().optional(),
+  })
+  .strict();
+export type LoreEntry = z.infer<typeof LoreEntrySchema>;
+
+/** loader 侧完整规则：比 `LoreEntry` 多保留匹配/排序字段，只在引擎内部使用。 */
+export interface LoreRule extends LoreEntry {
+  keys: readonly string[];
+  always: boolean;
+  priority: number;
+}
+
+/**
  * LlmContext（v2 §6.1 分层上下文）：让 LlmInvocation.context 不是 loose record，
  * 编排层「不得裁剪 / 补齐 facts 段」才有类型依据——facts 由 core 的 buildFacts() 投影。
  * [1] stablePrefix  字节稳定（世界观骨架 + 能力画像 + 工具 schema + 输出契约）；
@@ -50,6 +71,8 @@ export const LlmContextSchema = z
     recentTurns: z.array(z.unknown()),
     invocationReason: z.string().min(1),
     contextHints: z.array(z.string()).optional(),
+    /** 关键词命中的设定条目（reactive `[设定]` 段）；常驻条目在 stablePrefix 里。 */
+    lore: z.array(LoreEntrySchema).optional(),
     /**
      * ADR-0038：本轮允许摆上桌的事件白名单（由 core 求值产出，**不来自模型输出**）。
      *
@@ -81,6 +104,10 @@ export const LlmInvocationSchema = z
      * 整轮 invocation 作废）。画像名是唯一能让 runtime 重建正确描述符的凭据。
      */
     toolProfile: z.string().min(1).optional(),
+    /** 模板 `rules.yaml prompt.style`：进 stable prefix，与输出契约并列。 */
+    promptStyle: z.string().min(1).optional(),
+    /** 本次 invocation 选中的设定（常驻 + 关键词命中），已由引擎按 p/id 排序并截断。 */
+    lore: z.array(LoreEntrySchema).optional(),
     budget: LlmBudgetSchema.default({}),
     replyTo: z.literal("dispatch"),
     perspective: PerspectiveSchema,

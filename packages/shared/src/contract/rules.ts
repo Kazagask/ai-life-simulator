@@ -90,13 +90,22 @@ export type KnowledgeGrant = KnowledgeGrantRule;
 export const InferenceRuleSchema = KnowledgeGrantRuleSchema;
 export type InferenceRule = KnowledgeGrantRule;
 
-/** v2 §3.5 形状（4 个顶层键）。 */
+/** 模板级文风约束（可选；随 rules.yaml 进语义指纹，最终进 stable prefix）。 */
+export const PromptConfigSchema = z
+  .object({
+    style: z.string().min(1).optional(),
+  })
+  .strict();
+export type PromptConfig = z.infer<typeof PromptConfigSchema>;
+
+/** v2 §3.5 形状（4 个必需键 + 可选 prompt）。 */
 export const RulesSchema = z
   .object({
     llmTriggers: z.array(LlmTriggerSchema),
     toolProfile: ToolProfileSchema,
     knowledgeGrants: z.array(KnowledgeGrantRuleSchema),
     inferenceRules: z.array(KnowledgeGrantRuleSchema),
+    prompt: PromptConfigSchema.optional(),
   })
   .strict();
 export type Rules = z.infer<typeof RulesSchema>;

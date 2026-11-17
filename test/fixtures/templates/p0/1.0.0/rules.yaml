@@ -20,3 +20,6 @@ toolProfile:
     - story.submitBranch
 knowledgeGrants: []
 inferenceRules: []
+prompt:
+  style: |
+    句子短，动作具体；不要写总结陈词。

@@ -17,6 +17,7 @@ import {
   type AssetManifest,
   type EndingConfig,
   type EvaluationConfig,
+  type LoreRule,
   type OpeningTemplate,
   type Rules,
   type TimeSpec,
@@ -34,12 +35,12 @@ import {
  * - **身份 = `(目录名, 版本目录名)`**：磁盘形状 `TEMPLATES_DIR/<id>/<version>/`，
  *   id 取上一级目录名、version 取版本目录名（`^\d+(\.\d+){0,2}$`）。无 `_meta.json`、
  *   无服务端生成 id、无导入端点（R-TG-01 / R4 / R-TG-17）。
- * - **目录结构即元数据**：`<id>/` 层只允许子目录；`<version>/` 层只允许 13 个白名单
+ * - **目录结构即元数据**：`<id>/` 层只允许子目录；`<version>/` 层只允许 14 个白名单
  *   `declarative` yaml（平铺在版本目录根）+ `assets/**`；其余文件一律 **warn + 忽略**，
  *   不参与指纹、不参与校验、不拒载（R-TG-15 / H-1）。`assets/manifest.yaml` 是唯一带 `/`
  *   的嵌套白名单条目，由 `scanVersion` 在顶层循环后按相对路径定向补读（T-06）。
  * - **分层指纹**（实时计算、不落盘）：
- *   `semanticFingerprint` 只算白名单 13 个 yaml（文件名 + `"\0"` + 内容，不含路径）⇒
+ *   `semanticFingerprint` 只算白名单 14 个文件（13 yaml + lore.md）（文件名 + `"\0"` + 内容，不含路径）⇒
  *   决定可载性；游离 yaml 不参与（有意偏离旧 `endsWith(".yaml")` 实现）；
  *   `assetFingerprint` 只算 `assets/**`（相对路径 + `"\0"` + 内容），空集取确定常量，
  *   仅用于诊断，**不参与任何拒载判定**（H-2 / C-3）。
@@ -53,7 +54,7 @@ import {
 const VERSION_PATTERN = /^\d+(\.\d+){0,2}$/;
 
 /**
- * 白名单 declarative yaml（T-06：11 → 13）：只有这 13 个文件进语义指纹与加载校验。
+ * 白名单 declarative yaml（T-06：11 → 13，2026-11-17 增 lore.md → 14）：只有这 14 个文件进语义指纹与加载校验。
  * 前 6 个必需（缺失 ⇒ schema 校验失败）；`equipment/combat-ai` 与
  * `opening/endings/evaluation` 是可选分域；末两项 `rules.yaml` /
  * `assets/manifest.yaml` 是 T-06 新增的**独立声明式文件**（各自独立 loader，
@@ -73,6 +74,7 @@ const DECLARATIVE_FILES = [
   "endings.yaml",
   "evaluation.yaml",
   "rules.yaml",
+  "lore.md",
   "assets/manifest.yaml",
 ] as const;
 
@@ -153,6 +155,8 @@ export interface ReadyTemplateEntry extends TemplateEntryBase {
   assetCount: number;
   /** 独立声明式 loader 读取结果：`rules.yaml` / `assets/manifest.yaml`（T-06 Group B 已绑定 schema）。 */
   rules?: Rules;
+  /** `lore.md` 解析结果（含 keys/always/p；引擎按可见文本筛选）。 */
+  lore?: readonly LoreRule[];
   assetManifest?: AssetManifest;
 }
 
@@ -620,6 +624,99 @@ function loadRules(versionDir: string): Rules {
   }
 }
 
+/**
+ * `lore.md` 独立加载器（第 14 个白名单文件，不进 `TEMPLATE_MERGE_FILES`，但进语义指纹）。
+ *
+ * 解析规则（与模板作者约定）：
+ * - `## 标题` 切条目；标题即 `id`（重名拒载）。
+ * - 标题后**第一个非空行**若以 `>` 开头是元信息：`|` 分段，支持
+ *   `keys: a, b`（逗号分隔）、`always`、`p:N`（0..100）。
+ * - 缺省 `always = true`；写了 `keys` 但没写 `always` ⇒ 视为关键词触发（false）。
+ * - 正文到下一个 `## ` 为止，`trim`；空正文拒载。
+ * - 未知元信息 / keys 为空 / p 越界 / 重名 ⇒ 拒载，错误里带条目标题。
+ */
+export function parseLoreMarkdown(text: string): LoreRule[] {
+  const lines = text.split(/\r?\n/);
+  const entries: LoreRule[] = [];
+  const seen = new Set<string>();
+  let title: string | null = null;
+  let bodyLines: string[] = [];
+
+  const flush = (): void => {
+    if (title === null) return;
+    const entryTitle = title;
+    let cursor = 0;
+    while (cursor < bodyLines.length && bodyLines[cursor]!.trim() === "") cursor += 1;
+    let meta: string | undefined;
+    const first = bodyLines[cursor]?.trim() ?? "";
+    if (first.startsWith(">")) {
+      meta = first.slice(1).trim();
+      cursor += 1;
+    }
+    const body = bodyLines.slice(cursor).join("\n").trim();
+    if (body === "") {
+      throw new Error(`条目「${entryTitle}」没有正文`);
+    }
+
+    let keys: string[] = [];
+    let always: boolean | undefined;
+    let priority = 0;
+    if (meta !== undefined) {
+      for (const raw of meta.split("|").map((part) => part.trim()).filter((part) => part !== "")) {
+        if (raw === "always") {
+          always = true;
+        } else if (raw.startsWith("keys:")) {
+          keys = raw
+            .slice("keys:".length)
+            .split(/[,，]/)
+            .map((key) => key.trim())
+            .filter((key) => key !== "");
+          if (keys.length === 0) throw new Error(`条目「${entryTitle}」的 keys 为空`);
+        } else if (/^p:\s*\d+$/.test(raw)) {
+          priority = Number.parseInt(raw.replace(/^p:\s*/, ""), 10);
+          if (priority < 0 || priority > 100) {
+            throw new Error(`条目「${entryTitle}」的 p 越界：${priority}（允许 0..100）`);
+          }
+        } else {
+          throw new Error(`条目「${entryTitle}」有未知元信息：${raw}`);
+        }
+      }
+    }
+    if (seen.has(entryTitle)) throw new Error(`条目「${entryTitle}」重名`);
+    seen.add(entryTitle);
+    entries.push({
+      id: entryTitle,
+      title: entryTitle,
+      text: body,
+      keys,
+      always: always ?? keys.length === 0,
+      priority,
+    });
+    title = null;
+    bodyLines = [];
+  };
+
+  for (const line of lines) {
+    if (line.startsWith("## ")) {
+      flush();
+      title = line.slice(3).trim();
+      if (title === "") throw new Error("存在空标题的 ## 条目");
+      continue;
+    }
+    if (title !== null) bodyLines.push(line);
+  }
+  flush();
+  return entries;
+}
+
+function loadLore(versionDir: string): LoreRule[] {
+  try {
+    return parseLoreMarkdown(readFileSync(path.join(versionDir, "lore.md"), "utf8"));
+  } catch (error) {
+    throw new Error(`lore.md: ${firstIssue(error)}`);
+  }
+}
+
 /** `assets/manifest.yaml` 独立加载器：契约 = `AssetManifestSchema`，失败同样加载期即抛。 */
 function loadAssetManifest(versionDir: string): AssetManifest {
   try {
@@ -764,6 +861,7 @@ function scanVersion(
     // 坏 `rules.yaml` / `assets/manifest.yaml` 走与其它白名单文件同一条失败通道（catch → reason），
     // 不再「warn + 静默丢文件」（否则 malformed rules 会退化成 undefined，运行时才炸）。
     const rules = present.has("rules.yaml") ? loadRules(versionDir) : undefined;
+    const lore = present.has("lore.md") ? loadLore(versionDir) : undefined;
     const assetManifest = present.has("assets/manifest.yaml")
       ? loadAssetManifest(versionDir)
       : undefined;
@@ -781,8 +879,13 @@ function scanVersion(
       ...(endingConfig !== undefined ? { endingConfig } : {}),
       ...(evaluationConfig !== undefined ? { evaluationConfig } : {}),
       ...(rules !== undefined ? { rules } : {}),
+      ...(lore !== undefined ? { lore } : {}),
       ...(assetManifest !== undefined ? { assetManifest } : {}),
-      pipeline: { endingConfig, evaluationConfig },
+      pipeline: {
+        endingConfig,
+        evaluationConfig,
+        ...(lore !== undefined ? { lore } : {}),
+      },
       semanticFingerprint,
       assetFingerprint: asset.fingerprint,
       assetCount: asset.count,

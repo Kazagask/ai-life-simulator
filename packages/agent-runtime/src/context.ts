@@ -39,11 +39,12 @@ export interface BuiltLlmContext {
 /** 输出契约（固定文本，属于 stablePrefix，因此必须字节稳定）。 */
 export const OUTPUT_CONTRACT = [
   "你是这场人生模拟的叙事者。所有玩家可见正文必须包在 <narrative-content>…</narrative-content> 里；",
-  "标签外只允许工具调用与内部推理，标签外的文字会被丢弃。",
-  "一次 invocation 可以有多个 <narrative-content> 块，按出现顺序拼接；标签内不要写工具调用语法。",
-  "所有事实变更只能通过工具调用提交，禁止在正文里宣称状态已改变。",
-  "refs 只能引用 facts 段里出现的事实引用 id；不得引用未出现的事实。",
-  "正文使用简体中文，2-4 句，具体、克制，不复述指令。",
+  "标签外只允许工具调用与内部推理，标签外的文字会被丢弃。一次 invocation 可以有多个块，按出现顺序拼接。",
+  "只写简体中文散文。禁止任何 markdown / 格式符号（# * - ` >、列表、编号、代码块、英文引号）；除对话外不用括号，不写“（此处……）”式旁注，不写标题。",
+  "禁止只转述现状：不要复述状态数字、线索数量、属性值、轮次。必须写这一刻具体的感官、动作、环境或对话片段，至少包含一个可被摄像机拍到的细节。",
+  "不得违背 [设定]：其中写明的能力与限制是硬约束（例：无下限让普通斩击无法命中；斩击需要咏唱 / 接触或特定条件）。不确定就避开，不要编。",
+  "一次 invocation 正文 80–220 个汉字，1–3 段。",
+  "所有事实变更只能通过工具调用提交，禁止在正文里宣称状态已改变；refs 只能引用 facts 段里出现的事实引用 id。",
 ].join("\n");
 
 /** 递归键排序的稳定序列化（同一对象 ⇒ 同一字符串）。 */
@@ -84,6 +85,11 @@ export function buildStablePrefix(inv: LlmInvocation, deps: LlmContextDeps): str
     description: tool.description ?? "",
     parameters: tool.parameters ?? {},
   }));
+  const alwaysLore = (inv.lore ?? []).filter((entry) => entry.always === true);
+  const loreSection =
+    alwaysLore.length > 0
+      ? ["", "# 设定（常驻）", ...alwaysLore.flatMap((entry) => [`## ${entry.title}`, entry.text])]
+      : [];
   return [
     "# 世界骨架",
     deps.worldSkeleton ?? "(未提供世界骨架)",
@@ -94,6 +100,8 @@ export function buildStablePrefix(inv: LlmInvocation, deps: LlmContextDeps): str
     "",
     "# 输出契约",
     OUTPUT_CONTRACT,
+    ...(inv.promptStyle !== undefined ? ["", "# 文风约束", inv.promptStyle] : []),
+    ...loreSection,
     "",
     "# 工具与参数",
     stableStringify(toolSchema),
@@ -125,6 +133,9 @@ export function buildLlmContext(inv: LlmInvocation, deps: LlmContextDeps): Built
       : inv.context.contextHints !== undefined
         ? { contextHints: [...inv.context.contextHints] }
         : {}),
+    ...(inv.lore?.some((entry) => entry.always !== true)
+      ? { lore: inv.lore.filter((entry) => entry.always !== true) }
+      : {}),
     // ADR-0038：第二个构造点（本函数逐字段重建、不 spread）。漏了它会让本函数的
     // `contextHash` 与 `loop` 的 `sha256(stableStringify(inv.context))` 分叉 ——
     // 只有「白名单不同、其余全同」的两次调用才暴露，单测各自过、合起来才红。
