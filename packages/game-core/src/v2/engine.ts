@@ -210,16 +210,6 @@ export interface ConditionContext {
   effAttrsOverride?: Record<string, number>;
 }
 
-/**
- * 关系条件只认**事实边**（见 `checkCondition` 的 relation 分支）。
- *
- * `derived` 只属于投影行（`V2Snapshot.npcs[].relations[].derived`），不在 `RelationEdge`
- * 类型里；`in` 收窄因此只是兜底护栏 —— 正常路径上这个分支永远拿到 `false`。
- */
-function isFactualRelationEdge(edge: WorldStateV2["relations"][number]): boolean {
-  return !("derived" in edge && edge.derived === true);
-}
-
 export function checkCondition(cond: Condition, ctx: ConditionContext): boolean {
   const { state, lookup, rng } = ctx;
   if ("flag" in cond) {
@@ -255,16 +245,8 @@ export function checkCondition(cond: Condition, ctx: ConditionContext): boolean 
     // 未声明 kind 时保持旧语义（NPC→玩家 标量 relationship），向后兼容。
     if (cond.kind !== undefined) {
       const to = cond.to ?? PLAYER_ID;
-      // 只匹配**事实边**：`derived` 行是投影派生（扩展 `extendRows` 用多跳路径补出来的
-      // 解释），只存在于 `V2Snapshot.npcs[].relations[]`，权威 `state.relations` 里从来没有它
-      // —— `RelationEdgeSchema` 是 strict 的，根本没有这个字段。这里再显式挡一次，
-      // 是为了防止将来有人把投影行回灌进 state：「他是我亲戚」不许冒充「他是我的父亲」。
       const edge = state.relations.find(
-        (e) =>
-          e.from === cond.relation &&
-          e.to === to &&
-          e.kind === cond.kind &&
-          isFactualRelationEdge(e),
+        (e) => e.from === cond.relation && e.to === to && e.kind === cond.kind,
       );
       const value = edge?.value ?? 0;
       if (cond.gte !== undefined && value < cond.gte) return false;

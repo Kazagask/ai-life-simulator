@@ -535,6 +535,14 @@ function buildRelationRows(
       if (hiddenNodeIds.has(draft.withId)) continue;
       const fields = draft.fields ?? {};
       assertNoReservedRowFields(ext.id, fields);
+      /**
+       * `kind` 缺省 `"relative"`：这里借用的只是**显示层的 kind 名**（模板同样可以用
+       * `relative` 声明「据称的远亲」，配 `gap: true`），不是在伪造一条状态边。
+       *
+       * 这些行只在投影里现造，**从不写进 `state.relations`**：`derived: true` / `kind`
+       * 都随 `V2Snapshot` 一次性下发，引擎的条件与效果永远看不到它们。因此
+       * 「他是我亲戚」不会污染「他是我的父亲」这类事实判定 —— 不需要在求值侧另加判断。
+       */
       const row: MutableRelationRow = {
         withId: draft.withId,
         kind: draft.kind ?? "relative",

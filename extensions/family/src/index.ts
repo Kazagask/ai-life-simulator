@@ -115,6 +115,9 @@ function decorate(ctx: RelationRowContext): RelationFields | null {
  *
  * 多跳亲缘**不是额外的推断关系**，而是同一张事实图上换一条路径得出的另一个称谓 ——
  * 属性继承构成边，不另立可信度。
+ *
+ * 这些行只存在于投影（`kind` 是显示层借用的 `relative`），**不进 `state.relations`**：
+ * 引擎的条件与效果永远看不到它们，所以不会污染事实判定。
  */
 function extendRows(ctx: RelationCardContext): RelationRowDraft[] {
   const cfg = parseFamilyConfig(ctx.config);

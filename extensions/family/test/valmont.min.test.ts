@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import type { EndingConfig, EvaluationConfig, OpeningTemplate, RelationEdge, Rules, WorldTemplateV2, WorldStateV2 } from "@life-sim/shared";
+import type { EndingConfig, EvaluationConfig, OpeningTemplate, Rules, WorldTemplateV2, WorldStateV2 } from "@life-sim/shared";
 import {
   EndingConfigSchema,
   EvaluationConfigSchema,
@@ -283,7 +283,12 @@ describe("valmont · 关系投影（玩家真正看到的那一行）", () => {
 describe("valmont · 派生行只是投影，不是事实边", () => {
   const rng = (): number => 0.5;
 
-  it("派生的「亲戚」行不满足任何按 kind 匹配的关系条件", () => {
+  /**
+   * 这是**确认性**断言，不是给引擎加护栏：derived 行只由投影现造，从未写进
+   * `state.relations`，所以按 kind 匹配的关系条件天然看不到它。
+   * 若哪天有人把派生行写回权威状态，这条会红 —— 那时要修的是写入侧，不是条件侧。
+   */
+  it("派生的「亲戚」行不在 state.relations 里，关系条件看不到它", () => {
     const state = newWorld(12);
     const snap = snapshot(state);
     const aldric = snap.npcs.find((n) => n.id === "npc-aldric")!;
@@ -291,6 +296,14 @@ describe("valmont · 派生行只是投影，不是事实边", () => {
     // 派生行确实存在（奥德里克 → 伊尔玛 是继母，没有直接事实边）。
     expect(derived?.kind).toBe("relative");
     expect(derived?.kinshipTerm).toBe("继母");
+    // 但权威关系表里没有这一对端点：它只是显示层的解释。
+    expect(
+      state.relations.some(
+        (e) =>
+          (e.from === "npc-aldric" && e.to === "npc-irma") ||
+          (e.from === "npc-irma" && e.to === "npc-aldric"),
+      ),
+    ).toBe(false);
 
     const ctx = { state, lookup, rng };
     // `gte: 1` = 「这条边存在且强度为正」。缺边时引擎读到 value = 0，自然不满足。
@@ -299,24 +312,6 @@ describe("valmont · 派生行只是投影，不是事实边", () => {
     }
     // 对照：真实事实边能命中 —— 上面的 false 不是「条件恒假」。
     expect(checkCondition({ relation: "npc-aldric", to: "npc-bardo", kind: "father", gte: 1 }, ctx)).toBe(true);
-  });
-
-  it("即便派生行被回灌进 state.relations，也不满足事实边判定", () => {
-    const state = newWorld(12);
-    // 只做防御性构造：正常路径上 `RelationEdge` 没有 `derived` 字段。
-    const forged = {
-      from: "npc-aldric",
-      to: "npc-irma",
-      kind: "father",
-      source: "effect",
-      visibility: "known",
-      value: 5,
-      derived: true,
-    } as unknown as RelationEdge;
-    const polluted: WorldStateV2 = { ...state, relations: [...state.relations, forged] };
-    const ctx = { state: polluted, lookup, rng };
-    // 价值 5 足以满足 gte: 1；被挡下来的是「是派生行」这件事本身。
-    expect(checkCondition({ relation: "npc-aldric", to: "npc-irma", kind: "father", gte: 1 }, ctx)).toBe(false);
   });
 });
 
