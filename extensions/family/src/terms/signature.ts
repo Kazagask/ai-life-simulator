@@ -31,9 +31,56 @@ export type SharedParent = "father" | "mother" | "both";
 /** `none` = 明确没有共同亲代；`null` = 父/母信息不足以判断。 */
 export type SharedParentBreadth = SharedParent | "none" | null;
 
-export type StepKind = "step-parent" | "step-child" | "step-sibling";
+export type StepKind = "step-parent" | "step-child" | "step-sibling" | "adoptive";
 
-export type AtomRole = "parent" | "child" | "spouse" | "sibling";
+export type AtomRole =
+  | "parent"
+  | "child"
+  | "spouse"
+  | "sibling"
+  | "adoptive-parent"
+  | "adoptive-child";
+
+/** 图上的一步。收养不是 `KinshipKind`（core 的边里没有它），单独四个 kind 带性别。 */
+export type MoveKind =
+  | KinshipKind
+  | "adoptive-father"
+  | "adoptive-mother"
+  | "adoptive-son"
+  | "adoptive-daughter";
+
+export interface KinMove {
+  readonly kind: MoveKind;
+  readonly from: string;
+  readonly to: string;
+  /** 与事实边同一口径；指针模型建出来的移动一律 `known`。 */
+  readonly visibility?: string;
+  readonly gapped?: boolean;
+}
+
+/** 移动 → 归约角色。`relative` 返回 null（不可归约，调用方退粗称谓）。 */
+export function moveRole(kind: MoveKind): AtomRole | null {
+  if (kind === "father" || kind === "mother") return "parent";
+  if (kind === "son" || kind === "daughter") return "child";
+  if (kind === "husband" || kind === "wife") return "spouse";
+  if (kind === "elder-brother" || kind === "younger-brother" || kind === "elder-sister" || kind === "younger-sister") {
+    return "sibling";
+  }
+  if (kind === "adoptive-father" || kind === "adoptive-mother") return "adoptive-parent";
+  if (kind === "adoptive-son" || kind === "adoptive-daughter") return "adoptive-child";
+  return null;
+}
+
+/** 移动 → 目标性别。 */
+export function moveSex(kind: MoveKind): Sex | null {
+  if (kind === "father" || kind === "son" || kind === "husband") return "male";
+  if (kind === "mother" || kind === "daughter" || kind === "wife") return "female";
+  if (kind === "elder-brother" || kind === "younger-brother") return "male";
+  if (kind === "elder-sister" || kind === "younger-sister") return "female";
+  if (kind === "adoptive-father" || kind === "adoptive-son") return "male";
+  if (kind === "adoptive-mother" || kind === "adoptive-daughter") return "female";
+  return null;
+}
 
 /** 由边集提取的结构事实（父/母映射、子女、配偶、节点性别）。 */
 export interface KinshipFacts {
@@ -43,8 +90,14 @@ export interface KinshipFacts {
   /** 双向可推：`父 → 子` 的 son/daughter 边同样说明「子」是哪一位的孩子。 */
   readonly children: ReadonlyMap<string, ReadonlySet<string>>;
   readonly spouses: ReadonlyMap<string, ReadonlySet<string>>;
-  /** 节点性别：由指向该节点的亲属边 kind 得出（father/son/husband/…）。 */
+  /** 收养（第三层）：被收养者 → 养父母。 */
+  readonly adoptiveParents: ReadonlyMap<string, ReadonlySet<string>>;
+  /** 收养（第三层）：养父母 → 被收养者。 */
+  readonly adoptees: ReadonlyMap<string, ReadonlySet<string>>;
+  /** 节点性别：边 kind 或角色卡的 `gender`。 */
   readonly sexes: ReadonlyMap<string, Sex>;
+  /** 出生时刻（长幼的**唯一**可靠来源；缺省 = 不猜）。 */
+  readonly births: ReadonlyMap<string, number>;
 }
 
 function addTo(map: Map<string, Set<string>>, key: string, value: string): void {
@@ -123,7 +176,10 @@ export function kinshipFacts(edges: readonly RelationEdge[]): KinshipFacts {
   const mothers = new Map<string, Set<string>>();
   const children = new Map<string, Set<string>>();
   const spouses = new Map<string, Set<string>>();
+  const adoptiveParents = new Map<string, Set<string>>();
+  const adoptees = new Map<string, Set<string>>();
   const sexes = new Map<string, Sex>();
+  const births = new Map<string, number>();
 
   for (const e of edges) {
     const sex = sexOfKind(e.kind as KinshipKind);
@@ -142,7 +198,7 @@ export function kinshipFacts(edges: readonly RelationEdge[]): KinshipFacts {
     }
   }
 
-  return { fathers, mothers, children, spouses, sexes };
+  return { fathers, mothers, children, spouses, adoptiveParents, adoptees, sexes, births };
 }
 
 /** `parent` 是否确实是 `child` 的父亲或母亲。 */
@@ -242,6 +298,15 @@ export interface RelationSignature {
   /** 净代数变化：parent +1 / child -1 / 其余 0（归约后）。 */
   readonly generation: number;
   readonly stepKind: StepKind | null;
+  /**
+   * 推导层：1 血亲 / 2 拟制（婚配、继亲）/ 3 收养。
+   *
+   * 排序时**层号升序优先**，再比跳数 —— 血亲读法永远排在拟制/收养前面，
+   * 不需要展示层再过滤一次。半血亲只属于第 1 层。
+   */
+  readonly tier: 1 | 2 | 3;
+  /** 收养步数（tier 3 的判据）。 */
+  readonly adoptionSteps: number;
   /** 路径上最后一个同胞链接的共同亲代宽度；无同胞步则为 null。 */
   readonly sameBloodVia: SharedParentBreadth;
   /** 归约后每一步目标的性别，按路径顺序。 */
@@ -279,16 +344,52 @@ export function signatureOfPath(
   gapped = false,
 ): SignatureResult {
   if (kinds.length === 0 || nodes.length !== kinds.length + 1) return { kind: "invalid" };
+  const moves: KinMove[] = kinds.map((kind, i) => ({
+    kind,
+    from: nodes[i]!,
+    to: nodes[i + 1]!,
+    visibility: "known",
+    gapped,
+  }));
+  return signatureOfMoves(moves, facts, from, gapped);
+}
+
+/** 出生时刻定长幼：越早越年长；任一方缺 `birthTime` ⇒ 不猜。 */
+export function birthSeniority(
+  facts: KinshipFacts,
+  subject: string,
+  target: string,
+): Seniority | null {
+  const a = facts.births.get(subject);
+  const b = facts.births.get(target);
+  if (a === undefined || b === undefined || a === b) return null;
+  // 返回**目标相对持有者**的长幼：目标出生更早 ⇒ elder。
+  return a < b ? "younger" : "elder";
+}
+
+/**
+ * 移动串 → 签名。`moves[i]` 读作 `moves[i].from` 的 `<kind>`。
+ *
+ * 与 `signatureOfPath` 的区别只在于来源：这个直接吃 `KinMove`，
+ * 因此能表达 `adoptive-*`（`KinshipKind` 里没有）与指针模型建出来的图。
+ */
+export function signatureOfMoves(
+  moves: readonly KinMove[],
+  facts: KinshipFacts,
+  from: string,
+  gapped = moves.some((m) => m.gapped === true),
+): SignatureResult {
+  if (moves.length === 0) return { kind: "invalid" };
 
   const atoms: InternalAtom[] = [];
-  for (let i = 0; i < kinds.length; i++) {
-    const kind = kinds[i]!;
-    const role = roleOfKind(kind);
-    const sex = sexOfKind(kind);
+  for (let i = 0; i < moves.length; i++) {
+    const move = moves[i]!;
+    const role = moveRole(move.kind);
+    const sex = moveSex(move.kind);
     if (role === null || sex === null) return { kind: "coarse" };
 
-    const subject = nodes[i]!;
-    const target = nodes[i + 1]!;
+    const subject = move.from;
+    const target = move.to;
     const last = atoms[atoms.length - 1];
 
     if (role === "parent") {
@@ -337,8 +438,8 @@ export function signatureOfPath(
           atoms.push({
             role: "sibling",
             sex,
-            // 长幼是相对于「上一个同胞」的，不是相对于我 —— 不猜。
-            seniority: null,
+            // 长幼：出生时间优先；这条路径本身不带同胞边。
+            seniority: birthSeniority(facts, prev.subject, target),
             subject: prev.subject,
             target,
             via: prev.via,
@@ -350,7 +451,7 @@ export function signatureOfPath(
         atoms.push({
           role: "sibling",
           sex,
-          seniority: null,
+          seniority: birthSeniority(facts, last.subject, target),
           subject: last.subject,
           target,
           via: last.target,
@@ -401,8 +502,14 @@ export function signatureOfPath(
         atoms.push({
           role: "sibling",
           sex,
-          // 长幼沿同胞链传递；一长一幼或任一未知 ⇒ 不知道。
-          seniority: combineSeniority(last.seniority, seniorityOfKind(kind)),
+          // 出生时间优先；否则沿同胞链传递（一长一幼/未知 ⇒ 不知道）。
+          seniority:
+            birthSeniority(facts, last.subject, target) ??
+            combineSeniority(
+              last.seniority,
+              seniorityOfKind(move.kind as KinshipKind) ??
+                birthSeniority(facts, last.target, target),
+            ),
           subject: last.subject,
           target,
           via: last.via,
@@ -414,11 +521,27 @@ export function signatureOfPath(
       atoms.push({
         role: "sibling",
         sex,
-        seniority: seniorityOfKind(kind),
+        seniority:
+          seniorityOfKind(move.kind as KinshipKind) ?? birthSeniority(facts, subject, target),
         subject,
         target,
         via: null,
         shared: sharedParentBreadth(facts, subject, target),
+        inferred: false,
+      });
+      continue;
+    }
+
+    if (role === "adoptive-parent" || role === "adoptive-child") {
+      // 收养单独一层：不与血亲原子合并（收养≠生育），命名由第三层表处理。
+      atoms.push({
+        role,
+        sex,
+        seniority: null,
+        subject,
+        target,
+        via: null,
+        shared: null,
         inferred: false,
       });
       continue;
@@ -446,19 +569,27 @@ export function signatureOfPath(
     inferred: a.inferred,
   }));
 
-  const stepKind = classifyStep(atoms, facts, from);
+  const adoptionSteps = atoms.filter(
+    (a) => a.role === "adoptive-parent" || a.role === "adoptive-child",
+  ).length;
+  const stepKind: StepKind | null =
+    adoptionSteps > 0 ? "adoptive" : classifyStep(atoms, facts, from);
   const lastSibling = [...atoms].reverse().find((a) => a.role === "sibling");
   const spouseSteps = atoms.filter((a) => a.role === "spouse").length;
+  const tier: 1 | 2 | 3 =
+    adoptionSteps > 0 ? 3 : spouseSteps > 0 || stepKind !== null ? 2 : 1;
 
   const signature: RelationSignature = {
-    up: kinds.filter((k) => roleOfKind(k) === "parent").length,
-    down: kinds.filter((k) => roleOfKind(k) === "child").length,
+    up: atoms.filter((a) => a.role === "parent").length,
+    down: atoms.filter((a) => a.role === "child").length,
     spouseSteps,
     generation: atoms.reduce(
       (sum, a) => sum + (a.role === "parent" ? 1 : a.role === "child" ? -1 : 0),
       0,
     ),
     stepKind,
+    tier,
+    adoptionSteps,
     sameBloodVia: lastSibling?.shared ?? null,
     linkSexes: pattern.map((p) => p.sex),
     seniority: pattern.map((p) => p.seniority),

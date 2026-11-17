@@ -234,6 +234,8 @@ interface Row {
   /** 该对端点在新/旧实现下的全部读法词（分类时用来确认「另一条读法还在」）。 */
   readonly oldTerms: ReadonlySet<string>;
   readonly newTerms: ReadonlySet<string>;
+  /** 旧主称谓那条路径的层（1 血亲 / 2 姻亲；旧实现没有收养）。 */
+  readonly beforeTier: 1 | 2;
 }
 
 function sigText(sig: RelationSignature | undefined): string {
@@ -281,9 +283,11 @@ function compare(
       const before = lt?.term ?? "∅";
       const after = nt?.term ?? "∅";
       if (before !== after) {
-        const newReading = newReadings(edges, from, to, { maxHops: 3 }).find(
-          (r) => r.term === after && r.tokens.join("/") === nt?.tokens.join("/"),
-        );
+        const allNew = newReadings(edges, from, to, { maxHops: 3 });
+        const newReading =
+          allNew.find((r) => r.term === after && r.tokens.join("/") === nt?.tokens.join("/")) ??
+          allNew.find((r) => r.term === after);
+        const beforeTier: 1 | 2 = (lt?.tokens ?? []).some((t) => t === "丈夫" || t === "妻子") ? 2 : 1;
         rows.push({
           corpus,
           from,
@@ -296,6 +300,7 @@ function compare(
           signature: newReading?.signature,
           oldTerms: new Set(legacyReadings(edges, from, to, { maxHops: 3 }).map((r) => r.term)),
           newTerms: new Set(newReadings(edges, from, to, { maxHops: 3 }).map((r) => r.term)),
+          beforeTier,
         });
       }
 
@@ -315,6 +320,7 @@ function compare(
           path: lm.get(t)!.tokens.join("/"),
           oldTerms: new Set(lm.keys()),
           newTerms: new Set(nm.keys()),
+          beforeTier: 1,
         });
       }
       for (const t of added) {
@@ -331,6 +337,7 @@ function compare(
           signature: r.signature,
           oldTerms: new Set(lm.keys()),
           newTerms: new Set(nm.keys()),
+          beforeTier: 1,
         });
       }
     }
@@ -485,6 +492,41 @@ const AGED_VARIANTS: Readonly<Record<string, readonly string[]>> = {
   姨婆: ["姨奶奶"],
 };
 
+/** 姻亲/拟制词（与血亲词相对）。 */
+const AFFINAL_WORDS = new Set([
+  "公公",
+  "婆婆",
+  "岳父",
+  "岳母",
+  "儿媳",
+  "女婿",
+  "嫂子",
+  "弟媳",
+  "姐夫",
+  "妹夫",
+  "小姑子",
+  "小叔子",
+  "大伯子",
+  "小舅子",
+  "大姨子",
+  "小姨子",
+  "大舅子",
+  "姑父",
+  "舅妈",
+  "小舅妈",
+  "大舅妈",
+  "大姑父",
+  "小姑父",
+  "姨父",
+  "大姨父",
+  "小姨父",
+  "伯母",
+  "婶婶",
+  "老公",
+  "老婆",
+  "姻亲",
+]);
+
 const BLOOD_WORDS = new Set([
   "爸爸",
   "妈妈",
@@ -494,6 +536,8 @@ const BLOOD_WORDS = new Set([
   "弟弟",
   "姐姐",
   "妹妹",
+  "兄弟",
+  "姐妹",
   "爷爷",
   "奶奶",
   "外公",
@@ -523,6 +567,24 @@ function classify(r: Row): { verdict: string; reason: string } {
     }
     if (r.before === "自己") {
       return { verdict: "修正", reason: "旧库按一夫一妻把配偶的配偶算成自己；结构上不是自己" };
+    }
+    if (AFFINAL_WORDS.has(r.after) && BLOOD_WORDS.has(r.before)) {
+      return {
+        verdict: "修正",
+        reason: "旧把姻亲折叠成血亲（库假定父之妻=母、妻之子=子）；新按配偶步判为姻亲",
+      };
+    }
+    if (BLOOD_WORDS.has(r.after) && AFFINAL_WORDS.has(r.before)) {
+      return {
+        verdict: "修正",
+        reason: "血亲优先：同一对端点还有血亲读法，旧取了姻亲读法；新按 tier 先选血亲",
+      };
+    }
+    if (r.signature?.tier === 1 && r.beforeTier === 2) {
+      return {
+        verdict: "修正",
+        reason: "血亲优先：同一对端点还有血亲读法，旧取了更短/更顺的姻亲读法；新按 tier 先选血亲",
+      };
     }
     if (STEP_TERMS.has(r.after) && !STEP_TERMS.has(r.before)) {
       return { verdict: "修正", reason: "旧把姻亲/继亲折叠成血亲（库假定父之妻=母、妻之子=子）；新按配偶步/共亲结构判为继亲" };
@@ -697,7 +759,10 @@ for (const [k, v] of [...counts].sort()) lines.push(`| ${k} | ${v} |`);
 lines.push("");
 lines.push("分类口径：");
 lines.push("");
-lines.push("- **修正**：新的对、旧的错。旧实现的错误只有几类：把姻亲/继亲折叠成血亲（库假定「父之妻=母」「妻之子=子」「配偶的配偶=自己」）、凭空给长幼、把社会/方言称谓写进血亲行、表外兜底。");
+lines.push("本版引擎已切到 `KinGraph` + 三层推导（`docs/FAMILY-GRAPH.md` §4.5）：tier 1 血亲 / tier 2 拟制（婚配、继亲）/ tier 3 收养；排序**层号优先**，再比跳数。");
+lines.push("对账语料是模式一（边集），没有收养表，所以这里只覆盖 tier 1/2；tier 3 的验证在 `extensions/family/test/kingraph.min.test.ts`。");
+lines.push("");
+lines.push("- **修正**：新的对、旧的错。旧实现的错误只有几类：把姻亲/继亲折叠成血亲（库假定「父之妻=母」「妻之子=子」「配偶的配偶=自己」）、凭空给长幼、把社会/方言称谓写进血亲行、表外兜底、以及**血亲优先**（同一对端点还有血亲读法，旧取了更短/更顺的姻亲读法）。");
 lines.push("- **回归**：新的错、旧的对。**本轮为 0 行**；若出现，逐条列在表里。");
 lines.push("- **等价**：同一关系的不同词形/书面-口语变体，不改变判断（如 孙媳妇/孙媳、姑妈/姑姑、姑奶奶/姑婆）。");
 lines.push("- **待定**：作者拿不准，或需要产品判断。本轮 0 行；上一版 16 行「覆盖损失」已按裁决落定：边里有长幼（`elder-*` / `younger-*`）⇒ 出精确词；长幼未知 ⇒ **退「姻亲」，读法保留**，不再整条丢弃。");

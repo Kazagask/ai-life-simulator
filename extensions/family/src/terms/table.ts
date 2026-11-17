@@ -38,6 +38,8 @@ export const COARSE_BLOOD_TERM = "远亲";
 export const COARSE_AFFINAL_TERM = "姻亲";
 /** 继亲关系缺表时的粗称谓。 */
 export const COARSE_STEP_TERM = "继亲";
+/** 收养关系缺表时的粗称谓（第三层）。 */
+export const COARSE_ADOPTIVE_TERM = "养亲";
 
 // ---------------- 小表 ----------------
 
@@ -130,7 +132,12 @@ function stepGrandchildTerm(sexes: readonly Sex[]): string {
 
 /** 是否是粗称谓（表外兜底），调用方据此决定 `exact`。 */
 export function isCoarseTerm(term: string): boolean {
-  return term === COARSE_BLOOD_TERM || term === COARSE_AFFINAL_TERM || term === COARSE_STEP_TERM;
+  return (
+    term === COARSE_BLOOD_TERM ||
+    term === COARSE_AFFINAL_TERM ||
+    term === COARSE_STEP_TERM ||
+    term === COARSE_ADOPTIVE_TERM
+  );
 }
 
 // ---------------- 血亲表 ----------------
@@ -292,8 +299,56 @@ export function nameAtoms(
   opts: NameOptions = {},
 ): string | null {
   if (atoms.length === 0) return null;
+  if (atoms.some((a) => a.role === "adoptive-parent" || a.role === "adoptive-child")) {
+    return nameAdoptive(atoms, facts, from);
+  }
   const hasSpouse = atoms.some((a) => a.role === "spouse");
   return hasSpouse ? nameAffinal(atoms, facts, from, opts) : nameBlood(atoms, facts, from, opts);
+}
+
+/**
+ * 第三层：收养。只在血亲与拟制都不存在处补位（由 `tier` 排序保证）。
+ *
+ * 覆盖常见的四种形状；其余一律 `养亲`（粗称谓，不编词）。
+ * 关键点：收养**不**与血亲合并 —— 「养父」不能被写成「爸爸」，
+ * 哪怕他同时在婚配表里是母亲的配偶。
+ */
+function nameAdoptive(
+  atoms: readonly InternalAtom[],
+  facts: KinshipFacts,
+  from: string,
+): string | null {
+  const roles = atoms.map((a) => a.role);
+  const [first, second] = atoms;
+
+  if (roles.length === 1) {
+    if (first!.role === "adoptive-parent") return first!.sex === "male" ? "养父" : "养母";
+    if (first!.role === "adoptive-child") return first!.sex === "male" ? "养子" : "养女";
+  }
+
+  if (roles.length === 2 && first !== undefined && second !== undefined) {
+    if (first.role === "adoptive-parent" && second.role === "child") {
+      // 养父母自己的（亲生）孩子：社会关系上仍是养兄弟姐妹。
+      return second.sex === "male" ? "养兄弟" : "养姐妹";
+    }
+    if (first.role === "adoptive-parent" && second.role === "adoptive-child") {
+      return second.sex === "male" ? "养兄弟" : "养姐妹";
+    }
+    if (first.role === "adoptive-parent" && second.role === "spouse") {
+      // 养父/养母的配偶：按目标性别叫养父/养母。
+      return second.sex === "male" ? "养父" : "养母";
+    }
+    if (first.role === "parent" && second.role === "adoptive-child") {
+      // 我父/母的养子女：养兄弟姐妹。
+      return second.sex === "male" ? "养兄弟" : "养姐妹";
+    }
+    if (first.role === "spouse" && second.role === "adoptive-child") {
+      if (isChildOf(facts, from, second.target)) return second.sex === "male" ? "儿子" : "女儿";
+      return second.sex === "male" ? "养子" : "养女";
+    }
+  }
+
+  return COARSE_ADOPTIVE_TERM;
 }
 
 function nameBlood(
