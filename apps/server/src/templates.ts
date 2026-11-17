@@ -154,8 +154,9 @@ export interface TemplateRef {
  *   里写亲属边。两种亲缘模式互斥（`docs/FAMILY-GRAPH.md` §1/§2）：装了扩展就只写
  *   `fatherId`/`motherId` 指针。当前实现不是「扩展覆盖模板」，而是模板那条先占位、
  *   扩展推导出的行被 `factCounterpartIds` 静默丢弃 —— 模板作者以为在用扩展，其实扩展被架空。
- *   **闸门已实现（`assertKinshipCompliance`）但本轮未接入 `loadTemplate`**：现有三个模板
- *   尚未迁移到指针，单独接入会让它们同时不可载；接入时机见该函数上的 TODO。
+ *   **闸门已实现（`assertKinshipCompliance`）但本轮未接入 `loadTemplate`**：现有模板尚未
+ *   迁移到指针（valmont 还依赖 family 效果，不能撤 extensions），单独接入会锁死唯一能
+ *   演示族谱/宗族的模板；接入时机见该函数上方的注释。
  */
 export type TemplateLoadReasonCode =
   | "unknown_extension"
@@ -233,7 +234,8 @@ function assertExtensionsInstalled(template: WorldTemplateV2): void {
  *
  * 非亲属 kind（`friend` / `enemy` / `mentor` / `colleague` …）不受影响：两种模式下都能写。
  */
-// TODO(kin-gate): 与模板迁移同一提交接入 loadTemplate —— 单独接入会让现有三个模板同时不可载。
+// 未接入 loadTemplate：现有模板尚未迁移到指针（valmont 还靠 family 效果，不能撤 extensions）。
+// 接入必须与「seam 扩字段 → 模板迁移」同一提交，否则会把唯一能演示族谱/宗族的模板锁死。
 export function assertKinshipCompliance(template: WorldTemplateV2): void {
   if (template.extensions?.family === undefined) return;
 
