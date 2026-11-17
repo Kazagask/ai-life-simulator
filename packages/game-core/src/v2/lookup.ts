@@ -1,11 +1,11 @@
 import type {
   Chain,
   Character,
-  Effect,
   EventV2,
   Item,
   Skill,
   StatusEffect,
+  TemplateEffect,
   TimeAmount,
   WorldTemplateV2,
 } from "@life-sim/shared";
@@ -19,13 +19,9 @@ export interface ActionDef {
   advanceTo?: TimeAmount;
   /**
    * 模板 `actions[].effects`：内核 27 种 ∪ 开放形（扩展效果）。
-   *
-   * 但 `packages/shared/src/v2.ts` 的 `TemplateLookup` 仍声明成闭合 `Effect[]`，
-   * 本接口要与它结构兼容（`apps/server` 把本 lookup 当 shared 的用）。两边类型对不上
-   * 时由 `action()` 的收窄负责 —— 运行期 `applyEffectsV2` 按 `type` 归属分发，
-   * 开放形照样走扩展，不丢效果。
+   * 与 `packages/shared/src/v2.ts` 的 `TemplateLookup.action()` 同型，不再需要收窄 cast。
    */
-  effects?: Effect[];
+  effects?: TemplateEffect[];
 }
 
 /**
@@ -80,11 +76,7 @@ export class TemplateLookup {
   }
 
   action(id: string): ActionDef | undefined {
-    // 模板侧的 `effects` 已放宽到「内核 ∪ 开放形」（扩展效果）；本文件对外仍按
-    // `ActionDef.effects: Effect[]` 声明，只为与 `packages/shared/src/v2.ts` 的
-    // `TemplateLookup` 保持结构兼容。这里收窄是**类型层**的：执行仍走 `applyEffectsV2`，
-    // 它按 `type` 归属分发，开放形（扩展效果）不会被丢掉。
-    return this.template.actions?.find((a) => a.id === id) as ActionDef | undefined;
+    return this.template.actions?.find((a) => a.id === id);
   }
 
   genderLabel(genderId: string): string {

@@ -12,6 +12,7 @@ import type {
   ScheduledEventInstance,
   Skill,
   StatusEffect,
+  TemplateEffect,
   TimeAmount,
   WorldTemplateV2,
   TerminationRecord,
@@ -959,7 +960,7 @@ export interface TemplateLookup {
   status(id: string): StatusEffect | undefined;
   character(id: string): Character | undefined;
   chain(id: string): Chain | undefined;
-  action(id: string): { id: string; label: string; description?: string; duration?: TimeAmount; advanceTo?: TimeAmount; effects?: Effect[] } | undefined;
+  action(id: string): { id: string; label: string; description?: string; duration?: TimeAmount; advanceTo?: TimeAmount; effects?: TemplateEffect[] } | undefined;
 }
 
 export type { Condition, Effect, EventV2, Skill, Item, StatusEffect, WorldTemplateV2, TimeAmount, Chain };
