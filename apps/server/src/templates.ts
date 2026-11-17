@@ -154,9 +154,6 @@ export interface TemplateRef {
  *   里写亲属边。两种亲缘模式互斥（`docs/FAMILY-GRAPH.md` §1/§2）：装了扩展就只写
  *   `fatherId`/`motherId` 指针。当前实现不是「扩展覆盖模板」，而是模板那条先占位、
  *   扩展推导出的行被 `factCounterpartIds` 静默丢弃 —— 模板作者以为在用扩展，其实扩展被架空。
- *   **闸门已实现（`assertKinshipCompliance`）但本轮未接入 `loadTemplate`**：现有模板尚未
- *   迁移到指针（valmont 还依赖 family 效果，不能撤 extensions），单独接入会锁死唯一能
- *   演示族谱/宗族的模板；接入时机见该函数上方的注释。
  */
 export type TemplateLoadReasonCode =
   | "unknown_extension"
@@ -233,9 +230,10 @@ function assertExtensionsInstalled(template: WorldTemplateV2): void {
  * 「全链路已查过亲属边」。
  *
  * 非亲属 kind（`friend` / `enemy` / `mentor` / `colleague` …）不受影响：两种模式下都能写。
+ *
+ * 已在 `scanVersion` 接入：三个内置模板（valmont / jjk-2006 / jjk-shinjuku）均已按各自模式
+ * 合规，装了 family 的 valmont 只写指针，jjk-2006 撤掉了 family 声明走边模式。
  */
-// 未接入 loadTemplate：现有模板尚未迁移到指针（valmont 还靠 family 效果，不能撤 extensions）。
-// 接入必须与「seam 扩字段 → 模板迁移」同一提交，否则会把唯一能演示族谱/宗族的模板锁死。
 export function assertKinshipCompliance(template: WorldTemplateV2): void {
   if (template.extensions?.family === undefined) return;
 
@@ -1113,8 +1111,10 @@ function scanVersion(
     }
     // 扩展层：模板声明了没注册的 id ⇒ 拒载（`unknown_extension`），不是「投影期悄悄跳过」。
     assertExtensionsInstalled(template);
-    // 亲缘模式互斥（`assertKinshipCompliance`）**本轮有意未接入**：现有模板尚未迁移到
-    // fatherId/motherId 指针，单独接入会让它们同时不可载。接入时机见该函数上的 TODO。
+    // 亲缘模式互斥：装了 family 又自己写亲属边 ⇒ 加载期拒载（`kinship_conflict`）。
+    // 三个模板已全部合规（valmont 迁到 fatherId/motherId 指针，jjk-2006 撤掉 family 声明），
+    // 闸门自此真正生效；它是软码（只废这一个版本，不拒进程），见 SOFT_REASON_CODES。
+    assertKinshipCompliance(template);
     const openings = loadOpenings(versionDir, present);
     const endingConfig = loadOptionalConfig(versionDir, "endings.yaml", present, EndingConfigSchema);
     const evaluationConfig = loadOptionalConfig(

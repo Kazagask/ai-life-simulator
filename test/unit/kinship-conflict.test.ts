@@ -9,9 +9,9 @@ import { assertKinshipCompliance } from "../../apps/server/src/templates.ts";
  * `KinshipKind`（`father` / `mother` / `wife` / `son` / `daughter` / `elder-sister` /
  * `relative` …）⇒ 抛 `kinship_conflict`，reason 点名角色与 kind。
  *
- * 这里直接测纯函数 `assertKinshipCompliance`，**不经 `loadTemplate`**：闸门本轮只实现、
- * 未接入加载期（接入会让尚未迁移到指针的现有模板同时不可载，见函数上的 TODO）。
- * 因此用例里也不依赖真模板目录，只喂函数真正读的两个字段。
+ * 这里直接测纯函数 `assertKinshipCompliance`，**不经 `loadTemplate`**：闸门已在
+ * `scanVersion` 接入（三个内置模板均已按各自模式合规），但纯函数层不需要真模板目录，
+ * 只喂它真正读的两个字段，才能把判据本身钉死。
  *
  * 四条锁定：
  * 1. family + `wife` 边 ⇒ 抛 `kinship_conflict`，reason 点名角色与 kind；
