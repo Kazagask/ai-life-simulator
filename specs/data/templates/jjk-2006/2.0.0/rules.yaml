@@ -4,21 +4,194 @@
 # 也就是说**没有 rules.yaml 的模板永远不会有 LLM invocation** —— 玩家配了自定义 key 也不会被调用，
 # 前端那条 SSE 只能一直 idle（用户 2026-11-18 实测「配了 LLM 但 SSE 调用失败」就是这个）。
 #
-# 本模板的取法：**每回合一次旁白**，只读、不写分支（不声明 branchEventIds ⇒ 模型不能现造剧情）。
+# ## 为什么是「一章一次」而不是「每回合」
+#
+# `fireMode: level`（每回合）会让一次交互里的 turn / choose / confirm **各调一次** LLM：
+# 玩家看到的是同一件事被叙述三遍，而且每次都等模型（用户 2026-11-18 实测「重复叙述」+「不真流式」）。
+# 这个剧本事件密集，逐回合交给模型既贵又碎；改成**章节收束时总结一次**，
+# 平时由引擎的模板叙事兜底（`recordTurnNarrative`，确定性、零成本）。
 llmTriggers:
-  - id: lt.turn-narrative
+  - id: lt.chapter-2
     when:
-      - { op: always, args: {} }
-    # 必须显式 level：默认 edge 只在「上一轮假 → 本轮真」时发一次，而 always 恒真 ⇒ 一辈子只触发一次。
-    fireMode: level
+      - { op: flagSet, args: { flag: chapter, value: 2 } }
+    # edge（缺省）语义：本章**开始**的那一刻发一次，等价于「上一章结束了，总结一下」。
     invoke:
-      reason: jjk.turn.narrative
+      reason: jjk.chapter.summary
       perspective: player
       targetPerspective: player
       contextHints: [facts, history]
       instruction: >-
-        只写这一回合内、主角亲身经历的一小段（150 字以内）。不要罗列世界动态、其他角色的行程、
-        属性数值或已知事实；除正在交谈的对象外，不要用「某某做了什么」的清单句式。
+        用 3-5 句回顾刚结束的这一章：主角做了什么、付出了什么代价、留下了什么。只写主角的经历与感受，
+        不要罗列世界动态、数值或已知事实，不要写成事件清单。
+      toolProfile: narrative
+  - id: lt.chapter-3
+    when:
+      - { op: flagSet, args: { flag: chapter, value: 3 } }
+    # edge（缺省）语义：本章**开始**的那一刻发一次，等价于「上一章结束了，总结一下」。
+    invoke:
+      reason: jjk.chapter.summary
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      instruction: >-
+        用 3-5 句回顾刚结束的这一章：主角做了什么、付出了什么代价、留下了什么。只写主角的经历与感受，
+        不要罗列世界动态、数值或已知事实，不要写成事件清单。
+      toolProfile: narrative
+  - id: lt.chapter-4
+    when:
+      - { op: flagSet, args: { flag: chapter, value: 4 } }
+    # edge（缺省）语义：本章**开始**的那一刻发一次，等价于「上一章结束了，总结一下」。
+    invoke:
+      reason: jjk.chapter.summary
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      instruction: >-
+        用 3-5 句回顾刚结束的这一章：主角做了什么、付出了什么代价、留下了什么。只写主角的经历与感受，
+        不要罗列世界动态、数值或已知事实，不要写成事件清单。
+      toolProfile: narrative
+  - id: lt.chapter-5
+    when:
+      - { op: flagSet, args: { flag: chapter, value: 5 } }
+    # edge（缺省）语义：本章**开始**的那一刻发一次，等价于「上一章结束了，总结一下」。
+    invoke:
+      reason: jjk.chapter.summary
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      instruction: >-
+        用 3-5 句回顾刚结束的这一章：主角做了什么、付出了什么代价、留下了什么。只写主角的经历与感受，
+        不要罗列世界动态、数值或已知事实，不要写成事件清单。
+      toolProfile: narrative
+  - id: lt.chapter-6
+    when:
+      - { op: flagSet, args: { flag: chapter, value: 6 } }
+    # edge（缺省）语义：本章**开始**的那一刻发一次，等价于「上一章结束了，总结一下」。
+    invoke:
+      reason: jjk.chapter.summary
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      instruction: >-
+        用 3-5 句回顾刚结束的这一章：主角做了什么、付出了什么代价、留下了什么。只写主角的经历与感受，
+        不要罗列世界动态、数值或已知事实，不要写成事件清单。
+      toolProfile: narrative
+  - id: lt.chapter-7
+    when:
+      - { op: flagSet, args: { flag: chapter, value: 7 } }
+    # edge（缺省）语义：本章**开始**的那一刻发一次，等价于「上一章结束了，总结一下」。
+    invoke:
+      reason: jjk.chapter.summary
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      instruction: >-
+        用 3-5 句回顾刚结束的这一章：主角做了什么、付出了什么代价、留下了什么。只写主角的经历与感受，
+        不要罗列世界动态、数值或已知事实，不要写成事件清单。
+      toolProfile: narrative
+  - id: lt.chapter-8
+    when:
+      - { op: flagSet, args: { flag: chapter, value: 8 } }
+    # edge（缺省）语义：本章**开始**的那一刻发一次，等价于「上一章结束了，总结一下」。
+    invoke:
+      reason: jjk.chapter.summary
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      instruction: >-
+        用 3-5 句回顾刚结束的这一章：主角做了什么、付出了什么代价、留下了什么。只写主角的经历与感受，
+        不要罗列世界动态、数值或已知事实，不要写成事件清单。
+      toolProfile: narrative
+  - id: lt.chapter-9
+    when:
+      - { op: flagSet, args: { flag: chapter, value: 9 } }
+    # edge（缺省）语义：本章**开始**的那一刻发一次，等价于「上一章结束了，总结一下」。
+    invoke:
+      reason: jjk.chapter.summary
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      instruction: >-
+        用 3-5 句回顾刚结束的这一章：主角做了什么、付出了什么代价、留下了什么。只写主角的经历与感受，
+        不要罗列世界动态、数值或已知事实，不要写成事件清单。
+      toolProfile: narrative
+  - id: lt.chapter-10
+    when:
+      - { op: flagSet, args: { flag: chapter, value: 10 } }
+    # edge（缺省）语义：本章**开始**的那一刻发一次，等价于「上一章结束了，总结一下」。
+    invoke:
+      reason: jjk.chapter.summary
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      instruction: >-
+        用 3-5 句回顾刚结束的这一章：主角做了什么、付出了什么代价、留下了什么。只写主角的经历与感受，
+        不要罗列世界动态、数值或已知事实，不要写成事件清单。
+      toolProfile: narrative
+  - id: lt.chapter-11
+    when:
+      - { op: flagSet, args: { flag: chapter, value: 11 } }
+    # edge（缺省）语义：本章**开始**的那一刻发一次，等价于「上一章结束了，总结一下」。
+    invoke:
+      reason: jjk.chapter.summary
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      instruction: >-
+        用 3-5 句回顾刚结束的这一章：主角做了什么、付出了什么代价、留下了什么。只写主角的经历与感受，
+        不要罗列世界动态、数值或已知事实，不要写成事件清单。
+      toolProfile: narrative
+  - id: lt.chapter-12
+    when:
+      - { op: flagSet, args: { flag: chapter, value: 12 } }
+    # edge（缺省）语义：本章**开始**的那一刻发一次，等价于「上一章结束了，总结一下」。
+    invoke:
+      reason: jjk.chapter.summary
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      instruction: >-
+        用 3-5 句回顾刚结束的这一章：主角做了什么、付出了什么代价、留下了什么。只写主角的经历与感受，
+        不要罗列世界动态、数值或已知事实，不要写成事件清单。
+      toolProfile: narrative
+  - id: lt.chapter-13
+    when:
+      - { op: flagSet, args: { flag: chapter, value: 13 } }
+    # edge（缺省）语义：本章**开始**的那一刻发一次，等价于「上一章结束了，总结一下」。
+    invoke:
+      reason: jjk.chapter.summary
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      instruction: >-
+        用 3-5 句回顾刚结束的这一章：主角做了什么、付出了什么代价、留下了什么。只写主角的经历与感受，
+        不要罗列世界动态、数值或已知事实，不要写成事件清单。
+      toolProfile: narrative
+  - id: lt.chapter-14
+    when:
+      - { op: flagSet, args: { flag: chapter, value: 14 } }
+    # edge（缺省）语义：本章**开始**的那一刻发一次，等价于「上一章结束了，总结一下」。
+    invoke:
+      reason: jjk.chapter.summary
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      instruction: >-
+        用 3-5 句回顾刚结束的这一章：主角做了什么、付出了什么代价、留下了什么。只写主角的经历与感受，
+        不要罗列世界动态、数值或已知事实，不要写成事件清单。
+      toolProfile: narrative
+  - id: lt.chapter-15
+    when:
+      - { op: flagSet, args: { flag: chapter, value: 15 } }
+    # edge（缺省）语义：本章**开始**的那一刻发一次，等价于「上一章结束了，总结一下」。
+    invoke:
+      reason: jjk.chapter.summary
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      instruction: >-
+        用 3-5 句回顾刚结束的这一章：主角做了什么、付出了什么代价、留下了什么。只写主角的经历与感受，
+        不要罗列世界动态、数值或已知事实，不要写成事件清单。
       toolProfile: narrative
 
 toolProfile:

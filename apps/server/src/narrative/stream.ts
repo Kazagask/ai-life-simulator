@@ -269,8 +269,30 @@ export async function registerNarrativeStreamRoute(app: FastifyInstance): Promis
       abortIfUnwatched(id, channel);
     };
 
+    /**
+     * 前端用 `?next=1` 声明「我马上要发一个回合，订阅的是**这一轮**」。
+     *
+     * 没有这个声明时，频道里还留着**上一轮**的 `done` 与正文（给晚到订阅者补看用的），
+     * 于是一次新的预订阅会立刻命中下面的分支①：把上一轮的正文当成这一轮补发一遍就收尾
+     * —— 表现就是「等待时还挂着上一轮的输出，而且再也不流式了」（用户 2026-11-18 实测）。
+     *
+     * 声明了 next 就等频道被 `beginNarrativeInvocation` 重置（text 清空 / done 清空），
+     * 再走「在飞」分支去订阅实时增量。
+     */
+    const wantsNext = (request.query as { next?: string } | undefined)?.next === "1";
+    if (wantsNext) {
+      const staleDone = channel.done;
+      const staleText = channel.text;
+      const deadline = Date.now() + PENDING_WAIT_MS;
+      while (Date.now() < deadline) {
+        if (channel.done !== staleDone || channel.text !== staleText) break;
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      }
+    }
+
     // 并发订阅抢跑：turn 的 pendingInvocation 可能晚几十毫秒；先等一个短窗口。
     if (
+      !wantsNext &&
       channel.done === null &&
       record.state.pendingInvocation === undefined &&
       channel.text.length === 0

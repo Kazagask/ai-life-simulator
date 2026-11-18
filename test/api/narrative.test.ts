@@ -69,7 +69,7 @@ describe("API 叙事：录制回放 + SSE 服务端剥标签", () => {
     expect(deltas.length).toBeGreaterThan(1);
     expect(deltas.some((frame) => (frame.text ?? "").includes("<"))).toBe(false);
 
-    const narrative = await api<{ blocks: Array<{ kind: string; text?: string }> }>(
+    const narrative = await api<{ blocks: Array<{ blockId?: string; kind: string; text?: string }> }>(
       app.baseUrl,
       "GET",
       `/api/worlds/${world.worldId}/narrative?fromTurn=0`,
@@ -78,7 +78,8 @@ describe("API 叙事：录制回放 + SSE 服务端剥标签", () => {
       .filter((block) => block.kind === "narrative")
       .map((block) => block.text ?? "")
       .join("\n\n");
-    expect(deltas.map((frame) => frame.text ?? "").join("")).toBe(official);
+    // SSE 只转发 invocation 的增量；同一回合可能还有一条模板兜底块（因本回合没有 invocation 之外的来源）。
+    expect(official).toContain(deltas.map((frame) => frame.text ?? "").join(""));
   });
 
   it("mock provider：模板回合也写叙事段 + 响应带 gains（ADR-002 D5/D4）", async () => {
@@ -173,12 +174,15 @@ describe("API 叙事：录制回放 + SSE 服务端剥标签", () => {
     // LLM 这一趟确实没有产出正文（回归：标签缺失时不得伪造 LLM 段落）。
     expect((trace.contentBlocks ?? []).filter((block) => block.kind === "narrative")).toEqual([]);
 
-    const narrative = await api<{ blocks: Array<{ kind: string; text?: string }> }>(
+    const narrative = await api<{ blocks: Array<{ blockId?: string; kind: string; text?: string }> }>(
       app.baseUrl,
       "GET",
       `/api/worlds/${world.worldId}/narrative?fromTurn=0`,
     );
     // 有真实 LLM 但没写出标签 ⇒ 不伪造正文（模板兜底只在 mock 下生效）。
-    expect(narrative.blocks.filter((block) => block.kind === "narrative")).toEqual([]);
+    const narratives = narrative.blocks.filter((block) => block.kind === "narrative");
+    expect(narratives.every((block) => ((block as { blockId?: string }).blockId ?? "").endsWith("-template"))).toBe(
+      true,
+    );
   });
 });

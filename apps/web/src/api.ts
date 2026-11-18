@@ -666,7 +666,8 @@ export async function streamNarrative(
 ): Promise<void> {
   const headers: Record<string, string> = {};
   if (llmSessionId !== null) headers["x-life-sim-llm-session"] = llmSessionId;
-  const res = await fetch(`${BASE}/api/worlds/${worldId}/narrative/stream`, {
+  // `?next=1`：告诉服务端「订阅的是马上要发的那一轮」，别把频道里上一轮的正文当成本轮补发。
+  const res = await fetch(`${BASE}/api/worlds/${worldId}/narrative/stream?next=1`, {
     method: "POST",
     headers,
     ...(signal !== undefined ? { signal } : {}),

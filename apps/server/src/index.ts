@@ -872,10 +872,18 @@ async function runWorldTransaction(
     worldStore.save(res.state);
     // 本轮收获：由基线差分得出（不落库，刷新即消失）。
     const gains = diffGains(gainBaseline, res.state, entry.lookup, entry.ui);
-    // 回合叙事兜底（ADR-002 D5）：**只在没有真实 LLM 时**写模板段。
-    // 判据用 provider id 而不是「trace 里有没有块」——invocation 的 trace 落盘时机
-    // 与事务收尾不保证先后（实测读回为空但随后 GET 能读到），据此判重会重复写。
-    if (request.llmProvider.id === "mock") {
+    // 回合叙事兜底（ADR-002 D5）：**这一回合没有 LLM invocation** 时才写模板段。
+    //
+    // 判据从「provider 是不是 mock」改成「这一轮有没有发起 invocation」：
+    // 章节式叙事（rules.yaml 只在换章时触发）下，绝大多数回合没有 invocation，
+    // 但它们同样需要正文；而配了自定义 key 的玩家 provider 不是 mock，
+    // 用旧判据会整天空白。`inv` 在 invoke 之前取到，是同步事实，不依赖 trace 落盘时机。
+    // 判据：**这一轮没有发起 LLM invocation** 就写模板段。
+    //
+    // 为什么不再看 provider：章节式叙事下绝大多数回合不触发模型，但它们仍然需要正文；
+    // 而配了自定义 key 的玩家 provider 不是 mock，用旧判据会整天没有正文。
+    // `inv` 是 invoke 之前取到的同步事实，不依赖 trace 落盘时机（旧判据顾忌的正是那个）。
+    if (inv === undefined) {
       try {
         recordTurnNarrative(id, res.state, entry, res.snapshot.turnIndex, res.wheelResult);
       } catch (error) {
