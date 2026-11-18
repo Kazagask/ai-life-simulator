@@ -119,8 +119,9 @@ describe("jjk-2006 2.0.0 · 前实例化开局", () => {
     expect(six).toBeDefined();
     // 品级由标签表达（ADR-002 D2b）：quality 不再是展示字段
     expect(six?.quality).toBeUndefined();
-    expect(six?.tags?.map((t) => t.id)).toEqual(["mythic", "buff"]);
-    expect(six?.tags?.map((t) => t.name)).toEqual(["神话", "增益"]);
+    expect(six?.tags?.map((t) => t.id)).toEqual(["mythic-unique", "buff"]);
+    // 标签由**引擎预置**提供（模板一行没写）：唯一·神话（动态彩）+ 增益（绿）
+    expect(six?.tags?.map((t) => t.name)).toEqual(["唯一·神话", "增益"]);
     expect(six?.style?.preset).toBe("rainbow");
     expect(six?.style?.animation).toBe("rainbow-flow");
     // 效果摘要也随投影下发（补正详情浮层的数据源）
@@ -151,8 +152,8 @@ describe("jjk-2006 2.0.0 · 前实例化开局", () => {
       entry.ui,
     );
     const spear = view.player.inventory.find((i) => i.itemId === "eq-ten-spear");
-    expect(spear?.tags?.map((t) => t.name)).toEqual(["传说", "增益"]);
-    // 名字颜色来自靠前的标签（传说 = 静虹），与标签保持同源
+    expect(spear?.tags?.map((t) => t.name)).toEqual(["一品·神话", "增益"]);
+    // 名字颜色来自靠前的标签（一品·神话 = 静态彩），与标签保持同源
     expect(spear?.style?.preset).toBe("rainbow-static");
     expect(spear?.effects?.length ?? 0).toBeGreaterThan(0);
   });

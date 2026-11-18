@@ -567,6 +567,7 @@
 .ls-style--orange { color: #ff9a5d; }
 .ls-style--pink { color: #ff8ad4; }
 .ls-style--purple { color: #c084fc; }
+.ls-style--cyan { color: #3fd0c9; }  /* 六品·稀有 */
 .ls-style--blue { color: #6fb6ff; }
 .ls-style--white { color: #eef4fb; }
 .ls-style--green { color: #4fd1a5; }
@@ -637,6 +638,7 @@
 .ls-box--orange { border-color: #ff9a5d; }
 .ls-box--pink { border-color: #ff8ad4; }
 .ls-box--purple { border-color: #c084fc; }
+.ls-box--cyan { border-color: #3fd0c9; }
 .ls-box--blue { border-color: #6fb6ff; }
 .ls-box--white { border-color: #eef4fb; }
 .ls-box--green { border-color: #4fd1a5; }

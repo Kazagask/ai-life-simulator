@@ -20,9 +20,12 @@ import { z } from "zod";
  * 内核不出现 mythic/legendary 这类品级词——品级是模板侧的 `quality` 值，
  * 由模板自己映射到这里的预设 id。
  *
- * 稀有度色（DNF 式 8 档，从高到低）：rainbow（动虹）/ rainbow-static（静虹）/
- * gold / orange / pink / purple / blue / white；
- * 另有正负零三档：green（正）/ red（负）/ gray（中性）。
+ * 稀有度色（10 档，从高到低）：rainbow（动态彩）/ rainbow-static（静态彩）/
+ * gold / orange / pink / purple / cyan（青）/ blue / white / gray；
+ * 另有正负两档：green（增益）/ red（异常）。
+ *
+ * 注意：`gray` 一色两用（九品·粗劣与「中性」共用），是刻意的——模板只在需要
+ * 「中性」语义时才会显式引用 `neutral` 标签。
  */
 export const STYLE_PRESET_IDS = [
   "rainbow",
@@ -31,6 +34,7 @@ export const STYLE_PRESET_IDS = [
   "orange",
   "pink",
   "purple",
+  "cyan",
   "blue",
   "white",
   "green",
@@ -126,6 +130,54 @@ export const ResolvedStyleSchema = z
   })
   .strict();
 export type ResolvedStyle = z.infer<typeof ResolvedStyleSchema>;
+
+/**
+ * **引擎预置标签**（ADR-002 D2c，用户 2026-11-18）。
+ *
+ * 为什么放到内核：品级 / 增益 / 异常这三类是**每一份模板都要用**的词汇，
+ * 让每个模板抄一遍 10 行 yaml，只会让「同一个品级在两张卡上不同色」变成常态。
+ * 这里给一套默认词表（名称 + 颜色），模板**一行不写**就能用；
+ * 想改词（换叫法、换配色）就在自己的 `ui.tags` 里覆盖同名 id，其余继续继承预置。
+ *
+ * 命名与视觉的对应（品级由高到低）：
+ *   mythic-unique 唯一·神话（动态彩）/ mythic 一品·神话（静态彩）/ legend 二品·传说（金）
+ *   epic 三品·史诗（橙）/ treasure 四品·珍宝（粉）/ excellent 五品·卓越（紫）
+ *   rare 六品·稀有（青）/ fine 七品·精良（蓝）/ common 八品·寻常（白）/ poor 九品·粗劣（灰）
+ *   abnormal 异常（红）/ buff 增益（绿）/ neutral 中性（灰）
+ */
+export const TAG_PRESET_IDS = [
+  "mythic-unique",
+  "mythic",
+  "legend",
+  "epic",
+  "treasure",
+  "excellent",
+  "rare",
+  "fine",
+  "common",
+  "poor",
+  "abnormal",
+  "buff",
+  "neutral",
+] as const;
+export type TagPresetId = (typeof TAG_PRESET_IDS)[number];
+
+/** 预置标签的默认词表；模板 `ui.tags` 里同名 id 覆盖单条。 */
+export const DEFAULT_TAGS: Readonly<Record<string, TagDefinition>> = {
+  "mythic-unique": { name: "唯一·神话", style: { preset: "rainbow", animation: "rainbow-flow" } },
+  mythic: { name: "一品·神话", style: { preset: "rainbow-static" } },
+  legend: { name: "二品·传说", style: { preset: "gold" } },
+  epic: { name: "三品·史诗", style: { preset: "orange" } },
+  treasure: { name: "四品·珍宝", style: { preset: "pink" } },
+  excellent: { name: "五品·卓越", style: { preset: "purple" } },
+  rare: { name: "六品·稀有", style: { preset: "cyan" } },
+  fine: { name: "七品·精良", style: { preset: "blue" } },
+  common: { name: "八品·寻常", style: { preset: "white" } },
+  poor: { name: "九品·粗劣", style: { preset: "gray" } },
+  abnormal: { name: "异常", style: { preset: "red" } },
+  buff: { name: "增益", style: { preset: "green" } },
+  neutral: { name: "中性", style: { preset: "gray" } },
+};
 
 /** 投影后交给前端的标签（样式已解析）。 */
 export const ResolvedTagSchema = z

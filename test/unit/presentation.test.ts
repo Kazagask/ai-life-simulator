@@ -294,6 +294,19 @@ describe("标签（ADR-002 D2b）", () => {
     expect(resolveTags(undefined, ui)).toEqual([]);
   });
 
+  it("引擎预置标签：模板不写也能用，写同名 id 则覆盖单条", () => {
+    // 不传 ui ⇒ 用预置词表
+    expect(resolveTags(["mythic-unique", "buff"], undefined).map((t) => t.name)).toEqual(["唯一·神话", "增益"]);
+    expect(resolveTags(["poor"], undefined)[0]?.style?.preset).toBe("gray");
+    expect(resolveTags(["rare"], undefined)[0]?.style?.preset).toBe("cyan");
+    // 名字颜色同样走预置：唯一·神话 = 动态彩，优先于增益
+    expect(resolveStyle(undefined, undefined, undefined, undefined, ["mythic-unique", "buff"])?.preset).toBe("rainbow");
+    // 模板覆盖同名 id，其余继续继承预置
+    const custom = UiConfigSchema.parse({ tags: { legendary: { name: "传说·改", style: { preset: "gold" } } } });
+    expect(resolveTags(["legendary"], custom)[0]?.name).toBe("传说·改");
+    expect(resolveTags(["mythic"], custom)[0]?.name).toBe("一品·神话");
+  });
+
   it("加载期校验：未知标签 id 拒载", () => {
     const { entry } = makeWorld();
     const ui = UiConfigSchema.parse({ tags: {} });

@@ -218,19 +218,26 @@ place:
 实体 `style` > **命中样式的第一个 tag** > `ui.qualityStyles[quality]` > `ui.polarityStyles[polarity]`。
 未知样式 id / 未知标签 id 在**加载期拒载**（`style_ref_invalid` / `style_ref_invalid`），不静默回退。
 
-**标签（D2b）**：`rainbow` 是引擎的视觉变量名，**不出现在界面上**；玩家看到的是模板词。
-`ui.yaml: tags` 声明 `id → { name, style }`，补正 / 物品用 `tags: [...]` 引用，顺序即优先级
-（品级写在前面 ⇒ 名字与品级同色）。技能不参与标签。
+**标签（D2b / D2c）**：`rainbow` 是引擎的视觉变量名，**不出现在界面上**；玩家看到的是标签名。
+补正 / 物品用 `tags: [...]` 引用，顺序即优先级（品级写在前面 ⇒ 名字与品级同色）。技能不参与标签。
+
+品级 / 增益 / 异常是**引擎预置**的，模板不用声明：
+
+| id | 名称 | 视觉 | | id | 名称 | 视觉 |
+|---|---|---|---|---|---|---|
+| `mythic-unique` | 唯一·神话 | 动态彩 | | `excellent` | 五品·卓越 | 紫 |
+| `mythic` | 一品·神话 | 静态彩 | | `rare` | 六品·稀有 | 青 |
+| `legend` | 二品·传说 | 金 | | `fine` | 七品·精良 | 蓝 |
+| `epic` | 三品·史诗 | 橙 | | `common` | 八品·寻常 | 白 |
+| `treasure` | 四品·珍宝 | 粉 | | `poor` | 九品·粗劣 | 灰 |
+| `abnormal` | 异常 | 红 | | `buff` | 增益 | 绿 |
+
+模板想换叫法 / 配色就覆盖同名 id，其余继续继承预置：
 
 ```yaml
-# ui.yaml 追加三段
-styles:
-  rainbow: { preset: rainbow, animation: rainbow-flow }
-qualityStyles:
-  mythic: rainbow          # 没有标签时的简写（保留兼容）
+# ui.yaml（可选）——不写就用上面的预置
 tags:
-  mythic: { name: 神话, style: { preset: rainbow, animation: rainbow-flow } }
-  buff: { name: 增益, style: { preset: green } }
+  mythic-unique: { name: 神话, style: { preset: rainbow, animation: rainbow-flow } }
 ```
 
 `tags[].style` 同时作用于**标签芯片**与**实体名**：`六眼` 挂 `[mythic, buff]` ⇒ 名字动虹、

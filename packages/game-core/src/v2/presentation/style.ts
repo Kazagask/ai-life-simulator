@@ -1,11 +1,14 @@
 import {
   DEFAULT_POLARITY_STYLES,
+  DEFAULT_TAGS,
   STYLE_PRESET_IDS,
+  TAG_PRESET_IDS,
   resolveColorToken,
   type Polarity,
   type ResolvedStyle,
   type ResolvedTag,
   type StyleSpec,
+  type TagDefinition,
   type UiConfig,
   type WorldTemplateV2,
 } from "@life-sim/shared";
@@ -72,7 +75,7 @@ export function resolveStyle(
     if (spec !== undefined) return toResolved(spec);
   }
   for (const tagId of tags ?? []) {
-    const spec = ui?.tags?.[tagId]?.style;
+    const spec = tagDefinitionOf(tagId, ui)?.style;
     if (spec !== undefined) return toResolved(spec);
   }
   if (quality !== undefined) {
@@ -92,6 +95,16 @@ export function resolveStyle(
 }
 
 /**
+ * 标签定义查询（ADR-002 D2c）：**模板声明的同名 id 覆盖引擎预置**。
+ *
+ * 预置只提供「默认词表」，不是硬编码的 UI 文案——模板写 `ui.tags.mythic: { name: ... }`
+ * 就能改名换色，其余品级继续继承。
+ */
+export function tagDefinitionOf(id: string, ui: UiConfig | undefined): TagDefinition | undefined {
+  return ui?.tags?.[id] ?? DEFAULT_TAGS[id];
+}
+
+/**
  * 解析实体的展示标签（ADR-002 D2b）。
  *
  * 标签是**模板的展示词**（神话 / 增益），不是引擎的样式名（rainbow / green）——
@@ -104,7 +117,7 @@ export function resolveTags(ids: readonly string[] | undefined, ui: UiConfig | u
   if (ids === undefined || ids.length === 0) return [];
   const out: ResolvedTag[] = [];
   for (const id of ids) {
-    const def = ui?.tags?.[id];
+    const def = tagDefinitionOf(id, ui);
     if (def === undefined) continue;
     const style = def.style === undefined ? undefined : toResolved(def.style);
     out.push({ id, name: def.name, ...(style !== undefined ? { style } : {}) });
@@ -163,10 +176,10 @@ export function validateStyleRefs(template: WorldTemplateV2, ui: UiConfig | unde
   // 标签引用（ADR-002 D2b）：未知 tag id 同样拒载——静默丢弃会让「我明明写了品级标签」变成查不出原因的空白。
   const checkTags = (ids: readonly string[] | undefined, path: string): void => {
     for (const id of ids ?? []) {
-      if (ui?.tags?.[id] === undefined) {
+      if (tagDefinitionOf(id, ui) === undefined) {
         issues.push({
           path,
-          message: `未知标签 id：${id}（未在 ui.tags 声明）`,
+          message: `未知标签 id：${id}（既不是引擎预置 ${TAG_PRESET_IDS.join("/")}，也没在 ui.tags 声明）`,
         });
       }
     }
