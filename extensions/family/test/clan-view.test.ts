@@ -4,7 +4,7 @@ import type { RelationEdge } from "@life-sim/shared";
 import { deriveClanView } from "../src/clan-view.js";
 
 /**
- * 宗族投影（`docs/CLAN-DESIGN.md` §2.4）。
+ * 宗族投影（`extensions/family/doc/CLAN-DESIGN.md` §2.4）。
  *
  * 单元层只构造**权威族表 + 演员目录**，不建世界：投影是纯读，输入就是这两样。
  * 端到端接缝（`state.extensions.family` 真的被投影读到）在 `test/unit/clan-seam.test.ts`。

@@ -25,6 +25,73 @@ characters:
       traits: [cautious, self-blaming]
     relationship: 35
 
+  # ── 血缘史实人物（family 扩展的指针端点；已故，不参战）────────────
+  # 羂索不是三个人：加茂宪伦（造九相图）、虎杖香织（生悠仁）、夏油杰（决战中的身体）
+  # 是同一颗脑换过的几具肉身。指针模型只允许「一人一节点」，故用单节点承载两具身体：
+  # 对胀相它是父亲指针（宪伦之身），对虎杖是母亲指针（香织之身）——
+  # 这不是把两人当亲子写两遍，而是同一存在在族谱上占的两个亲缘位。
+  # 性别写 agender：任何 male/female 都会在这两具身体里撒谎；称谓仍按指针 kind 出「爸爸/妈妈」。
+  - id: npc-kenjaku-host
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 羂索（加茂宪伦／虎杖香织）
+      age: 1000
+      gender: agender
+      description: 族谱上占着两个位置的名字。一百五十年前他在加茂宪伦的身体里造出九相图，十五年前又在死去的虎杖香织身体里生下悠仁。大陆那具身体此刻正顶着夏油杰的脸站在战场上。
+    lifecycle: { state: inactive, reasonCode: 史实人物：占过的肉身均已死，本人以夏油之身参战 }
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 70, physique: 20, agility: 25, intellect: 80, luck: 30, reputation: 30 }
+    public:
+      personality: 礼貌得像在介绍自己的作品。他不恨任何人，只是有兴趣。
+      knownGoals: [让这场实验有个漂亮的结果]
+    private:
+      secrets: ["secret:kenjaku-three-bodies"]
+      goals: []
+      traits: []
+    relationship: -80
+
+  - id: npc-jin
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 虎杖仁
+      age: 32
+      gender: male
+      description: 悠仁的父亲。他至死不肯相信妻子已经死了——家里那个"香织"，是另一个东西。
+    fatherId: npc-wasuke
+    lifecycle: { state: inactive, reasonCode: 史实人物：悠仁出生后不久去世 }
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 20, physique: 20, agility: 20, intellect: 20, luck: 20, reputation: 10 }
+    public:
+      personality: 温和、迟钝，爱得太深所以不肯看。
+      knownGoals: []
+    private:
+      secrets: ["secret:jin-sukuna-twin"]
+      goals: []
+      traits: []
+    relationship: 0
+
+  - id: npc-wasuke
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 虎杖倭助
+      age: 72
+      gender: male
+      description: 悠仁的祖父。他察觉到儿媳不对劲，警告过儿子，也把"帮助别人"留给了孙子。
+    lifecycle: { state: inactive, reasonCode: 史实人物：已故 }
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 10, physique: 12, agility: 12, intellect: 18, luck: 10, reputation: 10 }
+    public:
+      personality: 嘴上不饶人，临终前却只留下两句要紧的话。
+      knownGoals: []
+    private:
+      secrets: []
+      goals: []
+      traits: []
+    relationship: 0
+
   # ── 高专一方（友军，可参战）─────────────────────────
   - id: npc-yuta
     isEnemy: false
@@ -115,6 +182,9 @@ characters:
   - id: npc-choso
     isEnemy: false
     identity: { name: 胀相, age: 150, gender: male }
+    # 九相图出自被羂索附身的加茂宪伦之身 —— 这个指针与虎杖的母亲指针指向同一节点，
+    # 于是半同胞关系由扩展派生，不需要（也不允许）再写一条 elder-brother 边。
+    fatherId: npc-kenjaku-host
     visibility: public
     mood: { value: 55 }
     attributes: { cursedEnergy: 55, physique: 40, agility: 30, intellect: 28, luck: 12, reputation: 15 }

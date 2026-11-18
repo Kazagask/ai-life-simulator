@@ -52,7 +52,7 @@ export const RelationVisibilitySchema = z.enum(["known", "inferred", "unknown", 
 /**
  * 边来源（事实追溯）：模板初始声明 / 效果运行时建立 / 扩展在投影期合成。
  *
- * `extension` 只出现在**投影的合成边**上（`docs/FAMILY-GRAPH.md` §7.1：指针模式把
+ * `extension` 只出现在**投影的合成边**上（`extensions/family/doc/FAMILY-GRAPH.md` §7.1：指针模式把
  * 指针合成的关系边加回来）。这类边**不写回** `state.relations`，所以存档里仍只有
  * 前两种；加这一档是为了让前端能区分「作者声明的关系」与「推出来的关系」，
  * 也让引擎永远不必把合成边伪装成 `template`。

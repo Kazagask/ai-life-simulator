@@ -141,7 +141,7 @@ export function createWorldV2(
     skills: [...(pt?.skills ?? [])],
     growthLevel: 0,
     equipment: initialEquipment,
-    // 玩家也有父/母指针（`docs/FAMILY-GRAPH.md` §3.1「玩家不是特例」）：
+    // 玩家也有父/母指针（`extensions/family/doc/FAMILY-GRAPH.md` §3.1「玩家不是特例」）：
     // 缺省不写字段，保持旧模板的存档形状不变。
     ...(pt?.fatherId !== undefined ? { fatherId: pt.fatherId } : {}),
     ...(pt?.motherId !== undefined ? { motherId: pt.motherId } : {}),
@@ -203,7 +203,7 @@ export function createWorldV2(
         visibility: c.visibility,
         // ADR-0022：由刷新规则管辖的角色，世界创建时处于 unspawned（尚未出生/登场）
         ...(spawnRuleByCharacter.has(c.id) ? { spawnRuleId: spawnRuleByCharacter.get(c.id) } : {}),
-        // `docs/FAMILY-GRAPH.md` §3.1：父/母指针原样复制（缺省不写字段，保持旧模板存档形状不变）。
+        // `extensions/family/doc/FAMILY-GRAPH.md` §3.1：父/母指针原样复制（缺省不写字段，保持旧模板存档形状不变）。
         // **本轮不参与推导**：亲缘仍由 family 扩展从关系边算，这里只把值传下去。
         ...(c.fatherId !== undefined ? { fatherId: c.fatherId } : {}),
         ...(c.motherId !== undefined ? { motherId: c.motherId } : {}),

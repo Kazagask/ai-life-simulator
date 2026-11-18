@@ -17,7 +17,7 @@ import {
  * 不读引擎快照类型（源码守卫会拦）：入参只有 `ViewModel.extensions` 的 `unknown` 切片。
  */
 
-/** 扩展 UI 需要的那两段。两者互不依赖（`docs/CLAN-DESIGN.md` §0/§3）。 */
+/** 扩展 UI 需要的那两段。两者互不依赖（`extensions/family/doc/CLAN-DESIGN.md` §0/§3）。 */
 export interface FamilyUiData {
   pedigree?: PedigreeVM;
   clans: ClanVM[];

@@ -43,6 +43,9 @@ export { AiNarrativeTag } from "./AiNarrativeTag.js";
 export { NpcCard } from "./NpcCard.js";
 export type { NpcCardProps } from "./NpcCard.js";
 
+export { NpcDetails } from "./NpcDetails.js";
+export type { NpcDetailsProps } from "./NpcDetails.js";
+
 export { RelationList } from "./RelationList.js";
 export type { RelationListProps } from "./RelationList.js";
 
@@ -51,8 +54,16 @@ export {
   registerExtensionUi,
   resetExtensionUi,
   extensionViewsFor,
+  HOST_UI_SLOTS,
+  resolveUiOverride,
 } from "./extension-slots.js";
-export type { ExtensionView, ExtensionUiRuntime, ExtensionViewHost } from "./extension-slots.js";
+export type {
+  ExtensionView,
+  ExtensionUiRuntime,
+  ExtensionViewHost,
+  HostUiSlot,
+  UiOverride,
+} from "./extension-slots.js";
 
 export { CharacterPanel, SlotTile } from "./CharacterPanel.js";
 export type { CharacterPanelProps, SlotTileProps } from "./CharacterPanel.js";

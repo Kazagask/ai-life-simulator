@@ -223,15 +223,21 @@ export const EffectSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("adjustResource"), resource: z.enum(["hp", "mp"]), value: z.number() }).strict(),
   z.object({ type: z.literal("adjustMood"), value: z.number() }).strict(),
   /**
-   * 改写玩家身份（性别 / 起始年龄）。供「开局角色创建」在事件里定下性别与年龄——
+   * 改写玩家身份（性别 / 起始年龄 / 父母指针）。供「开局角色创建」在事件里定下性别与年龄——
    * 二者原本只能由 world.yaml 的 playerTemplate 静态声明，无法由玩家选择。
    * 改年龄时同步重置 playerAgeAtStart，保证之后按公历推进的年龄仍然正确。
+   *
+   * `fatherId` / `motherId` 是 ADR「开局父母指针」的可选扩展：同一个模板有多个开局、
+   * 玩家可能扮演不同的人时，静态 playerTemplate 不能给每人写一套父母。缺省 = 不写，
+   * 原样保留（不传就当"不详"，绝不把已有指针清空）。
    */
   z
     .object({
       type: z.literal("setIdentity"),
       gender: z.string().min(1).optional(),
       age: z.number().int().nonnegative().optional(),
+      fatherId: z.string().min(1).optional(),
+      motherId: z.string().min(1).optional(),
     })
     .strict(),
   /**

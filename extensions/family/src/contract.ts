@@ -12,10 +12,10 @@ import type { NpcLifecycleState } from "@life-sim/shared";
  */
 
 /**
- * 族谱节点（`docs/CLAN-DESIGN.md` §1.5）。
+ * 族谱节点（`extensions/family/doc/CLAN-DESIGN.md` §1.5）。
  *
  * ⚠ `id` **只作 React key / 跳转键**，不是显示名 —— 玩家看到的永远是 `name`。
- * （`docs/CLAN-DESIGN.md` §1.5 投影纪律：裸 id 不上屏。）
+ * （`extensions/family/doc/CLAN-DESIGN.md` §1.5 投影纪律：裸 id 不上屏。）
  */
 export interface PedigreeNodeView {
   /** 关系图节点 id（React key / 打开 NPC 卡的键）。**不得当人名显示。** */
@@ -53,7 +53,7 @@ export interface PedigreeEdgeView {
   parentRole?: "father" | "mother";
   /** 姻亲边（配偶，以及由配偶关系派生出来的继亲边）。 */
   affinal?: boolean;
-  /** 继亲：父/母的配偶但不是自己的父/母（`docs/CLAN-DESIGN.md` §1.2 第 3 条的反面）。 */
+  /** 继亲：父/母的配偶但不是自己的父/母（`extensions/family/doc/CLAN-DESIGN.md` §1.2 第 3 条的反面）。 */
   step?: boolean;
   /** true = 不是模板声明的边，而是由推导得出（仍不是"可信度更低"）。 */
   derived?: boolean;
@@ -62,7 +62,7 @@ export interface PedigreeEdgeView {
   // 现实里人不可能是自己的祖先，这类边只会来自数据错误或极端设定。
 }
 
-/** 族谱视图（`docs/CLAN-DESIGN.md` §1.5）：全部从关系图现算，**不进 state**。 */
+/** 族谱视图（`extensions/family/doc/CLAN-DESIGN.md` §1.5）：全部从关系图现算，**不进 state**。 */
 export interface PedigreeView {
   /** 最上一代（`generation` 最小）的节点 id，按 id 升序。 */
   rootIds: string[];
@@ -84,7 +84,7 @@ export interface PedigreeView {
 }
 
 /**
- * 宗族的家主（`docs/CLAN-DESIGN.md` §2.4）。
+ * 宗族的家主（`extensions/family/doc/CLAN-DESIGN.md` §2.4）。
  *
  * `hasCard` 与族谱节点同一口径：隐藏/未登场的人**不出现在投影里**，所以这里只在
  * 家主本人可见时才有值（否则 `head` 整个缺省，不编一个「无名的家主」）。
@@ -100,7 +100,7 @@ export interface ClanHeadView {
 }
 
 /**
- * 宗族视图（`docs/CLAN-DESIGN.md` §2.4）：读 `state.extensions.family` 的**权威数据**，
+ * 宗族视图（`extensions/family/doc/CLAN-DESIGN.md` §2.4）：读 `state.extensions.family` 的**权威数据**，
  * 不从关系图推成员（那是族谱的事，§3）。
  */
 export interface ClanView {

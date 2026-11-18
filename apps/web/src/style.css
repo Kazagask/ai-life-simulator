@@ -1505,6 +1505,13 @@ details.llm-config .llm-saved {
   padding: 1px 8px;
 }
 
+/* 附加身份：弱化一档，避免与主称谓抢注意力。 */
+.rel-term-extra {
+  color: var(--muted);
+  border-style: dotted;
+  opacity: 0.85;
+}
+
 .rel-vis {
   font-size: 11px;
   border-radius: 999px;

@@ -6,14 +6,18 @@ import { parse } from "yaml";
 import { z } from "zod";
 import {
   AssetManifestSchema,
+  BUILTIN_UI_CAPABILITIES,
   EffectSchema,
   EndingConfigSchema,
   EvaluationConfigSchema,
   EventTriggerSchema,
+  ENGINE_VERSION,
   OpeningTemplateSchema,
   RulesSchema,
+  satisfiesVersion,
   TemplateEffectSchema,
   TimeSpecSchema,
+  UiConfigSchema,
   WorldTemplateV2Schema,
   type AssetManifest,
   type EndingConfig,
@@ -22,14 +26,17 @@ import {
   type OpeningTemplate,
   type Rules,
   type TimeSpec,
+  type UiConfig,
   type WorldTemplateV2,
 } from "@life-sim/shared";
 import {
   BUILTIN_CONDITION_OPS,
   collectExtensionConditions,
   createLookup,
+  getExtensionRuntime,
   hasExtensionRuntime,
   isKinshipKind,
+  registeredUiCapabilities,
   resolveExtensionRuntimes,
   type TemplateLookup,
   type TurnPipelineConfig,
@@ -42,13 +49,14 @@ import { installedExtensionIds } from "./extensions.js";
  * - **身份 = `(目录名, 版本目录名)`**：磁盘形状 `TEMPLATES_DIR/<id>/<version>/`，
  *   id 取上一级目录名、version 取版本目录名（`^\d+(\.\d+){0,2}$`）。无 `_meta.json`、
  *   无服务端生成 id、无导入端点（R-TG-01 / R4 / R-TG-17）。
- * - **目录结构即元数据**：`<id>/` 层只允许子目录；`<version>/` 层只允许 14 个白名单
- *   `declarative` yaml（平铺在版本目录根）+ `assets/**`；其余文件一律 **warn + 忽略**，
+ * - **目录结构即元数据**：`<id>/` 层只允许子目录；`<version>/` 层只允许 15 个白名单
+ *   `declarative` 文件（平铺在版本目录根）+ `assets/**`；其余文件一律 **warn + 忽略**，
  *   不参与指纹、不参与校验、不拒载（R-TG-15 / H-1）。`assets/manifest.yaml` 是唯一带 `/`
  *   的嵌套白名单条目，由 `scanVersion` 在顶层循环后按相对路径定向补读（T-06）。
  * - **分层指纹**（实时计算、不落盘）：
- *   `semanticFingerprint` 只算白名单 14 个文件（13 yaml + lore.md）（文件名 + `"\0"` + 内容，不含路径）⇒
- *   决定可载性；游离 yaml 不参与（有意偏离旧 `endsWith(".yaml")` 实现）；
+ *   `semanticFingerprint` 只算 14 个文件（13 yaml + lore.md）（文件名 + `"\0"` + 内容，不含路径）⇒
+ *   决定可载性；**第 15 个 `ui.yaml` 进白名单但不进指纹**（纯渲染声明，改页签不废存档）；
+ *   游离 yaml 不参与（有意偏离旧 `endsWith(".yaml")` 实现）；
  *   `assetFingerprint` 只算 `assets/**`（相对路径 + `"\0"` + 内容），空集取确定常量，
  *   仅用于诊断，**不参与任何拒载判定**（H-2 / C-3）。
  * - **失败哲学按时机分两套**（B-4）：启动期 `loadTemplates()` fail-fast（任一含 yaml 的
@@ -61,11 +69,14 @@ import { installedExtensionIds } from "./extensions.js";
 const VERSION_PATTERN = /^\d+(\.\d+){0,2}$/;
 
 /**
- * 白名单 declarative yaml（T-06：11 → 13，2026-11-17 增 lore.md → 14）：只有这 14 个文件进语义指纹与加载校验。
+ * 白名单 declarative 文件（11 → 13 → 14 → 15：2026-11-18 增 ui.yaml）。
+ *
+ * 其中 14 个进语义指纹与加载校验；`ui.yaml` 是唯一的例外——进白名单、进加载期校验，
+ * 但**不进语义指纹**（`specs/SPEC.md` §1.5：纯渲染声明，改页签不该让旧存档拒载）。
  * 前 6 个必需（缺失 ⇒ schema 校验失败）；`equipment/combat-ai` 与
- * `opening/endings/evaluation` 是可选分域；末两项 `rules.yaml` /
- * `assets/manifest.yaml` 是 T-06 新增的**独立声明式文件**（各自独立 loader，
- * 绝不并入 `TEMPLATE_MERGE_FILES`，也不作为新顶层键塞进 `world.yaml`）。
+ * `opening/endings/evaluation` 是可选分域；`rules.yaml` / `assets/manifest.yaml` /
+ * `ui.yaml` 是独立声明式文件（各自独立 loader，绝不并入 `TEMPLATE_MERGE_FILES`，
+ * 也不作为新顶层键塞进 `world.yaml`）。
  * `assets/manifest.yaml` 是唯一带 `/` 的嵌套条目：顶层 Dirent 不可见，定向补读。
  */
 const DECLARATIVE_FILES = [
@@ -83,6 +94,7 @@ const DECLARATIVE_FILES = [
   "rules.yaml",
   "lore.md",
   "assets/manifest.yaml",
+  "ui.yaml",
 ] as const;
 
 const DECLARATIVE_SET: ReadonlySet<string> = new Set(DECLARATIVE_FILES);
@@ -151,15 +163,20 @@ export interface TemplateRef {
  *   （`{ type }` / `{ op, args }`），但既不在内核白名单里、也没有任何**已声明**的扩展
  *   注册它。两者都是「模板作者以为有这个能力、其实没人实现」⇒ 拒载比运行期静默强。
  * - `kinship_conflict`：模板声明了 `extensions.family`，却仍在 `characters[].relations[]`
- *   里写亲属边。两种亲缘模式互斥（`docs/FAMILY-GRAPH.md` §1/§2）：装了扩展就只写
+ *   里写亲属边。两种亲缘模式互斥（`extensions/family/doc/FAMILY-GRAPH.md` §1/§2）：装了扩展就只写
  *   `fatherId`/`motherId` 指针。当前实现不是「扩展覆盖模板」，而是模板那条先占位、
  *   扩展推导出的行被 `factCounterpartIds` 静默丢弃 —— 模板作者以为在用扩展，其实扩展被架空。
+ * - `core_version_mismatch` / `extension_version_mismatch`：`world.yaml#requires` 声明的
+ *   主包 / 扩展版本与实际装配的不符。两者都是「依赖没对齐」，不是 yaml 语法错误 =>
+ *   只废这一个版本，其它模板照常跑（SOFT_REASON_CODES）。
  */
 export type TemplateLoadReasonCode =
   | "unknown_extension"
   | "unknown_effect_type"
   | "unknown_condition_op"
-  | "kinship_conflict";
+  | "kinship_conflict"
+  | "core_version_mismatch"
+  | "extension_version_mismatch";
 
 /** 带封闭码的加载失败：`scanVersion` 的 catch 靠它把码一路带到 Entry 与 API 响应。 */
 class TemplateLoadError extends Error {
@@ -187,6 +204,8 @@ const SOFT_REASON_CODES: ReadonlySet<TemplateLoadReasonCode> = new Set<TemplateL
   "unknown_effect_type",
   "unknown_condition_op",
   "kinship_conflict",
+  "core_version_mismatch",
+  "extension_version_mismatch",
 ]);
 
 /**
@@ -212,7 +231,53 @@ function assertExtensionsInstalled(template: WorldTemplateV2): void {
 }
 
 /**
- * 加载期校验：亲缘的两种合规写法互斥（`docs/FAMILY-GRAPH.md` §1/§2）。
+ * 加载期版本核对（`docs/EXTENSIONS.md` §3.1）。三向检查，任一不符 ⇒ 该版本 invalid：
+ * 1. `requires.core` vs 当前主包 `ENGINE_VERSION`；
+ * 2. `requires.extensions[id]` vs 已装 runtime 的 `version`；
+ * 3. 已装 runtime 的 `requiresCore` vs 当前主包（扩展自己声明的兼容区间）。
+ *
+ * 没写 `requires` 的模板跳过 1/2；扩展没声明版本的视为 "*"，老扩展零回归。
+ * 第 3 条只要世界声明了该扩展就查——它保护的是"主包升级后扩展没跟上"这一类静默不兼容。
+ */
+function assertVersionRequirements(template: WorldTemplateV2): void {
+  const requires = template.requires;
+  if (requires?.core !== undefined && !satisfiesVersion(ENGINE_VERSION, requires.core)) {
+    throw new TemplateLoadError(
+      "core_version_mismatch",
+      `requires.core: 世界要求主包 ${requires.core}，当前主包版本是 ${ENGINE_VERSION}`,
+    );
+  }
+  const declared = template.extensions ?? {};
+  for (const [id, range] of Object.entries(requires?.extensions ?? {})) {
+    if (declared[id] === undefined) {
+      throw new TemplateLoadError(
+        "extension_version_mismatch",
+        `requires.extensions["${id}"] 声明了版本，但 extensions: 里没有声明这个扩展`,
+      );
+    }
+    const runtime = getExtensionRuntime(id);
+    if (runtime === undefined) continue; // 已由 assertExtensionsInstalled 拦截
+    if (!satisfiesVersion(runtime.version ?? "*", range)) {
+      throw new TemplateLoadError(
+        "extension_version_mismatch",
+        `requires.extensions["${id}"]: 世界要求 ${range}，已装扩展版本是 ${runtime.version ?? "(未声明)"}`,
+      );
+    }
+  }
+  for (const id of Object.keys(declared)) {
+    const runtime = getExtensionRuntime(id);
+    if (runtime === undefined) continue;
+    if (!satisfiesVersion(ENGINE_VERSION, runtime.requiresCore)) {
+      throw new TemplateLoadError(
+        "core_version_mismatch",
+        `扩展 "${id}" 要求主包 ${runtime.requiresCore ?? "*"}，当前主包版本是 ${ENGINE_VERSION}`,
+      );
+    }
+  }
+}
+
+/**
+ * 加载期校验：亲缘的两种合规写法互斥（`extensions/family/doc/FAMILY-GRAPH.md` §1/§2）。
  *
  * - 模式一（不装 `extensions.family`）：模板自己写 `father` / `mother` / `wife` … 亲属边；
  * - 模式二（装 `extensions.family`）：**只写 `fatherId` / `motherId` 指针**，亲缘由扩展建图推导。
@@ -400,6 +465,8 @@ export interface ReadyTemplateEntry extends TemplateEntryBase {
   /** `lore.md` 解析结果（含 keys/always/p；引擎按可见文本筛选）。 */
   lore?: readonly LoreRule[];
   assetManifest?: AssetManifest;
+  /** `ui.yaml` 解析结果（第 15 个白名单文件；只下发前端，不进模板对象、不进指纹）。 */
+  ui?: UiConfig;
 }
 
 /**
@@ -877,6 +944,35 @@ function loadRules(versionDir: string): Rules {
 }
 
 /**
+ * `ui.yaml` 独立加载器（第 15 个白名单文件，**不进** `TEMPLATE_MERGE_FILES`，也**不进语义指纹**）。
+ *
+ * 契约 = `UiConfigSchema`（形状 B：`place:` 闭合能力 id → tab/overlay/off/slot:<host>，`.strict()`）。
+ * 键名写错一律加载期拒载，不静默忽略。能力 id 的合法集合 = 宿主内建集 ∪ 已注册扩展声明的
+ * `uiCapabilities`；这样扩展新增视图不需要改主包 schema。
+ */
+function loadUi(versionDir: string): UiConfig {
+  let config: UiConfig;
+  try {
+    config = UiConfigSchema.parse(parse(readFileSync(path.join(versionDir, "ui.yaml"), "utf8")));
+  } catch (error) {
+    throw new Error(`ui.yaml: ${firstIssue(error)}`);
+  }
+  const allowed = new Set<string>([
+    ...BUILTIN_UI_CAPABILITIES,
+    ...registeredUiCapabilities(),
+  ]);
+  const unknown = Object.keys(config.place ?? {}).filter((capability) => !allowed.has(capability));
+  if (unknown.length > 0) {
+    throw new Error(
+      `ui.yaml: 未知能力 id ${unknown.map((id) => `"${id}"`).join(", ")}；` +
+        `合法 id = 宿主内建 ${BUILTIN_UI_CAPABILITIES.join("/")}` +
+        ` + 已装扩展声明的能力（${[...registeredUiCapabilities()].join("/") || "无"}）`,
+    );
+  }
+  return config;
+}
+
+/**
  * `lore.md` 独立加载器（第 14 个白名单文件，不进 `TEMPLATE_MERGE_FILES`，但进语义指纹）。
  *
  * 解析规则（与模板作者约定）：
@@ -1111,6 +1207,7 @@ function scanVersion(
     }
     // 扩展层：模板声明了没注册的 id ⇒ 拒载（`unknown_extension`），不是「投影期悄悄跳过」。
     assertExtensionsInstalled(template);
+    assertVersionRequirements(template);
     // 亲缘模式互斥：装了 family 又自己写亲属边 ⇒ 加载期拒载（`kinship_conflict`）。
     // 三个模板已全部合规（valmont 迁到 fatherId/motherId 指针，jjk-2006 撤掉 family 声明），
     // 闸门自此真正生效；它是软码（只废这一个版本，不拒进程），见 SOFT_REASON_CODES。
@@ -1135,8 +1232,12 @@ function scanVersion(
     const assetManifest = present.has("assets/manifest.yaml")
       ? loadAssetManifest(versionDir)
       : undefined;
+    const ui = present.has("ui.yaml") ? loadUi(versionDir) : undefined;
+    // `ui.yaml` 进白名单但不进指纹：展示声明变更不废旧档（SPEC §1.5）。
+    // 这里显式过滤，防止白名单数组后续调整时误把它算进语义指纹。
     const semanticFingerprint = hashPairs(
       [...declarative]
+        .filter((file) => file !== "ui.yaml")
         .sort()
         .map((file) => ({ name: file, content: readFileSync(path.join(versionDir, file), "utf8") })),
     );
@@ -1151,6 +1252,7 @@ function scanVersion(
       ...(rules !== undefined ? { rules } : {}),
       ...(lore !== undefined ? { lore } : {}),
       ...(assetManifest !== undefined ? { assetManifest } : {}),
+      ...(ui !== undefined ? { ui } : {}),
       pipeline: {
         endingConfig,
         evaluationConfig,

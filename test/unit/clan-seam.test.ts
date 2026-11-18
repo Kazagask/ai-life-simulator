@@ -15,7 +15,7 @@ import type { FamilyView } from "@life-sim/ext-family";
 import { fixtureEntry } from "../helpers/world.ts";
 
 /**
- * 宗族投影的**接缝**门槛（`docs/CLAN-DESIGN.md` §2.4 / §5）。
+ * 宗族投影的**接缝**门槛（`extensions/family/doc/CLAN-DESIGN.md` §2.4 / §5）。
  *
  * 单元口径（字段、计数、四种关系）在 `extensions/family/test/clan-view.test.ts`；
  * 这里只证明两件单元层证明不了的事：

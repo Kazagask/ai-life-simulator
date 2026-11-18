@@ -158,7 +158,7 @@ const relationDerivation: RelationDerivation = { decorate, extendRows };
  * 返回的段键恒等于扩展 id（`family`）：投影只负责把它放进 `snapshot.extensions`，
  * 内核里没有任何「家族」字样，也没有 `V2Snapshot.family` 这个字段。
  *
- * 两段**互不依赖**（`docs/CLAN-DESIGN.md` §0/§3）：
+ * 两段**互不依赖**（`extensions/family/doc/CLAN-DESIGN.md` §0/§3）：
  * · `pedigree` 只吃亲属图（关系边或指针，二选一）+ 演员目录，删掉宗族切片照样完整；
  * · `selfClanIds` / `clans` 只吃 `state.extensions.family`（权威族表），从不从关系图推成员。
  *
@@ -168,7 +168,7 @@ const snapshotDerivation: SnapshotDerivation = {
   derive(ctx) {
     const clan = deriveClanView(ctx);
     /**
-     * 选源（`docs/FAMILY-GRAPH.md` §1）：演员里有父/母指针 ⇒ 指针模式，否则回落边模式。
+     * 选源（`extensions/family/doc/FAMILY-GRAPH.md` §1）：演员里有父/母指针 ⇒ 指针模式，否则回落边模式。
      * 族谱只吃 `RelationEdge[]`，指针模式把**同一张**图投影成边（不是另读一份数据）；
      * 存量模板没有指针 ⇒ 原样走 `ctx.visibleEdges`，行为与 `47cda45` 完全一致。
      */
@@ -193,7 +193,7 @@ const snapshotDerivation: SnapshotDerivation = {
 const SYNTHETIC_EDGE_SOURCE = "extension" as const;
 
 /**
- * 指针图 → **行级**关系边（`docs/FAMILY-GRAPH.md` §7.1）。
+ * 指针图 → **行级**关系边（`extensions/family/doc/FAMILY-GRAPH.md` §7.1）。
  *
  * 与 `kinGraphToRelationEdges` 的分工：那个函数只服务**族谱**（方向由族谱自己归一，
  * 它输出的边也只喂族谱），这里服务**人物卡的行** —— 而人物卡只渲染出边
@@ -201,7 +201,7 @@ const SYNTHETIC_EDGE_SOURCE = "extension" as const;
  * · 父/母卡上看不到「儿子 / 女儿」行（指针图只有 子女→父母 方向）；
  * · 配偶只有一端能看到「妻子 / 丈夫」（婚配是无向事实，行却是「甲视乙为…」）。
  *
- * 性别不详 ⇒ **不猜**（`docs/FAMILY-GRAPH.md` §5：信息在就在，不在不猜），那一半不补。
+ * 性别不详 ⇒ **不猜**（`extensions/family/doc/FAMILY-GRAPH.md` §5：信息在就在，不在不猜），那一半不补。
  */
 function pointerGraphRowEdges(
   graph: KinGraph,
@@ -321,10 +321,12 @@ function contributeRelationEdges(ctx: RelationEdgeSourceContext): readonly Relat
  * · `relationDerivation` / `snapshotDerivation` —— 称谓与族谱（**只读事实图**）；
  * · `contributeRelationEdges` —— 指针模式把亲属边加回投影（行与称谓照旧走原路）；
  * · `effects` / `conditions` / `stateSchema` / `onWorldCreated` —— 宗族（**权威 state 切片**）。
- * 两者互不依赖（`docs/CLAN-DESIGN.md` §0/§3）：删掉宗族切片，族谱照样完整。
+ * 两者互不依赖（`extensions/family/doc/CLAN-DESIGN.md` §0/§3）：删掉宗族切片，族谱照样完整。
  */
 export const familyExtension: ExtensionRuntime = {
   id: "family",
+  version: "0.1.0",
+  requiresCore: "^0.1.0",
   relationDerivation,
   snapshotDerivation,
   contributeRelationEdges,
@@ -332,6 +334,7 @@ export const familyExtension: ExtensionRuntime = {
   conditions: clanConditions,
   stateSchema: clanStateSchema,
   onWorldCreated: initClanState,
+  uiCapabilities: ["pedigree", "clan"],
 };
 
 export { derivePedigree } from "./pedigree.js";

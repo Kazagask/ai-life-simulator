@@ -1,0 +1,19 @@
+# 展示层声明（`specs/SPEC.md` §1.5 形状 B）。等价现状基线：
+# 族谱 / 宗族是 family 扩展提供的能力 id，落在 world.subview 槽里成为「世界」页的子页签。
+# 改这里不进语义指纹，旧档照开。
+place:
+  life: tab
+  personal: tab
+  world: tab
+  log: tab
+  records: tab
+  character: slot:personal
+  equipment: slot:personal
+  inventory: slot:personal
+  skills: slot:personal
+  relations: slot:npcList
+  wheel: overlay
+  battle: overlay
+  event: overlay
+  pedigree: slot:world.subview
+  clan: slot:world.subview

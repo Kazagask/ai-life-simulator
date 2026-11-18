@@ -86,7 +86,7 @@ const PlayerTemplateSchema = z
       .array(z.object({ itemId: z.string().min(1), count: z.number().int().positive() }).strict())
       .optional(),
     /**
-     * 玩家也适用父/母指针（`docs/FAMILY-GRAPH.md` §3.1「玩家不是特例」）。
+     * 玩家也适用父/母指针（`extensions/family/doc/FAMILY-GRAPH.md` §3.1「玩家不是特例」）。
      * 指向 `characters[].id`，加载期校验引用完整性；缺省 = 不详（不编）。
      */
     fatherId: z.string().min(1).optional(),
@@ -176,6 +176,21 @@ export const WorldTemplateV2Schema = z
         z.string().min(1),
         z.union([z.literal(true), z.record(z.string(), z.unknown())]),
       )
+      .optional(),
+    /**
+     * 运行包版本声明（`docs/EXTENSIONS.md` §3.1）：这个世界是按哪版主包 / 哪版扩展写的。
+     * `core` 省略 ⇒ 不校主包版本（老模板零回归）；`extensions` 的键必须都在
+     * `extensions:` 里声明过，且已装 runtime 的版本必须满足给定区间，否则加载期拒载。
+     * 版本号字符串格式见 `satisfiesVersion()`（精确 / ^ / >= / *）。
+     *
+     * 语义指纹：进指纹（换扩展版本会改变投影语义，旧档必须拒载）。
+     */
+    requires: z
+      .object({
+        core: z.string().min(1).optional(),
+        extensions: z.record(z.string().min(1), z.string().min(1)).optional(),
+      })
+      .strict()
       .optional(),
     time: z
       .object({
@@ -371,7 +386,7 @@ export const WorldTemplateV2Schema = z
         }
       });
     });
-    // 父/母指针（`docs/FAMILY-GRAPH.md` §3.1）：必须指向已声明角色，且不得自引用。
+    // 父/母指针（`extensions/family/doc/FAMILY-GRAPH.md` §3.1）：必须指向已声明角色，且不得自引用。
     // 指向不存在的 id 会让「指针是唯一真源」在运行时悄悄断线（族谱缺人、称谓静默降级），
     // 所以在加载期 fail-fast；自引用则是必然的环，同样当场拒载。
     w.characters.forEach((c, i) => {

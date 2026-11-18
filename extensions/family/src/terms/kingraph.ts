@@ -10,7 +10,7 @@ import {
 /**
  * 亲缘图（`KinGraph`）——称谓推导的**唯一输入**。
  *
- * 两种合规数据源（`docs/FAMILY-GRAPH.md` §1）都归一到这一个形状：
+ * 两种合规数据源（`extensions/family/doc/FAMILY-GRAPH.md` §1）都归一到这一个形状：
  * - 模式一（不装拓展）：模板自己写 `father` / `wife` / `son` … 边 ⇒ `fromEdges`；
  * - 模式二（装拓展）：角色只写 `fatherId` / `motherId` 指针，婚配/收养在扩展 state
  *   ⇒ `fromPointers`。

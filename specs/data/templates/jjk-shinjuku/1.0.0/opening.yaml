@@ -71,7 +71,9 @@
   characterSetup:
     effects:
       # 把你调成虎杖悠仁：咒力 22、体术 30、敏捷 24、咒理 12、机缘 14、名声 20。
-      - { type: setIdentity, gender: male, age: 15 }
+      # 父母指针只在这条开局写：五条线不写 ⇒ 不详，不会错认成虎杖的父母。
+      # 母亲指向羂索单节点（香织之身）；它与胀相的 fatherId 同节点 ⇒ 半同胞由扩展派生。
+      - { type: setIdentity, gender: male, age: 15, fatherId: npc-jin, motherId: npc-kenjaku-host }
       - { type: adjustAttribute, attribute: cursedEnergy, value: -8 }
       - { type: adjustAttribute, attribute: physique, value: 6 }
       - { type: adjustAttribute, attribute: intellect, value: -12 }

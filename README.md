@@ -19,8 +19,7 @@ pnpm dev            # server 0.0.0.0:3000（serve 构建产物）+ vite 5173
 
 ```bash
 pnpm typecheck      # 全仓类型检查
-pnpm test           # 五包最小测试集（shared / game-core / agent-runtime / rpg-ui / server）
-pnpm test:playthrough   # 6 种子整局回归（demo-agentic 跑到结局）
+pnpm test           # vitest run：根 test/ + extensions/*/test/
 pnpm build          # typecheck + web 构建
 ```
 

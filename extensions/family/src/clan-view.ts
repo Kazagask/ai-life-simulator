@@ -9,7 +9,7 @@ import {
 } from "./clan.js";
 
 /**
- * 宗族投影（`docs/CLAN-DESIGN.md` §2.4）：`state.extensions.family` 的权威数据 → 展示视图。
+ * 宗族投影（`extensions/family/doc/CLAN-DESIGN.md` §2.4）：`state.extensions.family` 的权威数据 → 展示视图。
  *
  * 边界（§0 / §3）：
  * · **成员只从族表数，绝不从关系图推** —— 嫁出去的女儿、出继的儿子、义子、入赘随妻族，

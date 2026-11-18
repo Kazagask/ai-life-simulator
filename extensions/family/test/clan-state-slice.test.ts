@@ -12,7 +12,7 @@ import {
 import { clanStateSchema, familyExtension, readClanState } from "@life-sim/ext-family";
 
 /**
- * 切片重建不许抹掉婚配 / 收养（`docs/FAMILY-GRAPH.md` §7.1 第 2 条）。
+ * 切片重建不许抹掉婚配 / 收养（`extensions/family/doc/FAMILY-GRAPH.md` §7.1 第 2 条）。
  *
  * `state.extensions.family` 是**一个**切片，里面同时住着宗族（clans/members）与
  * 亲属图输入（spouses/adoptions）。宗族的每个 effect 都会写回整段切片 ——

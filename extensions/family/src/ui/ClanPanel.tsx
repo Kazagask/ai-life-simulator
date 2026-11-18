@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ClanVM } from "./view-model.js";
 
 /**
- * 宗族面板（`docs/CLAN-DESIGN.md` §2.4 / §3）。
+ * 宗族面板（`extensions/family/doc/CLAN-DESIGN.md` §2.4 / §3）。
  *
  * 只吃 `ClanVM`：成员数、在世人数、家主有没有卡、你与本族的关系**全部是服务端口径**。
  * 组件不读快照、不按关系边自己数人 —— 前端只有出边，数出来的血缘不等于族表（§3 的要点）。

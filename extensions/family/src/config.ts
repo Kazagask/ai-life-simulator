@@ -12,7 +12,7 @@ export interface FamilyConfig {
   readonly maxHops: number;
   /**
    * 族谱最多展示几代（默认 4，夹在 1..12）。以玩家为中轴，上下各 `maxGenerations - 1` 代。
-   * 模板可写顶层 `maxGenerations`，也可按 `docs/CLAN-DESIGN.md` §1.4 写 `pedigree.maxGenerations`
+   * 模板可写顶层 `maxGenerations`，也可按 `extensions/family/doc/CLAN-DESIGN.md` §1.4 写 `pedigree.maxGenerations`
    * ——两种写法都认，嵌套优先（文档路径）。
    */
   readonly maxGenerations: number;
@@ -36,7 +36,7 @@ export function parseFamilyConfig(raw: unknown): FamilyConfig {
   if (raw === undefined || raw === null || raw === true) return DEFAULT_CONFIG;
   if (typeof raw !== "object" || Array.isArray(raw)) return DEFAULT_CONFIG;
   const obj = raw as Record<string, unknown>;
-  /** `docs/CLAN-DESIGN.md` §1.4 写的是 `pedigree.maxGenerations`；顶层写法一并兼容。 */
+  /** `extensions/family/doc/CLAN-DESIGN.md` §1.4 写的是 `pedigree.maxGenerations`；顶层写法一并兼容。 */
   const pedigree = (
     typeof obj.pedigree === "object" && obj.pedigree !== null && !Array.isArray(obj.pedigree)
       ? obj.pedigree

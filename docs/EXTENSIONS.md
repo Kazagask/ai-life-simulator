@@ -109,8 +109,11 @@ extensions:
   `/api/templates` 与建局 409 都带 `reasonCode`。这就是"模板写了 extension 但没包，直接拒载"。
   **按版本拒载、不拖垮进程**：只让声明它的那一个版本不可载，别的模板照玩——
   崩溃式 fail-fast 会让别人的存档一起陪葬。全部模板都不可载时才会命中既有的 `no_templates_found`。
-- **版本**：`extensions` 只按 **id** 校验，**没有版本区间**。`ExtensionRuntime.version` 字段目前
-  不被读取 —— 加版本约束是 `未决`（要它就得先定"版本不满足时是拒载还是降级"）。
+- **版本已落地**（2026-11-18）：`world.yaml` 顶层 `requires:` 可写
+  `core: "^0.1.0"` 与 `extensions: { family: "^0.1.0" }`；扩展 runtime 暴露
+  `version` / `requiresCore`。加载期三向核对，不符 ⇒ `core_version_mismatch` /
+  `extension_version_mismatch`（软码，只废这一个版本）。区间格式见
+  `packages/shared/src/version.ts` 的 `satisfiesVersion()`。不写 `requires` 的老模板零回归。
 - **语义指纹**：`extensions` 整段（含 `config`）进指纹 —— 因为它在 `world.yaml` 里、整文件参与哈希。
   `config` 确实会改投影内容（如 `maxHops`），所以"整段进"是对的，不用再区分。
 - 模板不声明 ⇒ 扩展不生效，哪怕包就装在那儿。
@@ -118,6 +121,10 @@ extensions:
 ---
 
 ## 4. 家族包（`extensions/family`）
+
+> 家族自己的设计 / 规范 / 测试已归位到 `extensions/family/doc/`、`extensions/family/spec/`、
+> `extensions/family/test/`。本节只保留主包侧需要知道的边界；
+> 主包升级时的兼容性核对清单在 `docs/EXTENSION-CAPABILITIES.md`。
 
 ```
 extensions/family/
@@ -231,11 +238,13 @@ export function extensionViewsFor(slot: string, vm: ViewModel): ExtensionView[];
 - `visible` 只允许看公共字段与自己的切片。**不许**窥探别的扩展的切片。
 - 槽为空 ⇒ 宿主不渲染这一块（不画空页签）。
 
-### 7.3 与 `ui.yaml` 的关系（`未决`）
+### 7.3 与 `ui.yaml` 的关系（已落地）
 
-`specs/SPEC.md` §1.5 的 `ui.yaml`（`views` / `place`）迟早要接管"哪个能力挂哪个槽"。
-本轮先落地**机制**（槽 + 注册），`ui.yaml` 仍是设计未定稿；两者不冲突：
-将来 `place: slot:world.subview` 就是把这里的 `slot` 字段从代码挪进数据。
+`ui.yaml` 形状 B 的 `place:` 已能声明"哪个能力挂哪个槽"（`specs/SPEC.md` §1.5）。
+分工：`ExtensionView.slot` 是**扩展提供**槽的实现；`place:` 是**模板声明**把某个能力摆到哪，
+两者不冲突 —— 模板写 `place: pedigree: slot:world.subview`，就是选中 family 已挂的那个槽。
+扩展通过 `ExtensionRuntime.uiCapabilities` 声明自己的 UI 能力 id，否则 `ui.yaml` 写它会被拒载。
+宿主不认识的槽由前端降级为页签，不留空槽（见 §1.5）。
 
 ### 7.4 顺带：回边不展示
 
@@ -275,3 +284,42 @@ git grep -n "clan\|pedigree\|family" -- packages/ ':!packages/rpg-ui/src/extensi
 ```
 
 除注释外应为空。任何出现在宿主包里的 `clan` / `pedigree` 字段名，都说明这一刀没切干净。
+
+### 7.6 覆盖宿主默认实现（2026-11-18）
+
+§7.2 的 `world.subview` 是**追加式**槽：扩展往宿主里加页签，宿主原样渲染。
+它做不到「把宿主自带的某一块换掉」。因此增加第二套机制——**覆盖槽**，
+两套并存、互不干扰：
+
+| 槽 id | 宿主默认实现 | props 契约 |
+|---|---|---|
+| `host.npcCard` | `NpcCard` | `NpcCardProps { npc, Details? }` |
+| `host.npcDetails` | `NpcDetails` | `NpcDetailsProps { npc }` |
+
+扩展在 `ExtensionUiRuntime.overrides` 里声明要替换哪个槽，仍由
+`apps/web/src/extensions.ts` 一行静态注册：
+
+```ts
+import { HOST_UI_SLOTS, type ExtensionUiRuntime, type UiOverride } from "@life-sim/rpg-ui";
+import type { NpcDetailsProps } from "@life-sim/rpg-ui";
+
+const details: UiOverride<NpcDetailsProps> = {
+  target: HOST_UI_SLOTS.npcDetails,
+  Component: MyDetails,        // 收到宿主原本给 NpcDetails 的 { npc }
+  visible: (vm) => /* 可选 */ true,
+};
+
+export const myUi: ExtensionUiRuntime = { id: "my-ext", views: [], overrides: [details] };
+```
+
+规则（与追加槽一致的精神）：
+
+1. **槽 id 由宿主定义**并导出；扩展只能覆盖已存在的槽，拼错的 id 静默无效。
+2. **props 由宿主定义**：扩展拿到的是宿主原本传给默认组件的 props，`P` 泛型在编译期锁签名，
+   不需要宿主认识扩展字段。覆盖整张卡时 `Details` prop 可不用——替换者自己决定详情怎么画。
+3. **冲突确定性**：同一槽多个扩展同时声明覆盖时按 `(order, extensionId)` 取唯一一个，
+   不叠加、不依赖注册顺序。`visible` 为假则回退宿主默认。
+4. 没有注册任何覆盖时 `resolveUiOverride()` 原样返回默认组件——零回归路径。
+
+机制测试见 `test/unit/ui-overrides.test.ts`。本次裁决**不**把创建世界页的选择器
+一并插槽化；覆盖范围只有人物卡与详情展开区。

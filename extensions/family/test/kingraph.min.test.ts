@@ -16,7 +16,7 @@ import {
  * - 收养：我被收养 → 养父 / 养母 / 养兄弟 / 养姐妹；养父同时是我的生父（位次不覆盖）。
  *
  * 没有任何 `father` / `elder-brother` 边 —— 全部由指针 + 婚配 + 收养派生。
- * 长幼只靠 `birthTime`（`docs/FAMILY-GRAPH.md` §5）。
+ * 长幼只靠 `birthTime`（`extensions/family/doc/FAMILY-GRAPH.md` §5）。
  */
 
 const PEOPLE: KinPerson[] = [

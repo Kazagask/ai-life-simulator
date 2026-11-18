@@ -16,9 +16,24 @@ meta:
   engineProtocol: v2
 
 # 亲缘称谓由 `family` 扩展提供（推导逻辑在 extensions/family，不在内核）。
-# 不声明它，NPC 卡上的「爸爸/哥哥/舅舅」这类称谓全部消失。
+# 这里走**指针模式**：characters.yaml 只写 fatherId/motherId，不写任何亲属边
+# （写边会触发 kinship_conflict 拒载，见 extensions/family/doc/FAMILY-GRAPH.md §2）。
+# 运行包版本：主包 ^0.1.0、family 扩展 ^0.1.0；版本不符加载期拒载。
+requires:
+  core: "^0.1.0"
+  extensions:
+    family: "^0.1.0"
+
 extensions:
-  family: true
+  family:
+    # 羂索的两具亲体在族谱上占两个亲缘位，同一对端点会有多种读法；并排展示。
+    showAllRoles: true
+    maxHops: 4
+    maxGenerations: 5
+    # 婚配：虎杖仁 × 羂索（虎杖香织之身）。指针模式下这是配偶行的唯一来源。
+    # 另一条血缘（羂索 × 九相图之母）没有可上屏的实体，按「不详」留白。
+    spouses:
+      - { a: npc-jin, b: npc-kenjaku-host }
 
 time:
   defaultStep: { value: 10, unit: minute }

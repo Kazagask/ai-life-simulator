@@ -3,6 +3,7 @@
  * V1 legacy 引擎及其类型已于 2026-11-11 下线，见 ADR-0001 迁移收尾。
  */
 export * from "./schema/index.js";
+export * from "./version.js";
 export * from "./v2.js";
 export * from "./v2-command.js";
 export * from "./v2-state.js";

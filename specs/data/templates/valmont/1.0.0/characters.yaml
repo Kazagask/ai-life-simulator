@@ -1,6 +1,6 @@
 # 瓦勒蒙家族角色表。
 #
-# 亲缘写法（`docs/FAMILY-GRAPH.md` §1/§2 的模式二 —— 本模板声明了 `extensions.family`）：
+# 亲缘写法（`extensions/family/doc/FAMILY-GRAPH.md` §1/§2 的模式二 —— 本模板声明了 `extensions.family`）：
 #   · 父/母只写在**孩子**身上：`fatherId` / `motherId` 指向角色 id。写一次即唯一真源，
 #     不要再给孩子写 `son` / `daughter` 反向边（那是边模式的重复来源）。
 #   · 婚配不进本表，写在 `world.yaml` 的 `extensions.family.spouses`（`[{ a, b }]`，无向，

@@ -5,11 +5,18 @@ import type {
   HistoryEntryV2,
   SlotEventView,
   TimeAmount,
+  UiConfig,
   V2Snapshot,
   WheelResultView,
 } from "@life-sim/shared";
 
 const BASE = "";
+
+/**
+ * 服务端在响应出口挂上的模板展示声明（来自 `ui.yaml`）。
+ * 它与权威状态无关：引擎不读、不进指纹、不进存档，只影响前端怎么摆面板。
+ */
+export type WorldSnapshot = V2Snapshot & { ui?: UiConfig };
 
 /** R2.7 / R-NAR-03：叙事来源（与 shared 的 NarrativeSourceSchema 同值域，前端只做展示判定）。 */
 export type NarrativeSource = "template" | "llm" | "fallback";
@@ -255,7 +262,7 @@ export type WorldSummary = LoadableWorldSummary | UnloadableWorldSummary;
 
 export interface InteractionResponse {
   worldId: string;
-  snapshot: V2Snapshot;
+  snapshot: WorldSnapshot;
   /** 服务端目前只下发 `eventFlavors` map；`flavor` 为可选占位，缺省完全等同当前行为。 */
   triggeredEvents: Array<{ id: string; title: string; narrative: string; flavor?: string }>;
   wheelResult: WheelResultView | null;
@@ -277,7 +284,7 @@ export interface TurnResponse extends InteractionResponse {
 export interface ArchiveResponse {
   worldId: string;
   archive: {
-    snapshot: V2Snapshot;
+    snapshot: WorldSnapshot;
     /** 归档中被过滤掉的 hidden 条目数（只公开计数，不公开内容） */
     hiddenHistoryCount?: number;
     /** R2.7：归档时刻固化的结局叙事来源与文案（可选；旧档 / 未装饰时缺失）。 */
@@ -320,20 +327,20 @@ export const api = {
   },
   /** 装备穿脱（R-EQ-08）：不推进时间，返回新快照。 */
   equipItem(id: string, itemId: string) {
-    return request<{ worldId: string; snapshot: V2Snapshot }>(`/api/worlds/${id}/equipment/equip`, {
+    return request<{ worldId: string; snapshot: WorldSnapshot }>(`/api/worlds/${id}/equipment/equip`, {
       method: "POST",
       body: JSON.stringify({ itemId }),
     });
   },
   unequipItem(id: string, instanceId: string) {
-    return request<{ worldId: string; snapshot: V2Snapshot }>(`/api/worlds/${id}/equipment/unequip`, {
+    return request<{ worldId: string; snapshot: WorldSnapshot }>(`/api/worlds/${id}/equipment/unequip`, {
       method: "POST",
       body: JSON.stringify({ instanceId }),
     });
   },
   /** R-OP-01 / R-TG-01：两级模板建局；`templateVersion` 与 `openingId` 的归属约束见 `CreateWorldInput`。 */
   createWorld(input: CreateWorldInput) {
-    return request<{ worldId: string; snapshot: V2Snapshot }>("/api/worlds", {
+    return request<{ worldId: string; snapshot: WorldSnapshot }>("/api/worlds", {
       method: "POST",
       body: JSON.stringify({
         templateId: input.templateId,
@@ -345,7 +352,7 @@ export const api = {
     });
   },
   getWorld(id: string) {
-    return request<{ worldId: string; snapshot: V2Snapshot; eventFlavors?: EventFlavorMap }>(`/api/worlds/${id}`);
+    return request<{ worldId: string; snapshot: WorldSnapshot; eventFlavors?: EventFlavorMap }>(`/api/worlds/${id}`);
   },
   advanceTurn(id: string, action: { type: string; description: string }, endLife = false) {
     return request<TurnResponse>(`/api/worlds/${id}/turns`, {

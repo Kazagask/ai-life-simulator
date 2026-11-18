@@ -23,8 +23,9 @@ pnpm build             # typecheck + web 构建
 pnpm dev               # server + vite dev
 ```
 
-**当前没有任何测试**（2026-11-17 用户裁决：全删，先把代码写好再谈测试）。
-旧的 `pnpm test` / `test:playthrough` / `test:accept` 已移除，CI 只剩 typecheck / web build / 冒烟。
+**测试在 `test/`（引擎级）与 `extensions/*/test/`（扩展自有）**，根 `pnpm test` = `vitest run`
+同时收集两处（`vitest.config.ts` 的 include）。旧的 `test:playthrough` / `test:accept` 已移除，
+CI 只剩 typecheck / 测试 / web build / 冒烟。覆盖清单与运行方式见 `specs/SPEC.md` §5。
 
 将来加测试时：**单开仓库根的 `test/` 目录**，不要放回 `packages/*/src` 或 `apps/*/src`；
 并显式声明打包边界，确保测试代码不进 npm 包（细节见 `test/README.md`）。

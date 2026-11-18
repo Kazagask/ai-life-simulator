@@ -1,6 +1,6 @@
 # 剧本模板 · 瓦勒蒙家族（valmont）
 #
-# 这张模板是把「八类婚配交织图」落成运行时资产。亲缘走**指针模式**（`docs/FAMILY-GRAPH.md` §2）：
+# 这张模板是把「八类婚配交织图」落成运行时资产。亲缘走**指针模式**（`extensions/family/doc/FAMILY-GRAPH.md` §2）：
 #   · 父/母 = `characters.yaml` 里孩子身上的 `fatherId` / `motherId`（写一次，唯一真源）；
 #   · 婚配 = 下面 `extensions.family.spouses` 的 `[{ a, b }]`（无向，数组顺序即先后）；
 #   · 兄弟姐妹 / 祖孙 / 叔伯全部由前两者派生，模板不写第二份。
@@ -31,6 +31,12 @@ meta:
   # 亲缘称谓已迁出 meta：它是 `family` 扩展的能力，声明在下面的顶层 `extensions:`。
   # 不声明那个扩展，内核不再计算任何称谓（推导逻辑已从 game-core 搬到 extensions/family）。
 
+# 运行包版本：主包 ^0.1.0、family 扩展 ^0.1.0；版本不符加载期拒载。
+requires:
+  core: "^0.1.0"
+  extensions:
+    family: "^0.1.0"
+
 extensions:
   # 亲缘称谓展示开关。推导本身始终开启，这里只决定**同一段亲缘有多个读法时展示几个**
   # —— 这个剧本的看点正是「一个人同时是谁的谁」，所以打开并排展示；maxHops 保持默认 3。
@@ -41,7 +47,7 @@ extensions:
     # 家族的根在演示里看不到。放开到 5 才能把 g0..g4 五代都留在屏上。
     maxGenerations: 5
 
-    # 婚配表（`docs/FAMILY-GRAPH.md` §3.2）：指针模式下这是配偶行**唯一**的来源，
+    # 婚配表（`extensions/family/doc/FAMILY-GRAPH.md` §3.2）：指针模式下这是配偶行**唯一**的来源，
     # 建世界时原样播种进 `state.extensions.family.spouses`。
     # 无向（`a`/`b` 顺序不表示方向），但**数组顺序就是先后**：巴尔多的两位妻子按希尔达、
     # 伊尔玛排列；伊尔玛的两位丈夫按康拉德（前夫）、巴尔多（续娶）排列。
@@ -58,7 +64,7 @@ extensions:
       - { a: npc-aldric, b: npc-blanche } # ⑧ 隔代（祖孙）
       - { a: npc-reynard, b: npc-blanche } # ⑨ 汇合
 
-    # 宗族声明（`docs/CLAN-DESIGN.md` 第二部分）：**和上面三个族谱开关是两件事**。
+    # 宗族声明（`extensions/family/doc/CLAN-DESIGN.md` 第二部分）：**和上面三个族谱开关是两件事**。
     # 上面管「关系图怎么展示」（纯派生，零 state，删掉它族谱就少几代/少几种读法）；
     # 这里给这一段世界**造一个族**，建世界时实例化成 `state.extensions.family` 的
     # clans / members（权威数据，进存档，只被显式 effect 改）。两者互不依赖：

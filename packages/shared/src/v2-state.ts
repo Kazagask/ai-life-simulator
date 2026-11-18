@@ -51,7 +51,7 @@ const V2PlayerSchema = CombatantBaseSchema.extend({
   growthLevel: z.number().int().nonnegative(),
   equipment: z.array(EquipmentInstanceSchema).optional(),
   /**
-   * 父/母指针（`docs/FAMILY-GRAPH.md` §3.1）：模板 `playerTemplate.fatherId/motherId` 的副本。
+   * 父/母指针（`extensions/family/doc/FAMILY-GRAPH.md` §3.1）：模板 `playerTemplate.fatherId/motherId` 的副本。
    * 可选 + 无默认值 ⇒ 旧档缺字段不拒载。
    */
   fatherId: z.string().min(1).optional(),
@@ -100,7 +100,7 @@ const V2NpcSchema = CombatantBaseSchema.extend({
    */
   birthTime: z.number().optional(),
   /**
-   * 父/母指针（`docs/FAMILY-GRAPH.md` §3.1）：模板 `characters[].fatherId/motherId` 的副本。
+   * 父/母指针（`extensions/family/doc/FAMILY-GRAPH.md` §3.1）：模板 `characters[].fatherId/motherId` 的副本。
    * 可选 + 无默认值 ⇒ 旧档缺字段不拒载；本轮**不参与任何推导**，只为后续族谱轮次铺路。
    */
   fatherId: z.string().min(1).optional(),

@@ -1,0 +1,18 @@
+# 展示层声明（`specs/SPEC.md` §1.5 形状 B）。等价现状基线：
+# 新宿剧本自带 family 扩展，族谱 / 宗族落在 world.subview 槽。
+place:
+  life: tab
+  personal: tab
+  world: tab
+  log: tab
+  records: tab
+  character: slot:personal
+  equipment: slot:personal
+  inventory: slot:personal
+  skills: slot:personal
+  relations: slot:npcList
+  wheel: overlay
+  battle: overlay
+  event: overlay
+  pedigree: slot:world.subview
+  clan: slot:world.subview

@@ -40,6 +40,7 @@ import type {
   EndingRecord,
   EndingView,
   Perspective,
+  UiConfig,
   V2Snapshot,
   V2TurnResult,
   WorldStateV2,
@@ -361,26 +362,34 @@ function endingVisibleInWindow(
  * 所有返回 `snapshot` 的路由统一走这里：**响应层装饰**，不改 `V2Snapshot` 类型、
  * 不改 `projectSnapshotV2`、不写权威状态。
  *
+ * 两件装饰：
+ * 1. `ending` 的 LLM 解释（`perspective` 是第一等维度，由 core 窗口层判定可见性）；
+ * 2. `ui.yaml` 的展示声明（`entry.ui`）—— 只在响应出口挂上，**引擎全程不读**。
+ *
  * `perspective` 是必填的第一等维度（F4 1+1+N）：装饰缓存按视角分键，
  * 是否允许装饰由 core 窗口层（`endingVisibleInWindow`）判定。
  */
+export type DecoratedSnapshot = V2Snapshot & { ui?: UiConfig };
+
 async function decorateSnapshot(
   snapshot: V2Snapshot,
   world: WorldStateV2,
   entry: ReadyTemplateEntry,
   perspective: Perspective,
   provider: LLMProvider = llmProvider,
-): Promise<V2Snapshot> {
+): Promise<DecoratedSnapshot> {
+  const withUi = (value: V2Snapshot): DecoratedSnapshot =>
+    entry.ui === undefined ? value : { ...value, ui: entry.ui };
   const ending = snapshot.ending;
-  if (!ending) return snapshot;
-  if (!endingVisibleInWindow(world, ending, perspective)) return snapshot;
+  if (!ending) return withUi(snapshot);
+  if (!endingVisibleInWindow(world, ending, perspective)) return withUi(snapshot);
   const key = narrativeCacheKey(world.id, snapshot.turnIndex, perspective);
   let outcome = endingOutcomeCache.get(key);
   if (outcome === undefined) {
     outcome = await endingOutcomeFor(world, entry, perspective, provider);
     endingOutcomeCache.set(key, outcome);
   }
-  return decorateEndingView(snapshot, outcome);
+  return withUi(decorateEndingView(snapshot, outcome));
 }
 
 /**

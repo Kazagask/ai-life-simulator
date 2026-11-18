@@ -20,7 +20,7 @@ import {
  *
  * 管线：`KinGraph`（边或指针 + 婚配 + 收养）→ 简单路径 → 结构签名 → 中文表。
  *
- * 推导按三层走（`docs/FAMILY-GRAPH.md` §4.5）：血亲（tier 1）→ 拟制/婚配（tier 2）
+ * 推导按三层走（`extensions/family/doc/FAMILY-GRAPH.md` §4.5）：血亲（tier 1）→ 拟制/婚配（tier 2）
  * → 收养（tier 3）。排序**跳数优先，tier 作平手裁决**：短路径先赢（「我老婆的哥哥」
  * 就是大舅子），同跳数时血亲先于拟制/收养。
  *
@@ -112,7 +112,7 @@ function collateralRank(r: KinshipReading): number {
  * 巴尔多同时是休的祖父（父之父）与外祖父（母之父）时，主称谓取「爷爷」、「外公」
  * 进附加读法。`valmont` 声明 `descent: patrilineal` 只是恰好一致；`bilateral` /
  * 母系模板目前也会给爷爷。接 `descent` 之前先记着 —— **不要在这个函数里偷读模板配置**
- * （`docs/FAMILY-GRAPH.md` §9 未决；阶段三再议）。
+ * （`extensions/family/doc/FAMILY-GRAPH.md` §9 未决；阶段三再议）。
  */
 function lexLessKinds(a: readonly string[], b: readonly string[]): boolean {
   const n = Math.min(a.length, b.length);

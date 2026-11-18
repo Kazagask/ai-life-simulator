@@ -21,7 +21,7 @@ import {
 } from "@life-sim/ext-family";
 
 /**
- * 宗族 B1（`docs/CLAN-DESIGN.md` 第二部分）：数据模型 / 6 个 effect / 5 个条件 /
+ * 宗族 B1（`extensions/family/doc/CLAN-DESIGN.md` 第二部分）：数据模型 / 6 个 effect / 5 个条件 /
  * 建世界期初始化 / 读档校验 / `unknown_effect`。
  *
  * 单元层全部走**引擎真实入口**（`createWorldV2` / `applyEffectsV2` / `WorldStateV2Schema`），

@@ -3,7 +3,7 @@ import type { WorldTemplateV2 } from "@life-sim/shared";
 import { assertKinshipCompliance } from "../../apps/server/src/templates.ts";
 
 /**
- * `kinship_conflict` 判据（`docs/FAMILY-GRAPH.md` §1/§2）：亲缘两种合规写法互斥。
+ * `kinship_conflict` 判据（`extensions/family/doc/FAMILY-GRAPH.md` §1/§2）：亲缘两种合规写法互斥。
  *
  * 判据：`extensions.family` 存在 **且** `characters[].relations[]` 里任一条 `kind` 属于
  * `KinshipKind`（`father` / `mother` / `wife` / `son` / `daughter` / `elder-sister` /

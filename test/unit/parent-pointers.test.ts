@@ -4,7 +4,7 @@ import { WorldTemplateV2Schema, type WorldTemplateV2 } from "@life-sim/shared";
 import { fixtureEntry } from "../helpers/world.ts";
 
 /**
- * 父/母指针入契约与实例（`docs/FAMILY-GRAPH.md` §3.1，阶段三第 1 段）。
+ * 父/母指针入契约与实例（`extensions/family/doc/FAMILY-GRAPH.md` §3.1，阶段三第 1 段）。
  *
  * 本段只做两件事：**字段进契约、值传进实例**。
  * 亲缘推导仍由 `extensions/family` 从关系边算（模式一），指针**没有任何消费者**，

@@ -75,7 +75,7 @@ export interface V2Player extends V2CombatantBase {
    */
   equipment?: EquipmentInstance[];
   /**
-   * 父/母指针（`docs/FAMILY-GRAPH.md` §3.1）：模板 `playerTemplate.fatherId/motherId` 的副本。
+   * 父/母指针（`extensions/family/doc/FAMILY-GRAPH.md` §3.1）：模板 `playerTemplate.fatherId/motherId` 的副本。
    * 玩家不是特例；可选 + 无默认值 ⇒ 旧档缺字段不拒载。
    */
   fatherId?: string;
@@ -174,7 +174,7 @@ export interface V2Npc extends V2CombatantBase {
   /** 上次自主行动的轮次 */
   lastActedAtTurn: number;
   /**
-   * **大众认知的生父**（`docs/FAMILY-GRAPH.md` §3.1）：模板 `characters[].fatherId` 的副本，
+   * **大众认知的生父**（`extensions/family/doc/FAMILY-GRAPH.md` §3.1）：模板 `characters[].fatherId` 的副本，
    * 缺省 = 不详。可选 + 无默认值，旧档缺字段不拒载（沿用 `birthTime` 的先例）。
    *
    * ⚠ **本轮只是铺路**：亲缘推导仍走关系边，没有任何代码读这两个指针。
@@ -427,7 +427,7 @@ export interface WorldStateV2 {
    */
   triggerFireLedger?: Record<string, TriggerFireLedgerEntry>;
   /**
-   * 扩展层的状态切片（`docs/EXTENSIONS.md` §2 / `docs/CLAN-DESIGN.md` §2.1）。
+   * 扩展层的状态切片（`docs/EXTENSIONS.md` §2 / `extensions/family/doc/CLAN-DESIGN.md` §2.1）。
    *
    * 键 = 扩展 id（与模板 `extensions:` 的键对齐），值 = **该扩展自己的**可 JSON 序列化对象。
    * 内核**只做字节级 round-trip**：不读、不改、不解释内容，也不认识「宗族」「声望」这类词 ——

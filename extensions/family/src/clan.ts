@@ -11,7 +11,7 @@ import {
 } from "@life-sim/game-core";
 
 /**
- * 宗族（`docs/CLAN-DESIGN.md` 第二部分）：**新实体**，不是族谱的派生。
+ * 宗族（`extensions/family/doc/CLAN-DESIGN.md` 第二部分）：**新实体**，不是族谱的派生。
  *
  * 与族谱的分工（§0）：族谱是关系图的发散视图（零 state）；宗族有自己的生命周期
  * （族名 / 声望 / 家主 / 兴衰 / 族学 / append-only 大事记 / 权威成员表），只被显式
@@ -104,7 +104,7 @@ export const ClanMemberSchema = z
   .strict();
 
 /**
- * 婚配（`docs/FAMILY-GRAPH.md` §3.2）：`a` / `b` **无向**，按 `(min,max)` 归一去重；
+ * 婚配（`extensions/family/doc/FAMILY-GRAPH.md` §3.2）：`a` / `b` **无向**，按 `(min,max)` 归一去重；
  * `until` 表达和离 / 丧偶（历史留在表里，不删条目）；**多妻顺序 = 数组顺序**。
  *
  * 放在扩展切片而**不留在 core 的边里**：这些语义只有家族关心，core 今天没有消费者。
@@ -118,7 +118,7 @@ export const KinSpouseFactSchema = z
   })
   .strict();
 
-/** 收养（`docs/FAMILY-GRAPH.md` §3.2 第三层推导）：`parent` 是养父母，`child` 是被收养者。 */
+/** 收养（`extensions/family/doc/FAMILY-GRAPH.md` §3.2 第三层推导）：`parent` 是养父母，`child` 是被收养者。 */
 export const KinAdoptionFactSchema = z
   .object({
     child: z.string().min(1),
@@ -135,7 +135,7 @@ export const KinAdoptionFactSchema = z
  * 义子、入赘随妻族 —— 血缘与归族本来就不同。所以这里既允许「在族但无亲缘」，
  * 也允许「有亲缘但不在族」。
  *
- * `spouses` / `adoptions`（`docs/FAMILY-GRAPH.md` §3.2）**可选且不补缺省值**：
+ * `spouses` / `adoptions`（`extensions/family/doc/FAMILY-GRAPH.md` §3.2）**可选且不补缺省值**：
  * · 旧档 / 旧模板里没有这两个键 ⇒ 必须直载（`optional()` 而非 `default([])`，
  *   否则读档 round-trip 会凭空多出两个空数组，等于改了存档形状）；
  * · 一旦存在，**任何 clan effect 都必须原样保留** —— 本文件的写点全部走
@@ -189,7 +189,7 @@ export interface ClanConfig {
   /** 声望域与单次调整上限（§4 风险 8：没有钳域就会一步登天）。 */
   readonly prestige: { readonly min: number; readonly max: number; readonly maxStep: number };
   /**
-   * 模板声明的婚配表（`extensions.family.spouses`，`docs/FAMILY-GRAPH.md` §3.2）：
+   * 模板声明的婚配表（`extensions.family.spouses`，`extensions/family/doc/FAMILY-GRAPH.md` §3.2）：
    * 建世界时**原样播种**进 `state.extensions.family.spouses` —— 指针模式下这是配偶行的唯一来源
    * （父/母来自 `fatherId`/`motherId`，婚姻没有指针形态）。已按无向对归一去重。
    */
@@ -373,7 +373,7 @@ function ensureClanState(state: WorldStateV2): ClanState {
  *
  * `next` 必须是 `ensureClanState` 的返回值（或其副本）：整段解析已把 `spouses` /
  * `adoptions` 带上，写回时原样保留。**禁止**用 `{ clans, members }` 裸对象调用本函数
- * —— 那等于重建切片，婚配表会被静默抹掉（`docs/FAMILY-GRAPH.md` §7.1 第 2 条）。
+ * —— 那等于重建切片，婚配表会被静默抹掉（`extensions/family/doc/FAMILY-GRAPH.md` §7.1 第 2 条）。
  */
 function writeClanState(state: WorldStateV2, next: ClanState): void {
   state.extensions = { ...(state.extensions ?? {}), family: next };
@@ -732,7 +732,7 @@ export const clanConditions: Readonly<Record<string, ConditionEvalFn>> = {
  *   所以族声明里**没有** `headId`：家主只能由 `joinClan` + `setClanHead` 显式立，
  *   否则会出现「家主不在族成员表」的自我矛盾。
  * · 每个族写一条 `founded` 史（append-only 的起点）。
- * · 同时播种模板声明的 `spouses` / `adoptions`（`docs/FAMILY-GRAPH.md` §3.2）：
+ * · 同时播种模板声明的 `spouses` / `adoptions`（`extensions/family/doc/FAMILY-GRAPH.md` §3.2）：
  *   指针模式没有婚姻边，`world.yaml` 里这一份是配偶行的**唯一来源**。段名与读侧
  *   （`kin-source.readSpouses`）一致，建局即有，无需事件补写。
  * · 没声明族、也没有婚配/收养 ⇒ 不造空段（`state.extensions` 保持缺省，零回归）。

@@ -421,6 +421,10 @@ export function applyEffectsV2(
           state.player.age = effect.age;
           state.playerAgeAtStart = effect.age;
         }
+        // 多开局模板的父母指针：只写传入的字段，不传 = 不详（不是清空）。
+        // 引用完整性由模板加载期校验 characters[].id；运行期不二次猜人。
+        if (effect.fatherId !== undefined) state.player.fatherId = effect.fatherId;
+        if (effect.motherId !== undefined) state.player.motherId = effect.motherId;
         break;
       }
       case "adjustRelation": {

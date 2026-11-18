@@ -1,5 +1,5 @@
 
-/* ---------- 族谱（docs/CLAN-DESIGN.md §1.6） ---------- */
+/* ---------- 族谱（extensions/family/doc/CLAN-DESIGN.md §1.6） ---------- */
 
 /*
  * 竖屏画布：世代自上而下（老在上）、同代横排、配偶相邻。
@@ -238,7 +238,7 @@
   mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent 100%);
 }
 
-/* ---------- 宗族（B 段，`docs/CLAN-DESIGN.md` §2.4）：一族一卡，竖屏优先 ---------- */
+/* ---------- 宗族（B 段，`extensions/family/doc/CLAN-DESIGN.md` §2.4）：一族一卡，竖屏优先 ---------- */
 
 .ls-clan {
   display: flex;

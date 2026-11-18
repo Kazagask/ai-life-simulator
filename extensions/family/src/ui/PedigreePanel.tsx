@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PedigreeEdgeVM, PedigreeNodeVM, PedigreeVM } from "./view-model.js";
 
 /**
- * 族谱面板（`docs/CLAN-DESIGN.md` §1.6）。
+ * 族谱面板（`extensions/family/doc/CLAN-DESIGN.md` §1.6）。
  *
  * 只吃 `PedigreeVM`：世代号、有没有卡、生死态**全部是服务端口径**，
  * 组件不读快照、不按关系边自己算辈分（前端只有出边，根本算不出「我的孩子是谁」）。

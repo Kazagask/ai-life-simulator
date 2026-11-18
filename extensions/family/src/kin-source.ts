@@ -11,7 +11,7 @@ import {
 } from "./terms/index.js";
 
 /**
- * 亲属图的**数据源选择**（`docs/FAMILY-GRAPH.md` §1 的两种合规写法）。
+ * 亲属图的**数据源选择**（`extensions/family/doc/FAMILY-GRAPH.md` §1 的两种合规写法）。
  *
  * · 模式二（指针）：角色只写 `fatherId` / `motherId`，婚配/收养在扩展 state；
  * · 模式一（边）：模板自己写 `father` / `wife` / `son` … 边。
@@ -44,7 +44,7 @@ function asNonEmptyString(value: unknown): string | null {
 }
 
 /**
- * 读 `state.extensions.family.spouses`（`docs/FAMILY-GRAPH.md` §3.2）。
+ * 读 `state.extensions.family.spouses`（`extensions/family/doc/FAMILY-GRAPH.md` §3.2）。
  *
  * **防御式读取，不抛错**：切片可能缺省（旧档 / 模板没写婚配），坏条目逐条跳过。
  * 投影期抛错会让一局崩在渲染上；结构校验是读档 schema 的职责，不是派生期的。

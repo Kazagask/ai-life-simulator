@@ -82,7 +82,7 @@ export const CharacterSchema = z
      */
     relations: z.array(RelationDeclSchema).optional(),
     /**
-     * **大众认知的生父**（不是"名分父"）——见 `docs/FAMILY-GRAPH.md` §3.1。
+     * **大众认知的生父**（不是"名分父"）——见 `extensions/family/doc/FAMILY-GRAPH.md` §3.1。
      * 指向 `characters[].id`，必须存在（引用完整性在 world.ts 顶层校验），不得指向自己。
      * 缺省 = 不详（不编）。
      *

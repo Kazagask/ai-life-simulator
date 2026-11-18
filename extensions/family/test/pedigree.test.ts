@@ -4,7 +4,7 @@ import type { SnapshotActor, SnapshotDerivationContext } from "@life-sim/game-co
 import { derivePedigree } from "../src/pedigree.js";
 
 /**
- * 族谱派生（`docs/CLAN-DESIGN.md` 第一部分）。
+ * 族谱派生（`extensions/family/doc/CLAN-DESIGN.md` 第一部分）。
  *
  * 单元层只构造**边 + 演员目录**，不建世界：族谱是纯派生，输入就是这两样。
  * 接缝层的零回归门槛（模板不声明 `extensions.family` ⇒ 快照里没有 `family`）

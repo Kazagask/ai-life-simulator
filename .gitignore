@@ -29,3 +29,5 @@ specs/data/references/*.wheel.json
 .tmp-*.log
 .vitest-*.log
 .tmp-*
+.rpa-*.mjs
+.llm-run.mjs

@@ -3,7 +3,7 @@ import type { SnapshotDerivationContext } from "@life-sim/game-core";
 import { parseFamilyConfig } from "./config.js";
 
 /**
- * 族谱：**纯派生视图**（`docs/CLAN-DESIGN.md` 第一部分）。
+ * 族谱：**纯派生视图**（`extensions/family/doc/CLAN-DESIGN.md` 第一部分）。
  *
  * 只吃 `state.relations`（经内核收敛成 known/inferred 的 `visibleEdges`）与 actor 目录，
  * **不读任何宗族数据**、不写 state、不看随机数与时间 —— 同输入必然同输出。
@@ -76,7 +76,7 @@ interface Normalized {
 /**
  * 族谱能看到的全部输入：**故意 `Omit` 掉 `extensionState`**。
  *
- * 「族谱不许读宗族数据」在 `docs/CLAN-DESIGN.md §3` 里是硬口径，但 `SnapshotDerivationContext`
+ * 「族谱不许读宗族数据」在 `extensions/family/doc/CLAN-DESIGN.md §3` 里是硬口径，但 `SnapshotDerivationContext`
  * 是同一个对象，族谱只要写一行 `ctx.extensionState` 就能偷看。所以在**类型上**把那个口封掉：
  * 要读宗族数据得先改这个签名，改签名会在 review 里被看见。纪律 → 约束。
  */

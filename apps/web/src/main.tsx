@@ -27,8 +27,10 @@ import type {
   TemplateSummary,
   V2Snapshot,
   WheelResultView,
+  WorldSnapshot,
   WorldSummary,
 } from "./api";
+import { hasSubtabEntry, hasTabEntry, requiresMinimalForm, resolvePlacement } from "./ui-layout";
 import { bootstrapAuth, signOutOfWorkBuddy, signInWithWorkBuddy, userDisplayName } from "./auth";
 import { cloud } from "./cloud";
 import {
@@ -47,13 +49,16 @@ import {
   CharacterSheet,
   EventPanel,
   GmWorkingStrip,
+  HOST_UI_SLOTS,
   NpcCard,
+  NpcDetails,
   SkillList,
   StatsPanel,
   AiNarrativeTag,
   WheelPanel,
   interactionMode,
   extensionViewsFor,
+  resolveUiOverride,
   toActPayload,
   toViewModel,
   toWheelVM,
@@ -63,6 +68,8 @@ import type {
   BagPartition,
   ContentBlockVM,
   ExtensionViewHost,
+  NpcCardProps,
+  NpcDetailsProps,
   NpcVM,
   PersonalSelection,
   ViewModel,
@@ -167,7 +174,7 @@ const SLOT_BADGE: Record<SlotOccupant, string> = {
 
 function App() {
   const [worldId, setWorldId] = useState<string | null>(loadWorldId());
-  const [snapshot, setSnapshot] = useState<V2Snapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<WorldSnapshot | null>(null);
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
   const [worlds, setWorlds] = useState<WorldSummary[]>([]);
   const [tab, setTab] = useState<Tab>("life");
@@ -284,6 +291,18 @@ function App() {
         setNotice("这一局已不存在（可能已被删除），已回到列表。");
       });
   }, [worldId]);
+
+  /**
+   * `ui.yaml` 关掉当前页签时把选中态挪到仍可见的第一个页签。
+   * 不做这件事会出现"内容区空、导航也没有高亮"的黑洞（与嵌不进槽降级 tab 同一原则）。
+   */
+  useEffect(() => {
+    if (snapshot === null) return;
+    const visible: Tab[] = ["life", "personal", "world", "log", "records"].filter((key) =>
+      hasTabEntry(snapshot.ui, key),
+    ) as Tab[];
+    if (visible.length > 0 && !visible.includes(tab)) setTab(visible[0]);
+  }, [snapshot?.ui, tab]);
 
   /**
    * F3 / T-07：拉取叙事正文。
@@ -616,6 +635,7 @@ function App() {
         {tab === "life" && (
           <LifeTab
             snapshot={snapshot}
+            ui={snapshot.ui}
             view={view}
             busy={busy}
             lastResult={lastResult}
@@ -633,11 +653,12 @@ function App() {
           />
         )}
         {tab === "personal" && (
-          <PersonalTab snapshot={snapshot} view={view} busy={busy} summarySource={summarySource} onUseItem={useItem} onEquip={equip} onUnequip={unequip} />
+          <PersonalTab snapshot={snapshot} ui={snapshot.ui} view={view} busy={busy} summarySource={summarySource} onUseItem={useItem} onEquip={equip} onUnequip={unequip} />
         )}
         {tab === "world" && (
           <WorldTab
             snapshot={snapshot}
+            ui={snapshot.ui}
             npcs={view.npcs}
             vm={view}
             onSelectSelf={() => setTab("personal")}
@@ -656,12 +677,14 @@ function App() {
             ["log", "记录", "≡"],
             ["records", "档案", "❖"],
           ] as const
-        ).map(([key, label, icon]) => (
-          <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}>
-            <span className="icon">{icon}</span>
-            {label}
-          </button>
-        ))}
+        )
+          .filter(([key]) => hasTabEntry(snapshot?.ui, key))
+          .map(([key, label, icon]) => (
+            <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}>
+              <span className="icon">{icon}</span>
+              {label}
+            </button>
+          ))}
       </nav>
       {/*
         跨页签的「有东西待处理」浮标。`life` 页不挂：事件区就在这一页的最前面，
@@ -1202,10 +1225,54 @@ function usePlatformEnding(ending: EndingView): { title: string; summary: string
 }
 
 
+/**
+ * `place: <能力>: off` 时的最小推进形态（`specs/SPEC.md` §1.5 共同语义第 2 条）。
+ *
+ * 只关常驻入口、不关推进路径：引擎的 `pending_event_required` 不看 ui.yaml，
+ * 槽里有事件就必须能提交。这里给出恰好够推进的一块，不渲染富面板。
+ */
+function MinimalSlotForm({
+  slot,
+  busy,
+  onConfirmWheel,
+  onChoose,
+  onBattle,
+}: {
+  slot: SlotEventView;
+  busy: boolean;
+  onConfirmWheel: () => void;
+  onChoose: (optionId: string) => void;
+  onBattle: (command: BattleCommand) => void;
+}) {
+  return (
+    <div className="event-body minimal-slot-form">
+      <h2>{slot.title}</h2>
+      <p>{slot.narrative}</p>
+      {slot.kind === "random" && (
+        <button className="primary wheel-continue" disabled={busy} onClick={onConfirmWheel}>
+          继续
+        </button>
+      )}
+      {slot.kind === "combat" && (
+        <button className="primary" disabled={busy} onClick={() => onBattle({ type: "pass" })}>
+          坚持
+        </button>
+      )}
+      {slot.kind === "normal" &&
+        (slot.options ?? []).map((opt) => (
+          <button key={opt.id} className="option" disabled={busy} onClick={() => onChoose(opt.id)}>
+            {opt.text}
+          </button>
+        ))}
+    </div>
+  );
+}
+
 // ---------- 人生 Tab ----------
 
 function LifeTab({
   snapshot,
+  ui,
   view,
   busy,
   lastResult,
@@ -1222,6 +1289,8 @@ function LifeTab({
   onConfirmWheel,
 }: {
   snapshot: V2Snapshot;
+  /** `ui.yaml` 的落位声明（可选；缺省 = 现有内建布局）。 */
+  ui?: WorldSnapshot["ui"];
   /** 展示层视图模型（叙事 / 立绘只从这里取数据，不从快照现读）。 */
   view: ViewModel;
   busy: boolean;
@@ -1354,7 +1423,19 @@ function LifeTab({
             {lastResult?.elapsed && <p className="slot-elapsed">过去{lastResult.elapsed}</p>}
 
             <div className="slot-body">
-              {slot !== null && slot.kind === "random" && slot.wheel !== undefined && (
+              {requiresMinimalForm(ui, "wheel", slot?.kind ?? null) && slot !== null && (
+                <MinimalSlotForm
+                  slot={slot}
+                  busy={busy}
+                  onConfirmWheel={onConfirmWheel}
+                  onChoose={onChoose}
+                  onBattle={onBattle}
+                />
+              )}
+              {slot !== null &&
+                slot.kind === "random" &&
+                slot.wheel !== undefined &&
+                !requiresMinimalForm(ui, "wheel", slot.kind) && (
                 <WheelPanel
                   key={`${slot.eventId}:${slot.wheel.label}`}
                   items={[{ wheel: toWheelVM(slot.wheel), title: slot.title }]}
@@ -1364,7 +1445,10 @@ function LifeTab({
                 />
               )}
               {/* 投影缺 `wheel` 时的逃生口：仍然给一个可点的「继续」，不让玩家卡在空槽前 */}
-              {slot !== null && slot.kind === "random" && slot.wheel === undefined && (
+              {slot !== null &&
+                slot.kind === "random" &&
+                slot.wheel === undefined &&
+                !requiresMinimalForm(ui, "wheel", slot.kind) && (
                 <div className="event-body">
                   <h2>{slot.title}</h2>
                   <p>{slot.narrative}</p>
@@ -1373,7 +1457,10 @@ function LifeTab({
                   </button>
                 </div>
               )}
-              {slot !== null && slot.kind === "combat" && view.battle !== null && (
+              {slot !== null &&
+                slot.kind === "combat" &&
+                view.battle !== null &&
+                !requiresMinimalForm(ui, "battle", slot.kind) && (
                 <BattleBoard
                   battle={view.battle}
                   labels={snapshot.labels.resources}
@@ -1382,7 +1469,10 @@ function LifeTab({
                   onContinue={onConfirmWheel}
                 />
               )}
-              {slot !== null && slot.kind === "normal" && view.slot !== null && (
+              {slot !== null &&
+                slot.kind === "normal" &&
+                view.slot !== null &&
+                !requiresMinimalForm(ui, "event", slot.kind) && (
                 <EventPanel
                   title={view.slot.title}
                   narrative={view.slot.narrative}
@@ -1541,6 +1631,7 @@ const PERSONAL_SUBTABS: Array<{ key: PersonalSubTab; label: string }> = [
 
 function PersonalTab({
   snapshot,
+  ui,
   view,
   busy,
   summarySource,
@@ -1549,6 +1640,7 @@ function PersonalTab({
   onUnequip,
 }: {
   snapshot: V2Snapshot;
+  ui?: WorldSnapshot["ui"];
   view: ViewModel;
   busy: boolean;
   /** R2.7 / T-S2：归档响应的人生总结来源；缺省 / 非 llm 时展示与改前逐字一致 */
@@ -1590,7 +1682,9 @@ function PersonalTab({
   return (
     <div className="stack">
       <div className="subtabbar" role="tablist" aria-label="个人子页签">
-        {PERSONAL_SUBTABS.map((entry) => (
+        {PERSONAL_SUBTABS.filter((entry) =>
+          hasSubtabEntry(ui, entry.key === "character" ? "character" : entry.key === "bag" ? "inventory" : "skills"),
+        ).map((entry) => (
           <button
             key={entry.key}
             role="tab"
@@ -1682,11 +1776,13 @@ const WORLD_SUBTABS: Array<{ key: WorldSubTab; label: string }> = [
  */
 function WorldTab({
   snapshot,
+  ui,
   npcs,
   vm,
   onSelectSelf,
 }: {
   snapshot: V2Snapshot;
+  ui?: WorldSnapshot["ui"];
   npcs: NpcVM[];
   vm: ViewModel;
   onSelectSelf: () => void;
@@ -1710,11 +1806,29 @@ function WorldTab({
     window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
   }, [sub, focusNpcId]);
 
+  /**
+   * 宿主默认实现 → 扩展覆盖（`docs/EXTENSIONS.md` §7.5）。两个槽独立解析：
+   * 只覆盖详情区时卡片仍是宿主默认，覆盖整张卡时扩展自己决定要不要用 `Details`。
+   * 没有扩展注册时原样用默认组件，零回归。
+   */
+  const NpcCardImpl = resolveUiOverride<NpcCardProps>(HOST_UI_SLOTS.npcCard, vm, NpcCard);
+  const NpcDetailsImpl = resolveUiOverride<NpcDetailsProps>(HOST_UI_SLOTS.npcDetails, vm, NpcDetails);
+
   const extensionViews = extensionViewsFor("world.subview", vm);
+  // `ui.yaml` 决定每个 world 子视图上不上屏：内建 overview/npc 与扩展视图走同一条过滤。
+  // 扩展视图的能力 id 就是它的 view.id（family 声明为 pedigree/clan）。
   const subtabs: Array<{ key: WorldSubTab; label: string }> = [
-    ...WORLD_SUBTABS,
-    ...extensionViews.map((view) => ({ key: view.id, label: view.label })),
+    ...WORLD_SUBTABS.filter((entry) =>
+      hasSubtabEntry(ui, entry.key === "npc" ? "npcList" : "world"),
+    ),
+    ...extensionViews
+      .filter((view) => hasSubtabEntry(ui, view.id))
+      .map((view) => ({ key: view.id, label: view.label })),
   ];
+  /** 声明里关掉的页签被选中时回落到第一个可见项，不留空面板。 */
+  useEffect(() => {
+    if (subtabs.length > 0 && !subtabs.some((entry) => entry.key === sub)) setSub(subtabs[0].key);
+  }, [ui, subtabs.length]);
   const activeExtension = extensionViews.find((view) => view.id === sub);
   const ActiveComponent = activeExtension?.Component;
   /** 宿主给扩展的导航能力（可选）；扩展不读也不影响渲染。 */
@@ -1761,7 +1875,7 @@ function WorldTab({
           {npcs.length === 0 && <p className="muted">这个世界还没有出现在你身边的人。</p>}
           {npcs.map((npc) => (
             <div key={npc.id} id={`npc-${npc.id}`}>
-              <NpcCard npc={npc} />
+              <NpcCardImpl npc={npc} Details={NpcDetailsImpl} />
             </div>
           ))}
         </>

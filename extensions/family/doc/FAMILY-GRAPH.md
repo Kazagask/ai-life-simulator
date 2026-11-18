@@ -4,7 +4,7 @@
 > 「亲属边本体也能写，但是装了拓展时候 拓展会直接覆盖掉（其实是不合规的）。
 > 合规写法：1. 不装拓展 自己维护亲缘关系；2. 装拓展 写生父生母交给拓展计算亲缘关系。」
 >
-> 本文定的是**数据模型与合规判据**。族谱/宗族怎么显示见 `docs/CLAN-DESIGN.md`，
+> 本文定的是**数据模型与合规判据**。族谱/宗族怎么显示见 `extensions/family/doc/CLAN-DESIGN.md`，
 > 扩展与宿主的边界见 `docs/EXTENSIONS.md`。
 
 ---
@@ -86,7 +86,7 @@ interface FamilyState {
   spouses: Array<{ a: string; b: string; since?: number; until?: number }>;
   /** 收养（第三层推导用）：`parent` 是养父母，`child` 是被收养者。 */
   adoptions: Array<{ child: string; parent: string; since?: number; until?: number }>;
-  clans: ClanFact[];      // 见 docs/CLAN-DESIGN.md
+  clans: ClanFact[];      // 见 extensions/family/doc/CLAN-DESIGN.md
   members: ClanMember[];
 }
 ```
@@ -175,13 +175,13 @@ interface FamilyState {
 
 ---
 
-## 7. 迁移清单（三个模板现在都**不合规**）
+## 7. 迁移清单（三个模板均已按各自模式合规）
 
 | 模板 | 现状 | 迁移动作 |
 |---|---|---|
 | `valmont` | 12 个角色，亲缘全靠 `characters.yaml` 的 `father/mother/wife/husband/son/daughter/elder-sister/…` 边 | 全部改写成 `fatherId` / `motherId` + 一份 `spouses` 列表。**罗莎不写 `motherId`**（前妻之女，图上本就没有母边）——指针模型下这是自然的，不需要额外注释解释"为什么不写" |
 | `jjk-2006` | 一条 `relative`（`gap: true` 远亲）+ 一条 `npc-megumi → enemy-toji` 的 `father` 边 | **已撤掉 `extensions.family` 声明 ⇒ 模式一**。代价（已接受）：NPC 卡上的亲属称谓整体消失，`father` 行只剩 kind 标签「父亲」；族谱段整体消失（它本来也只有 1 个孤立节点，没有信息量）。**若将来要它也有称谓**：先给 `enemy-toji` 建实例（敌人不实例化，指针会悬空），再迁指针 |
-| `jjk-shinjuku` | 伏黑 → 甚尔（敌方、hidden）一条 `father` 边 | 同上。注意：**敌人不实例化**，指针指向一个不存在的实例会踩 `unknown_reference`，所以要么给甚尔建实例、要么撤掉 family 声明 |
+| `jjk-shinjuku` | 原先不合规（伏黑 → 甚尔 的敌方 father 边） | **已迁到指针模式**（2026-11-18）：不写任何亲属边，新增三个已故史实 NPC 作指针端点（`npc-kenjaku-host` / `npc-jin` / `npc-wasuke`），婚配写进 `extensions.family.spouses`；玩家指针按开局由 `setIdentity` 的可选 `fatherId` / `motherId` 写入（静态 `playerTemplate` 做不到一模板多主角）。甚尔仍不建实例，不再有指向它的边 |
 
 迁移后每个模板的**语义指纹都会变**，旧存档拒载——这是预期的，和其他协议变更一样。
 

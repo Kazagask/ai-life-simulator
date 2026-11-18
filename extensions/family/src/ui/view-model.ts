@@ -12,7 +12,7 @@ import type { ClanView, PedigreeView } from "../contract.js";
  * 回边不再下发（§7.4），schema 里也没有它们的容身处（`.strict()` 会直接拒绝）。
  */
 
-/** 族谱节点（`docs/CLAN-DESIGN.md` §1.5/§1.6）。 */
+/** 族谱节点（`extensions/family/doc/CLAN-DESIGN.md` §1.5/§1.6）。 */
 export const PedigreeNodeVMSchema = z
   .object({
     /** 关系图节点 id。**仅作 React key / 跳转键**，不能当人名显示。 */
@@ -71,7 +71,7 @@ export const PedigreeVMSchema = z
   .strict();
 export type PedigreeVM = z.infer<typeof PedigreeVMSchema>;
 
-/** 宗族家主（`docs/CLAN-DESIGN.md` §2.4）。`id` 仅作 key / 跳转键，不显示。 */
+/** 宗族家主（`extensions/family/doc/CLAN-DESIGN.md` §2.4）。`id` 仅作 key / 跳转键，不显示。 */
 export const ClanHeadVMSchema = z
   .object({
     id: z.string(),

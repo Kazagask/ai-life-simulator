@@ -13,7 +13,7 @@ import type { WorldTemplateV2, WorldStateV2 } from "@life-sim/shared";
 import { familyExtension } from "@life-sim/ext-family";
 
 /**
- * 指针模式的**行级**回归（`docs/FAMILY-GRAPH.md` §7.1 第 1 条）。
+ * 指针模式的**行级**回归（`extensions/family/doc/FAMILY-GRAPH.md` §7.1 第 1 条）。
  *
  * 指针模式下 `state.relations` 里没有亲属边 ⇒ NPC 卡的关系行会整块消失。
  * 3b 的解法是「投影期把指针合成的边加回去」：扩展贡献边 → 内核按

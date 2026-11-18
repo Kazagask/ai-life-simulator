@@ -20,6 +20,16 @@ export type RelationFields = Record<string, RelationFieldValue>;
 /** 宿主装进来的一份扩展实现。`id` 与模板 `extensions:` 的键对齐。 */
 export interface ExtensionRuntime {
   readonly id: string;
+  /**
+   * 扩展自身版本（`package.json#version` 的镜像，由扩展包自己填）。
+   * 供 `world.yaml#requires.extensions` 核对；缺省视为 "*"（老扩展零回归）。
+   */
+  readonly version?: string;
+  /**
+   * 本扩展依赖的主包版本区间（`satisfiesVersion()` 的格式）。
+   * 缺省视为 "*"。主包升级若破坏接口，扩展包应在这里收紧，加载期即暴露不兼容。
+   */
+  readonly requiresCore?: string;
   readonly relationDerivation?: RelationDerivation;
   readonly snapshotDerivation?: SnapshotDerivation;
   /**
@@ -56,7 +66,7 @@ export interface ExtensionRuntime {
     template: WorldTemplateV2,
   ) => void;
   /**
-   * 扩展向投影**贡献**关系边（`docs/FAMILY-GRAPH.md` §7.1）。
+   * 扩展向投影**贡献**关系边（`extensions/family/doc/FAMILY-GRAPH.md` §7.1）。
    *
    * 为什么需要：指针模式（只写 `fatherId` / `motherId`）下 `state.relations` 里没有亲属边，
    * NPC 卡的关系行会整块消失。让扩展在投影期把指针合成的边**加回来**，行装配与称谓装饰
@@ -70,6 +80,14 @@ export interface ExtensionRuntime {
    * · 未声明本扩展 / 未注册 / 没实现本钩子 ⇒ 一次都不调用（零回归）。
    */
   readonly contributeRelationEdges?: (ctx: RelationEdgeSourceContext) => readonly RelationEdge[];
+  /**
+   * 本扩展贡献给 `ui.yaml` 的能力 id（如 `pedigree` / `clan`）。
+   *
+   * 只用于**加载期校验**：服务端把宿主闭合集与本表合并，未知的 `place:` 键拒载。
+   * 前端不读它 —— 视图仍由 `ExtensionView.slot` 声明落位，这里只让模板作者写的
+   * `place: pedigree: ...` 不因"主包不知道这个 id"而被误判为拼写错误。
+   */
+  readonly uiCapabilities?: readonly string[];
 }
 
 /**
@@ -176,7 +194,7 @@ export interface SnapshotActor {
   readonly lifeState?: NpcLifecycleState;
   readonly reasonCode?: string;
   /**
-   * 父/母指针（`docs/FAMILY-GRAPH.md` §3.1），原样透传实例上的值。
+   * 父/母指针（`extensions/family/doc/FAMILY-GRAPH.md` §3.1），原样透传实例上的值。
    * 缺省 = 不详（旧档 / 模板没写）。**内核不解释指针**：家族扩展据此选「指针模式」，
    * 没有指针时回落关系边推导 —— 选源与解释都在扩展里。
    */
@@ -190,7 +208,7 @@ export interface SnapshotActor {
 }
 
 /**
- * 扩展向投影贡献关系边的上下文（`contributeRelationEdges`，`docs/FAMILY-GRAPH.md` §7.1）。
+ * 扩展向投影贡献关系边的上下文（`contributeRelationEdges`，`extensions/family/doc/FAMILY-GRAPH.md` §7.1）。
  *
  * 刻意**不给** `visibleEdges`：贡献是纯追加，合并在内核做（一个集合、两个消费者）。
  * 给了边集，扩展就有了「自己合并一遍」的入口，双真相会从那里长回来。
@@ -207,7 +225,7 @@ export interface RelationEdgeSourceContext {
   /**
    * 本扩展自己的 state 切片（`state.extensions[<id>]`，**可能缺省**；只读，不许写回）。
    *
-   * 婚配 / 收养（`docs/FAMILY-GRAPH.md` §3.2）就在这段里 —— 没有它，指针模式只能合成
+   * 婚配 / 收养（`extensions/family/doc/FAMILY-GRAPH.md` §3.2）就在这段里 —— 没有它，指针模式只能合成
    * 父/母边，卡片上永远看不到配偶行（族谱却画得出，两处自相矛盾）。
    */
   readonly extensionState?: unknown;
@@ -341,6 +359,20 @@ export function resetExtensionRuntimes(): void {
 /** 模板加载期用：某个 id 有没有装包（`unknown_extension` 拒载的判据）。 */
 export function hasExtensionRuntime(id: string): boolean {
   return RUNTIMES.has(id);
+}
+
+/** 模板加载期用：取某个已注册扩展的运行时（版本核对用）；没装返回 undefined。 */
+export function getExtensionRuntime(id: string): ExtensionRuntime | undefined {
+  return RUNTIMES.get(id);
+}
+
+/** 模板加载期用：所有已注册扩展声明的 UI 能力 id（供 `ui.yaml` 的 `place:` 键校验）。 */
+export function registeredUiCapabilities(): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const runtime of RUNTIMES.values()) {
+    for (const capability of runtime.uiCapabilities ?? []) ids.add(capability);
+  }
+  return ids;
 }
 
 /** 模板 `extensions:` 的一条已解析声明。 */

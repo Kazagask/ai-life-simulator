@@ -24,21 +24,23 @@ AI 负责把规则结果写成有画面的叙事、并在关键节点补出新�
 | **AI**（`packages/agent-runtime` + `apps/server`） | 叙事与分支候选 | 只能通过引擎工具面写入，不直接改状态，不做评分裁判 |
 | **前端**（`packages/rpg-ui` + `apps/web`） | 展示与交互 | 只吃投影（`V2Snapshot` / `ViewModel`），不承载规则 |
 
-### 1.2 世界模板的接入层级
+### 1.2 世界模板的接入层级（2026-11-18 重定）
 
-> 用户 2026-11-17 口径：**L0 已实现；L1 部分；L2 / L3 `未决`；L4 只有 `ui.yaml` 一档已裁决
-> （待落地、形状未定），其余 `未决`；L5 扩展层已裁决（待落地），见 §1.6。**
-> 下面每层写清"现在能到哪一步"（事实）与"没定的部分"（`未决`）。
+> 用户裁决：**只用三层**。L0 最简；L1 深度利用内核本体；L2 = 本体不够用、需要扩展包，
+> 且**任意扩展都算 L2**（不再按"资源 / 声明式 / 展示 / 扩展"细分六档）。
+>
+> 旧表的 L1 资源、L2 深度 yaml、L3 复用宏、L4 展示声明全部收进 **L1**（都是内核本体能力）；
+> 旧 L5 扩展层即 **L2**。旧编号在本文件其余章节若被引用，一律按本表映射理解。
 
-| 层 | 内容 | 当前状态 |
+| 层 | 定义 | 当前状态 |
 |---|---|---|
-| **L0 最小实现** | 只写必要的 yaml 模板即可跑完一局 | **已实现**。见 1.3 的必需/可选文件表 |
-| **L1 资源文件** | 立绘 / 差分 / 音频等静态资源随模板分发 | **部分**：`assets/manifest.yaml` 已能声明资源，服务端有 `GET /api/templates/:id/:version/assets/:assetId` 下发，`/api/templates` 会带 `assetCount`；**事件/叙事引用媒体的契约 `未决`** |
-| **L2 深度 yaml（仍在框架内）** | 更复杂的声明式剧情结构（更多触发原语、更多结算形态） | `未决`。现只支持本文件 §3 描述的事件/触发/效果形状 |
-| **L3 声明式拓展** | 复用/宏/片段包含，用来减少重复模板语句 | `未决`。模板目前没有 include / macro / anchor 语义（YAML 自身 anchor 可用，但引擎不理解） |
-| **L4 展示层声明 / 自定义前端** | 模板声明"哪些内建视图上屏"→ 声明式布局与样式 → 完全自写客户端，逐级加深 | `ui.yaml`（独立文件的展示层声明）：**`已裁决·待落地`**，见 §1.5，**形状未定**（扁平开关 / 落位，两候选）。
-`layout` / `style`：`未决`。自写客户端：**部分**——`packages/rpg-ui` 已是可导出的 React 组件库（只吃 `ViewModel`），但**没有对外 API 稳定性承诺**，`未决` |
-| **L5 扩展层（extension）** | 模板 + 代码：把"多个世界共同、但不是所有世界通用"的成套逻辑打包分发 | **`已裁决·待落地`**，见 §1.6 |
+| **L0 最简模板** | 只写必要的 yaml 即可跑完一局（§1.3 的 6 个必需文件） | **已实现** |
+| **L1 深度利用内核本体** | 用内核自带的全部声明式文件：`assets/manifest.yaml`（资源）、`rules.yaml` / `lore.md` / `prompt.style`（叙事注入）、`opening` / `endings` / `evaluation`（流程分域）、更复杂的事件/触发/效果、`ui.yaml`（展示落位）。**不写扩展代码** | **已实现**（`ui.yaml` 形状 B 已落地）；`layout` / `style`、模板 include / macro / anchor、事件/叙事**引用媒体的契约**仍 `未决`；复杂触发原语 / 结算形状仍受 §3 闭合 schema 限制 |
+| **L2 需要扩展包** | 内核本体不够用：模板 + 代码打包成套逻辑（多个世界共同、但不是所有世界通用）。**任意扩展都归这一层**，当前实例是 `family` | **已实现**（扩展层契约见 §1.6，实例见 `extensions/family/spec/SPEC.md`）；扩展版本约束已落地（§1.6） |
+
+**L1 / L2 的判据**：能不能只靠 `specs/data/templates/<id>/<version>/` 下的声明式文件表达？
+能 ⇒ L1；需要写 TypeScript 并注册 runtime ⇒ L2。`ui.yaml` 只声明"能力摆哪"，不改变判定与结算，
+所以它属于 L1，不是 L2。
 
 ### 1.3 L0 模板文件集（已实现）
 
@@ -68,115 +70,62 @@ AI 负责把规则结果写成有画面的叙事、并在关键节点补出新�
 - **不投影时间队列**：`state.delayQueue` 只活在引擎里，不进 `V2Snapshot`，
   将来也不给玩家看"未来会发生什么"（§2.3）。
 
-### 1.5 展示层声明：`ui.yaml`（`已裁决·待落地`，**形状未定**）
+### 1.5 展示层声明：`ui.yaml`（已落地，形状 B）
 
-> 用户 2026-11-17 裁决：**`ui` 单列成 `ui.yaml`**，不塞进 `world.yaml`；
-> 只有"能力怎么摆"这一档现在做，而且**不做 auto 推导**；这个文件**只影响前端渲染**。
-> 布局与样式将来也进这个文件。
+> 用户 2026-11-17 裁决：**`ui` 单列成 `ui.yaml`**，不塞进 `world.yaml`；只做「能力怎么摆」，
+> 不做 auto 推导，只影响前端渲染。**2026-11-18 施工完成**：形状选定 B（落位），
+> 服务端 loader + 前端落位分发 + 三个模板基线声明全部落地。
 
-> ⚠️ **形状未定，随时会变。** 同日补充：「`ui.views` 字段随时可能会变，
-> 因为我有考虑前端插槽化——比如图谱镶嵌到 npc 栏，还是单独 tab 页」。
-> **定的**是：文件独立、只影响渲染、不做推导。**没定的**是里面写什么形状（两个候选见下）。
-> 模板别拿它做长期设计，前端别把开关当契约。
+**位置**：`<template>/<version>/ui.yaml`，白名单第 15 个文件。独立 loader（`UiConfigSchema`，
+`.strict()`），**不并入** `TEMPLATE_MERGE_FILES`，schema 失败加载期拒载。
+**指纹**：进白名单、不进语义指纹 —— 改页签不让旧存档拒载（有定向测试锁定）。
+**下发**：只在响应出口经 `decorateSnapshot()` 挂到快照的 `ui` 字段；`WorldStateV2` 与内核
+全程不读它。
 
-> 也就是说**"某个能力该出现在哪"本身还没定**：同一张关系图谱，可能是一个独立 tab，
-> 也可能是 NPC 栏里的一个插槽。
-
-**为什么要有它**：世界的"功能差异"和"展示差异"是两件事。
-功能差异（有没有战斗、有没有转盘）模板能用 flag 表达、引擎能读；
-但**前端读不懂 flag**——它只会照着写死的页签渲染，于是没战斗的世界也摆着战斗面板，
-点进去是空的。展示差异必须有它自己的声明位。
-
-**为什么单列**：`world.yaml` 里已经有 meta / time / statusBar / attributes / resources / regen /
-characters / playerTemplate / actions 九块，全在说"这个世界怎么**算**"；`ui.yaml` 说的是
-"这个世界怎么**显示**"。两类声明混在一个文件里，改一个页签要和改一条属性规则走同样的流程
-（同一份 schema、同一个指纹、同一次拒载），这本身就是错的。
-
-**位置**：模板目录下的独立文件 `<template>/<version>/ui.yaml`，白名单第 15 个文件。
-它有自己的 loader（和 `rules.yaml` / `lore.md` 一样**不并入** `TEMPLATE_MERGE_FILES`），
-校验失败照旧加载期抛错。
-
-**指纹**：`ui.yaml` **进白名单、不进语义指纹**。
-裁决依据：它是纯渲染声明，改一个页签不该让该模板所有旧存档拒载。
-兜底：老存档遇到一份已经改过的 `ui.yaml`（比如某个视图被关了）仍要能打开并推进——
-这条由下面第 2 条"只关入口不关推进路径"的降级规则保证。
-
-**形状：两个候选，还没选**（键集闭合，键名写错 ⇒ **加载期报错**，不静默忽略）
-
-**候选 A —— 扁平开关**（`views: <能力>: boolean`）：只回答"要不要"。
+**形状 B —— 落位**（形状 A 扁平开关已废弃，不再接受）：
 
 ```yaml
-# ui.yaml
-views:             # 缺省全开；只写要关的那几个
-  wheel: true      # 转盘面板与确认入口       —— WheelPanel
-  battle: true     # 战斗面板                —— BattleBoard
-  equipment: true  # 装备槽                  —— CharacterPanel / SlotTile
-  inventory: true  # 背包分区                —— BagPanel
-  skills: true     # 技能分区                —— SkillList
-  relations: true  # 关系列表                —— RelationList
-  npcList: true    # 世界 → 人物/NPC          —— NpcCard
-  log: true        # 历史日志
-  evaluation: true # 评价面板                —— EvaluationPanel
-```
-
-**候选 B —— 落位**（`place: <能力>: <落位>`）：把"要不要"和"摆哪"合成一个值。
-
-```yaml
-# ui.yaml
 place:
-  world: tab                  # 页
-  npcList: tab                # 「世界」页里的 NPC 子页（同时也是宿主）
-  personal: tab               # 页
+  life: tab                  # 顶层页签
+  personal: tab
+  world: tab
   log: tab
-  battle: overlay             # 浮层，不占页签
-  wheel: overlay
-  evaluation: overlay
-  equipment: slot:personal    # 嵌进「个人」页
+  records: tab
+  npcList: tab               # 「世界」页的 NPC 子页，同时是宿主
+  character: slot:personal   # 嵌进个人页
+  equipment: slot:personal
   inventory: slot:personal
   skills: slot:personal
-  relations: slot:npcList     # ← 「图谱嵌到 npc 栏」直接这么写
-  # relations: tab            # ← 想让它独立成页，改这一行
-  # relations: off            # ← 不想要，改这一行
+  relations: slot:npcList
+  wheel: overlay             # 事件区按需浮层
+  battle: overlay
+  event: overlay
+  pedigree: slot:world.subview   # 扩展能力 id，必须有扩展声明
+  clan: slot:world.subview
 ```
 
-落位只有四个取值：`tab`（顶层页签）/ `overlay`（按需浮层）/ `slot:<hostId>`（嵌进另一个视图）/
-`off`（不渲染）。
+落位四值：`tab`（页签）/ `overlay`（按需浮层）/ `slot:<hostId>`（嵌进宿主）/ `off`（关常驻入口）。
+**能力 id 闭合**：宿主内建集在 `packages/shared/src/schema/ui.ts` 的
+`BUILTIN_UI_CAPABILITIES`；扩展能力由 `ExtensionRuntime.uiCapabilities` 声明，
+加载期合并校验，写错键名即拒载（`ui.yaml: 未知能力 id ...`）。
 
-| | A `views` | B `place` |
-|---|---|---|
-| 表达"要不要" | ✅ | ✅（`off`） |
-| 表达"摆哪" | ❌ | ✅ |
-| 插槽化（图谱进 NPC 栏） | 得改协议 | 改一个字符串 |
-| 键的粒度 | 混杂（页和页内分区同层） | 不混，落位自己说清 |
-| 前端改动 | 过滤页签 | 按落位分发 |
+**四条语义**（已实现）：
 
-**候选 B 的三条附加规则**（选 A 就没有这些）：
+1. **缺省等于现状**：不写文件 / 只写几项 ⇒ 其余按 `DEFAULT_UI_PLACEMENTS` 保持内建布局。
+2. **嵌不进去降级 `tab`**：前端 `resolvePlacement()` 只认已知宿主槽；未知槽退化为页签，
+   不留黑洞。事件区能力（`wheel` / `battle` / `event`）无页签形态，写成 `tab` 一律按 `overlay` 处理。
+3. **只关常驻入口，不关推进路径**：`off` 的能力若成为当轮唯一推进路径（引擎
+   `pending_event_required`），前端 `MinimalSlotForm` 给出恰好够提交的最小形态，不许软锁。
+4. **不是规则**：引擎不读 `ui.yaml`，改它不改变一局的结果。
 
-1. **能力 id 是协议，落位是渲染提示**：能力集合（`world` / `battle` / `relations` …）闭合在后端
-   schema 里；`slot:<hostId>` 的宿主**认不认这个槽由前端组件决定**，模板不需要另写一份
-   "宿主有哪些槽"的声明（一侧声明，不做双向校验）。
-2. **嵌不进去就降级成 `tab`**，不报错、不留黑洞。宿主组件没有这个槽、或该能力本来就没法内嵌
-   （战斗是全屏的），一律退化成独立页——**宁可多一页，不要一个空槽**。
-3. 一个能力只能声明一次（map 天然保证），不出现"既在页签又在插槽"。
+**预留**：`layout`（声明式布局）与 `style`（声明式样式覆盖）仍未落地，标 `未决`。
 
-**共同的三条语义**（A / B 都成立）：
-
-1. **缺省等于现状**：不写 `ui.yaml`、或只写其中几项 ⇒ 其余保持**当前内建布局**
-   （即上面 B 那个例子的样子）。现有模板零改动、零回归。
-2. **只关常驻入口，不关推进路径**：`off` 的语义是"本模板不产生需要它的东西"，
-   不是"它出来了也不给处理"。任何被关掉的能力，一旦在当轮成为**唯一**推进路径
-   （槽里正躺着一个 `kind: "random"` / `kind: "combat"` 的事件），前端**必须降级成最小形态呈现**，
-   不许软锁。硬约束：展示声明不能把玩家卡死。
-3. **不是规则**：引擎不读 `ui.yaml`。判定、结算、投影内容都不受它影响，改它不改变一局的结果。
-
-**预留**：`layout`（声明式布局）与 `style`（声明式样式 / CSS 变量覆盖）也进这个文件，
-`未决`。它们和上面同属"模板只描述**怎么呈现**，不描述**怎么算**"。
-
-### 1.6 扩展层：extension（`已裁决·待落地`）
+### 1.6 扩展层：extension（已落地，即 L2）
 
 > 用户 2026-11-17 裁决：名字叫 **extension**，不叫 plugin / mod。装的是
 > 「**多个世界共同、但不是所有世界通用**」的逻辑——玄幻拓展、都市拓展、家族拓展。
-> **放弃热加载**：改扩展必须重启服务端。
+> **2026-11-18 施工完成**：版本声明（`requires`）、family 自有 doc/spec/test 归位、
+> 主包能力占用台账 `docs/EXTENSION-CAPABILITIES.md` 全部落地。
 
 **为什么需要这一层**：加一个世界往往不只加 yaml。某个世界想要一套 core 里没有的机制，
 今天就只能塞进 `game-core`；于是 core 越来越重，而这份重量**所有世界一起背**。中间缺一档。
@@ -207,8 +156,8 @@ place:
 | 口 | 现有缝 | 说明 |
 |---|---|---|
 | `conditions` | **已有** `ConditionRegistry`（`condition-evaluator.ts:42`） | 新增条件原语 `op`。⚠️ 事件的 `conditions`/`visibleWhen`/`missWhen` 用的是**闭合**的 `ConditionSchema`，扩展 `op` 目前只能在 `rules.yaml` 触发器里用 |
-| `effects` | **27 种**闭合 `z.union` + `engine.ts:323` 的 switch。⚠️ 该 switch **没有 `default`** ⇒ 未知 type 静默 no-op | 新增效果类型 |
-| `derivations` | 无（投影里写死） | 投影期派生，如称谓、系谱 |
+| `effects` | **27 种**闭合 `z.union` + `engine.ts` 的 switch；白名单外交给扩展分发，未命中抛 `unknown_effect`（**不静默 no-op**） | 新增效果类型 |
+| `derivations` | `relationDerivation` / `snapshotDerivation` / `contributeRelationEdges` | 投影期派生（称谓、系谱、指针合成边）；合成边只活在投影里 |
 
 **明确不开 `settle kind`**（现在只有 `normal` / `random` / `combat`）。它是 `discriminatedUnion`，
 开一口要同时动事件 schema、结算分发、前端渲染；而"需要第四种 kind"这件事还没被两份世界证明过。
@@ -227,7 +176,15 @@ place:
   缺扩展 ⇒ **该版本不可载**，封闭码 `unknown_extension`，`/api/templates` 与建局 409 都带 `reasonCode`。
   **按版本拒载、不拖垮进程**：一个模板少了扩展包，只让它自己不可载，其它模板照玩——
   崩溃式 fail-fast 会让别人的存档一起陪葬。若全部模板都不可载，仍会命中原有的 `no_templates_found`。
-  **版本约束未实现**（`extensions` 只按 id 校验，没有版本区间）⇒ `未决`。
+  **版本声明已落地**（2026-11-18）：`world.yaml` 顶层可写
+  `requires: { core: "^0.1.0", extensions: { family: "^0.1.0" } }`。加载期三向核对：
+  世界要求的主包版本 vs `ENGINE_VERSION`、世界要求的扩展版本 vs runtime.version、
+  扩展的 `requiresCore` vs 当前主包。区间格式见 `satisfiesVersion()`（精确 / `^` / `>=` / `*`）。
+  不符 ⇒ 封闭码 `core_version_mismatch` / `extension_version_mismatch`，**只废这一个版本**。
+  不写 `requires` 的老模板零回归。
+- **扩展自有归位**：`extensions/family/{doc,spec,test}`（设计、实现规范、测试）；
+  主包侧 `docs/EXTENSION-CAPABILITIES.md` 记录扩展用了主包哪些能力，供升级核对。
+  `uiCapabilities` 声明扩展给 `ui.yaml` 的能力 id（`pedigree` / `clan`）。
 - **扩展 id 进语义指纹**（`extensions` 在 `world.yaml` 里，天然被指纹覆盖）；改扩展开关 ⇒ 该模板旧档拒载。
 - 「加扩展」= 加目录 + 模板声明 + 重启；「改扩展」= 重启 + 相关旧存档拒载。
 
@@ -236,12 +193,14 @@ place:
 回放、e2e、旧档复现一起失效。另外启动期加载时，坏扩展开机那一刻就在 `/api/templates` 上暴露；
 运行期替换则是"线上某刻炸掉"，还连着正在跑的局。
 
-**第一个真实样本**：亲缘称谓推导（多跳中文称谓 + `meta.kinship` 开关）。它现在躺在
-`packages/game-core/src/v2/relations.ts` 里、约 +593 行——玄幻有家族、都市有家族、家族剧就是家族，
-但它不该让所有世界背。**它该是 `extensions/family`，也是 `derivations` 口的第一个用户。**
+**第一个真实样本**：`extensions/family`（已落地）。实现、契约、测试分别在
+`extensions/family/{src,spec,test}`，设计理由在 `extensions/family/doc/`。
+它是 `derivations` 口的第一个用户；主包侧的能力占用台账见 `docs/EXTENSION-CAPABILITIES.md`。
 
-**未决**：扩展能不能带自己的前端组件（和 §1.5 的插槽化绑在一起）；能不能带自己的测试与
-fixture 模板。
+**已落地**：扩展自带前端组件（`ExtensionUiRuntime.views` + 宿主槽，见 §4.6 与
+`docs/EXTENSIONS.md` §7）、扩展自带测试（`extensions/family/test/`，由根
+`vitest.config.ts` 收集）。**未决**：扩展能否带自己的 fixture 模板；
+`effects` 从闭合联合改注册表时 `shared` 与加载器的 schema 合并分工。
 
 ---
 
@@ -496,12 +455,11 @@ dispatch → 引擎写入 + 回执（accepted / rejected + 封闭诊断码）
 - 平台免密钥的 LLM 链路。
 - 叙事正文的引用校验（改纯文本后 `refs[]` 失效，模型理论上可在正文里写出隐秘）。
 - **事件链的类型与呈现**：见 §4.9。
-- **`ui.yaml` 的形状**：扁平开关（`views: <能力>: bool`）还是落位（`place: <能力>: tab|overlay|slot:<host>|off`）。
-  取决于插槽化要不要现在定（见 §1.5）。
-- **插槽化的宿主/槽位模型**：宿主视图怎么声明自己有哪些槽、能力被塞进不认识的槽怎么办（§1.5 已给降级口径）。
-- `layout` / `style`（声明式布局与样式覆盖）。
-- **扩展层（§1.6）**：扩展能否带自己的前端组件（与插槽化绑在一起）；能否带测试与 fixture 模板；
-  `effects` 从闭合联合改成注册表时，`packages/shared` 与加载器怎么分担 schema 合并的活。
+- ~~`ui.yaml` 的形状~~ **已落地形状 B**（2026-11-18，见 §1.5）；`layout` / `style` 仍未决。
+- ~~插槽化的宿主/槽位模型~~ **已落地**：`HOST_UI_SLOTS` + `ExtensionView.slot`，未知槽降级
+  `tab`（见 §1.5 / `docs/EXTENSIONS.md` §7）；仍缺"宿主how声明自己有哪些槽"的数据层声明。
+- ~~扩展能否带前端组件 / 测试~~ **已落地**（`extensions/family/{src,test}`，见 §1.6）。
+- **扩展带 fixture 模板**；`effects` 从闭合联合改成注册表时，`packages/shared` 与加载器怎么分担 schema 合并的活。
 
 ### 4.8 叙事注入：`lore.md` / `prompt.style` / `invoke.instruction`（已实现）
 
@@ -585,16 +543,14 @@ dispatch → 引擎写入 + 回执（accepted / rejected + 封闭诊断码）
 ### 5.1 结构
 
 ```
-test/
-  fixtures/llm/          录制的 trace（一局一份，jsonl）
-  fixtures/templates/    测试专用最小模板（不依赖 specs/data 的业务模板）
-  helpers/               起服务、建世界、流程驱动、回放 provider
-  unit/                  game-core 纯函数
-  api/                   起真服务打 HTTP
+test/                      根测试（引擎级）：unit/ api/ fixtures/ helpers/
+extensions/family/test/    扩展自有测试（13+ 例）
 ```
 
-- 测试**只放这里**，不放回 `packages/*/src` 或 `apps/*/src`；npm 不打包测试代码。
-- 根 `pnpm test` = `vitest run`（`vitest.config.ts` 只收 `test/**/*.test.ts`）。
+- 根测试只放 `test/`，不放回 `packages/*/src` 或 `apps/*/src`；**扩展测试放自己包内**
+  （`extensions/<id>/test/`）。两者都由根 `vitest.config.ts` 收集：
+  `include: ["test/**/*.test.ts", "extensions/**/test/**/*.test.ts"]`。npm 不打包测试代码。
+- 根 `pnpm test` = `vitest run`（串行，`fileParallelism: false`）。
 
 ### 5.2 两条原则
 
@@ -604,10 +560,10 @@ test/
 2. **每条测试都要能红**：写完对每条做一次变异验证（故意改坏对应实现，确认测试失败，再恢复）。
    只报绿不报变异 = 没验。
 
-### 5.3 P0 覆盖（已实现，27 例）
+### 5.3 覆盖清单（不写死例数，以 `pnpm test` 实跑为准）
 
-> 口径：`grep -rho "^\s*\(it\|test\)(" test --include=*.test.ts | wc -l`。
-> 下表按**能力**分行，一个能力可能对应多例。
+> 2026-11-18 起不再在文档里钉数字：旧的「27 例 P0」早于扩展测试与主包后续新增，
+> 数字会持续过期。口径改成能力清单 + 实跑命令。下表按**能力**分行，一个能力可能对应多例。
 
 | # | 覆盖 |
 |---|---|
@@ -627,6 +583,10 @@ test/
 | 14 | 上下文分层：`prompt.style` 与常驻 lore 进 stable prefix，关键词 lore 进 reactive，两段不混 |
 | 15 | 录制 → 回放：回放的 `calls` / `contentBlocks` 与录制逐字段一致，第二轮自然退出 |
 | 16 | `rpg-ui` 源码守卫：组件不出现 `V2Snapshot`（`adapter.ts` 除外）、不 import 宿主 api/store、不发请求 |
+| 17 | `ui.yaml`：形状 B schema、`place:` 四值、未知能力 id 拒载、改 ui.yaml 不改语义指纹、三模板加载 |
+| 18 | 前端落位：缺省等于现状、未知槽降级 tab、事件区能力无页签、`off` 的最小推进形态 |
+| 19 | 版本声明：`satisfiesVersion` 四格式、主包版本与 package.json 同步、`requires` 不符只废一个版本 |
+| 20 | family 自有：族谱 / 宗族 / 称谓 / 状态切片 / UI 槽（见 `extensions/family/test/`） |
 
 ### 5.4 未做（明确不承诺）
 
@@ -641,7 +601,7 @@ test/
 
 ```bash
 pnpm typecheck     # 类型 0 错
-pnpm test          # 27 例 P0
+pnpm test          # vitest run：根 test/ + extensions/family/test/
 pnpm build         # 前端可构建
 PORT=3000 pnpm --filter @life-sim/server start   # 三个模板 loadable
 ```

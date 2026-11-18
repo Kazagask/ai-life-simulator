@@ -95,7 +95,7 @@ export function projectSnapshotV2(
   const actors = buildSnapshotActors(state, hiddenNodeIds, adapter, lookup);
   /**
    * **唯一的关系边集合**：声明边（known / inferred）+ 扩展贡献的合成边
-   * （`docs/FAMILY-GRAPH.md` §7.1：指针模式下把指针合成的边加回来）。
+   * （`extensions/family/doc/FAMILY-GRAPH.md` §7.1：指针模式下把指针合成的边加回来）。
    *
    * 声明边先按**边自身的可见性**收敛（known / inferred），与「有没有 NPC 卡」无关。
    *
@@ -428,7 +428,7 @@ function buildSnapshotActors(
     genderLabel: lookup.genderLabel(player.gender),
     lifeStageLabel: adapter.lifeStageLabel(adapter.resolveLifeStage(player.age)),
     lifeState: "alive",
-    // 玩家指针同样原样透传（`docs/FAMILY-GRAPH.md` §3.1：玩家不是特例）。
+    // 玩家指针同样原样透传（`extensions/family/doc/FAMILY-GRAPH.md` §3.1：玩家不是特例）。
     ...(player.fatherId !== undefined ? { fatherId: player.fatherId } : {}),
     ...(player.motherId !== undefined ? { motherId: player.motherId } : {}),
   });
@@ -436,7 +436,7 @@ function buildSnapshotActors(
 }
 
 /**
- * 把扩展贡献的关系边并入声明边（`docs/FAMILY-GRAPH.md` §7.1）。
+ * 把扩展贡献的关系边并入声明边（`extensions/family/doc/FAMILY-GRAPH.md` §7.1）。
  *
  * 规则（**冲突时声明边赢**）：
  * · 键 = `(from, to, kind)`。声明边先占位，合成边撞键就让位 ——

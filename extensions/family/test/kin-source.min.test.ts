@@ -5,7 +5,7 @@ import { familyExtension, familyKinGraph, kinGraphToRelationEdges } from "../src
 import { kinshipReadingsIn, kinshipTermIn, type KinGraph } from "../src/terms/index.js";
 
 /**
- * 指针模式 vs 边模式（`docs/FAMILY-GRAPH.md` §1）。
+ * 指针模式 vs 边模式（`extensions/family/doc/FAMILY-GRAPH.md` §1）。
  *
  * 同一份三代家族分别写成：
  * 1. **边图**：模板自己写 `father` / `wife` / `elder-brother` 边；
@@ -26,7 +26,7 @@ interface Person {
   readonly motherId?: string;
 }
 
-/** 三代 + 同胞 + 半同胞 + 继亲：覆盖 `docs/FAMILY-GRAPH.md §4.5` 的前两层。 */
+/** 三代 + 同胞 + 半同胞 + 继亲：覆盖 `extensions/family/doc/FAMILY-GRAPH.md §4.5` 的前两层。 */
 const PEOPLE: readonly Person[] = [
   // 第一代
   { id: "gf", name: "爷爷", genderId: "male", birthTime: 0 },
@@ -165,7 +165,7 @@ describe("选源：有指针走指针，没有回落边", () => {
 });
 
 describe("等价性：同一家族写成边图或指针图，称谓逐条相同", () => {
-  /** 三代直系 + 旁系 + 同胞 + 半同胞 + 继亲（`docs/FAMILY-GRAPH.md §4.5` 前两层）。 */
+  /** 三代直系 + 旁系 + 同胞 + 半同胞 + 继亲（`extensions/family/doc/FAMILY-GRAPH.md §4.5` 前两层）。 */
   const PAIRS: readonly (readonly [string, string, string])[] = [
     ["me", "dad", "爸爸"],
     ["me", "mom", "妈妈"],

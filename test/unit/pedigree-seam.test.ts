@@ -5,7 +5,7 @@ import type { FamilyView } from "@life-sim/ext-family";
 import { makeWorld } from "../helpers/world.ts";
 
 /**
- * 族谱的接缝门槛（`docs/CLAN-DESIGN.md` §5 验收 3 / `docs/EXTENSIONS.md` §5 验收 1）：
+ * 族谱的接缝门槛（`extensions/family/doc/CLAN-DESIGN.md` §5 验收 3 / `docs/EXTENSIONS.md` §5 验收 1）：
  *
  * **模板不声明 `extensions.family` ⇒ 快照里没有 `extensions`**，哪怕扩展已注册。
  * 这是「扩展全部卸载，内核照跑」的可执行判据 —— 族谱是纯派生，不是新事实。
