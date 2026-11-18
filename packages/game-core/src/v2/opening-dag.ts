@@ -237,6 +237,10 @@ export function commitOpening(
   applyAdditiveParams(state, template, byKind);
   // 开局记录落可选 state 切片（results 只记结果，不落任何中间世界）。
   state.opening = { openingId: dag.openingId, results: session.results };
+  // 前实例化开局本身就是交接：commit 之后不存在「还在开局」的世界，
+  // 等价于旧管线的 handoff()。漏了这一行，进世界后第一次行动会被 NOT_ACTIVE 拒
+  // （表现得像「刷新后未开局」）。
+  state.openingCompleted = true;
   return state;
 }
 

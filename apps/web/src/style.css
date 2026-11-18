@@ -1723,30 +1723,11 @@ details.llm-config .llm-saved {
   font-size: 19px;
 }
 
-.wheel-sectors {
-  display: grid;
-  gap: 8px;
-  margin: 14px 0;
-}
-
-.wheel-sector {
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg-card-2);
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.wheel-sector.spinning {
-  animation: opening-wheel-pulse 0.7s ease-in-out infinite alternate;
-  border-color: var(--gold);
-  color: var(--text);
-}
-
-@keyframes opening-wheel-pulse {
-  from { opacity: 0.45; transform: translateX(0); }
-  to { opacity: 1; transform: translateX(4px); }
+/* 开局选项：与世界内事件区同一套（`.ls-option-deck` + `.ls-choice`），
+   这里只补卡片内的上下留白，避免和标题/上一段贴在一起。 */
+.opening-options {
+  margin-top: 14px;
+  margin-bottom: 4px;
 }
 
 .alloc-grid {

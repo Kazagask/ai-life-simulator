@@ -46,6 +46,8 @@ describe("jjk-2006 2.0.0 · 前实例化开局", () => {
     expect(state.flags.creationDone).toBe(true);
     expect(state.flags.chapter).toBe(1);
     expect(state.flags.openingPath).toBe("tokyo");
+    // commit 即交接：否则进世界第一次行动会被 NOT_ACTIVE 拒（刷新后尤其明显）。
+    expect(state.openingCompleted).toBe(true);
     // 特质在 commit 时统一获得（而非进世界后的事件）。
     expect(state.player.statuses.some((s) => s.statusId === "tech-ten-shadow")).toBe(true);
     expect(state.player.skills.length).toBeGreaterThan(0);
@@ -75,6 +77,29 @@ describe("jjk-2006 2.0.0 · 前实例化开局", () => {
       for (const edge of parsed.data.relations) {
         expect(RelationKindSchema.safeParse(edge.kind).success).toBe(true);
       }
+    }
+  });
+
+  it("复用原作人物跳过「性别」「年龄与出身」两格，直接到「起点」", () => {
+    const entry = loadV2();
+    const dag = entry.openingDag;
+    const gojo = dag.nodes.find((n) => n.node === "n-self")?.options?.find((o) => o.id === "self-gojo");
+    const riko = dag.nodes.find((n) => n.node === "n-self")?.options?.find((o) => o.id === "self-riko");
+    expect(gojo?.goto).toBe("n00-path");
+    expect(riko?.goto).toBe("n00-path");
+    // 自定义路线仍然要问这两格（顺序：先定此身，再定性别/出身，再定起点）。
+    expect(dag.nodes.map((n) => n.node).slice(0, 4)).toEqual([
+      "n-self",
+      "n01-gender",
+      "n02-origin",
+      "n00-path",
+    ]);
+    for (const firstOption of ["self-gojo", "self-riko"]) {
+      const state = runOpening(dag, entry.template, firstOption);
+      const visited = (state.opening?.results ?? []).map((r) => r.nodeId);
+      expect(visited).not.toContain("n01-gender");
+      expect(visited).not.toContain("n02-origin");
+      expect(visited).toContain("n00-path");
     }
   });
 

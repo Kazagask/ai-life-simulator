@@ -116,36 +116,22 @@ nodes:
           who: { kind: new, id: player, name: 无名氏, gender: male, age: 16, attributes: {}, skills: [] }
       - id: self-gojo
         text: 扮演五条悟（复用原作人物）
-        set: { who: { kind: reuse, characterId: npc-gojo } }
+        # 性别 / 年龄 / 出身由角色模板决定，这个分支跳过那两格直接到「起点」。
+        # w01 / w02 / origin 只作记录，保持与自定义路线同形（当前无事件读取）。
+        set:
+          who: { kind: reuse, characterId: npc-gojo }
+          f01: { id: w01, value: 男 }
+          f02: { id: w02, value: 御三家 }
+          fOrigin: { id: origin, value: gojo }
+        goto: n00-path
       - id: self-riko
         text: 扮演天内理子（复用原作人物 · 短线必然活不到十二年后）
-        set: { who: { kind: reuse, characterId: npc-riko } }
-
-  - node: n00-path
-    title: 起点
-    text: 2006 年春。你先被分到哪所学校，决定了最初认识谁。
-    mode: choose
-    options:
-      - id: path-tokyo
-        text: 东京高专一年生
         set:
-          fPath: { id: openingPath, value: tokyo }
-          pathRel1: { with: npc-nanami, value: 8, kind: friend }
-          pathRel2: { with: npc-haibara, value: 10, kind: friend }
-          pathRel3: { with: npc-yaga, value: 6, kind: mentor }
-          pathRel4: { with: npc-gojo, value: 4, kind: colleague }
-          pathRel5: { with: npc-geto, value: 4, kind: colleague }
-          pathRel6: { with: npc-shoko, value: 3, kind: colleague }
-      - id: path-kyoto
-        text: 京都校交流生
-        set:
-          fPath: { id: openingPath, value: kyoto }
-          pathAttr: { id: reputation, value: 5, mode: add }
-          pathRel1: { with: npc-geto, value: 10, kind: colleague }
-          pathRel2: { with: npc-gojo, value: 2, kind: colleague }
-          pathRel3: { with: npc-nanami, value: 3, kind: friend }
-          pathRel4: { with: npc-yaga, value: 4, kind: mentor }
-          fTransfer: { id: transfer, value: kyoto }
+          who: { kind: reuse, characterId: npc-riko }
+          f01: { id: w01, value: 女 }
+          f02: { id: w02, value: 星浆体 }
+          fOrigin: { id: origin, value: riko }
+        goto: n00-path
 
   - node: n01-gender
     title: 性别
@@ -192,6 +178,32 @@ nodes:
           fOrigin: { id: origin, value: orphan }
           fOrphan: { id: orphan, value: true }
           originAttr: { id: physique, value: 2, mode: add }
+
+  - node: n00-path
+    title: 起点
+    text: 2006 年春。你先被分到哪所学校，决定了最初认识谁。
+    mode: choose
+    options:
+      - id: path-tokyo
+        text: 东京高专一年生
+        set:
+          fPath: { id: openingPath, value: tokyo }
+          pathRel1: { with: npc-nanami, value: 8, kind: friend }
+          pathRel2: { with: npc-haibara, value: 10, kind: friend }
+          pathRel3: { with: npc-yaga, value: 6, kind: mentor }
+          pathRel4: { with: npc-gojo, value: 4, kind: colleague }
+          pathRel5: { with: npc-geto, value: 4, kind: colleague }
+          pathRel6: { with: npc-shoko, value: 3, kind: colleague }
+      - id: path-kyoto
+        text: 京都校交流生
+        set:
+          fPath: { id: openingPath, value: kyoto }
+          pathAttr: { id: reputation, value: 5, mode: add }
+          pathRel1: { with: npc-geto, value: 10, kind: colleague }
+          pathRel2: { with: npc-gojo, value: 2, kind: colleague }
+          pathRel3: { with: npc-nanami, value: 3, kind: friend }
+          pathRel4: { with: npc-yaga, value: 4, kind: mentor }
+          fTransfer: { id: transfer, value: kyoto }
 
   - node: n03-aptitude
     title: 咒力资质

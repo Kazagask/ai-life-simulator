@@ -25,6 +25,7 @@ import type {
   NarrativeSource,
   OpeningNodeView,
   OpeningStepInput,
+  OpeningStepResponse,
   SlotEventView,
   TemplateSummary,
   V2Snapshot,
@@ -367,6 +368,9 @@ function App() {
   );
 
   const handleCreated = useCallback((id: string, snap: V2Snapshot) => {
+    // 必须先摘掉开局向导：App 顶层判定是 `openingLaunch !== null` 就渲染向导，
+    // 只设 worldId/snapshot 的话点击「进入这个世界」看起来毫无反应（向导盖在上面不动）。
+    setOpeningLaunch(null);
     saveWorldId(id);
     setWorldId(id);
     setSnapshot(snap);
@@ -886,13 +890,23 @@ function OpeningWizard({
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [node, setNode] = useState<OpeningNodeView | null>(null);
   const [steps, setSteps] = useState<Array<{ title: string; text?: string; result: string }>>([]);
-  const [spinning, setSpinning] = useState(false);
+  /**
+   * 已落定但还没被玩家「继续」的转盘。开局 roll 由服务端定结果，客户端只负责呈现：
+   * 拿到 `resolved` 之后先播这一格，玩家点确认才真正进下一步。
+   */
+  const [reveal, setReveal] = useState<{
+    node: OpeningNodeView;
+    text: string;
+    next: OpeningStepResponse;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [allocation, setAllocation] = useState<Record<string, number>>({});
   const [finalWorld, setFinalWorld] = useState<{ id: string; snapshot: WorldSnapshot } | null>(null);
   const started = useRef(false);
   const stepping = useRef(false);
+  /** 同一个 roll 节点只提交一次（重渲染 / 状态回填都不得重复消耗一次掷骰）。 */
+  const rolled = useRef<string | null>(null);
 
   useEffect(() => {
     if (started.current) return;
@@ -938,16 +952,88 @@ function OpeningWizard({
     [sessionId],
   );
 
-  // roll 节点连续推进：动画只呈现，真正的落定结果由服务端在 step 里回传。
+  /**
+   * roll 节点：**先问服务端拿落定结果**（seed+node 派生，客户端不参与），再交给
+   * `WheelPanel` 播动画——开局命定转盘与世界内随机事件从此是同一份转盘组件，
+   * 不再另画一套「扇区列表」。
+   */
   useEffect(() => {
-    if (sessionId === null || node === null || node.mode !== "roll" || finalWorld !== null) return;
-    setSpinning(true);
-    const timer = window.setTimeout(() => {
-      setSpinning(false);
-      void advance({ kind: "roll" }, "命数已落定", node.title, node.text);
-    }, 900);
-    return () => window.clearTimeout(timer);
-  }, [node?.nodeId, sessionId, finalWorld, advance]);
+    if (sessionId === null || node === null || node.mode !== "roll") return;
+    if (finalWorld !== null || reveal !== null) return;
+    if (rolled.current === node.nodeId) return;
+    rolled.current = node.nodeId;
+    setBusy(true);
+    setError(null);
+    api
+      .stepOpening(sessionId, { kind: "roll" })
+      .then((res) => {
+        setReveal({ node, text: res.resolved?.text ?? "命数已落定", next: res });
+      })
+      .catch((e) => {
+        rolled.current = null; // 失败允许重试同一节点
+        setError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => setBusy(false));
+  }, [sessionId, node, finalWorld, reveal]);
+
+  /** 转盘落定后的唯一出口：把这一格记进历史，再进下一步（是最后一步就 commit）。 */
+  const finishReveal = useCallback(() => {
+    if (reveal === null) return;
+    const { node: from, text, next } = reveal;
+    setReveal(null);
+    setSteps((prev) => [
+      ...prev,
+      { title: from.title, ...(from.text !== undefined ? { text: from.text } : {}), result: text },
+    ]);
+    setAllocation({});
+    setNode(next.node);
+    if (!next.done || sessionId === null) return;
+    setBusy(true);
+    api
+      .commitOpening(sessionId)
+      .then((committed) => setFinalWorld({ id: committed.worldId, snapshot: committed.snapshot }))
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false));
+  }, [reveal, sessionId]);
+
+  if (reveal !== null) {
+    // 命定转盘：与世界内随机事件同一个组件（扇区 / 指针 / 减速停住 / 继续）。
+    return (
+      <main className="shell setup">
+        <header>
+          <p className="eyebrow">OPENING · 前实例化</p>
+          <h1>{launch.name}</h1>
+          <p className="muted">
+            {launch.playerName ?? "无名氏"} · 第 {steps.length + 1} 步 · 命数转盘
+          </p>
+        </header>
+        {error && <p className="error-text">{error}</p>}
+        <section className="card opening-step">
+          <span className="tag">命数转盘</span>
+          <h2>{reveal.node.title}</h2>
+          {reveal.node.text && <p>{reveal.node.text}</p>}
+          <WheelPanel
+            items={[
+              {
+                wheel: {
+                  eventId: reveal.node.nodeId,
+                  label: reveal.text,
+                  segments: reveal.node.options.map((o) => ({
+                    label: o.text,
+                    weight: o.weight ?? 1,
+                  })),
+                },
+                title: reveal.node.title,
+              },
+            ]}
+            animate
+            busy={busy}
+            onContinue={finishReveal}
+          />
+        </section>
+      </main>
+    );
+  }
 
   if (finalWorld !== null) {
     const player = finalWorld.snapshot.player;
@@ -1032,31 +1118,25 @@ function OpeningWizard({
           {node.text && <p>{node.text}</p>}
 
           {node.mode === "roll" && (
-            <div className="wheel-sectors">
-              {node.options.map((opt, i) => (
-                <div
-                  key={opt.id}
-                  className={`wheel-sector${spinning ? " spinning" : ""}`}
-                  style={{ animationDelay: `${i * 70}ms` }}
-                >
-                  {opt.text}
-                </div>
-              ))}
-              <p className="muted">骰子已由命运握在手里…</p>
-            </div>
+            <p className="muted">命数转盘正在落定…</p>
           )}
 
-          {node.mode === "choose" &&
-            node.options.map((opt) => (
-              <button
-                key={opt.id}
-                className="option"
-                disabled={busy}
-                onClick={() => void advance({ kind: "choose", optionId: opt.id }, opt.text, node.title, node.text)}
-              >
-                {opt.text}
-              </button>
-            ))}
+          {node.mode === "choose" && (
+            <div className="ls-option-deck opening-options">
+              {node.options.map((opt) => (
+                <button
+                  key={opt.id}
+                  className="ls-choice"
+                  disabled={busy}
+                  onClick={() =>
+                    void advance({ kind: "choose", optionId: opt.id }, opt.text, node.title, node.text)
+                  }
+                >
+                  {opt.text}
+                </button>
+              ))}
+            </div>
+          )}
 
           {node.mode === "allocate" && (
             <div className="alloc-grid">
