@@ -1797,3 +1797,46 @@ details.llm-config .llm-saved {
     animation: none;
   }
 }
+
+/* ---------- 舞台容器（叙事 + 事件同一个外框，2026-11-19） ---------- */
+
+/*
+ * 叙事卡与槽卡原本是两张独立卡片，中间还有 gap：事件一出现就是整屏跳变，
+ * 而且叙事区把事件顶到折叠线以下。合成一个容器后：
+ * - 两卡之间没有缝（下半卡去掉上边框与上半圆角）；
+ * - 有槽位时叙事区收短，事件容器在同一屏里露出来；
+ * - 事件容器以轻微上滑淡入出现（流式结束那一刻「长出来」，不是硬切）。
+ */
+.stage-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 只有「叙事卡后面确实跟着槽卡」时才把下半边的圆角/边框去掉（没有槽位时它仍是普通卡片）。 */
+.stage-stack > .narrative-card:not(:last-child) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  border-bottom: 0;
+}
+
+.stage-stack > .slot-area {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  background: color-mix(in srgb, var(--bg-card) 88%, var(--accent) 12%);
+  animation: stage-slot-in 0.18s ease-out;
+}
+
+.stage-stack.has-slot .ls-narrative {
+  max-height: min(30vh, 260px);
+}
+
+@keyframes stage-slot-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}

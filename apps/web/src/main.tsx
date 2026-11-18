@@ -1894,19 +1894,11 @@ function LifeTab({
           这里**没有点击面**：选项块由 `NarrativeStream` 过滤掉，统一的点击面是
           底部行动坞 + 事件区（引擎 optionId 选项 / AI 选项）。
         */}
-        <NarrativeStage view={view} busy={busy} draft={draft} />
-
-        {ended && snapshot.ending && (
-          <EndingPanel
-            ending={snapshot.ending}
-            archived={snapshot.status === "archived"}
-            busy={busy}
-            signedIn={signedIn}
-            onArchive={onArchive}
-          />
-        )}
-
-        <GmWorkingStrip busy={busy} />
+        {/* 舞台容器（2026-11-19）：叙事与事件同属一个外框。
+            事件在叙事下方以**小容器**出现（不是另一张大卡），流式结束那一刻只是「长出来」，
+            不再有整屏跳变；这一轮没有流式时同样直接出现，不等任何动画。 */}
+        <div className={`stage-stack${!ended && slot !== null ? " has-slot" : ""}`}>
+          <NarrativeStage view={view} busy={busy} draft={draft} />
 
         {!ended && (
           <section className={`card slot-area slot-${occupant}`}>
@@ -1984,6 +1976,19 @@ function LifeTab({
             </div>
           </section>
         )}
+        </div>
+
+        {ended && snapshot.ending && (
+          <EndingPanel
+            ending={snapshot.ending}
+            archived={snapshot.status === "archived"}
+            busy={busy}
+            signedIn={signedIn}
+            onArchive={onArchive}
+          />
+        )}
+
+        <GmWorkingStrip busy={busy} />
 
         {/* 本轮收获（ADR-002 D4 / R-GAIN-01）：原「命运落定」的位置，列本回合真实增量。 */}
         <TurnGainsCard

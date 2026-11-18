@@ -36,6 +36,7 @@ import {
   type TurnPipelineConfig,
 } from "@life-sim/game-core";
 import { pipelineForTurn, resolveAgentConfig } from "./agent/pipeline.js";
+import { adminEnabled, registerAdminRoutes } from "./admin.js";
 import {
   BattleCommandSchema,
   EndingNarrativeOutputSchema,
@@ -1302,6 +1303,20 @@ app.post("/api/worlds/:id/archive", async (request, reply) => {
   // 归档响应只下发 public 历史 + hidden 计数（R-VS-04）；完整记录随 seal 落盘（存档事实保留全量）
   return { worldId: found.world.id, archive: projectArchiveForPlayer(archived.record) };
 });
+
+// ---------- 本地开发后台（trace / 事件编排）：仅 LIFE_SIM_ADMIN=1 时开门 ----------
+if (adminEnabled()) {
+  registerAdminRoutes(app, registry);
+  app.log.info("[admin] /admin 已启用（trace + 事件编排）");
+} else {
+  // 关着的时候明确回 403，而不是被下面的 web 兜底当成前端路由返回 index.html。
+  app.get("/admin", async (_request, reply) =>
+    reply.code(403).send({ error: "admin_disabled", hint: "以 LIFE_SIM_ADMIN=1 启动服务端" }),
+  );
+  app.get("/admin/*", async (_request, reply) =>
+    reply.code(403).send({ error: "admin_disabled", hint: "以 LIFE_SIM_ADMIN=1 启动服务端" }),
+  );
+}
 
 function handleEngineError(request: import("fastify").FastifyRequest, reply: import("fastify").FastifyReply, error: unknown) {
   request.log.error(error);

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>命数后台 · trace / 事件编排</title>
+    <link rel="stylesheet" href="/admin/app.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark"></span>
+        <span>命数后台</span>
+        <span class="brand-sub">trace · orchestration</span>
+      </div>
+      <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="trace">Trace</button>
+        <button class="tab" data-tab="graph">事件编排</button>
+      </nav>
+      <div class="env" id="envInfo">连接中…</div>
+    </header>
+
+    <main>
+      <!-- ============================ TRACE ============================ -->
+      <section class="view active" id="view-trace">
+        <div class="trace-layout">
+          <aside class="panel worlds">
+            <div class="panel-head">
+              <span>世界</span>
+              <button class="ghost" id="refreshWorlds" title="重新扫描 data/worlds">刷新</button>
+            </div>
+            <div class="panel-body scroll" id="worldList"></div>
+            <div class="panel-foot" id="dataDir"></div>
+          </aside>
+
+          <section class="panel runs">
+            <div class="panel-head">
+              <span>Invocations</span>
+              <span class="hint" id="runCount"></span>
+            </div>
+            <div class="panel-body">
+              <div class="stats" id="traceStats"></div>
+              <div class="chart-box">
+                <div class="chart-title">延迟 / 每轮耗时 <span class="hint">点击柱子跳到该轮</span></div>
+                <div id="latencyChart" class="chart"></div>
+              </div>
+              <div class="scroll run-scroll" id="runList"></div>
+            </div>
+          </section>
+
+          <section class="panel detail">
+            <div class="panel-head">
+              <span>详情</span>
+              <span class="hint" id="detailHint"></span>
+            </div>
+            <div class="panel-body scroll" id="traceDetail">
+              <div class="empty">左边选一条 invocation</div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <!-- ============================ 编排图 ============================ -->
+      <section class="view" id="view-graph">
+        <div class="graph-layout">
+          <aside class="panel controls">
+            <div class="panel-head"><span>模板 / 过滤器</span></div>
+            <div class="panel-body scroll">
+              <label class="field">
+                <span class="field-label">模板版本</span>
+                <select id="tplSelect"></select>
+              </label>
+              <label class="field">
+                <span class="field-label">搜索事件</span>
+                <input id="graphSearch" type="search" placeholder="id / 标题 / 旗标" autocomplete="off" />
+              </label>
+
+              <div class="field">
+                <span class="field-label">触发源</span>
+                <div class="chips" id="sourceFilters"></div>
+              </div>
+              <div class="field">
+                <span class="field-label">事件类型</span>
+                <div class="chips" id="kindFilters"></div>
+              </div>
+
+              <label class="toggle">
+                <input type="checkbox" id="showEndings" />
+                <span>显示结局节点</span>
+              </label>
+              <label class="toggle">
+                <input type="checkbox" id="onlyConnected" />
+                <span>只看有连线的</span>
+              </label>
+
+              <div class="section-title">旗标（点一个高亮读写双方）</div>
+              <div class="flag-filter" id="flagFilter"></div>
+              <div class="flag-list scroll" id="flagList"></div>
+
+              <div class="section-title">终止条件</div>
+              <div class="termination" id="terminationList"></div>
+            </div>
+          </aside>
+
+          <div class="canvas-wrap">
+            <div class="canvas-toolbar">
+              <button class="ghost" id="zoomIn">＋</button>
+              <button class="ghost" id="zoomOut">－</button>
+              <button class="ghost" id="fitView">适配</button>
+              <span class="sep"></span>
+              <span class="hint" id="graphStats"></span>
+              <span class="grow"></span>
+              <span class="legend">
+                <i class="sw normal"></i>normal
+                <i class="sw random"></i>random
+                <i class="sw combat"></i>combat
+                <i class="sw ending"></i>结局
+              </span>
+            </div>
+            <svg id="graph" xmlns="http://www.w3.org/2000/svg"></svg>
+            <div class="canvas-empty" id="canvasEmpty">选一个模板版本</div>
+            <div id="tooltip" class="tooltip hidden"></div>
+          </div>
+
+          <aside class="panel inspector">
+            <div class="panel-head">
+              <span>事件详情</span>
+              <span class="hint" id="inspectorHint"></span>
+            </div>
+            <div class="panel-body scroll" id="inspector">
+              <div class="empty">点一个节点</div>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </main>
+
+    <script src="/admin/app.js"></script>
+  </body>
+</html>
