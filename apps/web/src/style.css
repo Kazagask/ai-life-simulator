@@ -703,27 +703,39 @@ button {
 .option:disabled { opacity: 0.5; }
 .option:active { border-color: var(--accent); }
 
-/* ---------- 槽位区（事件区）：一轮只呈现一个占位者 ---------- */
+/* ---------- 「故事」区（叙事 + 事件合并成一张卡，2026-11-19） ---------- */
 
 /*
- * 用户裁决（2026-11-11）：三种事件（正常 / 随机 / 战斗）与自由行动共用一个区域，
- * 这个区域就是「轮次槽位」的可视化。外框恒定，内里按占位者切换，玩家永远只面对一件事。
+ * 用户裁决（2026-11-19）：叙事区与事件区不再并排成两块，合并成一张叫「故事」的卡。
+ * 三种形态共用同一个外框与同一个滚动容器：
+ * - 普通事件 ⇒ 叙事结尾的**盒中盒**（流式 + 逐字结束后才渲染）；
+ * - 随机事件（转盘）/ 战斗 ⇒ **占满**这一区，结算后自动回到叙事；
+ * - 自由行动 ⇒ 只有叙事 + 安静入口（物品 / 结束这一生）。
+ * 合并的收益：事件不再被长叙事顶到折叠线以下；坏处（要滑才看得到）由
+ * 「出现即滚到底」+「回到底部」按钮补上。
  */
-.slot-area {
+.story-card {
   position: relative;
   padding: 0;
   overflow: hidden;
-  border: 1px solid var(--border);
+  /* 与 rpg-ui 的 --ls-gutter 对齐，保证 CG 负边距正好贴齐卡片内沿 */
+  --ls-gutter: 16px;
 }
 
-.slot-head {
+.story-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 9px 14px;
   border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  background: color-mix(in srgb, var(--gold, #c9a227) 7%, transparent);
+}
+
+.story-head__right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .slot-label {
@@ -732,7 +744,12 @@ button {
   color: var(--muted);
 }
 
-.slot-badge {
+.story-elapsed {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.story-badge {
   font-size: 11px;
   padding: 2px 10px;
   border-radius: 999px;
@@ -745,21 +762,108 @@ button {
 .badge-event { color: var(--accent); }
 .badge-action { color: var(--accent-2); }
 
-.slot-elapsed {
-  margin: 0;
-  padding: 8px 14px 0;
-  font-size: 12px;
-  color: var(--muted);
+/* 唯一的滚动容器：叙事自己的内部滚动必须关掉，否则会出现双层滚动。 */
+.story-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 16px 14px;
+  max-height: min(50vh, 460px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 
-.slot-body { padding: 12px 14px 14px; }
-.slot-body h2 { margin: 0 0 6px; font-size: 18px; }
-.slot-body h3 { margin: 0; }
+.story-body .ls-narrative {
+  max-height: none;
+  overflow: visible;
+  padding: 4px 0 6px;
+}
 
-/* 槽位边框随占位者变色：战斗红、待决事件蓝、转盘金 */
-.slot-battle { border-color: color-mix(in srgb, var(--danger) 55%, var(--border)); }
-.slot-event { border-color: var(--accent); box-shadow: 0 0 18px rgba(124, 140, 255, 0.15); }
-.slot-wheel { border-color: color-mix(in srgb, var(--gold) 55%, var(--border)); }
+/* 流式草稿：与正式正文同一套排版，只是略淡（收尾后由正式块替换）。 */
+.narrative-draft {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  opacity: 0.72;
+  font-family: var(--ls-serif, inherit);
+  font-size: var(--ls-narrative-size, 15px);
+  line-height: var(--ls-narrative-leading, 1.8);
+}
+
+/* 盒中盒：普通事件内联在叙事结尾，比外框低一层（不是另一张大卡）。 */
+.story-inset {
+  margin: 2px 0 0;
+  padding: 12px 12px 13px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  animation: story-inset-in 0.2s ease-out;
+}
+
+.story-inset .event-body h2 {
+  margin: 0 0 6px;
+  font-size: 16px;
+}
+
+.story-inset .event-body p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-dim, var(--muted));
+}
+
+/* 占满形态（转盘 / 战斗）：不留叙事，也不留「上一轮」的残影。 */
+.story-takeover {
+  padding: 12px 14px 14px;
+  animation: story-inset-in 0.18s ease-out;
+}
+
+.story-takeover h2 { margin: 0 0 6px; font-size: 18px; }
+
+/* 自由行动的次要入口（物品 / 结束这一生）：安静一行，不抢叙事。 */
+.story-foot {
+  margin-top: 2px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+/* 回到底部：贴在卡片右下角（不随内容滚走）。 */
+.story-jump {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-card) 84%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+
+.story-jump:active { transform: scale(0.97); }
+
+@keyframes story-inset-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 
 /* ---------- 随机事件转盘（咒术式：朱金外环 + 深墨扇区 + 顶部指针） ---------- */
 
@@ -1596,32 +1700,7 @@ details.llm-config .llm-saved {
   color: #b4544f;
 }
 
-/* ---------- AI 叙事区（T-09a）：@life-sim/rpg-ui 组件的外框 ---------- */
 
-.narrative-card {
-  /* 去掉卡片内边距，让叙事区自己控制版心（CG 需要出血到卡片边缘） */
-  padding: 0;
-  overflow: hidden;
-  /* 与 rpg-ui 的 --ls-gutter 对齐，保证 CG 负边距正好贴齐卡片内沿 */
-  --ls-gutter: 16px;
-}
-
-.narrative-card__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--gold, #c9a227) 7%, transparent);
-}
-
-.narrative-card__body {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px 16px 14px;
-}
 
 /* ---------- 底部行动坞（点击为主：钉在拇指区） ---------- */
 
@@ -1798,45 +1877,4 @@ details.llm-config .llm-saved {
   }
 }
 
-/* ---------- 舞台容器（叙事 + 事件同一个外框，2026-11-19） ---------- */
 
-/*
- * 叙事卡与槽卡原本是两张独立卡片，中间还有 gap：事件一出现就是整屏跳变，
- * 而且叙事区把事件顶到折叠线以下。合成一个容器后：
- * - 两卡之间没有缝（下半卡去掉上边框与上半圆角）；
- * - 有槽位时叙事区收短，事件容器在同一屏里露出来；
- * - 事件容器以轻微上滑淡入出现（流式结束那一刻「长出来」，不是硬切）。
- */
-.stage-stack {
-  display: flex;
-  flex-direction: column;
-}
-
-/* 只有「叙事卡后面确实跟着槽卡」时才把下半边的圆角/边框去掉（没有槽位时它仍是普通卡片）。 */
-.stage-stack > .narrative-card:not(:last-child) {
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-  border-bottom: 0;
-}
-
-.stage-stack > .slot-area {
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
-  background: color-mix(in srgb, var(--bg-card) 88%, var(--accent) 12%);
-  animation: stage-slot-in 0.18s ease-out;
-}
-
-.stage-stack.has-slot .ls-narrative {
-  max-height: min(30vh, 260px);
-}
-
-@keyframes stage-slot-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}

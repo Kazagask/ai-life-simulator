@@ -36,6 +36,22 @@ export interface NarrativeStreamProps {
    * 保留只为兼容既有调用点。
    */
   disabled?: boolean;
+  /**
+   * 逐字揭示**结束**时回调（本轮最后一个正文块打完 / 没有可打的块）。
+   *
+   * 用途：宿主要在「流式输出完成后」再渲染事件盒（用户 2026-11-19），
+   * 而"打完字"只有本组件知道（定时器在内部）。没有可动画的块时**立刻**回调，
+   * 所以宿主不需要再额外判断「这一轮有没有 LLM 参与」——没有就相当于零延迟。
+   */
+  onTypewriterDone?: () => void;
+  /**
+   * `onTypewriterDone` 的**复位键**（宿主传 `turnIndex`）。
+   *
+   * 没有它会漏一轮：某一回合没有新增正文块时，最后一块的 id / 字数都没变，
+   * 内部的「已回调」备忘会认为打过字了，于是这一回合永远不回调 —— 宿主的
+   * 「等打完再渲染」就卡死。带上轮次即每回合至少回调一次。
+   */
+  typewriterKey?: string | number;
 }
 
 /**
@@ -229,7 +245,16 @@ export function useTypewriter(content: ContentBlockVM[], options: TypewriterOpti
  *
  * 状态条 / 战斗面板**不在这里**：它们是常驻 HUD，绝不插进叙事流中间。
  */
-export function NarrativeStream({ content, onAct, media = [], renderers, typewriter = true, disabled = false }: NarrativeStreamProps) {
+export function NarrativeStream({
+  content,
+  onAct,
+  media = [],
+  renderers,
+  typewriter = true,
+  disabled = false,
+  onTypewriterDone,
+  typewriterKey,
+}: NarrativeStreamProps) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   // hooks 必须在任何 early return 之前调用（空叙事那一支也要走到这里）。
   const frame = useTypewriter(content, { enabled: typewriter });
@@ -258,6 +283,26 @@ export function NarrativeStream({ content, onAct, media = [], renderers, typewri
     // 只靠块数会让粘底失效（文字长到可视区外面还在原处）。
     el.scrollTop = el.scrollHeight;
   }, [blocks.length, lastBlockId, tailLength, typedLength]);
+
+  /**
+   * 「最后一个正文块已经完整显示」⇒ 回调一次（同一块不重复回调）。
+   *
+   * 判据不能只看 `frame === null`：首帧 `useState` 初值就是全文（刷新不重播动画），
+   * 那也要算「已经显示完」；而定时器推进的中间帧 `frame.visible` 短于全文，要等它追平。
+   */
+  const typedDoneRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (onTypewriterDone === undefined) return;
+    const visible = frame !== null && frame.blockId === lastBlockId ? frame.visible.length : tailLength;
+    if (visible < tailLength) {
+      typedDoneRef.current = null;
+      return;
+    }
+    const key = `${String(typewriterKey ?? "")}:${lastBlockId ?? "none"}:${tailLength}`;
+    if (typedDoneRef.current === key) return;
+    typedDoneRef.current = key;
+    onTypewriterDone();
+  }, [frame, lastBlockId, tailLength, typewriterKey, onTypewriterDone]);
 
   // 一句正文都没有（开局前）才是「故事尚未开始」；局中这一轮只写了选项块时，上面的历史正文
   // 还在，照常渲染 —— 绝不能在这时候把开局文案印到屏幕上。

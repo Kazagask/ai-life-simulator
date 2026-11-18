@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type { CloudSession } from "@tencent-ai/workbuddy-cloud-sdk";
 import "./style.css";
@@ -85,7 +86,7 @@ import type {
   ViewModel,
 } from "@life-sim/rpg-ui";
 import { ActionDock } from "./ActionDock";
-import { NarrativeStage } from "./NarrativeStage";
+import { StoryStage } from "./StoryStage";
 
 // ---------- 工具 ----------
 
@@ -1866,6 +1867,92 @@ function LifeTab({
   // 槽内有待决事件 ⇒ 只有事件面板的 optionId 合法；战斗中 ⇒ 只有战斗指令合法。
   const mode = interactionMode(view);
   const docked = !ended && mode === "free";
+
+  /**
+   * 「故事」区的三种形态（用户 2026-11-19）：
+   * - takeover：转盘 / 战斗占满整块，结算后槽位清空 ⇒ 自动回到叙事；
+   * - inset：普通事件作为盒中盒内联到叙事结尾（等流式 + 逐字结束）；
+   * - footer：自由行动时的次要入口（物品 / 结束这一生），别的形态没有它。
+   */
+  const noteText = !ended && lastResult?.elapsed ? `过去${lastResult.elapsed}` : "";
+  const storyBadge =
+    !ended && slot !== null && occupant !== "action"
+      ? {
+          label: SLOT_BADGE[occupant],
+          tone: (occupant === "wheel" ? "wheel" : occupant === "battle" ? "battle" : "event") as
+            | "wheel"
+            | "battle"
+            | "event",
+        }
+      : undefined;
+  const takeover: ReactNode =
+    ended || slot === null
+      ? undefined
+      : requiresMinimalForm(ui, "wheel", slot.kind)
+        ? (
+            <MinimalSlotForm
+              slot={slot}
+              busy={busy}
+              onConfirmWheel={onConfirmWheel}
+              onChoose={onChoose}
+              onBattle={onBattle}
+            />
+          )
+        : slot.kind === "random"
+          ? slot.wheel !== undefined
+            ? (
+                <WheelPanel
+                  key={`${slot.eventId}:${slot.wheel.label}`}
+                  items={[{ wheel: toWheelVM(slot.wheel), title: slot.title }]}
+                  animate={wheelsFresh}
+                  busy={busy}
+                  onContinue={onConfirmWheel}
+                />
+              )
+            : (
+                /* 投影缺 `wheel` 时的逃生口：仍然给一个可点的「继续」，不让玩家卡在空槽前 */
+                <div className="event-body">
+                  <h2>{slot.title}</h2>
+                  <p>{slot.narrative}</p>
+                  <button className="primary wheel-continue" disabled={busy} onClick={onConfirmWheel}>
+                    继续
+                  </button>
+                </div>
+              )
+          : slot.kind === "combat" && view.battle !== null && !requiresMinimalForm(ui, "battle", slot.kind)
+            ? (
+                <BattleBoard
+                  battle={view.battle}
+                  labels={snapshot.labels.resources}
+                  busy={busy}
+                  onCommand={onBattle}
+                  onContinue={onConfirmWheel}
+                />
+              )
+            : undefined;
+
+  const inset: ReactNode =
+    !ended &&
+    slot !== null &&
+    slot.kind === "normal" &&
+    view.slot !== null &&
+    !requiresMinimalForm(ui, "event", slot.kind)
+      ? (
+          <EventPanel
+            title={view.slot.title}
+            narrative={view.slot.narrative}
+            options={view.slot.options ?? []}
+            busy={busy}
+            onChoose={onChoose}
+          />
+        )
+      : undefined;
+
+  /** 自由行动的次要入口；**不渲染 AI 写的文本选项**（见上方注释）。 */
+  const footer: ReactNode =
+    !ended && slot === null ? (
+      <ActionPanel snapshot={snapshot} busy={busy} onUseItem={onUseItem} onEndLife={onEndLife} />
+    ) : undefined;
   // LLM 写的选项块（`kind === "option"`）：叙事区只放散文，这些块归事件区。
   /**
    * AI 写的 `content.writeOption` 块**不再渲染**（AGENTIC-GM 重构）。
@@ -1889,94 +1976,23 @@ function LifeTab({
         />
 
         {/*
-          AI 叙事区（T-09a）：紧贴角色卡下方，是默认前端的**主文本面**。
+          「故事」区（用户 2026-11-19）：叙事与事件合并成一张卡，是默认前端的主文本面。
           正文来自服务端 trace 读回（刷新后仍在），立绘 / CG 来自快照媒体投影。
-          这里**没有点击面**：选项块由 `NarrativeStream` 过滤掉，统一的点击面是
-          底部行动坞 + 事件区（引擎 optionId 选项 / AI 选项）。
-        */}
-        {/* 舞台容器（2026-11-19）：叙事与事件同属一个外框。
-            事件在叙事下方以**小容器**出现（不是另一张大卡），流式结束那一刻只是「长出来」，
-            不再有整屏跳变；这一轮没有流式时同样直接出现，不等任何动画。 */}
-        <div className={`stage-stack${!ended && slot !== null ? " has-slot" : ""}`}>
-          <NarrativeStage view={view} busy={busy} draft={draft} />
-
-        {!ended && (
-          <section className={`card slot-area slot-${occupant}`}>
-            <header className="slot-head">
-              <span className="slot-label">事件区</span>
-              <span className={`slot-badge badge-${occupant}`}>{SLOT_BADGE[occupant]}</span>
-            </header>
-            {lastResult?.elapsed && <p className="slot-elapsed">过去{lastResult.elapsed}</p>}
-
-            <div className="slot-body">
-              {requiresMinimalForm(ui, "wheel", slot?.kind ?? null) && slot !== null && (
-                <MinimalSlotForm
-                  slot={slot}
-                  busy={busy}
-                  onConfirmWheel={onConfirmWheel}
-                  onChoose={onChoose}
-                  onBattle={onBattle}
-                />
-              )}
-              {slot !== null &&
-                slot.kind === "random" &&
-                slot.wheel !== undefined &&
-                !requiresMinimalForm(ui, "wheel", slot.kind) && (
-                <WheelPanel
-                  key={`${slot.eventId}:${slot.wheel.label}`}
-                  items={[{ wheel: toWheelVM(slot.wheel), title: slot.title }]}
-                  animate={wheelsFresh}
-                  busy={busy}
-                  onContinue={onConfirmWheel}
-                />
-              )}
-              {/* 投影缺 `wheel` 时的逃生口：仍然给一个可点的「继续」，不让玩家卡在空槽前 */}
-              {slot !== null &&
-                slot.kind === "random" &&
-                slot.wheel === undefined &&
-                !requiresMinimalForm(ui, "wheel", slot.kind) && (
-                <div className="event-body">
-                  <h2>{slot.title}</h2>
-                  <p>{slot.narrative}</p>
-                  <button className="primary wheel-continue" disabled={busy} onClick={onConfirmWheel}>
-                    继续
-                  </button>
-                </div>
-              )}
-              {slot !== null &&
-                slot.kind === "combat" &&
-                view.battle !== null &&
-                !requiresMinimalForm(ui, "battle", slot.kind) && (
-                <BattleBoard
-                  battle={view.battle}
-                  labels={snapshot.labels.resources}
-                  busy={busy}
-                  onCommand={onBattle}
-                  onContinue={onConfirmWheel}
-                />
-              )}
-              {slot !== null &&
-                slot.kind === "normal" &&
-                view.slot !== null &&
-                !requiresMinimalForm(ui, "event", slot.kind) && (
-                <EventPanel
-                  title={view.slot.title}
-                  narrative={view.slot.narrative}
-                  options={view.slot.options ?? []}
-                  busy={busy}
-                  onChoose={onChoose}
-                />
-              )}
-              {/* 自由行动：只有模板动作 + 次要入口；**不渲染 AI 写的文本选项**（见上方注释）。 */}
-              {slot === null && (
-                <>
-                  <ActionPanel snapshot={snapshot} busy={busy} onUseItem={onUseItem} onEndLife={onEndLife} />
-                </>
-              )}
-            </div>
-          </section>
-        )}
-        </div>
+            - 普通事件 ⇒ 叙事结尾的**盒中盒**（流式 + 逐字都结束后才出现）；
+            - 随机事件（转盘）/ 战斗 ⇒ **占满**这一区，结算（槽位清空）后自动回到叙事；
+            - 自由行动 ⇒ 只有叙事 + 安静入口，输入归底部行动坞。 */}
+        <StoryStage
+          view={view}
+          busy={busy}
+          draft={draft}
+          {...(noteText !== "" ? { note: noteText } : {})}
+          {...(storyBadge !== undefined ? { badge: storyBadge } : {})}
+          {...(takeover !== undefined ? { takeover } : {})}
+          {...(inset !== undefined
+            ? { inset, ...(slot !== null ? { insetKey: slot.eventId } : {}) }
+            : {})}
+          {...(footer !== undefined ? { footer } : {})}
+        />
 
         {ended && snapshot.ending && (
           <EndingPanel
