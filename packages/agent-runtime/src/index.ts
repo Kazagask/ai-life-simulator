@@ -8,12 +8,19 @@ export const AGENT_RUNTIME_VERSION = "0.2.0" as const;
 
 export {
   buildLlmContext,
+  buildOutputContract,
   buildStablePrefix,
+  DEFAULT_NARRATIVE_LENGTH,
   sha256,
   stableStringify,
   OUTPUT_CONTRACT,
 } from "./context.js";
-export type { BuiltLlmContext, LlmContextDeps } from "./context.js";
+export type {
+  BuiltLlmContext,
+  LlmContextDeps,
+  NarrativeLength,
+  NarrativeMode,
+} from "./context.js";
 
 export {
   ALL_TOOL_NAMES,

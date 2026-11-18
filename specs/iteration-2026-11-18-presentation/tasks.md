@@ -200,3 +200,30 @@ T0 ──┬─> T1 ──┐
 `[mythic-unique 唯一·神话/rainbow+rainbow-flow, buff 增益/green]`、十种影法术
 `[legend 二品·传说/gold, buff]`；CDP 走查浮层标签「唯一·神话 + 增益」、名字仍是动虹、
 无 `RAINBOW` 字样、`持续：直到被移除`；包内 CSS 含 `.ls-style--cyan` / `.ls-box--cyan`。
+
+## 验收返工记录（2026-11-19：章节小结的提示词与篇幅）
+
+用户反馈：`instruction` 里「3-5 句」太少，且写出来像流水账。查下来**只改 instruction 是无效的**，
+有三处硬约束在拦：
+
+1. **输出契约**（`agent-runtime/src/context.ts`）里两条是给**逐拍旁白**写的：
+   「只写这一回合内、主角亲身经历的一小段」「必须紧接 `recentTurns` 的最后一条往下写」。
+   章节小结本质是回顾，被这两条按住就只能写成缩水版。
+   → `invoke.mode: recap` 换掉这两条（换成「收束一段已经发生的经历」「不要写成事件清单」）。
+2. **篇幅写在契约里**（缺省 80–220 字 / 1–3 段），且在 `instruction`（≤300 字）里喊「多写点」没用。
+   → `invoke.length`（`minChars/maxChars/minParagraphs/maxParagraphs`）参数化契约；
+   同时把后处理截断上限从写死的 420 抬到 `maxChars`（否则模型写 700 字会被**静默砍回 420**）。
+3. **`recentTurns` 一直是空的**：core 硬编码 `[]`，`gateway.deps.history` 无人赋值 ⇒ 模型只看得到 facts。
+   逐拍旁白还能硬撑，章节回顾必然写空话。
+   → core 用 `state.history` 过滤 `isPlayerVisible` 填末尾 N 条（`turnIndex/time/kind/summary`）；
+   `invoke.historyTurns` 覆盖窗口，并同时改 `budget.recentTurns`（否则编排层会按 6 条再切一次）。
+
+模板侧（`jjk-2006/2.0.0/rules.yaml`）：14 条换章触发器统一 `mode: recap`、
+`length: {320, 760, 3, 6}`、`historyTurns: 40`；`instruction` 改成「按时间顺序拢成一段完整经历」；
+`prompt.style` 重写为日式都市怪谈的冷调子 + 明确的反流水账约束（禁时间词开头、禁「然后/接着」串场）。
+
+⚠ `rules.yaml` **不参与语义指纹**（走独立加载通道），所以这次改动**不会废档**——与之前改 yaml 的两轮不同。
+
+验证：`pnpm test` 49 文件 / **317 例**全绿（新增 8 例：契约按体裁渲染、buildLlmContext 不丢新字段、
+滚动历史过滤 hidden / budget 同步、760 字不被 420 砍）；`tsc` 0 错；端到端打印实际 prompt 确认
+契约与文风段按预期拼装、`recentTurns` 有内容。

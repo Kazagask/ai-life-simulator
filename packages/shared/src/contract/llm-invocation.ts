@@ -76,6 +76,18 @@ export const LlmContextSchema = z
      * 与 `contextHints` 不同，它是给模型看的自然语言，不是标签。
      */
     instruction: z.string().min(1).optional(),
+    /** 体裁（对应 `rules.yaml` 的 `invoke.mode`）：`recap` 会换掉输出契约里两条逐拍约束。 */
+    narrativeMode: z.enum(["narration", "recap"]).optional(),
+    /** 篇幅（对应 `invoke.length`）：同时约束提示词与后处理截断。 */
+    narrativeLength: z
+      .object({
+        minChars: z.number().int().positive(),
+        maxChars: z.number().int().positive(),
+        minParagraphs: z.number().int().positive().optional(),
+        maxParagraphs: z.number().int().positive().optional(),
+      })
+      .strict()
+      .optional(),
     /** 关键词命中的设定条目（reactive `[设定]` 段）；常驻条目在 stablePrefix 里。 */
     lore: z.array(LoreEntrySchema).optional(),
     /**

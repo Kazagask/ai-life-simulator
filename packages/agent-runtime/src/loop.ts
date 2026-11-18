@@ -171,8 +171,8 @@ function sanitizeNarrative(text: string): string {
   return out;
 }
 
-/** 正文字符上限：超过就按段落边界截断（保留整段，不切半句）。 */
-const NARRATIVE_MAX_CHARS = 420;
+/** 正文字符上限（缺省）：超过就按段落边界截断（保留整段，不切半句）。 */
+export const NARRATIVE_MAX_CHARS = 420;
 
 /**
  * 正文后处理：**去重 + 限长**。
@@ -186,7 +186,10 @@ const NARRATIVE_MAX_CHARS = 420;
  * - 按空行切段，**按首现顺序保留唯一的段**（重复段直接丢，不做相似度判断）；
  * - 再按段落累加，超过 `NARRATIVE_MAX_CHARS` 就停（不截断半句）。
  */
-function normalizeNarrative(text: string): { text: string; droppedParagraphs: number } {
+function normalizeNarrative(
+  text: string,
+  maxChars: number = NARRATIVE_MAX_CHARS,
+): { text: string; droppedParagraphs: number } {
   const cleaned = sanitizeNarrative(text);
   const paragraphs = cleaned
     .split(/\n\s*\n/)
@@ -202,7 +205,7 @@ function normalizeNarrative(text: string): { text: string; droppedParagraphs: nu
   const kept: string[] = [];
   let total = 0;
   for (const p of unique) {
-    if (kept.length > 0 && total + p.length > NARRATIVE_MAX_CHARS) break;
+    if (kept.length > 0 && total + p.length > maxChars) break;
     kept.push(p);
     total += p.length;
   }
@@ -222,7 +225,10 @@ function normalizeNarrative(text: string): { text: string; droppedParagraphs: nu
  * - **标签外内容**：一律丢弃，只统计非空白字符数用于诊断；
  * - **块内后处理**：去重 + 限长，见 `normalizeNarrative`。
  */
-function extractNarrativeContent(raw: string): {
+function extractNarrativeContent(
+  raw: string,
+  maxChars: number = NARRATIVE_MAX_CHARS,
+): {
   text?: string;
   blockCount: number;
   outsideChars: number;
@@ -241,7 +247,7 @@ function extractNarrativeContent(raw: string): {
   outsideChars += raw.slice(lastIndex).replace(/\s+/g, "").length;
   if (blocks.length === 0) return { blockCount: 0, outsideChars, droppedParagraphs: 0 };
   const joined = blocks.join("\n\n");
-  const normalized = normalizeNarrative(joined);
+  const normalized = normalizeNarrative(joined, maxChars);
   return {
     ...(normalized.text.length > 0 ? { text: normalized.text } : {}),
     blockCount: blocks.length,
@@ -257,6 +263,14 @@ export async function runAgentLoop(
   const now = deps.now ?? (() => Date.now());
   const startedAt = now();
   const budget = LlmBudgetSchema.parse(deps.budget ?? inv.budget);
+  /**
+   * 正文字符上限：模板在 `invoke.length` 里声明了篇幅就以它为准（章节小结 720 字这类），
+   * 否则用逐拍旁白的 420。**不取 min** —— 声明更短时仍允许 420，避免模型已经写好却被砍掉半篇。
+   */
+  const narrativeMaxChars = Math.max(
+    NARRATIVE_MAX_CHARS,
+    inv.context.narrativeLength?.maxChars ?? 0,
+  );
   const sink: ContentSink = deps.engineApi.sink ?? createContentSink();
   const templateRef = deps.templateRef ?? "template:inline";
   const toolProfile = deps.toolProfile ?? "default";
@@ -378,7 +392,7 @@ export async function runAgentLoop(
        *
        * 判定：本轮只要有过被接受的写入，就算 committed；什么都没写才算失败。
        */
-      const taggedNow = extractNarrativeContent(accumulatedContent);
+      const taggedNow = extractNarrativeContent(accumulatedContent, narrativeMaxChars);
       end =
         wroteSomething || readSomething || taggedNow.blockCount > 0
           ? { reason: "completed" }
@@ -609,7 +623,7 @@ export async function runAgentLoop(
    *   玩家侧回退模板事件文案。
    * - fallback 收尾不落块：前端会清掉草稿，避免半截正文。
    */
-  const narrative = extractNarrativeContent(accumulatedContent);
+  const narrative = extractNarrativeContent(accumulatedContent, narrativeMaxChars);
   const hasNarrativeBlock = sink.list().some((block) => block.kind === "narrative");
   if (outcome === "committed" && narrative.text !== undefined) {
     const block: ContentBlock = {

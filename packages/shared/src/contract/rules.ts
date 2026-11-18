@@ -34,6 +34,36 @@ export const InvokeSchema = z
      */
     instruction: z.string().min(1).max(300).optional(),
     /**
+     * 叙事体裁（2026-11-19）：
+     * - `narration`（缺省）：逐拍旁白——写「这一回合主角经历的一小段」，紧接上一轮往下写；
+     * - `recap`：回顾——收束**已经发生的**一段（章节小结、长休、回忆），允许回看与跨回合。
+     *
+     * 为什么不是靠 `instruction` 口头约定：输出契约里有两条硬约束（"只写这一回合的一小段"、
+     * "紧接 recentTurns 最后一条往下写"）是给逐拍写的。回顾类调用必须把这两条**换掉**，
+     * 否则模型一边被要求回顾整章、一边被告知只能写一拍，只能写出缩水的流水账。
+     */
+    mode: z.enum(["narration", "recap"]).optional(),
+    /**
+     * 本次调用带多少轮滚动历史（覆盖 `budget.recentTurns`，缺省 6）。
+     *
+     * 章节回顾必须看到整章，而缺省窗口只有 6 轮——不够就只能靠 facts 猜，写出来必然空。
+     * 逐拍旁白不需要调大：窗口越大越容易让模型"重写已经演过的场面"。
+     */
+    historyTurns: z.number().int().positive().max(200).optional(),
+    /**
+     * 篇幅（覆盖输出契约与后处理截断的默认 80–220 字 / 1–3 段）。
+     * 章节小结这类调用需要更长的正文，靠 `instruction` 喊"多写点"是无效的——长度上限在契约里。
+     */
+    length: z
+      .object({
+        minChars: z.number().int().positive(),
+        maxChars: z.number().int().positive(),
+        minParagraphs: z.number().int().positive().optional(),
+        maxParagraphs: z.number().int().positive().optional(),
+      })
+      .strict()
+      .optional(),
+    /**
      * ADR-0038：本轮允许 LLM 写分支的能力声明（历史上是模板事件 id 白名单）。
      *
      * 这是**能力声明**，不是用途声明 —— 声明 ≠ 只写一次：

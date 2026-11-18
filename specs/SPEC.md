@@ -538,6 +538,8 @@ dispatch → 引擎写入 + 回执（accepted / rejected + 封闭诊断码）
 | **设定条目** | `<template>/lore.md` | 按内容命中，逐次不同 | **引擎**（`selectInvocationLore`） |
 | **文风** | `rules.yaml` 顶层 `prompt.style` | 整份模板恒定 | 模板作者 |
 | **本幕要求** | `rules.yaml` → `llmTriggers[].invoke.instruction`（≤300 字） | 单条触发 | 模板作者 |
+| **体裁 / 篇幅** | `rules.yaml` → `llmTriggers[].invoke.mode` / `invoke.length` | 单条触发 | 模板作者 |
+| **历史窗口** | `rules.yaml` → `llmTriggers[].invoke.historyTurns`（缺省 = `budget.recentTurns` = 6） | 单条触发 | 模板作者 |
 
 **`lore.md` 格式**（非 yaml；`## 标题` 切条目，标题即 id，重名拒载）：
 
@@ -563,20 +565,31 @@ dispatch → 引擎写入 + 回执（accepted / rejected + 封闭诊断码）
   世界骨架 → 能力画像 → 输出契约 → `# 文风约束`（`prompt.style`）→ `# 设定（常驻）` → 工具与参数。
 - **reactive 段**：只放**关键词命中**的 `lore`（逐次不同，不能污染前缀）。
 
-**输出契约**（`agent-runtime/src/context.ts`，11 条硬规则，全部来自真实模型翻车）：
+**输出契约**（`agent-runtime/src/context.ts`，11 条硬规则，全部来自真实模型翻车；`mode` 影响第 7、8 条）：
+
+- `mode: narration`（缺省）：**只写这一回合的一小段**、**必须紧接 `recentTurns` 最后一条往下写**。
+- `mode: recap`（章节小结 / 长休 / 回忆）：换成**收束一段已经发生的经历**、**不要写成事件清单**。
+  两条逐拍约束必须被替换掉，否则模型一边被要求回顾整章、一边被告知只能写一拍，只能写缩水的流水账。
+- `length`：契约里的「80–220 字，1–3 段」是**默认值**；模板可用 `minChars/maxChars/minParagraphs/maxParagraphs`
+  覆盖，同时把后处理截断上限抬到 `maxChars`（缺省 420）。
 
 - 只写简体中文散文；不带 markdown / 标题 / 列表符 / 引用块。
 - **不得复述状态数字**（"你的生命值还有 42"不是叙事）。
 - **必须紧接 `recentTurns` 最后一条往下写**，不许跳回更早的桥段。
 - **不替玩家说话或做决定**（不写"你说……""你决定……"）。
 - **第二人称"你"**指主角；契约里给了正误对照例。
-- 不得违反 `[设定]`（`lore`）；80–220 字，1–3 段。
+- 不得违反 `[设定]`（`lore`）；篇幅见上面的 `length`（缺省 80–220 字，1–3 段）。
 
 **出口还要过两道**（`agent-runtime/src/loop.ts`）：
 
 - `sanitizeNarrative`：ASCII 成对双引号 → 「」，剥行首 markdown 符，剥内联 `**` / 反引号。
 - `normalizeNarrative`：分段落、按首现去重（真实翻车：553 字 10 段只有 6 段不重复）、
-  按段落边界截到 420 字。
+  按段落边界截断（缺省 420 字；`invoke.length.maxChars` 更大时以它为准）。
+
+**`recentTurns` 的来源**（2026-11-19 修正）：由 core 在构造 invocation 时填**玩家可见的历史摘要**
+（`state.history` 过滤 `isPlayerVisible`，取末尾 `historyTurns` 条，字段 `turnIndex / time / kind / summary`）。
+此前这里硬编码 `[]`，编排层又没有别的注入点，模型实际上只在 facts 与工具里看得到世界——
+逐拍旁白还能硬撑，章节回顾必然写成空话。可见性判定仍只走 `isPlayerVisible`（R-VS-01）。
 
 ### 4.9 事件链的类型与呈现（`未决`）
 

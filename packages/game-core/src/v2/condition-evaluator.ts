@@ -6,7 +6,7 @@ import type {
   TaskCondition,
   WorldStateV2,
 } from "@life-sim/shared";
-import { DEFAULT_LLM_BUDGET } from "@life-sim/shared";
+import { DEFAULT_LLM_BUDGET, isPlayerVisible } from "@life-sim/shared";
 import { createRng, deriveTurnSeed, type Rng } from "../rng.js";
 import { buildFacts } from "../api/perspective.js";
 
@@ -261,6 +261,25 @@ function buildTriggerInvocation(
   // 曾在 core 侧造过 `{ name }` 这种"空 schema"的工具表，导致模型收到 `parameters: {}`
   // 只能瞎猜参数（真实模型实测直接发空对象 ⇒ 整轮作废）。
   const tools = (rules.toolProfile[trigger.invoke.toolProfile] ?? []).map((name) => ({ name }));
+  /**
+   * 滚动历史（v2 §6.1 的 `[4] recentTurns`）：**玩家可见的历史摘要**。
+   *
+   * 这里原本硬编码 `[]` —— 编排层没有别的注入点（`gateway.deps.history` 无人赋值），
+   * 于是模型实际上只在 facts 与工具里看得到世界，看不到"刚刚发生了什么"。
+   * 逐拍旁白还能靠 facts 硬撑，章节回顾则必然写成空话或流水账。
+   *
+   * 可见性用 `isPlayerVisible`（R-VS-01 的唯一判定入口），不自己比较 `visibility`。
+   */
+  const historyLimit = trigger.invoke.historyTurns ?? opts.budget?.recentTurns ?? 6;
+  const recentTurns = state.history
+    .filter((entry) => isPlayerVisible(entry))
+    .slice(-historyLimit)
+    .map((entry) => ({
+      turnIndex: entry.turnIndex,
+      time: entry.formattedTime,
+      kind: entry.type,
+      summary: entry.summary,
+    }));
   const perspective = opts.perspective ?? trigger.invoke.perspective;
   const targetPerspective = opts.targetPerspective ?? trigger.invoke.targetPerspective;
   // LlmContext（v2 §6.1 分层）：facts 段由 core 的 buildFacts(inv.perspective) 投影，
@@ -271,7 +290,7 @@ function buildTriggerInvocation(
     context: {
       stablePrefix: "",
       facts: buildFacts(state, perspective),
-      recentTurns: [],
+      recentTurns,
       invocationReason: trigger.invoke.reason,
       ...(trigger.invoke.contextHints !== undefined
         ? { contextHints: trigger.invoke.contextHints }
@@ -279,6 +298,8 @@ function buildTriggerInvocation(
       ...(trigger.invoke.instruction !== undefined
         ? { instruction: trigger.invoke.instruction }
         : {}),
+      ...(trigger.invoke.mode !== undefined ? { narrativeMode: trigger.invoke.mode } : {}),
+      ...(trigger.invoke.length !== undefined ? { narrativeLength: trigger.invoke.length } : {}),
       // ADR-0038：白名单随 invocation 一起快照 —— 规则在 invocation 存续期间被改，
       // 不影响已经发出的这一份（它是这次调用的权威描述）。
       ...(trigger.invoke.branchEventIds !== undefined
@@ -288,7 +309,14 @@ function buildTriggerInvocation(
     tools,
     // 画像名必须随 invocation 下传，runtime 才能重建**带参数 schema** 的工具表。
     toolProfile: trigger.invoke.toolProfile,
-    budget: opts.budget ?? DEFAULT_LLM_BUDGET,
+    /**
+     * 预算：`historyTurns` 要一起改 `budget.recentTurns`，否则编排层会按缺省 6 条再切一次
+     * （`buildLlmContext` 的 `slice(-inv.budget.recentTurns)`），core 这边填多长都白填。
+     */
+    budget:
+      trigger.invoke.historyTurns !== undefined
+        ? { ...(opts.budget ?? DEFAULT_LLM_BUDGET), recentTurns: trigger.invoke.historyTurns }
+        : (opts.budget ?? DEFAULT_LLM_BUDGET),
     replyTo: "dispatch",
     perspective,
     targetPerspective,
