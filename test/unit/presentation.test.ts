@@ -51,6 +51,17 @@ describe("样式协议（ADR-002 D2）", () => {
     expect(resolveStyle(undefined, "mythic", undefined)).toBeUndefined();
   });
 
+  it("正负零与品级独立：只写 polarity 也能拿到绿 / 红 / 灰", () => {
+    expect(resolveStyle(undefined, undefined, ui, "negative")?.preset).toBe("red");
+    expect(resolveStyle(undefined, undefined, ui, "positive")?.preset).toBe("green");
+    expect(resolveStyle(undefined, undefined, ui, "neutral")?.preset).toBe("gray");
+    // 模板覆盖正负映射时以模板为准
+    const custom = UiConfigSchema.parse({ polarityStyles: { negative: "purple" } });
+    expect(resolveStyle(undefined, undefined, custom, "negative")?.preset).toBe("purple");
+    // 品级优先于正负零（fixture 的 qualityStyles 里 mythic → rainbow）
+    expect(resolveStyle(undefined, "mythic", ui, "negative")?.preset).toBe("rainbow");
+  });
+
   it("颜色 token 解析成 CSS 变量，十六进制原样", () => {
     const style = resolveStyle("gold-tone", undefined, UiConfigSchema.parse({ styles: { "gold-tone": { color: "gold" } } }));
     expect(style?.color).toContain("var(--");
@@ -126,6 +137,22 @@ describe("效果摘要（ADR-002 D3）", () => {
     const out = equipmentEffectSummaries(eq, lookup);
     expect(out[0]?.text).toContain("随成长");
     expect(out[0]?.text).not.toMatch(/^\D*\d+\.\d+/);
+  });
+
+  it("施加补正类条目带被引用实体的样式（浮层里「施加 力竭」也要有色）", () => {
+    const { entry } = makeWorld();
+    const def: StatusEffect = {
+      id: "carrier",
+      name: "载体",
+      duration: { turns: 1 },
+      stacking: "refresh",
+      visibility: "known",
+      simulation: { attributeModifiers: { cursedEnergy: 1 } },
+      combat: { control: ["cannot_act"] },
+    };
+    const out = statusEffectSummaries(def, entry.lookup);
+    const control = out.find((e) => e.kind === "control");
+    expect(control?.note).toBeDefined();
   });
 
   it("效果摘要 schema 是闭集（未知 kind 拒收）", () => {

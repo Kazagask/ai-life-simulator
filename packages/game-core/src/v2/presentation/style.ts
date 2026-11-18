@@ -1,6 +1,8 @@
 import {
+  DEFAULT_POLARITY_STYLES,
   STYLE_PRESET_IDS,
   resolveColorToken,
+  type Polarity,
   type ResolvedStyle,
   type StyleSpec,
   type UiConfig,
@@ -52,6 +54,7 @@ export function resolveStyle(
   styleId: string | undefined,
   quality: string | undefined,
   ui: UiConfig | undefined,
+  polarity?: Polarity,
 ): ResolvedStyle | undefined {
   if (styleId !== undefined) {
     const spec = styleSpecFor(styleId, ui);
@@ -63,6 +66,12 @@ export function resolveStyle(
       const spec = styleSpecFor(mapped, ui);
       if (spec !== undefined) return toResolved(spec);
     }
+  }
+  // 正负零与品级**独立**：没写 quality 的补正也能靠 polarity 拿到绿 / 红 / 灰。
+  if (polarity !== undefined) {
+    const mapped = ui?.polarityStyles?.[polarity] ?? DEFAULT_POLARITY_STYLES[polarity];
+    const spec = styleSpecFor(mapped, ui);
+    if (spec !== undefined) return toResolved(spec);
   }
   return undefined;
 }
@@ -82,6 +91,15 @@ export interface StyleIssue {
 export function validateStyleRefs(template: WorldTemplateV2, ui: UiConfig | undefined): StyleIssue[] {
   const issues: StyleIssue[] = [];
   const known = (id: string): boolean => styleSpecFor(id, ui) !== undefined;
+
+  for (const [polarity, styleId] of Object.entries(ui?.polarityStyles ?? {})) {
+    if (!known(styleId)) {
+      issues.push({
+        path: `ui.polarityStyles.${polarity}`,
+        message: `未知样式 id：${styleId}（既不在 ui.styles，也不是预设 ${STYLE_PRESET_IDS.join("/")}）`,
+      });
+    }
+  }
 
   for (const [quality, styleId] of Object.entries(ui?.qualityStyles ?? {})) {
     if (!known(styleId)) {

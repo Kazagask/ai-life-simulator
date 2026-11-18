@@ -19,7 +19,8 @@ export interface DetailSheetData {
 export interface DetailSheetProps {
   detail: DetailSheetData | null;
   onClose: () => void;
-  onOpenRef?: (ref: NonNullable<EffectSummaryVM["ref"]>) => void;
+  /** 点开浮层里的引用条目（施加 / 移除某补正）。 */
+  onOpenRef?: (effect: EffectSummaryVM) => void;
 }
 
 /**
@@ -92,7 +93,7 @@ export interface ModifierSheetProps {
   status: StatusVM | null;
   onClose: () => void;
   /** 点开内部引用的其它补正（如「每回合施加 流血」）。 */
-  onOpenRef?: (ref: { kind: "status" | "item" | "skill"; id: string }) => void;
+  onOpenRef?: (effect: EffectSummaryVM) => void;
 }
 
 /** 补正详情的便捷包装：把 `StatusVM` 摊平成 `DetailSheetData`。 */

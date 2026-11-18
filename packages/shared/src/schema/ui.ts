@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { StyleSpecSchema } from "./style.js";
+import { PolaritySchema, StyleSpecSchema } from "./style.js";
 
 /**
  * `ui.yaml` —— 模板的展示层声明（形状 B：落位）。
@@ -59,6 +59,11 @@ export const UiConfigSchema = z
      * 值可以是 `styles` 的键，也可以是引擎预设 id。
      */
     qualityStyles: z.record(z.string().min(1), z.string().min(1)).optional(),
+    /**
+     * 正负零 → 样式 id（与 `quality` 独立）：缺省用引擎内置
+     * positive→green / negative→red / neutral→gray。
+     */
+    polarityStyles: z.record(PolaritySchema, z.string().min(1)).optional(),
   })
   .strict();
 

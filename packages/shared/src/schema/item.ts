@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PolaritySchema, type Polarity } from "./style.js";
 import { TemplateEffectSchema, type TemplateEffect } from "./common.js";
 import { EquipmentDefinitionFields, type DynamicModifierSpec } from "./equipment.js";
 
@@ -27,6 +28,7 @@ const ITEM_KEYS = [
   "quality",
   "dynamicModifier",
   "style",
+  "polarity",
 ] as const;
 
 /** 明确禁止的键与其诊断信息（出现即拒绝并给路径，不得静默忽略）。 */
@@ -53,6 +55,8 @@ const ItemShape = z
     use: z.array(TemplateEffectSchema).optional(),
     /** 样式 id（`ui.styles` 的键或引擎预设 id，ADR-002 D2）；纯展示。 */
     style: z.string().min(1).optional(),
+    /** 正负零（与 `quality` 独立），决定默认配色。 */
+    polarity: PolaritySchema.optional(),
     ...EquipmentDefinitionFields,
   })
   .passthrough();
@@ -72,6 +76,7 @@ type ItemClean = {
   quality?: string;
   dynamicModifier?: DynamicModifierSpec;
   style?: string;
+  polarity?: Polarity;
 };
 
 export const ItemSchema = ItemShape.superRefine((item, ctx) => {

@@ -564,17 +564,21 @@
   font-weight: 600;
 }
 .ls-style--gold { color: #e7c66b; }
-.ls-style--silver { color: #cfd6dd; }
-.ls-style--bronze { color: #c98c5a; }
-.ls-style--crimson { color: #ff6b7a; }
-.ls-style--azure { color: #6fb6ff; }
-.ls-style--jade { color: #4fd1a5; }
+.ls-style--orange { color: #ff9a5d; }
+.ls-style--pink { color: #ff8ad4; }
+.ls-style--purple { color: #c084fc; }
+.ls-style--blue { color: #6fb6ff; }
+.ls-style--white { color: #eef4fb; }
+.ls-style--green { color: #4fd1a5; }
+.ls-style--red { color: #ff6b7a; }
+.ls-style--gray { color: #a2957f; }
 
 /*
  * 流动彩虹：渐变文字（background-clip:text）。这是「最高品质」的默认表达
  * （模板用 `qualityStyles: { mythic: rainbow }` 绑定），不是给某一件物品写死的样式。
  */
-.ls-style--rainbow {
+.ls-style--rainbow,
+.ls-style--rainbow-static {
   background-image: linear-gradient(100deg, #ff6b6b, #ffd166, #6ee7b7, #60a5fa, #c084fc, #ff6b6b);
   background-size: 300% 100%;
   -webkit-background-clip: text;
@@ -582,8 +586,15 @@
   color: transparent;
   -webkit-text-fill-color: transparent;
 }
+/* 静虹：同一套渐变，静止在最美的一帧。 */
+.ls-style--rainbow-static { background-position: 25% 50%; }
 
-.ls-anim--rainbow-flow { animation: ls-rainbow-flow 6s linear infinite; }
+/*
+ * 动虹的节奏：9s 走完 3 个渐变周期 ⇒ 每个周期 3s。
+ * 边框动画（下面 .ls-box--rainbow）必须用**同一个 3s**，否则字和框各转各的
+ * ——用户 2026-11-18 实测就是这个毛病。
+ */
+.ls-anim--rainbow-flow { animation: ls-rainbow-flow 9s linear infinite; }
 .ls-anim--pulse { animation: ls-pulse 2.4s ease-in-out infinite; }
 .ls-anim--glow { text-shadow: 0 0 10px currentColor; }
 
@@ -613,17 +624,22 @@
 
 /* ---------- 容器边框（chip / 卡片）与文字同步 ---------- */
 .ls-box--gold { border-color: #e7c66b; }
-.ls-box--silver { border-color: #cfd6dd; }
-.ls-box--bronze { border-color: #c98c5a; }
-.ls-box--crimson { border-color: #ff6b7a; }
-.ls-box--azure { border-color: #6fb6ff; }
-.ls-box--jade { border-color: #4fd1a5; }
+.ls-box--orange { border-color: #ff9a5d; }
+.ls-box--pink { border-color: #ff8ad4; }
+.ls-box--purple { border-color: #c084fc; }
+.ls-box--blue { border-color: #6fb6ff; }
+.ls-box--white { border-color: #eef4fb; }
+.ls-box--green { border-color: #4fd1a5; }
+.ls-box--red { border-color: #ff6b7a; }
+.ls-box--gray { border-color: #a2957f; }
 
 /* 彩虹边框：同一组颜色循环，与文字渐变同源，避免「字变了框没变」。 */
+/* 与文字同节奏：3s 一个颜色周期（9s / 3 个周期）。 */
 .ls-box--rainbow {
   border-color: #c084fc;
-  animation: ls-rainbow-border 6s linear infinite;
+  animation: ls-rainbow-border 3s linear infinite;
 }
+.ls-box--rainbow-static { border-color: #c084fc; }
 @keyframes ls-rainbow-border {
   0%, 100% { border-color: #ff6b6b; }
   20% { border-color: #ffd166; }
@@ -653,7 +669,8 @@
 /* 可点击的补正芯片：外观与只读 chip 一致，只加手势与键盘可达。 */
 .status-chip--action {
   cursor: pointer;
-  font: inherit;
+  /* 只继承字体族：`font: inherit` 会把 font-size 一起重置成父级，补正会突然变大。 */
+  font-family: inherit;
   background: transparent;
 }
 .status-chip--action:active { opacity: 0.75; }
@@ -671,6 +688,9 @@
   text-underline-offset: 3px;
   color: var(--ls-text);
 }
+
+.ls-effect__ref { text-decoration: underline dotted; text-underline-offset: 3px; }
+.ls-effect__note { margin-left: 4px; font-size: 12px; color: var(--ls-text-dim); }
 
 .ls-effect__link {
   background: none;
@@ -808,5 +828,64 @@
 .ls-gains__wheel {
   margin: 8px 0 0;
   font-size: 13px;
+  color: var(--ls-text);
+}
+
+/* ---------- 技能面板：一行两个 + 就地详情 ---------- */
+.ls-skill-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.ls-skill-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-height: 56px;
+  padding: 10px 12px;
+  border: 1px solid var(--ls-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ls-gold) 4%, transparent);
+  color: var(--ls-text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ls-skill-card:active { transform: scale(0.99); }
+.ls-skill-card.is-active {
+  border-color: var(--ls-gold);
+  background: color-mix(in srgb, var(--ls-gold) 10%, transparent);
+}
+.ls-skill-card__name { font-size: 14px; line-height: 1.35; }
+.ls-skill-card__meta { font-size: 11px; color: var(--ls-text-dim); }
+
+.ls-skill-detail {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--ls-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ls-gold) 3%, transparent);
+}
+.ls-skill-detail__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.ls-skill-detail__head h3 { margin: 0; font-size: 16px; }
+.ls-skill-detail__close {
+  border: 1px solid var(--ls-border);
+  background: transparent;
+  color: var(--ls-text-dim);
+  border-radius: 999px;
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+}
+.ls-skill-detail__desc {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
   color: var(--ls-text);
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PolaritySchema } from "./style.js";
 import { FormulaSchema } from "./common.js";
 import { StatusApplicationSchema } from "./skill.js";
 
@@ -76,6 +77,8 @@ export const StatusEffectSchema = z
     quality: z.string().min(1).optional(),
     /** 样式 id：`ui.styles` 的键或引擎预设 id（ADR-002 D2），优先于 quality 映射。 */
     style: z.string().min(1).optional(),
+    /** 正负零（与 `quality` 独立）：决定默认配色（绿 / 红 / 灰）。 */
+    polarity: PolaritySchema.optional(),
   })
   .strict()
   .refine((s) => s.simulation !== undefined || s.combat !== undefined, {

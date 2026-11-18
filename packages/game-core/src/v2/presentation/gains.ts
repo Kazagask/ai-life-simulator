@@ -67,7 +67,7 @@ export function diffGains(
     const next = nextStatus.get(id);
     if (prev === next) continue;
     const def = lookup.status(id);
-    const style = resolveStyle(def?.style, def?.quality, ui);
+    const style = resolveStyle(def?.style, def?.quality, ui, def?.polarity);
     out.push({
       category: "status",
       action: prev === undefined ? "gain" : next === undefined ? "lose" : next > prev ? "gain" : "lose",
@@ -106,7 +106,7 @@ export function diffGains(
     const next = after.player.inventory[id] ?? 0;
     if (next === prev) continue;
     const def = lookup.item(id);
-    const style = resolveStyle(def?.style, def?.quality, ui);
+    const style = resolveStyle(def?.style, def?.quality, ui, def?.polarity);
     out.push({
       category: "item",
       action: next > prev ? "gain" : "lose",
@@ -131,7 +131,7 @@ export function diffGains(
     if (prev === next) continue;
     const itemId = next ?? prev ?? "";
     const def = lookup.item(itemId);
-    const style = resolveStyle(def?.style, def?.quality, ui);
+    const style = resolveStyle(def?.style, def?.quality, ui, def?.polarity);
     out.push({
       category: "equipment",
       action: next !== undefined ? "equip" : "unequip",

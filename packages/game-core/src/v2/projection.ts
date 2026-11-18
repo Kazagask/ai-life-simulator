@@ -148,6 +148,7 @@ export function projectSnapshotV2(
 
   const skills = player.skills.map((id) => {
     const def = lookup.skill(id);
+    // 技能不参与正负零（用户 2026-11-18 裁决）：只有品级 / 自身 style。
     const style = resolveStyle(def?.style, def?.quality, ui);
     const effects = def === undefined ? [] : skillEffectSummaries(def, lookup);
     return {
@@ -180,7 +181,7 @@ export function projectSnapshotV2(
         quality: def?.quality,
         ...(() => {
           if (def === undefined) return {};
-          const style = resolveStyle(def.style, def.quality, ui);
+          const style = resolveStyle(def.style, def.quality, ui, def.polarity);
           const effects =
             def.type === "equipment"
               ? equipmentEffectSummaries(def, lookup)
@@ -262,7 +263,7 @@ export function projectSnapshotV2(
           quality: def?.quality,
           ...(() => {
             if (def === undefined) return {};
-            const style = resolveStyle(def.style, def.quality, ui);
+            const style = resolveStyle(def.style, def.quality, ui, def.polarity);
             const effects = equipmentEffectSummaries(def, lookup);
             return {
               ...(style !== undefined ? { style } : {}),
@@ -773,7 +774,7 @@ function toStatusView(
 ): StatusView | null {
   const def = lookup.status(inst.statusId);
   if (def === undefined || def.visibility !== "known") return null;
-  const style = resolveStyle(def.style, def.quality, ui);
+  const style = resolveStyle(def.style, def.quality, ui, def.polarity);
   const effects = statusEffectSummaries(def, lookup);
   return {
     id: def.id,

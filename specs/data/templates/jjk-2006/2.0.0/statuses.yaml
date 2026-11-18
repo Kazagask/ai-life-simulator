@@ -114,8 +114,8 @@ statuses:
   - id: six-eyes
     name: 六眼
     description: 五条家相传的眼睛。看穿咒力的流动，以近乎零损耗运转咒力。
-    # ADR-002 D2：品质 → 样式由 ui.yaml 的 qualityStyles 绑定（mythic → 流动彩虹）。
-    quality: mythic
+    # ADR-002 D2：品质 → 样式由 ui.yaml 的 qualityStyles 绑定（rainbow → 动虹）。
+    quality: rainbow
     duration: { untilCured: true }
     stacking: unique
     simulation:
@@ -221,6 +221,8 @@ statuses:
   - id: injured-sim
     name: 重伤
     description: 骨头裂了，咒力回路也在漏。再挨一次，就真的站不起来了。
+    # 正负零与品级**独立**：这条没有品级，靠 polarity 拿到红色。
+    polarity: negative
     duration: { turns: 3 }
     stacking: refresh
     simulation:

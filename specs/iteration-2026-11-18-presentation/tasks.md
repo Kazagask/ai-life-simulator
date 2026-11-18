@@ -130,3 +130,19 @@ T0 ──┬─> T1 ──┐
   `咒力 +20 敏捷 +10 智力 +10 造成伤害 +30% 命中 +20%`。
 - **未做**：固定效果的视觉走查（引擎侧 `kind:"control"` 与 CSS 已就位，但该局没拿到带
   控制语义的补正）；叙事折叠/分页（DEFERRED）。
+
+## 验收返工记录（2026-11-18 第二波）
+
+- 动/静虹拆分：`rainbow`（动虹，播动画）/ `rainbow-static`（静虹，静止在最佳帧）；
+  字与框用同一节奏（文字 9s 走 3 个周期 ⇒ 边框 3s 一个周期），不再各转各的。
+- 补正芯片尺寸回归：`font: inherit` 会把 `font-size` 一起重置成父级，改用 `font-family: inherit`；
+  `StyledName` 在**没有样式时不加 `ls-styled`**（那类带 font-weight，普通补正也被加粗放大）。
+- 叙事取材：模板兜底不再拼 `npc_action`（世界动态不是玩家经历）；LLM 输出契约新增
+  「只写这一回合内、主角亲身经历的一小段，不要罗列世界动态 / 数值 / 已知事实」。
+- 稀有度与正负零：预设改为**描述性**命名（rainbow / rainbow-static / gold / orange / pink /
+  purple / blue / white / green / red / gray），内核不出现品级词；补正与物品新增 `polarity`
+  （positive / negative / neutral，技能不参与），`ui.polarityStyles` 可覆盖默认绿/红/灰。
+- 浮层可叠加：`EffectSummary.refDetail` 自带被引用实体的详情快照（施加 X 指向定义，
+  玩家身上未必有实例），任意浮层里都能继续点开，关掉回到上一层。
+- 技能面板：一行两个卡片（名字 + 消耗/冷却），点开在**下方就地**展开详情（不用浮层）。
+- 固定效果：`kind:"control"` 渲染下划线 + `note` 人话说明，持续时间在浮层 meta 行。

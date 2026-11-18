@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ResolvedStyleSchema } from "./style.js";
+import { ResolvedStyleSchema, type ResolvedStyle } from "./style.js";
 
 /**
  * 表现层数据（ADR-002 D3 / D4）：**只读投影**，不参与判定、不进 `WorldStateV2`。
@@ -17,23 +17,44 @@ import { ResolvedStyleSchema } from "./style.js";
  * - `apply` / `remove` ⇒ 施加 / 移除补正（可点开补正详情）；
  * - `note` ⇒ 说明性文字。
  */
-export const EffectSummarySchema = z
+/** 被引用实体的详情快照（递归结构，见 `EffectSummary`）。 */
+export interface EffectRefDetail {
+  title: string;
+  description?: string;
+  effects?: EffectSummary[];
+  durationLabel?: string;
+  style?: ResolvedStyle;
+}
+
+export interface EffectSummary {
+  text: string;
+  kind: "attr" | "combat" | "control" | "apply" | "remove" | "cost" | "formula" | "note";
+  tone?: "buff" | "debuff" | "neutral";
+  note?: string;
+  ref?: { kind: "status" | "item" | "skill"; id: string };
+  refDetail?: EffectRefDetail;
+}
+
+// 自引用（refDetail.effects 里还是 EffectSummary）⇒ 必须显式标注类型 + z.lazy。
+export const EffectSummarySchema: z.ZodType<EffectSummary> = z
   .object({
     text: z.string(),
     kind: z.enum(["attr", "combat", "control", "apply", "remove", "cost", "formula", "note"]),
-    /** 观感：增益 / 减益 / 中性（前端绿 / 红 / 灰）。 */
     tone: z.enum(["buff", "debuff", "neutral"]).optional(),
-    /**
-     * 关联实体（可选）：`施加 重伤` 这类条目要能点开补正详情（R-DETAIL-02/03）。
-     * 只有展示层需要，内核不解释。
-     */
-    ref: z
-      .object({ kind: z.enum(["status", "item", "skill"]), id: z.string() })
+    note: z.string().optional(),
+    ref: z.object({ kind: z.enum(["status", "item", "skill"]), id: z.string() }).strict().optional(),
+    refDetail: z
+      .object({
+        title: z.string(),
+        description: z.string().optional(),
+        effects: z.array(z.lazy(() => EffectSummarySchema)).optional(),
+        durationLabel: z.string().optional(),
+        style: ResolvedStyleSchema.optional(),
+      })
       .strict()
       .optional(),
   })
-  .strict();
-export type EffectSummary = z.infer<typeof EffectSummarySchema>;
+  .strict() as z.ZodType<EffectSummary>;
 
 /**
  * 一回合里的一条收获（ADR-002 D4）。

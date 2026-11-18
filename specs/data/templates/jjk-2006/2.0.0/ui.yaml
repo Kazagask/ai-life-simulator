@@ -18,20 +18,34 @@ place:
   event: overlay
 
 # ── 样式（ADR-002 D2）─────────────────────────────────────────────
-# 模板只写「样式 id」，引擎解析、前端渲染。预设：rainbow / gold / silver /
-# bronze / crimson / azure / jade；自定义只允许 color / background / bold /
-# animation 四项（颜色是 #rgb|#rrggbb|#rrggbbaa 或引擎 token）。
+# 模板只写「样式 id」，引擎解析、前端渲染。
+# 预设按**视觉**命名，不与品级耦合：内核里没有 mythic/legendary 这种词。
+#   稀有度色（8 档，从高到低）：rainbow / rainbow-static / gold / orange / pink / purple / blue / white
+#   正负零（3 档）：green / red / gray
+# 自定义只允许 color / background / bold / animation 四项。
 styles:
-  # 最高品质的流动彩虹：六眼这类「原作级」特质共用同一身。
-  rainbow: { preset: rainbow, animation: rainbow-flow }
-  # 常见品质给个稳定的金属色，避免满屏彩虹。
+  rainbow: { preset: rainbow, animation: rainbow-flow }   # 动虹
+  rainbow-static: { preset: rainbow-static }              # 静虹
   gold: { preset: gold }
-  silver: { preset: silver }
-  bronze: { preset: bronze }
+  orange: { preset: orange }
+  pink: { preset: pink }
+  purple: { preset: purple }
+  blue: { preset: blue }
+  white: { preset: white }
 
-# 品质 → 样式 id：实体未自声明 style 时按 quality 查这里。
+# 品质（模板自己的词）→ 样式 id。改这里即可整体换色，不用动实体。
 qualityStyles:
-  mythic: rainbow
-  legendary: gold
-  rare: silver
-  common: bronze
+  rainbow: rainbow
+  rainbow-static: rainbow-static
+  gold: gold
+  orange: orange
+  pink: pink
+  purple: purple
+  blue: blue
+  white: white
+
+# 正负零（与 quality 独立）：实体没写 style / quality 时靠它拿到绿红灰。
+polarityStyles:
+  positive: green
+  negative: red
+  neutral: gray

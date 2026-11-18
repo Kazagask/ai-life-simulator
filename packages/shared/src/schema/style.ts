@@ -15,15 +15,27 @@ import { z } from "zod";
  *   > 无样式（渲染回退默认）。
  */
 
-/** 引擎内置预设。新增预设 = 协议变更，需同步 `packages/rpg-ui/src/styles.css` 的类。 */
+/**
+ * 引擎内置预设。**命名只描述视觉，不与品级耦合**（用户 2026-11-18）：
+ * 内核不出现 mythic/legendary 这类品级词——品级是模板侧的 `quality` 值，
+ * 由模板自己映射到这里的预设 id。
+ *
+ * 稀有度色（DNF 式 8 档，从高到低）：rainbow（动虹）/ rainbow-static（静虹）/
+ * gold / orange / pink / purple / blue / white；
+ * 另有正负零三档：green（正）/ red（负）/ gray（中性）。
+ */
 export const STYLE_PRESET_IDS = [
   "rainbow",
+  "rainbow-static",
   "gold",
-  "silver",
-  "bronze",
-  "crimson",
-  "azure",
-  "jade",
+  "orange",
+  "pink",
+  "purple",
+  "blue",
+  "white",
+  "green",
+  "red",
+  "gray",
 ] as const;
 export const StylePresetIdSchema = z.enum(STYLE_PRESET_IDS);
 export type StylePresetId = z.infer<typeof StylePresetIdSchema>;
@@ -66,6 +78,18 @@ export const StyleSpecSchema = z
   })
   .strict();
 export type StyleSpec = z.infer<typeof StyleSpecSchema>;
+
+/** 正负零（用户 2026-11-18：模板里与品级**独立**的字段）。 */
+export const POLARITY_IDS = ["positive", "negative", "neutral"] as const;
+export const PolaritySchema = z.enum(POLARITY_IDS);
+export type Polarity = z.infer<typeof PolaritySchema>;
+
+/** 正负零 → 默认预设（模板没写 `ui.polarityStyles` 时用它）。 */
+export const DEFAULT_POLARITY_STYLES: Readonly<Record<Polarity, StylePresetId>> = {
+  positive: "green",
+  negative: "red",
+  neutral: "gray",
+};
 
 /** 把颜色 token 解析成可直接写进内联样式的 CSS 值（十六进制原样返回）。 */
 export function resolveColorToken(token: ColorToken): string {

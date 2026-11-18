@@ -117,7 +117,7 @@ describe("jjk-2006 2.0.0 · 前实例化开局", () => {
     );
     const six = view.player.statuses.find((s) => s.id === "six-eyes");
     expect(six).toBeDefined();
-    expect(six?.quality).toBe("mythic");
+    expect(six?.quality).toBe("rainbow");
     expect(six?.style?.preset).toBe("rainbow");
     expect(six?.style?.animation).toBe("rainbow-flow");
     // 效果摘要也随投影下发（补正详情浮层的数据源）

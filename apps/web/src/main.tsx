@@ -18,7 +18,7 @@ import {
   streamNarrative,
   submitLlmCredentials,
 } from "./api";
-import type { TurnGainVM, DetailSheetData } from "@life-sim/rpg-ui";
+import type { EffectSummaryVM, TurnGainVM, DetailSheetData } from "@life-sim/rpg-ui";
 import type {
   BattleCommand,
   EndingView,
@@ -889,6 +889,41 @@ function describeCreateError(
 }
 
 /**
+ * 效果条目 → 详情浮层。
+ *
+ * 优先用条目**自带**的 `refDetail`：`施加 力竭` 指向的是定义，玩家身上未必有这条实例，
+ * 去快照里查会查空（「点了没反应」的根因）。查表只是旧数据 / 缺字段时的兜底。
+ */
+function detailOfEffect(snapshot: V2Snapshot, effect: EffectSummaryVM): DetailSheetData | null {
+  if (effect.refDetail !== undefined) {
+    return {
+      title: effect.refDetail.title,
+      ...(effect.refDetail.description !== undefined ? { description: effect.refDetail.description } : {}),
+      ...(effect.refDetail.effects !== undefined ? { effects: effect.refDetail.effects } : {}),
+      ...(effect.refDetail.durationLabel !== undefined ? { meta: `持续：${effect.refDetail.durationLabel}` } : {}),
+      ...(effect.refDetail.style !== undefined ? { style: effect.refDetail.style } : {}),
+    };
+  }
+  if (effect.ref?.kind === "status") return resolveStatusDetail(snapshot, effect.ref.id);
+  return null;
+}
+
+/**
+ * 按补正 id 找详情（玩家优先，其次 NPC）。
+ *
+ * 浮层里「施加 力竭」这类引用可能指向 NPC 身上的补正，只查玩家会点不开。
+ */
+function resolveStatusDetail(snapshot: V2Snapshot, statusId: string): DetailSheetData | null {
+  const own = snapshot.player.statuses.find((s) => s.id === statusId);
+  if (own !== undefined) return statusToDetail(own);
+  for (const npc of snapshot.npcs) {
+    const found = npc.statuses.find((s) => s.id === statusId);
+    if (found !== undefined) return statusToDetail(found);
+  }
+  return null;
+}
+
+/**
  * 收获条目 → 详情浮层（ADR-002）。
  *
  * 条目自带 description / effects / style / durationLabel，所以**不依赖任何快照查表**：
@@ -947,8 +982,10 @@ function OpeningWizard({
    * 看不出实际拿到了什么。
    */
   const [gains, setGains] = useState<TurnGainVM[]>([]);
-  /** 开局期间的详情浮层（补正 / 技能 / 物品）。 */
-  const [detail, setDetail] = useState<DetailSheetData | null>(null);
+  /** 开局期间的详情浮层栈（与游戏内一致：浮层里的引用可继续点开）。 */
+  const [details, setDetails] = useState<DetailSheetData[]>([]);
+  const pushDetail = useCallback((next: DetailSheetData) => setDetails((prev) => [...prev, next]), []);
+  const closeTop = useCallback(() => setDetails((prev) => prev.slice(0, -1)), []);
   const started = useRef(false);
   const stepping = useRef(false);
   /** 同一个 roll 节点只提交一次（重渲染 / 状态回填都不得重复消耗一次掷骰）。 */
@@ -1092,7 +1129,7 @@ function OpeningWizard({
           <h1>{player.name}</h1>
           <p className="muted">{finalWorld.snapshot.formattedTime} · 世界已建立</p>
         </header>
-        <TurnGainsCard gains={gains} onSelect={(gain) => setDetail(detailOfGain(gain))} />
+        <TurnGainsCard gains={gains} onSelect={(gain) => pushDetail(detailOfGain(gain))} />
         <section className="card final-panel">
           <span className="tag">开局所得</span>
           <p className="muted">点条目看效果；进入世界后这些都会出现在你的个人页。</p>
@@ -1105,7 +1142,7 @@ function OpeningWizard({
           </button>
         </section>
         {/* 最终面板自己也要有浮层：这里 return 得早，走不到步骤分支里的那个。 */}
-        <DetailSheet detail={detail} onClose={() => setDetail(null)} />
+        <DetailSheet detail={details[details.length - 1] ?? null} onClose={closeTop} />
       </main>
     );
   }
@@ -1196,9 +1233,9 @@ function OpeningWizard({
         </section>
       )}
       {gains.length > 0 && (
-        <TurnGainsCard gains={gains} onSelect={(gain) => setDetail(detailOfGain(gain))} />
+        <TurnGainsCard gains={gains} onSelect={(gain) => pushDetail(detailOfGain(gain))} />
       )}
-      <DetailSheet detail={detail} onClose={() => setDetail(null)} />
+      <DetailSheet detail={details[details.length - 1] ?? null} onClose={closeTop} />
       <button className="ghost" onClick={onCancel}>
         放弃开局，返回
       </button>
@@ -1718,16 +1755,21 @@ function LifeTab({
    * 详情浮层（ADR-002 / R-DETAIL-05）：补正 / 技能 / 物品 / 装备共用一套毛玻璃排版。
    * 状态放在 LifeTab 本地：只有这一屏会打开它，提到 App 层反而要多传四个 prop。
    */
-  const [detail, setDetail] = useState<DetailSheetData | null>(null);
+  /**
+   * 浮层栈（用户 2026-11-18：浮窗里的补正也要能点开，叠在最上层即可）。
+   * 数组末尾 = 最上层；关闭弹最上面那一层。
+   */
+  const [details, setDetails] = useState<DetailSheetData[]>([]);
+  const pushDetail = useCallback((next: DetailSheetData | null) => {
+    if (next !== null) setDetails((prev) => [...prev, next]);
+  }, []);
+  const closeTop = useCallback(() => setDetails((prev) => prev.slice(0, -1)), []);
   const openStatus = useCallback(
-    (statusId: string) => {
-      const found = snapshot.player.statuses.find((s) => s.id === statusId);
-      if (found !== undefined) setDetail(statusToDetail(found));
-    },
-    [snapshot.player.statuses],
+    (statusId: string) => pushDetail(resolveStatusDetail(snapshot, statusId)),
+    [pushDetail, snapshot],
   );
   // 条目自带详情快照 ⇒ 不需要再在快照里查实体（查不到就会「点了没反应」）。
-  const openGain = useCallback((gain: TurnGainVM) => setDetail(detailOfGain(gain)), []);
+  const openGain = useCallback((gain: TurnGainVM) => pushDetail(detailOfGain(gain)), [pushDetail]);
   // 人生总结的平台补写（后端没出 LLM 且用户没配 key 时才触发；失败保持模板总结）。
   const platformSummary = usePlatformSummary(snapshot, summarySource);
 
@@ -1924,11 +1966,12 @@ function LifeTab({
         )}
 
         <DetailSheet
-          detail={detail}
-          onClose={() => setDetail(null)}
-          onOpenRef={(ref) => {
-            if (ref.kind === "status") openStatus(ref.id);
-          }}
+          detail={details[details.length - 1] ?? null}
+          onClose={closeTop}
+          onOpenRef={(effect) => {
+          const next = detailOfEffect(snapshot, effect);
+          if (next !== null) pushDetail(next);
+        }}
         />
       </div>
 
@@ -2081,6 +2124,8 @@ function PersonalTab({
   const [sub, setSub] = useState<PersonalSubTab>("character");
   const [partition, setPartition] = useState<BagPartition>("equipment");
   const [selection, setSelection] = useState<PersonalSelection>(null);
+  /** 技能详情里点「施加 X」时打开的补正浮层（栈）。 */
+  const [details, setDetails] = useState<DetailSheetData[]>([]);
 
   const player = view.player;
   const slots = view.equipmentSlots ?? [];
@@ -2176,7 +2221,24 @@ function PersonalTab({
         </>
       )}
 
-      {sub === "skills" && <SkillList skills={player.skills} />}
+      {sub === "skills" && (
+        <SkillList
+          skills={player.skills}
+          onOpenStatus={(effect) => {
+            const next = detailOfEffect(snapshot, effect);
+            if (next !== null) setDetails((prev) => [...prev, next]);
+          }}
+        />
+      )}
+
+      <DetailSheet
+        detail={details[details.length - 1] ?? null}
+        onClose={() => setDetails((prev) => prev.slice(0, -1))}
+        onOpenRef={(effect) => {
+          const next = detailOfEffect(snapshot, effect);
+          if (next !== null) setDetails((prev) => [...prev, next]);
+        }}
+      />
     </div>
   );
 }
@@ -2216,8 +2278,9 @@ function WorldTab({
   const [sub, setSub] = useState<WorldSubTab>("overview");
   /** 从族谱跳过来时要定位的那张卡（null = 没有待定位目标）。 */
   const [focusNpcId, setFocusNpcId] = useState<string | null>(null);
-  /** 补正详情浮层：NPC 身上的补正也要能点开（ADR-002 / R-DETAIL-05）。 */
-  const [detail, setDetail] = useState<DetailSheetData | null>(null);
+  /** 补正详情浮层（栈）：NPC 身上的补正也要能点开，浮层里的引用还能继续点。 */
+  const [details, setDetails] = useState<DetailSheetData[]>([]);
+  const pushDetail = useCallback((next: DetailSheetData) => setDetails((prev) => [...prev, next]), []);
 
   useEffect(() => {
     if (sub !== "npc" || focusNpcId === null) return;
@@ -2306,7 +2369,7 @@ function WorldTab({
               <NpcCardImpl
                 npc={npc}
                 Details={NpcDetailsImpl}
-                onSelectStatus={(status) => setDetail(statusToDetail(status))}
+                onSelectStatus={(status) => pushDetail(statusToDetail(status))}
               />
             </div>
           ))}
@@ -2316,7 +2379,14 @@ function WorldTab({
       {ActiveComponent !== undefined && <ActiveComponent vm={vm} host={host} />}
 
       {/* NPC 身上的补正同样能点开（ADR-002 / R-DETAIL-05）：浮层状态留在本 Tab 内。 */}
-      <DetailSheet detail={detail} onClose={() => setDetail(null)} />
+      <DetailSheet
+        detail={details[details.length - 1] ?? null}
+        onClose={() => setDetails((prev) => prev.slice(0, -1))}
+        onOpenRef={(effect) => {
+          const next = detailOfEffect(snapshot, effect);
+          if (next !== null) pushDetail(next);
+        }}
+      />
     </div>
   );
 }

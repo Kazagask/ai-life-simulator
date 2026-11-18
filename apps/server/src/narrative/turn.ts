@@ -31,18 +31,18 @@ export function composeTurnNarrative(
     parts.push(`⚄ ${wheel.title ?? "随机事件"}：${wheel.label}`);
   }
 
-  const entries = state.history.filter((h) => h.turnIndex === turnIndex);
-  const main = entries.filter((h) => h.type !== "npc_action");
-  const npc = entries.filter((h) => h.type === "npc_action");
+  /**
+   * 只取**主角自己的**经历。
+   *
+   * `npc_action` 是世界的背景动态（「某 NPC 找同伴闲聊」「某 NPC 独自打熬咒力」），
+   * 拼进叙事区就变成了「世界状态清单」——用户 2026-11-18 实测反馈正是这个。
+   * 它们该留在历史 / 世界页，不该冒充玩家刚经历的一幕。
+   */
+  const entries = state.history.filter((h) => h.turnIndex === turnIndex && h.type !== "npc_action");
 
-  for (const h of main) {
+  for (const h of entries) {
     const text = h.summary.trim();
     if (text !== "") parts.push(text);
-  }
-  // NPC 自主行动是「世界在动」的证据，放最后一段；同日多条合并成一句。
-  if (npc.length > 0) {
-    const lines = npc.map((h) => h.summary.trim()).filter((t) => t !== "");
-    if (lines.length > 0) parts.push(lines.join("；"));
   }
 
   const text = parts.join("\n\n").trim();

@@ -8,6 +8,53 @@ import type {
 } from "@life-sim/shared";
 import type { TemplateLookup } from "../lookup.js";
 import { fixedEffectCopy } from "./fixed-effects.js";
+import { resolveStyle } from "./style.js";
+
+/** 引用实体的详情快照：让「施加 力竭」在任意浮层里都能点开。 */
+function refDetailOf(
+  lookup: TemplateLookup,
+  kind: "status" | "item" | "skill",
+  id: string,
+): { refDetail?: { title: string; description?: string; effects?: EffectSummary[]; durationLabel?: string; style?: ReturnType<typeof resolveStyle> } } {
+  if (kind === "status") {
+    const def = lookup.status(id);
+    if (def === undefined) return {};
+    const style = resolveStyle(def.style, def.quality, undefined, def.polarity);
+    return {
+      refDetail: {
+        title: def.name,
+        ...(def.description !== undefined ? { description: def.description } : {}),
+        effects: statusEffectSummaries(def, lookup),
+        durationLabel: durationLabel(def),
+        ...(style !== undefined ? { style } : {}),
+      },
+    };
+  }
+  if (kind === "item") {
+    const def = lookup.item(id);
+    if (def === undefined) return {};
+    const style = resolveStyle(def.style, def.quality, undefined, def.polarity);
+    return {
+      refDetail: {
+        title: def.name,
+        ...(def.description !== undefined ? { description: def.description } : {}),
+        effects: def.type === "equipment" ? equipmentEffectSummaries(def, lookup) : itemEffectSummaries(def, lookup),
+        ...(style !== undefined ? { style } : {}),
+      },
+    };
+  }
+  const def = lookup.skill(id);
+  if (def === undefined) return {};
+  const style = resolveStyle(def.style, def.quality, undefined);
+  return {
+    refDetail: {
+      title: def.name,
+      ...(def.description !== undefined ? { description: def.description } : {}),
+      effects: skillEffectSummaries(def, lookup),
+      ...(style !== undefined ? { style } : {}),
+    },
+  };
+}
 
 /**
  * 效果摘要（ADR-002 D3）：把**定义**翻译成玩家能读的条目。
@@ -78,7 +125,8 @@ export function statusEffectSummaries(def: StatusEffect, lookup: TemplateLookup)
   if (combat !== undefined) {
     for (const control of combat.control ?? []) {
       const copy = fixedEffectCopy(control);
-      out.push({ text: copy.label, kind: "control" });
+      // note 给一句人话：只写「无法行动」玩家不知道是不是这一回合，说明补足语义。
+      out.push({ text: copy.label, kind: "control", note: copy.hint });
     }
     if (combat.damageDealt !== undefined) {
       out.push({
@@ -116,6 +164,7 @@ export function statusEffectSummaries(def: StatusEffect, lookup: TemplateLookup)
           text: `每回合施加 ${lookup.status(app.status)?.name ?? app.status}`,
           kind: "apply",
           ref: { kind: "status", id: app.status },
+          ...refDetailOf(lookup, "status", app.status),
         });
       }
     }
@@ -140,6 +189,7 @@ export function skillEffectSummaries(def: Skill, lookup: TemplateLookup): Effect
         text: `施加 ${lookup.status(app.status)?.name ?? app.status}${app.stacks !== undefined ? ` ×${app.stacks}` : ""}`,
         kind: "apply",
         ref: { kind: "status", id: app.status },
+        ...refDetailOf(lookup, "status", app.status),
       });
     }
     if (def.consumeStatus !== undefined) {
@@ -147,6 +197,7 @@ export function skillEffectSummaries(def: Skill, lookup: TemplateLookup): Effect
         text: `消耗自身 ${lookup.status(def.consumeStatus.status)?.name ?? def.consumeStatus.status}`,
         kind: "remove",
         ref: { kind: "status", id: def.consumeStatus.status },
+        ...refDetailOf(lookup, "status", def.consumeStatus.status),
       });
     }
     out.push({ text: `冷却 ${def.cooldownTurns} 回合`, kind: "cost" });
@@ -229,12 +280,18 @@ function effectSummaryOf(effect: TemplateEffect, lookup: TemplateLookup): Effect
         text: `施加 ${lookup.status(status)?.name ?? status}${stacks !== undefined ? ` ×${stacks}` : ""}`,
         kind: "apply",
         ref: { kind: "status", id: status },
+        ...refDetailOf(lookup, "status", status),
       };
     }
     case "cureStatus": {
       const status = str("status");
       if (status === undefined) return undefined;
-      return { text: `移除 ${lookup.status(status)?.name ?? status}`, kind: "remove", ref: { kind: "status", id: status } };
+      return {
+        text: `移除 ${lookup.status(status)?.name ?? status}`,
+        kind: "remove",
+        ref: { kind: "status", id: status },
+        ...refDetailOf(lookup, "status", status),
+      };
     }
     case "grantItem": {
       const itemId = str("itemId");
