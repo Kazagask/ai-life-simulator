@@ -57,6 +57,7 @@ import { compareVersions, loadTemplates, readAssetEntries, type ReadyTemplateEnt
 import { registerServerExtensions } from "./extensions.js";
 import { dataDir, hydrate, loadPersistedWorlds, worldStore } from "./store.js";
 import { createLLMProvider, readLLMConfig, resolveProviderForRequest, type LLMProvider } from "./llm/provider.js";
+import { openCredentialEnvelope } from "./llm/credentialEnvelope.js";
 import { userCredentials } from "./llm/userCredentials.js";
 import { probeLlmConnectivity } from "./llm/probe.js";
 import {
@@ -483,8 +484,11 @@ const useItemSchema = z.object({ itemId: z.string().min(1) });
 app.get("/health", async () => ({ ok: true, service: "life-sim-server", protocol: "v2" }));
 
 /**
- * R2.8 · R-LLM-07：登录页提交自定义 LLM 凭证，服务端仅内存持有并 mint 不透明 sessionId。
- * 凭证绝不回显、绝不落盘、绝不进日志。校验失败转 400，不崩溃。
+ * R2.8 · R-LLM-07 / BACKLOG B-01：提交自定义 LLM 凭证，服务端仅内存持有并 mint 不透明 sessionId。
+ *
+ * 请求体是**加密信封**（`{ envelope: { v, key, iv, data } }`，见 `llm/credentialEnvelope.ts`），
+ * 不是明文 JSON —— wire 上只有密文；解密后仍只走内存，绝不回显、绝不落盘、绝不进日志。
+ * 信封解不开 / 字段不合法**一律 400 `invalid_credentials`**（不区分原因，避免变成探测 oracle）。
  */
 const llmCredentialsSchema = z.object({
   apiKey: z.string().min(1),
@@ -493,9 +497,9 @@ const llmCredentialsSchema = z.object({
 });
 
 app.post("/api/llm-credentials", async (request, reply) => {
-  const parsed = llmCredentialsSchema.safeParse(request.body);
+  const parsed = llmCredentialsSchema.safeParse(openCredentialEnvelope(request.body));
   if (!parsed.success) {
-    return reply.code(400).send({ error: "invalid_credentials", detail: parsed.error.flatten() });
+    return reply.code(400).send({ error: "invalid_credentials" });
   }
   try {
     const sessionId = userCredentials.mint(parsed.data);
@@ -511,13 +515,13 @@ app.post("/api/llm-credentials", async (request, reply) => {
  * 语义分层（前端要能稳定区分「我填错了」与「服务端炸了」）：
  * - 通 ⇒ 200 `{ ok: true, model, latencyMs }`；
  * - 探测失败（鉴权 / 网络 / 超时 / 响应形状）⇒ **仍然 200** `{ ok: false, reason, detail }`；
- * - 请求体不合法 ⇒ 400 `{ error: "invalid_credentials", detail }`。
+ * - 请求体不合法（含**信封解不开**）⇒ 400 `{ error: "invalid_credentials" }`。
  * `detail` 已在 probe 内部脱敏截断，绝不回显 apiKey。
  */
 app.post("/api/llm-credentials/test", async (request, reply) => {
-  const parsed = llmCredentialsSchema.safeParse(request.body);
+  const parsed = llmCredentialsSchema.safeParse(openCredentialEnvelope(request.body));
   if (!parsed.success) {
-    return reply.code(400).send({ error: "invalid_credentials", detail: parsed.error.flatten() });
+    return reply.code(400).send({ error: "invalid_credentials" });
   }
   return probeLlmConnectivity(parsed.data);
 });

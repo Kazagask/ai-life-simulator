@@ -1,3 +1,4 @@
+import { encryptCredentialPayload } from "./llmCrypto";
 import type {
   BattleCommand,
   ContentBlockVM,
@@ -29,10 +30,13 @@ export type NarrativeSource = "template" | "llm" | "fallback";
  */
 export type EventFlavorMap = Record<string, string>;
 
-// R2.8 · R-LLM-07：用户在登录页配置的自定义 LLM 凭证，服务端内存持有后返回不透明 sessionId。
-// 前端持有该 id 并在后续请求带上 `x-life-sim-llm-session` 头；按默认「允许浏览器记住」，
-// 存 localStorage（仅不透明 id，不含 key 字面量，风险用户自担）。
+// R2.8 · R-LLM-07 / BACKLOG B-01：用户配置的自定义 LLM 凭证。
+// 两样东西分开存：
+// - **不透明 sessionId**（`life-sim-llm-session`）：后续请求靠它带 `x-life-sim-llm-session` 头；
+// - **配置本体**（`life-sim-llm-config`）：`apiKey/model/baseUrl`，存在本机，刷新 / 重开自动填好，
+//   免去每次重填。提交时用公钥加密（`llmCrypto.ts`），wire 上没有明文。
 const LLM_SESSION_KEY = "life-sim-llm-session";
+const LLM_CONFIG_KEY = "life-sim-llm-config";
 
 let llmSessionId: string | null = null;
 try {
@@ -66,14 +70,73 @@ export interface LlmCredentialInput {
   baseUrl?: string;
 }
 
-/** 提交自定义 LLM 凭证，拿到不透明 sessionId 并本地留存。失败向上抛（由调用方提示）。 */
+/** 读取本机缓存的凭证（没有 / 读不出 / 形状不对都返回 null）。 */
+export function getCachedLlmCredentials(): LlmCredentialInput | null {
+  try {
+    const raw = localStorage.getItem(LLM_CONFIG_KEY);
+    if (raw === null) return null;
+    const parsed = JSON.parse(raw) as Partial<LlmCredentialInput>;
+    if (typeof parsed.apiKey !== "string" || typeof parsed.model !== "string") return null;
+    return {
+      apiKey: parsed.apiKey,
+      model: parsed.model,
+      ...(typeof parsed.baseUrl === "string" && parsed.baseUrl !== "" ? { baseUrl: parsed.baseUrl } : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function setCachedLlmCredentials(input: LlmCredentialInput): void {
+  try {
+    localStorage.setItem(LLM_CONFIG_KEY, JSON.stringify(input));
+  } catch {
+    /* 忽略持久化失败：会话 id 仍可用，只是下次要重填 */
+  }
+}
+
+/** 清除本机缓存（连同不透明 sessionId）。 */
+export function clearCachedLlmCredentials(): void {
+  try {
+    localStorage.removeItem(LLM_CONFIG_KEY);
+  } catch {
+    /* 忽略 */
+  }
+}
+
+/** 提交自定义 LLM 凭证（**加密信封**），拿到不透明 sessionId 并本地留存配置。 */
 export async function submitLlmCredentials(input: LlmCredentialInput): Promise<string> {
+  const envelope = await encryptCredentialPayload(input);
   const res = await request<{ sessionId: string }>("/api/llm-credentials", {
     method: "POST",
-    body: JSON.stringify(input),
+    body: JSON.stringify({ envelope }),
   });
   setLlmSession(res.sessionId);
+  setCachedLlmCredentials(input);
   return res.sessionId;
+}
+
+/** 连通性探测结果（服务端语义见 `/api/llm-credentials/test` 的注释）。 */
+export interface LlmProbeResult {
+  ok: boolean;
+  model?: string;
+  latencyMs?: number;
+  reason?: string;
+  detail?: string;
+}
+
+/**
+ * 保存前先探一次连通性（同样走加密信封，载荷不落地、不入内存）。
+ *
+ * 探测失败**不阻断保存**：有些自建网关会拒绝这种最小的探测请求，但正式调用没问题。
+ * 调用方把它当「诊断信息」展示，而不是门禁。
+ */
+export async function testLlmCredentials(input: LlmCredentialInput): Promise<LlmProbeResult> {
+  const envelope = await encryptCredentialPayload(input);
+  return request<LlmProbeResult>("/api/llm-credentials/test", {
+    method: "POST",
+    body: JSON.stringify({ envelope }),
+  });
 }
 
 /**
@@ -118,7 +181,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  // 合并请求头：带 body 时声明 JSON；若已建立 LLM 会话，附带 session 头（不透明 id，不含 key）。
+  // 合并请求头：带 body 时声明 JSON；若已建立 LLM 会话，附带 session 头（不透明 id，不含 key 明文）。
   const headers: Record<string, string> = {};
   if (init?.body !== undefined) headers["Content-Type"] = "application/json";
   if (llmSessionId !== null) headers["x-life-sim-llm-session"] = llmSessionId;

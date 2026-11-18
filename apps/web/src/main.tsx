@@ -7,7 +7,9 @@ import "./extensions";
 import {
   ApiError,
   api,
+  clearCachedLlmCredentials,
   clearLlmSession,
+  getCachedLlmCredentials,
   defaultVersionOf,
   fetchNarrative,
   getLlmSession,
@@ -17,6 +19,7 @@ import {
   resolveEventNarrative,
   streamNarrative,
   submitLlmCredentials,
+  testLlmCredentials,
 } from "./api";
 import type { EffectSummaryVM, TurnGainVM, DetailSheetData } from "@life-sim/rpg-ui";
 import type {
@@ -948,6 +951,17 @@ function detailOfGain(gain: TurnGainVM): DetailSheetData {
 }
 
 /**
+ * 连通性探测的失败原因 → 人话（服务端 `reason` 是闭集：timeout / network / unauthorized / bad_response）。
+ * 原始 `detail` 仍附在后面：它已由服务端脱敏截断，且是唯一能定位「端点写错」还是「模型名写错」的线索。
+ */
+const PROBE_REASON_LABEL: Record<string, string> = {
+  network: "连不上这个地址（检查 Base URL 与网络）",
+  timeout: "请求超时",
+  unauthorized: "鉴权失败（apiKey 不对，或没有该模型的权限）",
+  bad_response: "端点返回了非预期结果（检查模型名 / 是否为 OpenAI 兼容接口）",
+};
+
+/**
  * 前实例化开局向导（ADR-001）。
  *
  * 纪律：这里**只消费**服务端已决定的节点与结果——roll 在服务端按 seed+node 派生，客户端
@@ -1335,12 +1349,15 @@ function SetupScreen({
     if (!openings.some((o) => o.id === openingId)) setOpeningId("");
   }, [openings, openingId]);
 
-  // R2.8 / FE-01：登录页「自定义 LLM 凭证」可折叠配置。仅持有不透明 sessionId，不存 key 字面量。
-  const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
+  // R2.8 / FE-01 / BACKLOG B-01：「自定义 LLM 凭证」可折叠配置。
+  // 配置**缓存在本机**（localStorage），刷新 / 重开自动填好；提交时用公钥加密成信封。
+  // 服务端只内存持有解密结果，回一个不透明 sessionId。
+  const [apiKey, setApiKey] = useState(() => getCachedLlmCredentials()?.apiKey ?? "");
+  const [model, setModel] = useState(() => getCachedLlmCredentials()?.model ?? "");
+  const [baseUrl, setBaseUrl] = useState(() => getCachedLlmCredentials()?.baseUrl ?? "");
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [hasSession, setHasSession] = useState(getLlmSession() !== null);
 
@@ -1404,21 +1421,36 @@ function SetupScreen({
     }
   };
 
-  // R2.8 / FE-01：把 key 发给服务端内存持有，仅拿回不透明 sessionId（已含在 submitLlmCredentials 内）。
+  /**
+   * 保存凭证：先探一次连通性（只作诊断，失败不阻断），再加密上报换不透明 sessionId。
+   *
+   * 输入框**不再清空**：配置本来就缓存在本机，清空只会让用户下次重填。
+   */
   const saveLlm = async () => {
     if (!apiKey.trim() || !model.trim()) return;
     setSaveBusy(true);
     setSaveError(null);
+    setSaveWarning(null);
+    const payload = {
+      apiKey: apiKey.trim(),
+      model: model.trim(),
+      ...(baseUrl.trim() === "" ? {} : { baseUrl: baseUrl.trim() }),
+    };
     try {
-      await submitLlmCredentials({
-        apiKey: apiKey.trim(),
-        model: model.trim(),
-        baseUrl: baseUrl.trim() === "" ? undefined : baseUrl.trim(),
-      });
-      // 成功后清空输入框：key 不再留在 DOM / 内存里，仅由服务端持有 + 本地不透明 id 标记。
-      setApiKey("");
-      setModel("");
-      setBaseUrl("");
+      // 探测失败只提示：有些自建网关会拒绝这种最小请求，但正式调用正常。
+      // 单独 try：探测本身报错（网络 / 400）也**不能**把保存一起挡掉。
+      try {
+        const probe = await testLlmCredentials(payload);
+        if (!probe.ok) {
+          const label = PROBE_REASON_LABEL[probe.reason ?? ""] ?? "未知原因";
+          setSaveWarning(
+            `已保存，但连通性测试未通过：${label}${probe.detail !== undefined ? `（${probe.detail}）` : ""}`,
+          );
+        }
+      } catch {
+        setSaveWarning("连通性测试未能完成（不影响保存，进入游戏后若调用失败会回退模板叙事）");
+      }
+      await submitLlmCredentials(payload);
       setSaved(true);
       setHasSession(true);
     } catch (e) {
@@ -1431,12 +1463,14 @@ function SetupScreen({
     }
   };
 
-  // 仅清除本地不透明 id；服务端内存凭证由超时 / 重启自然清退。
+  // 清除本机缓存 + 不透明 id；服务端内存凭证由超时 / 重启自然清退。
   const clearLlm = () => {
     clearLlmSession();
+    clearCachedLlmCredentials();
     setHasSession(false);
     setSaved(false);
     setSaveError(null);
+    setSaveWarning(null);
     setApiKey("");
     setModel("");
     setBaseUrl("");
@@ -1546,10 +1580,10 @@ function SetupScreen({
       </section>
 
       <details className="card llm-config">
-        <summary>自定义 LLM（可选，风险自担）</summary>
+        <summary>自定义 LLM（可选）</summary>
         <p className="muted">
-          填入你自己的 API Key，本会话的叙事将走你提供的模型。凭证仅发送至服务端内存持有，不写入代码或日志；
-          本地只保存一个不透明的会话 id，风险自担。
+          填入你自己的 API Key，本会话的叙事将走你提供的模型。配置保存在本机（下次自动填好），
+          提交时会先加密再发出；服务端只在内存中持有，不写日志、不进存档。
         </p>
         <label>
           <span>API Key</span>
@@ -1580,8 +1614,9 @@ function SetupScreen({
           />
         </label>
         {saveError && <p className="error-text">{saveError}</p>}
+        {saveWarning && <p className="error-text">{saveWarning}</p>}
         {saved && (
-          <p className="muted llm-saved">已配置：本会话将使用你提供的 LLM key（已本地保存，风险自担）</p>
+          <p className="muted llm-saved">已配置：本会话将使用你提供的模型（配置已留在本机，下次自动填好）</p>
         )}
         <div className="row llm-actions">
           <button
