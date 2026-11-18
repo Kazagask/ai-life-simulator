@@ -100,6 +100,15 @@ export type { CgStageProps } from "./CgStage.js";
 
 export { isPortraitSlot } from "./slots.js";
 
+export { StyledName, styleClassName, styleInline } from "./StyledName.js";
+export type { StyledNameProps } from "./StyledName.js";
+export { EffectList } from "./EffectList.js";
+export type { EffectListProps } from "./EffectList.js";
+export { DetailSheet, ModifierSheet, statusToDetail } from "./ModifierSheet.js";
+export type { DetailSheetProps, DetailSheetData, ModifierSheetProps } from "./ModifierSheet.js";
+export { TurnGainsCard } from "./TurnGainsCard.js";
+export type { TurnGainsCardProps } from "./TurnGainsCard.js";
+
 export { StatusBars } from "./StatusBars.js";
 export type { StatusBarsProps } from "./StatusBars.js";
 
@@ -130,4 +139,6 @@ export type {
   StatusVM,
   WheelVM,
   EndingVM,
+  TurnGainVM,
+  EffectSummaryVM,
 } from "@life-sim/shared";

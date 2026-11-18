@@ -72,6 +72,10 @@ export const StatusEffectSchema = z
     combat: CombatFacetSchema.optional(),
     cureConditions: z.array(CureConditionSchema).optional(),
     visibility: z.enum(["known", "hidden"]),
+    /** 品质（纯展示，模板自由定义；配合 `ui.qualityStyles` 决定样式）。 */
+    quality: z.string().min(1).optional(),
+    /** 样式 id：`ui.styles` 的键或引擎预设 id（ADR-002 D2），优先于 quality 映射。 */
+    style: z.string().min(1).optional(),
   })
   .strict()
   .refine((s) => s.simulation !== undefined || s.combat !== undefined, {

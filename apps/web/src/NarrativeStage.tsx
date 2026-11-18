@@ -70,7 +70,12 @@ export function NarrativeStage({
   const portraits = portraitsOf(view.media);
   const inlineCg = firstInlineCgBlock(view);
   const bannerMedia = inlineCg === undefined ? view.media : [];
-  const writing = busy || view.llmPending === true;
+  /**
+   * 「AI 书写中…」只在**真的有正文在流**时出现：
+   * 模板 / mock 回合没有 SSE 草稿，标签一闪而过反而像「AI 刚写了一句又不算数」。
+   * 长时间无输出的等待反馈由 `GmWorkingStrip` 承担（它说的是阶段，不是内容）。
+   */
+  const writing = (draft?.length ?? 0) > 0 || view.llmPending === true;
 
   return (
     <section className="card narrative-card">

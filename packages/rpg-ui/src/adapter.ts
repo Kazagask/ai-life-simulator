@@ -311,7 +311,16 @@ function toPlayerVM(snapshot: V2Snapshot): PlayerVM {
       .filter(([key]) => !key.startsWith("proficiency"))
       .sort(([a], [b]) => rank(a) - rank(b))
       .map(([key, value]) => ({ key, label: labels.attributes[key] ?? key, value: Number(value) })),
-    statuses: p.statuses.map((s) => ({ id: s.id, name: s.name, stacks: s.stacks })),
+    statuses: p.statuses.map((s) => ({
+      id: s.id,
+      name: s.name,
+      stacks: s.stacks,
+      ...(s.description !== undefined ? { description: s.description } : {}),
+      ...(s.quality !== undefined ? { quality: s.quality } : {}),
+      ...(s.style !== undefined ? { style: s.style } : {}),
+      ...(s.effects !== undefined ? { effects: s.effects } : {}),
+      ...(s.durationLabel !== undefined ? { durationLabel: s.durationLabel } : {}),
+    })),
     // 模板没给阶段文案时投影会回退成 id（「adulthood」）；这里把这种情况抹成空串，
     // 展示层据此不渲染 —— 内部 id 不该出现在界面上（RPA ui-2-personal.png）。
     lifeStage: snapshot.lifeStage,
@@ -327,6 +336,8 @@ function toPlayerVM(snapshot: V2Snapshot): PlayerVM {
       ...(e.description !== undefined ? { description: e.description } : {}),
       ...(e.category !== undefined ? { category: e.category } : {}),
       ...(e.quality !== undefined ? { quality: e.quality } : {}),
+      ...(e.style !== undefined ? { style: e.style } : {}),
+      ...(e.effects !== undefined ? { effects: e.effects } : {}),
     })),
     inventory: p.inventory.map((i) => ({
       itemId: i.itemId,
@@ -340,8 +351,18 @@ function toPlayerVM(snapshot: V2Snapshot): PlayerVM {
       ...(i.slotLabel !== undefined ? { slotLabel: i.slotLabel } : {}),
       ...(i.category !== undefined ? { category: i.category } : {}),
       ...(i.quality !== undefined ? { quality: i.quality } : {}),
+      ...(i.style !== undefined ? { style: i.style } : {}),
+      ...(i.effects !== undefined ? { effects: i.effects } : {}),
     })),
-    skills: p.skills.map((sk) => ({ id: sk.id, name: sk.name, description: sk.description, kind: sk.kind })),
+    skills: p.skills.map((sk) => ({
+      id: sk.id,
+      name: sk.name,
+      description: sk.description,
+      kind: sk.kind,
+      ...(sk.quality !== undefined ? { quality: sk.quality } : {}),
+      ...(sk.style !== undefined ? { style: sk.style } : {}),
+      ...(sk.effects !== undefined ? { effects: sk.effects } : {}),
+    })),
   };
 }
 

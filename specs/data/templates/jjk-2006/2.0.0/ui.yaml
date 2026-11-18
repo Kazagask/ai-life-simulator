@@ -16,3 +16,22 @@ place:
   wheel: overlay
   battle: overlay
   event: overlay
+
+# ── 样式（ADR-002 D2）─────────────────────────────────────────────
+# 模板只写「样式 id」，引擎解析、前端渲染。预设：rainbow / gold / silver /
+# bronze / crimson / azure / jade；自定义只允许 color / background / bold /
+# animation 四项（颜色是 #rgb|#rrggbb|#rrggbbaa 或引擎 token）。
+styles:
+  # 最高品质的流动彩虹：六眼这类「原作级」特质共用同一身。
+  rainbow: { preset: rainbow, animation: rainbow-flow }
+  # 常见品质给个稳定的金属色，避免满屏彩虹。
+  gold: { preset: gold }
+  silver: { preset: silver }
+  bronze: { preset: bronze }
+
+# 品质 → 样式 id：实体未自声明 style 时按 quality 查这里。
+qualityStyles:
+  mythic: rainbow
+  legendary: gold
+  rare: silver
+  common: bronze

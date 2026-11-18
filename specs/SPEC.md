@@ -204,6 +204,44 @@ place:
 
 ---
 
+### 1.7 表现层：样式 / 效果摘要 / 回合增量 / 叙事分段（已落地，ADR-002）
+
+> 2026-11-18 施工完成。一份协议解决四件事：**实体长什么样**（样式）、**它有什么效果**
+> （效果摘要）、**这一回合发生了什么**（回合增量）、**这一回合怎么讲**（叙事分段）。
+> 全部是只读投影：不进 `WorldStateV2`、不参与判定、不进语义指纹。
+
+**样式词汇受控**。模板只能写 `preset`（`rainbow/gold/silver/bronze/crimson/azure/jade`）、
+`color`/`background`（`#rgb`/`#rrggbb`/`#rrggbbaa` 或引擎 token）、`bold`、
+`animation`（`none/rainbow-flow/pulse/glow`）；**不接受任意 CSS**。
+解析顺序：实体 `style` > `ui.qualityStyles[quality]` > 默认，由
+`game-core/v2/presentation/style.ts` 在投影期完成，各端拿到同一份 `ResolvedStyle`。
+未知样式 id 在**加载期拒载**（`style_ref_invalid`），不静默回退。
+
+```yaml
+# ui.yaml 追加两段
+styles:
+  rainbow: { preset: rainbow, animation: rainbow-flow }
+qualityStyles:
+  mythic: rainbow          # 六眼等最高品质实体自动用这套
+```
+
+**效果摘要**（`presentation/effects.ts`）：从定义派生 `{ text, kind, tone, ref? }`。
+`kind: "control"` 是固定效果（「无法行动」），前端加**下划线**；数值条目带 `+/-` 与
+增益绿 / 减益红 / 中性灰。动态补正只描述规则（`3 + 0.2×咒力`），**不算值**。
+
+**回合增量**（`presentation/gains.ts`）：`captureGainBaseline` + `diffGains` 差分玩家可见
+五类（属性 / 补正 / 技能 / 物品 / 装备）。五个写操作响应统一带 `gains`，**不落库**，
+刷新即消失；历史由叙事区承担。
+
+**叙事分段**（`narrative/turn.ts`）：每回合最多一条叙事块写进同一 trace。
+判据是 **provider 是否为 mock**（不是「trace 里有没有块」——invocation 落盘时机与事务收尾
+不保证先后）；真实 LLM 是作者，模板只填空缺。`ContentBlockVM` 带 `turnIndex`，
+前端据此只给最新回合播打字机。
+
+**契约**：`schema/style.ts`、`schema/effects.ts`、`view-model.ts` 的 `EffectSummaryVM` /
+`TurnGainVM` / `StatusVM.effects` 等；`rpg-ui` 的 `StyledName` / `EffectList` /
+`DetailSheet` / `TurnGainsCard` 是默认实现，自定义前端可复用同一份数据自己画。
+
 ## 2. 核心术语与机制
 
 ### 2.1 三层时间

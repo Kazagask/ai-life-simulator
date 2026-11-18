@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { StyleSpecSchema } from "./style.js";
 
 /**
  * `ui.yaml` —— 模板的展示层声明（形状 B：落位）。
@@ -48,6 +49,16 @@ export type UiPlacement = z.infer<typeof UiPlacementSchema>;
 export const UiConfigSchema = z
   .object({
     place: z.record(z.string().min(1), UiPlacementSchema).optional(),
+    /**
+     * 模板自定义样式（ADR-002 D2）：id → spec。id 同时可被实体的 `style` 引用。
+     * 也能覆盖同名预设（如 `rainbow: { preset: rainbow, bold: true }`）。
+     */
+    styles: z.record(z.string().min(1), StyleSpecSchema).optional(),
+    /**
+     * 品质 → 样式 id（ADR-002 D3 的展示侧）：实体未自声明 `style` 时按 quality 查这里。
+     * 值可以是 `styles` 的键，也可以是引擎预设 id。
+     */
+    qualityStyles: z.record(z.string().min(1), z.string().min(1)).optional(),
   })
   .strict();
 

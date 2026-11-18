@@ -1,6 +1,7 @@
-import type { EvaluationVM, PlayerVM } from "@life-sim/shared";
+import type { EvaluationVM, PlayerVM, StatusVM } from "@life-sim/shared";
 import { AiNarrativeTag } from "./AiNarrativeTag.js";
 import { EvaluationPanel } from "./EvaluationPanel.js";
+import { StyledName } from "./StyledName.js";
 
 export interface CharacterSheetProps {
   /** 玩家卡投影（属性条已按模板顺序排好、`proficiency*` 已剔除）。 */
@@ -14,6 +15,11 @@ export interface CharacterSheetProps {
   summary?: string;
   /** 这行总结是否由 AI 补写（true ⇒ 行尾带「AI 叙事」小标记）。 */
   summaryFromAi?: boolean;
+  /**
+   * 点击补正芯片（R-DETAIL-05）：宿主据此打开毛玻璃详情。
+   * 不传 ⇒ 芯片保持只读（自定义前端没有浮层时也不出现「点了没反应」）。
+   */
+  onSelectStatus?: (status: StatusVM) => void;
 }
 
 /** 卡头一条资源条：条长只是视觉辅助，数值原样展示。 */
@@ -37,7 +43,13 @@ function ResourceBar({ label, value, max, cls }: { label: string; value: number;
  * 所有数值都来自 `ViewModel`：等级、分数、档位文案都是服务端原值，这里只负责排布。
  * 评价分项是否出现由 `evaluation.ended` 决定（跑动中整块不渲染，见 `EvaluationPanel`）。
  */
-export function CharacterSheet({ player, evaluation, summary, summaryFromAi = false }: CharacterSheetProps) {
+export function CharacterSheet({
+  player,
+  evaluation,
+  summary,
+  summaryFromAi = false,
+  onSelectStatus,
+}: CharacterSheetProps) {
   return (
     <section className="card player-card">
       <div className="row">
@@ -64,12 +76,28 @@ export function CharacterSheet({ player, evaluation, summary, summaryFromAi = fa
       </div>
       {player.statuses.length > 0 && (
         <div className="status-chips">
-          {player.statuses.map((s) => (
-            <span key={s.id} className="chip status-chip">
-              {s.name}
-              {s.stacks > 1 ? `×${s.stacks}` : ""}
-            </span>
-          ))}
+          {player.statuses.map((s) => {
+            const label = (
+              <>
+                <StyledName name={s.name} style={s.style} />
+                {s.stacks > 1 ? `×${s.stacks}` : ""}
+              </>
+            );
+            return onSelectStatus === undefined ? (
+              <span key={s.id} className="chip status-chip">
+                {label}
+              </span>
+            ) : (
+              <button
+                key={s.id}
+                type="button"
+                className="chip status-chip status-chip--action"
+                onClick={() => onSelectStatus(s)}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
       )}
       <p className="eval-line">

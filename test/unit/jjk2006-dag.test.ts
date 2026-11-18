@@ -7,6 +7,7 @@ import {
 } from "../../packages/game-core/src/v2/opening-dag.ts";
 import type { OpeningBranchDag } from "@life-sim/shared";
 import { RelationKindSchema, WorldStateV2Schema } from "@life-sim/shared";
+import { projectSnapshotV2 } from "../../packages/game-core/src/v2/projection.ts";
 
 const silent = { warn: () => {}, error: () => {}, info: () => {} };
 
@@ -101,6 +102,26 @@ describe("jjk-2006 2.0.0 · 前实例化开局", () => {
       expect(visited).not.toContain("n02-origin");
       expect(visited).toContain("n00-path");
     }
+  });
+
+  it("复用五条悟：带上「六眼」并按品质解析出流动彩虹（ADR-002 D2/D3）", () => {
+    const entry = loadV2();
+    const state = runOpening(entry.openingDag, entry.template, "self-gojo");
+    const view = projectSnapshotV2(
+      state,
+      entry.template,
+      entry.lookup,
+      null,
+      entry.endingConfig?.endings,
+      entry.ui,
+    );
+    const six = view.player.statuses.find((s) => s.id === "six-eyes");
+    expect(six).toBeDefined();
+    expect(six?.quality).toBe("mythic");
+    expect(six?.style?.preset).toBe("rainbow");
+    expect(six?.style?.animation).toBe("rainbow-flow");
+    // 效果摘要也随投影下发（补正详情浮层的数据源）
+    expect(six?.effects?.some((e) => e.kind === "attr")).toBe(true);
   });
 
   it("天内理子短线：首节点 as 分派互斥，两个 badend 独占终结条件", () => {

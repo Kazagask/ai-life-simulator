@@ -18,6 +18,7 @@ import {
   streamNarrative,
   submitLlmCredentials,
 } from "./api";
+import type { TurnGainVM, DetailSheetData } from "@life-sim/rpg-ui";
 import type {
   BattleCommand,
   EndingView,
@@ -58,6 +59,9 @@ import {
   SkillList,
   StatsPanel,
   AiNarrativeTag,
+  DetailSheet,
+  TurnGainsCard,
+  statusToDetail,
   WheelPanel,
   interactionMode,
   extensionViewsFor,
@@ -131,6 +135,11 @@ interface LastResult {
   elapsed: string;
   events: Array<{ id: string; title: string; narrative: string }>;
   wheel: WheelResultView | null;
+  /**
+   * 本轮收获（ADR-002 D4）：服务端按「基线差分」下发，**不落库**，刷新即消失。
+   * 缺省表示这一轮没有任何可列出的增量。
+   */
+  gains?: TurnGainVM[];
   /**
    * R2.7 / R-NAR-03：本次响应可选附带的事件 flavor 展示文案。
    * 纯瞬态、只供当次渲染消费；不进 localStorage、不进 records.ts 人生档案、刷新即失。
@@ -381,7 +390,14 @@ function App() {
 
   const wrap = useCallback(
     async (
-      fn: () => Promise<{ snapshot: V2Snapshot; triggeredEvents?: LastResult["events"]; wheelResult?: WheelResultView | null; elapsed?: { value: number; unit: string }; eventFlavors?: EventFlavorMap }>,
+      fn: () => Promise<{
+        snapshot: V2Snapshot;
+        triggeredEvents?: LastResult["events"];
+        wheelResult?: WheelResultView | null;
+        elapsed?: { value: number; unit: string };
+        eventFlavors?: EventFlavorMap;
+        gains?: TurnGainVM[];
+      }>,
       translateError?: (e: unknown) => string,
     ) => {
       if (busyRef.current) return;
@@ -415,6 +431,7 @@ function App() {
           elapsed: res.elapsed ? elapsedText(res.elapsed) : "",
           events: res.triggeredEvents ?? [],
           wheel: res.wheelResult ?? null,
+          gains: res.gains ?? [],
           eventFlavors: res.eventFlavors,
         });
         // 对齐正式块：turn 响应在 LLM 收尾之后，通常流已 done；给 200ms 宽限后主动收掉，
@@ -1704,6 +1721,56 @@ function LifeTab({
 }) {
   // 已终止 / 已归档：世界不再接受动作，只呈现结局（服务端同时清空 availableActions）
   const ended = snapshot.status === "terminated" || snapshot.status === "archived";
+
+  /**
+   * 详情浮层（ADR-002 / R-DETAIL-05）：补正 / 技能 / 物品 / 装备共用一套毛玻璃排版。
+   * 状态放在 LifeTab 本地：只有这一屏会打开它，提到 App 层反而要多传四个 prop。
+   */
+  const [detail, setDetail] = useState<DetailSheetData | null>(null);
+  const openStatus = useCallback(
+    (statusId: string) => {
+      const found = snapshot.player.statuses.find((s) => s.id === statusId);
+      if (found !== undefined) setDetail(statusToDetail(found));
+    },
+    [snapshot.player.statuses],
+  );
+  const openGain = useCallback(
+    (gain: TurnGainVM) => {
+      if (gain.category === "status") {
+        const found = snapshot.player.statuses.find((s) => s.id === gain.id);
+        if (found !== undefined) {
+          setDetail(statusToDetail(found));
+          return;
+        }
+      }
+      if (gain.category === "skill") {
+        const found = snapshot.player.skills.find((s) => s.id === gain.id);
+        if (found !== undefined) {
+          setDetail({
+            title: found.name,
+            subtitle: "技能",
+            ...(found.description !== "" ? { description: found.description } : {}),
+            ...(found.style !== undefined ? { style: found.style } : {}),
+            ...(found.effects !== undefined ? { effects: found.effects } : {}),
+          });
+        }
+        return;
+      }
+      const item =
+        snapshot.player.inventory.find((i) => i.itemId === gain.id) ??
+        snapshot.player.equipment?.find((e) => e.instanceId === gain.id);
+      if (item !== undefined) {
+        setDetail({
+          title: "name" in item && item.name !== undefined ? item.name : gain.name,
+          subtitle: gain.category === "equipment" ? "装备" : "物品",
+          ...(item.description !== "" ? { description: item.description } : {}),
+          ...(item.style !== undefined ? { style: item.style } : {}),
+          ...(item.effects !== undefined ? { effects: item.effects } : {}),
+        });
+      }
+    },
+    [snapshot.player.equipment, snapshot.player.inventory, snapshot.player.skills, snapshot.player.statuses],
+  );
   // 人生总结的平台补写（后端没出 LLM 且用户没配 key 时才触发；失败保持模板总结）。
   const platformSummary = usePlatformSummary(snapshot, summarySource);
 
@@ -1781,6 +1848,7 @@ function LifeTab({
           evaluation={view.evaluation}
           summary={platformSummary ?? undefined}
           summaryFromAi={summarySource === "llm" || platformSummary !== null}
+          onSelectStatus={(status) => openStatus(status.id)}
         />
 
         {/*
@@ -1880,19 +1948,31 @@ function LifeTab({
           </section>
         )}
 
-        {settledWheel !== null && (
-          <section className="card result">
-            <h3 className="result-title">命运落定</h3>
-            <div className="event-card">
-              <strong>⚄ {settledWheel.title ?? "随机事件"}</strong>
-              <p>{settledWheel.label}</p>
-            </div>
-          </section>
-        )}
+        {/* 本轮收获（ADR-002 D4 / R-GAIN-01）：原「命运落定」的位置，列本回合真实增量。 */}
+        <TurnGainsCard
+          gains={lastResult?.gains ?? []}
+          wheel={
+            settledWheel === null
+              ? null
+              : {
+                  ...(settledWheel.title !== undefined ? { title: settledWheel.title } : {}),
+                  label: settledWheel.label,
+                }
+          }
+          onSelect={openGain}
+        />
 
-        {lastResult && !ended && settledWheel === null && slot === null && (
+        {lastResult && !ended && settledWheel === null && (lastResult.gains?.length ?? 0) === 0 && slot === null && (
           <p className="muted result-quiet">世界平静地流转着。</p>
         )}
+
+        <DetailSheet
+          detail={detail}
+          onClose={() => setDetail(null)}
+          onOpenRef={(ref) => {
+            if (ref.kind === "status") openStatus(ref.id);
+          }}
+        />
       </div>
 
       {/* 点击为主：行动坞固定贴在 tabbar 上方，长叙事也推不走 */}

@@ -27,6 +27,8 @@ import {
   projectSnapshotV2,
   resolveEnding,
   unequipV2,
+  captureGainBaseline,
+  diffGains,
   useItemV2,
   visibleFactRefs,
   type ConditionContext,
@@ -63,6 +65,7 @@ import {
   type NarrativeOutcome,
 } from "./narrative/generate.js";
 import { recordNarrative } from "./narrative/trace.js";
+import { recordTurnNarrative } from "./narrative/turn.js";
 import { readNarrativeBlocks } from "./narrative/read.js";
 import { registerNarrativeStreamRoute } from "./narrative/stream.js";
 import {
@@ -173,6 +176,8 @@ function projectWorld(world: WorldStateV2, entry: ReadyTemplateEntry) {
     entry.lookup.withGenerated(world.generatedEvents),
     evaluateLifeV2(world, entry.evaluationConfig),
     entry.endingConfig?.endings,
+    // 展示域（ui.yaml）：只用于解析样式（ADR-002 D2）；不传等价「模板没写样式」。
+    entry.ui,
   );
 }
 
@@ -839,6 +844,8 @@ async function runWorldTransaction(
       ...pipelineForTurn(world, entry, requestAgentConfig(request)),
       deferInvocation: true as const,
     };
+    // 回合增量基线（ADR-002 D4）：只抓玩家可见五类字段，不 clone 整状态。
+    const gainBaseline = captureGainBaseline(world);
     const res = step(world, entry, pipeline);
 
     // 结构写入必须在世界再推进之前落账；非 committed ⇒ 整体回滚。
@@ -851,6 +858,18 @@ async function runWorldTransaction(
 
     const fresh = projectWorld(res.state, entry);
     worldStore.save(res.state);
+    // 本轮收获：由基线差分得出（不落库，刷新即消失）。
+    const gains = diffGains(gainBaseline, res.state, entry.lookup, entry.ui);
+    // 回合叙事兜底（ADR-002 D5）：**只在没有真实 LLM 时**写模板段。
+    // 判据用 provider id 而不是「trace 里有没有块」——invocation 的 trace 落盘时机
+    // 与事务收尾不保证先后（实测读回为空但随后 GET 能读到），据此判重会重复写。
+    if (request.llmProvider.id === "mock") {
+      try {
+        recordTurnNarrative(id, res.state, entry, res.snapshot.turnIndex, res.wheelResult);
+      } catch (error) {
+        request.log.warn({ error: error instanceof Error ? error.message : String(error) }, "turn_narrative_failed");
+      }
+    }
     scheduleFlavors(request, id, fresh, res.triggeredEvents);
     const snapshot = await decorateSnapshot(fresh, res.state, entry, "player", request.llmProvider);
     return {
@@ -860,6 +879,7 @@ async function runWorldTransaction(
       snapshot,
       triggeredEvents: res.triggeredEvents,
       wheelResult: res.wheelResult,
+      gains,
       eventFlavors: responseEventFlavors(id, fresh, res.triggeredEvents),
     };
   });
@@ -905,6 +925,7 @@ app.post("/api/worlds/:id/wheels/confirm", async (request, reply) => {
       snapshot: tx.snapshot,
       triggeredEvents: tx.triggeredEvents,
       wheelResult: tx.wheelResult,
+      gains: tx.gains,
       eventFlavors: tx.eventFlavors,
     };
   } catch (error) {
@@ -941,6 +962,7 @@ app.post("/api/worlds/:id/turns", async (request, reply) => {
       snapshot: tx.snapshot,
       triggeredEvents: tx.triggeredEvents,
       wheelResult: tx.wheelResult,
+      gains: tx.gains,
       eventFlavors: tx.eventFlavors,
     };
   } catch (error) {
@@ -968,6 +990,7 @@ app.post("/api/worlds/:id/events/choose", async (request, reply) => {
       snapshot: tx.snapshot,
       triggeredEvents: tx.triggeredEvents,
       wheelResult: tx.wheelResult,
+      gains: tx.gains,
       eventFlavors: tx.eventFlavors,
     };
   } catch (error) {
@@ -995,6 +1018,7 @@ app.post("/api/worlds/:id/battle", async (request, reply) => {
       snapshot: tx.snapshot,
       triggeredEvents: tx.triggeredEvents,
       wheelResult: tx.wheelResult,
+      gains: tx.gains,
       eventFlavors: tx.eventFlavors,
     };
   } catch (error) {
@@ -1013,13 +1037,23 @@ app.post("/api/worlds/:id/items/use", async (request, reply) => {
   }
 
   try {
+    const gainBaseline = captureGainBaseline(found.world);
     const res = useItemV2(found.world, parsed.data, found.entry.template, found.entry.lookup.withGenerated(found.world.generatedEvents), found.entry.pipeline);
     worldStore.save(res.state);
+    const gains = diffGains(gainBaseline, res.state, found.entry.lookup, found.entry.ui);
+    if (request.llmProvider.id === "mock") {
+      try {
+        recordTurnNarrative(found.world.id, res.state, found.entry, res.snapshot.turnIndex, res.wheelResult);
+      } catch (error) {
+        request.log.warn({ error: error instanceof Error ? error.message : String(error) }, "turn_narrative_failed");
+      }
+    }
     scheduleFlavors(request, found.world.id, res.snapshot, res.triggeredEvents);
     const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, "player", request.llmProvider);
     return {
       worldId: found.world.id,
       snapshot,
+      gains,
       eventFlavors: responseEventFlavors(found.world.id, res.snapshot, res.triggeredEvents),
     };
   } catch (error) {

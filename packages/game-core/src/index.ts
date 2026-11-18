@@ -20,6 +20,11 @@ export * from "./v2/history.js";
 export * from "./v2/equipment-turn.js";
 // R2.6 关系图谱（ADR-0014）：R-REL-01 的查询 API 对外可见（建图/最短路径/投影）
 export * from "./v2/relations.js";
+// 表现层（ADR-002）：样式解析 / 效果摘要 / 固定效果文案 / 回合增量，均为只读投影
+export * from "./v2/presentation/style.js";
+export * from "./v2/presentation/effects.js";
+export * from "./v2/presentation/fixed-effects.js";
+export * from "./v2/presentation/gains.js";
 // 扩展层接缝（docs/EXTENSIONS.md §2）：注册表 + 派生契约，扩展从这里 import
 export * from "./v2/extensions.js";
 // 演员表访问层（A 期 seam）：扩展需要 `selfIdOf` / `actorOf` 时从这里取，

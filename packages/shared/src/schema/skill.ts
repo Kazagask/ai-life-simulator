@@ -41,6 +41,8 @@ export const CombatSkillSchema = z
     consumeStatus: z.object({ status: z.string().min(1) }).strict().optional(),
     cooldownTurns: z.number().int().nonnegative(),
     usableInBattle: z.literal(true),
+    quality: z.string().min(1).optional(),
+    style: z.string().min(1).optional(),
   })
   .strict();
 
@@ -59,6 +61,8 @@ export const GeneralSkillSchema = z
       .object({ maxLevel: z.number().int().positive(), growthPerUse: z.number().positive() })
       .strict()
       .optional(),
+    quality: z.string().min(1).optional(),
+    style: z.string().min(1).optional(),
   })
   .strict();
 

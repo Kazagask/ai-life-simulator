@@ -78,6 +78,8 @@ export function projectNarrativeBlocks(
         blockId: block.blockId,
         kind: block.kind,
         ...(block.text !== undefined ? { text: block.text } : {}),
+        // 回合锚点（ADR-002 D5）：前端据此只给**最新回合**播打字机，历史段落保持静态。
+        turnIndex: trace.turnIndex,
         // 内联资源锚点：`kind:"asset"` 的块靠 assetId/slot 被前端委托给 CgStage。
         // 此前只透传 blockId/kind/text ⇒ 内联 CG 永远休眠（ui-impl 2026-11-16 实测）。
         // 两者都是「模板 manifest 已声明」的公开标识，不含隐秘原文，透传不扩大攻击面。

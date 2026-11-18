@@ -17,6 +17,8 @@ import type {
   WorldTemplateV2,
   TerminationRecord,
 } from "./schema/index.js";
+import type { EffectSummary } from "./schema/effects.js";
+import type { ResolvedStyle } from "./schema/style.js";
 import type { ObservationLedger } from "./contract/perspective.js";
 import type { LlmInvocation } from "./contract/llm-invocation.js";
 
@@ -563,6 +565,15 @@ export interface StatusView {
   id: string;
   name: string;
   stacks: number;
+  /** 说明（补正详情浮层用）。 */
+  description?: string;
+  quality?: string;
+  /** 解析后的样式（ADR-002 D2）；缺省 = 默认样式。 */
+  style?: ResolvedStyle;
+  /** 效果摘要（属性 / 战斗面 / 控制语义），由定义派生。 */
+  effects?: EffectSummary[];
+  /** 持续时间的人话（「持续到被移除」/「剩余 3 回合」）。 */
+  durationLabel?: string;
 }
 
 /**
@@ -638,7 +649,15 @@ export interface V2Snapshot {
     moodBandLabel: string;
     attributes: Record<string, number>;
     statuses: StatusView[];
-    skills: Array<{ id: string; name: string; description: string; kind: string }>;
+    skills: Array<{
+      id: string;
+      name: string;
+      description: string;
+      kind: string;
+      quality?: string;
+      style?: ResolvedStyle;
+      effects?: EffectSummary[];
+    }>;
     inventory: Array<{
       itemId: string;
       name: string;
@@ -652,6 +671,8 @@ export interface V2Snapshot {
       slotLabel?: string;
       category?: string;
       quality?: string;
+      style?: ResolvedStyle;
+      effects?: EffectSummary[];
     }>;
     /**
      * 已装备实例投影：只含展示字段（实例 id / 物品 id / 槽位 / 层数 / 耐久 / 显示名 / 说明）。
@@ -669,6 +690,8 @@ export interface V2Snapshot {
       description?: string;
       category?: string;
       quality?: string;
+      style?: ResolvedStyle;
+      effects?: EffectSummary[];
     }>;
   };
   /**

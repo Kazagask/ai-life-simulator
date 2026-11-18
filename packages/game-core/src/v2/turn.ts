@@ -131,6 +131,8 @@ export function createWorldV2(
   let baselineAge: number | undefined;
   let baselineAttributes: Record<string, number> | undefined;
   let baselineSkills: string[] | undefined;
+  /** 复用角色自带的补正（如五条悟的「六眼」）：不带上就不是「扮演这个人」。 */
+  let baselineStatuses: string[] | undefined;
   let reusedCharacterId: string | undefined;
   if (selection?.kind === "reuse") {
     const c = template.characters.find((x) => x.id === selection.characterId);
@@ -143,6 +145,7 @@ export function createWorldV2(
     baselineAge = c.identity.age;
     baselineAttributes = { ...template.attributes.defaults, ...c.attributes };
     baselineSkills = [...(c.skills ?? [])];
+    baselineStatuses = [...(c.statuses ?? [])];
   } else if (selection?.kind === "new") {
     selfId = selection.id;
     baselineName = selection.name;
@@ -180,7 +183,7 @@ export function createWorldV2(
     hp: 0,
     mp: 0,
     mood,
-    statuses: [],
+    statuses: (baselineStatuses ?? []).map((id) => ({ statusId: id, stacks: 1, appliedTurn: 0 })),
     skillCooldowns: {},
     inventory: {} as Record<string, number>,
     skills: [...(baselineSkills ?? pt?.skills ?? [])],

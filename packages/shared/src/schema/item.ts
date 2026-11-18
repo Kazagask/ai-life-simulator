@@ -26,6 +26,7 @@ const ITEM_KEYS = [
   "category",
   "quality",
   "dynamicModifier",
+  "style",
 ] as const;
 
 /** 明确禁止的键与其诊断信息（出现即拒绝并给路径，不得静默忽略）。 */
@@ -50,6 +51,8 @@ const ItemShape = z
     usableInBattle: z.boolean(),
     usableOutsideBattle: z.boolean(),
     use: z.array(TemplateEffectSchema).optional(),
+    /** 样式 id（`ui.styles` 的键或引擎预设 id，ADR-002 D2）；纯展示。 */
+    style: z.string().min(1).optional(),
     ...EquipmentDefinitionFields,
   })
   .passthrough();
@@ -68,6 +71,7 @@ type ItemClean = {
   category?: string;
   quality?: string;
   dynamicModifier?: DynamicModifierSpec;
+  style?: string;
 };
 
 export const ItemSchema = ItemShape.superRefine((item, ctx) => {

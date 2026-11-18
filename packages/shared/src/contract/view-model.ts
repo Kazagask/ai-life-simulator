@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { ResolvedStyleSchema } from "../schema/style.js";
+import { EffectSummarySchema, TurnGainSchema, type EffectSummary, type TurnGain } from "../schema/effects.js";
 
 /**
  * 视图模型（P0 → Wave 3 扩写）：自定义前端与 `@life-sim/rpg-ui` 之间**唯一**的展示契约。
@@ -10,6 +12,13 @@ import { z } from "zod";
  *  - 所有 schema 一律 `.strict()`：前端组件只消费这里声明的字段，多出来的键视为契约破坏。
  *  - 字段扩写遵循**追加**原则：既有字段名与语义不变，新字段只增不改。
  */
+
+/**
+ * 一条展示用效果（ADR-002 D3）。形状定义在 `schema/effects.ts`，这里只做前端契约别名，
+ * 保证内核快照与前端视图**同一份**。
+ */
+export const EffectSummaryVMSchema = EffectSummarySchema;
+export type EffectSummaryVM = EffectSummary;
 
 /** 已装备的一件装备（只含展示字段；补正结果由内核每次结算现算，不下发）。 */
 export const EquipmentVMSchema = z
@@ -25,6 +34,10 @@ export const EquipmentVMSchema = z
     description: z.string().optional(),
     category: z.string().optional(),
     quality: z.string().optional(),
+    /** 解析后的样式（ADR-002 D2）；缺省 = 默认样式。 */
+    style: ResolvedStyleSchema.optional(),
+    /** 效果摘要（展示用）。 */
+    effects: z.array(EffectSummaryVMSchema).optional(),
   })
   .strict();
 export type EquipmentVM = z.infer<typeof EquipmentVMSchema>;
@@ -55,6 +68,8 @@ export const InventoryItemVMSchema = z
     slotLabel: z.string().optional(),
     category: z.string().optional(),
     quality: z.string().optional(),
+    style: ResolvedStyleSchema.optional(),
+    effects: z.array(EffectSummaryVMSchema).optional(),
   })
   .strict();
 export type InventoryItemVM = z.infer<typeof InventoryItemVMSchema>;
@@ -66,6 +81,9 @@ export const SkillVMSchema = z
     name: z.string(),
     description: z.string(),
     kind: z.string(),
+    quality: z.string().optional(),
+    style: ResolvedStyleSchema.optional(),
+    effects: z.array(EffectSummaryVMSchema).optional(),
   })
   .strict();
 export type SkillVM = z.infer<typeof SkillVMSchema>;
@@ -76,9 +94,24 @@ export const StatusVMSchema = z
     id: z.string(),
     name: z.string(),
     stacks: z.number(),
+    /** 说明（补正详情浮层用）。 */
+    description: z.string().optional(),
+    quality: z.string().optional(),
+    style: ResolvedStyleSchema.optional(),
+    /** 效果摘要：属性补正 / 战斗面 / 控制语义。 */
+    effects: z.array(EffectSummaryVMSchema).optional(),
+    /** 持续时间的人话（「持续到被移除」/「剩余 3 回合」）。 */
+    durationLabel: z.string().optional(),
   })
   .strict();
 export type StatusVM = z.infer<typeof StatusVMSchema>;
+
+/**
+ * 一回合里的**一条**收获（ADR-002 D4）：由引擎「基线 + 差分」算出，只走响应、不落库。
+ * 形状定义在 `schema/effects.ts`，这里只做前端契约别名。
+ */
+export const TurnGainVMSchema = TurnGainSchema;
+export type TurnGainVM = TurnGain;
 
 /** 玩家卡上的一条属性（`label` 来自模板 `labels.attributes`，数组顺序即展示顺序）。 */
 export const PlayerAttributeVMSchema = z
@@ -213,6 +246,8 @@ export const ContentBlockVMSchema = z
     assetId: z.string().optional(),
     /** 资源槽位名（追加字段），与 `MediaVM.slot` 同一套命名。 */
     slot: z.string().optional(),
+    /** 该块所属回合（ADR-002 D5）；展示层据此只给最新回合播打字机。 */
+    turnIndex: z.number().optional(),
   })
   .strict();
 export type ContentBlockVM = z.infer<typeof ContentBlockVMSchema>;

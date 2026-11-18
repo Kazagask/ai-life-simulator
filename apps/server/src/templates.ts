@@ -40,6 +40,7 @@ import {
   isKinshipKind,
   registeredUiCapabilities,
   resolveExtensionRuntimes,
+  validateStyleRefs,
   type TemplateLookup,
   type TurnPipelineConfig,
 } from "@life-sim/game-core";
@@ -1424,6 +1425,14 @@ function scanVersion(
       ? loadAssetManifest(versionDir)
       : undefined;
     const ui = present.has("ui.yaml") ? loadUi(versionDir) : undefined;
+    // ADR-002 D2：未知样式 id 一律拒载（不静默回退）——静默回退会让模板作者以为改了颜色，
+    // 线上却没变，比加载失败更难查。错误带字段路径 + 实体位置。
+    const styleIssues = validateStyleRefs(template, ui);
+    if (styleIssues.length > 0) {
+      throw new Error(
+        `style_ref_invalid: ${styleIssues.map((i) => `${i.path}: ${i.message}`).join("; ")}`,
+      );
+    }
     // `ui.yaml` 进白名单但不进指纹：展示声明变更不废旧档（SPEC §1.5）。
     // 这里显式过滤，防止白名单数组后续调整时误把它算进语义指纹。
     const semanticFingerprint = hashPairs(

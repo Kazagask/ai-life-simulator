@@ -5,6 +5,7 @@ import type {
   HistoryEntryV2,
   SlotEventView,
   TimeAmount,
+  TurnGain,
   UiConfig,
   V2Snapshot,
   WheelResultView,
@@ -316,6 +317,8 @@ export interface InteractionResponse {
 export interface TurnResponse extends InteractionResponse {
   turnIndex: number;
   elapsed: TimeAmount;
+  /** 本轮收获（ADR-002 D4）：服务端差分得出，刷新即消失。 */
+  gains?: TurnGain[];
 }
 
 /**

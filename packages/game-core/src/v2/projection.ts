@@ -6,6 +6,8 @@ import type {
   RelationEdge,
   TerminationRecord,
   V2Npc,
+  StatusView,
+  UiConfig,
   V2Snapshot,
   WorldRunStatus,
   WorldStateV2,
@@ -17,6 +19,14 @@ import type { TemplateLookup } from "./lookup.js";
 import { slotEventView } from "./turn.js";
 import { controlOf } from "./battle.js";
 import { projectVisibleRelations } from "./relations.js";
+import { resolveStyle } from "./presentation/style.js";
+import {
+  equipmentEffectSummaries,
+  itemEffectSummaries,
+  skillEffectSummaries,
+  statusEffectSummaries,
+  durationLabel as statusDurationLabel,
+} from "./presentation/effects.js";
 import {
   assertNoReservedRowFields,
   assertOwnSegmentKeys,
@@ -48,6 +58,11 @@ export function projectSnapshotV2(
   evaluation?: EvaluationRecord | null,
   /** 结局模板集（endings.yaml）；未提供时只投影终止事实、结局文案用中性兜底 */
   endings?: readonly EndingTemplate[],
+  /**
+   * 展示域配置（ui.yaml，ADR-002 D2）：只用于解析样式。
+   * 缺省 ⇒ 不解析样式（等价「模板没写样式」），自定义前端不传也不会坏。
+   */
+  ui?: UiConfig,
 ): V2Snapshot {
   const player = state.player;
   const genderLabel = lookup.genderLabel(player.gender);
@@ -128,21 +143,21 @@ export function projectSnapshotV2(
   const actorDirectory = buildActorDirectory(state, template);
 
   const statuses = player.statuses
-    .map((inst) => {
-      const def = lookup.status(inst.statusId);
-      return def && def.visibility === "known"
-        ? { id: def.id, name: def.name, stacks: inst.stacks }
-        : null;
-    })
-    .filter((s): s is { id: string; name: string; stacks: number } => s !== null);
+    .map((inst) => toStatusView(inst, lookup, ui))
+    .filter((s): s is StatusView => s !== null);
 
   const skills = player.skills.map((id) => {
     const def = lookup.skill(id);
+    const style = resolveStyle(def?.style, def?.quality, ui);
+    const effects = def === undefined ? [] : skillEffectSummaries(def, lookup);
     return {
       id,
       name: def?.name ?? id,
       description: def?.description ?? "",
       kind: def?.kind ?? "general",
+      ...(def?.quality !== undefined ? { quality: def.quality } : {}),
+      ...(style !== undefined ? { style } : {}),
+      ...(effects.length > 0 ? { effects } : {}),
     };
   });
 
@@ -163,10 +178,22 @@ export function projectSnapshotV2(
         slotLabel: template.equipment?.slots?.find((s) => s.id === def?.slot)?.label,
         category: def?.category,
         quality: def?.quality,
+        ...(() => {
+          if (def === undefined) return {};
+          const style = resolveStyle(def.style, def.quality, ui);
+          const effects =
+            def.type === "equipment"
+              ? equipmentEffectSummaries(def, lookup)
+              : itemEffectSummaries(def, lookup);
+          return {
+            ...(style !== undefined ? { style } : {}),
+            ...(effects.length > 0 ? { effects } : {}),
+          };
+        })(),
       };
     });
 
-  const battle = state.battle ? battleView(state, lookup, template) : null;
+  const battle = state.battle ? battleView(state, lookup, template, ui) : null;
   // 战斗进行中时 HP/MP 以战斗镜像为准（战斗消耗实时反映到状态栏；结束后 finishBattle 已回写，两者一致）
   const shownHp = battle && !battle.over ? battle.player.hp : player.hp;
   const shownMp = battle && !battle.over ? battle.player.mp : player.mp;
@@ -233,6 +260,15 @@ export function projectSnapshotV2(
           description: def?.description ?? "",
           category: def?.category,
           quality: def?.quality,
+          ...(() => {
+            if (def === undefined) return {};
+            const style = resolveStyle(def.style, def.quality, ui);
+            const effects = equipmentEffectSummaries(def, lookup);
+            return {
+              ...(style !== undefined ? { style } : {}),
+              ...(effects.length > 0 ? { effects } : {}),
+            };
+          })(),
         };
       }),
     },
@@ -730,17 +766,40 @@ function buildEndingView(
   };
 }
 
-function battleView(state: WorldStateV2, lookup: TemplateLookup, template: WorldTemplateV2): BattleView {
+/**
+ * 补正投影（ADR-002 D3）：玩家卡、战斗面板共用同一份。
+ * `hidden` 补正不进投影（既有红线：hidden 侧信道）。
+ */
+function toStatusView(
+  inst: { statusId: string; stacks: number },
+  lookup: TemplateLookup,
+  ui: UiConfig | undefined,
+): StatusView | null {
+  const def = lookup.status(inst.statusId);
+  if (def === undefined || def.visibility !== "known") return null;
+  const style = resolveStyle(def.style, def.quality, ui);
+  const effects = statusEffectSummaries(def, lookup);
+  return {
+    id: def.id,
+    name: def.name,
+    stacks: inst.stacks,
+    ...(def.description !== undefined ? { description: def.description } : {}),
+    ...(def.quality !== undefined ? { quality: def.quality } : {}),
+    ...(style !== undefined ? { style } : {}),
+    ...(effects.length > 0 ? { effects } : {}),
+    durationLabel: statusDurationLabel(def),
+  };
+}
+
+function battleView(
+  state: WorldStateV2,
+  lookup: TemplateLookup,
+  template: WorldTemplateV2,
+  ui: UiConfig | undefined,
+): BattleView {
   const battle = state.battle!;
   const statusViews = (instances: Array<{ statusId: string; stacks: number }>) =>
-    instances
-      .map((inst) => {
-        const def = lookup.status(inst.statusId);
-        return def && def.visibility === "known"
-          ? { id: def.id, name: def.name, stacks: inst.stacks }
-          : null;
-      })
-      .filter((s): s is { id: string; name: string; stacks: number } => s !== null);
+    instances.map((inst) => toStatusView(inst, lookup, ui)).filter((s): s is StatusView => s !== null);
 
   const battleStatuses = statusViews(battle.player.statuses);
   const worldStatuses = statusViews(state.player.statuses);
