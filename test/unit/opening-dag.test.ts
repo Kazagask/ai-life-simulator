@@ -88,4 +88,25 @@ describe("前实例化开局内核", () => {
     expect(b.player.name).toBe(a.player.name);
     expect(b.player.attributes).toEqual(a.player.attributes);
   });
+
+  it("relation 参数值加载期校验：kind 必须在闭集内、必须带 with 与数值", () => {
+    const base = {
+      openingId: "op-rel",
+      name: "关系校验",
+      entry: "n",
+      params: [{ id: "bond", kind: "relation" }],
+    };
+    const node = (set: Record<string, unknown>) => ({
+      node: "n",
+      title: "t",
+      mode: "choose",
+      options: [{ id: "o", text: "o", set }],
+    });
+    expect(OpeningBranchDagSchema.safeParse({ ...base, nodes: [node({ bond: { with: "npc-x", value: 5, kind: "friend" } })] }).success).toBe(true);
+    expect(OpeningBranchDagSchema.safeParse({ ...base, nodes: [node({ bond: { with: "npc-x", value: 5 } })] }).success).toBe(true);
+    // 非法 kind（如 classmate/senior）必须在加载期拒载，否则会写坏 state.relations。
+    expect(OpeningBranchDagSchema.safeParse({ ...base, nodes: [node({ bond: { with: "npc-x", value: 5, kind: "classmate" } })] }).success).toBe(false);
+    expect(OpeningBranchDagSchema.safeParse({ ...base, nodes: [node({ bond: { value: 5, kind: "friend" } })] }).success).toBe(false);
+    expect(OpeningBranchDagSchema.safeParse({ ...base, nodes: [node({ bond: { with: "npc-x", kind: "friend" } })] }).success).toBe(false);
+  });
 });

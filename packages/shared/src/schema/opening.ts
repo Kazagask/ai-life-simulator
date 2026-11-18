@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { TaskConditionSchema, TemplateEffectSchema, TimeAmountSchema } from "./common.js";
 import { EventInstanceSchema } from "./event-instance.js";
+import { RelationKindSchema } from "./relation.js";
 
 /**
  * 开局分域 Schema（协议 V2.1 §16）。全部 strict；类型经 z.infer 派生。
@@ -263,6 +264,7 @@ export const OpeningBranchDagSchema = z
   .strict()
   .superRefine((dag, ctx) => {
     const ids = new Set(dag.params.map((p) => p.id));
+    const kindById = new Map(dag.params.map((p) => [p.id, p.kind]));
     if (ids.size !== dag.params.length) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["params"], message: "重复 param id" });
     }
@@ -273,13 +275,37 @@ export const OpeningBranchDagSchema = z
       }
       nodes.add(n.node);
       for (const [optionIndex, option] of (n.options ?? []).entries()) {
-        for (const key of Object.keys(option.set)) {
+        for (const [key, value] of Object.entries(option.set)) {
+          const path = ["nodes", i, "options", optionIndex, "set", key] as const;
           if (!ids.has(key)) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
-              path: ["nodes", i, "options", optionIndex, "set", key],
+              path: [...path],
               message: `set 引用未声明参数：${key}`,
             });
+            continue;
+          }
+          // set 值按 param kind 透传（引擎推断落点），但 relation 的 kind 是闭集枚举：
+          // 此处放行非法值会写进 state.relations，存档将永久载不回来（开局提交后即坏档）。
+          if (kindById.get(key) === "relation") {
+            const rel = value as { with?: unknown; value?: unknown; kind?: unknown } | null;
+            if (typeof rel !== "object" || rel === null) {
+              ctx.addIssue({ code: z.ZodIssueCode.custom, path: [...path], message: "relation 参数值必须是对象" });
+              continue;
+            }
+            if (typeof rel.with !== "string") {
+              ctx.addIssue({ code: z.ZodIssueCode.custom, path: [...path], message: "relation 缺少 with（目标角色 id）" });
+            }
+            if (typeof rel.value !== "number") {
+              ctx.addIssue({ code: z.ZodIssueCode.custom, path: [...path], message: "relation 缺少数值 value" });
+            }
+            if (rel.kind !== undefined && !RelationKindSchema.safeParse(rel.kind).success) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: [...path],
+                message: `relation kind 不在闭集内：${String(rel.kind)}`,
+              });
+            }
           }
         }
       }

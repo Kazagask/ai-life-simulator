@@ -6,6 +6,7 @@ import {
   resolveStep,
 } from "../../packages/game-core/src/v2/opening-dag.ts";
 import type { OpeningBranchDag } from "@life-sim/shared";
+import { RelationKindSchema, WorldStateV2Schema } from "@life-sim/shared";
 
 const silent = { warn: () => {}, error: () => {}, info: () => {} };
 
@@ -60,6 +61,21 @@ describe("jjk-2006 2.0.0 · 前实例化开局", () => {
     expect(state.player.id).toBe("npc-riko");
     expect(state.player.name).toBe("天内理子");
     expect(state.npcs.some((n) => n.id === "npc-riko")).toBe(false);
+  });
+
+  it("commit 后的世界状态必须能被 state schema 重新解析（否则存档一启动就坏档）", () => {
+    const entry = loadV2();
+    for (const firstOption of [undefined, "self-riko"]) {
+      const state = runOpening(entry.openingDag, entry.template, firstOption);
+      const parsed = WorldStateV2Schema.safeParse(state);
+      if (!parsed.success) {
+        throw new Error(`commit 状态解析失败：${parsed.error.issues[0]?.path.join(".")}: ${parsed.error.issues[0]?.message}`);
+      }
+      // 开局关系边只允许闭集 kind（开局 set 值是未知透传，最容易在这里写坏）。
+      for (const edge of parsed.data.relations) {
+        expect(RelationKindSchema.safeParse(edge.kind).success).toBe(true);
+      }
+    }
   });
 
   it("天内理子短线：首节点 as 分派互斥，两个 badend 独占终结条件", () => {

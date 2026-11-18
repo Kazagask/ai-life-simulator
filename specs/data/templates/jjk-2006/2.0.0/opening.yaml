@@ -130,21 +130,21 @@ nodes:
         text: 东京高专一年生
         set:
           fPath: { id: openingPath, value: tokyo }
-          pathRel1: { with: npc-nanami, value: 8, kind: classmate }
-          pathRel2: { with: npc-haibara, value: 10, kind: classmate }
-          pathRel3: { with: npc-yaga, value: 6, kind: teacher }
-          pathRel4: { with: npc-gojo, value: 4, kind: senior }
-          pathRel5: { with: npc-geto, value: 4, kind: senior }
-          pathRel6: { with: npc-shoko, value: 3, kind: medic }
+          pathRel1: { with: npc-nanami, value: 8, kind: friend }
+          pathRel2: { with: npc-haibara, value: 10, kind: friend }
+          pathRel3: { with: npc-yaga, value: 6, kind: mentor }
+          pathRel4: { with: npc-gojo, value: 4, kind: colleague }
+          pathRel5: { with: npc-geto, value: 4, kind: colleague }
+          pathRel6: { with: npc-shoko, value: 3, kind: colleague }
       - id: path-kyoto
         text: 京都校交流生
         set:
           fPath: { id: openingPath, value: kyoto }
           pathAttr: { id: reputation, value: 5, mode: add }
-          pathRel1: { with: npc-geto, value: 10, kind: senior }
-          pathRel2: { with: npc-gojo, value: 2, kind: senior }
-          pathRel3: { with: npc-nanami, value: 3, kind: classmate }
-          pathRel4: { with: npc-yaga, value: 4, kind: teacher }
+          pathRel1: { with: npc-geto, value: 10, kind: colleague }
+          pathRel2: { with: npc-gojo, value: 2, kind: colleague }
+          pathRel3: { with: npc-nanami, value: 3, kind: friend }
+          pathRel4: { with: npc-yaga, value: 4, kind: mentor }
           fTransfer: { id: transfer, value: kyoto }
 
   - node: n01-gender

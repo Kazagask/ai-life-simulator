@@ -15,6 +15,7 @@ import type {
   OpeningStepResult,
   WorldTemplateV2,
 } from "@life-sim/shared";
+import { RelationKindSchema } from "@life-sim/shared";
 import { createRng, deriveOpeningSeed, pickWeighted } from "../rng.js";
 import { applyStatusToPlayer, maxHp, maxMp } from "./engine.js";
 import { createLookup } from "./lookup.js";
@@ -341,15 +342,20 @@ function applyAdditiveParams(
       target.relationship = Math.max(-100, Math.min(100, target.relationship + r.value));
     }
     if (typeof r.kind === "string") {
-      const edge = state.relations.find(
-        (e) => e.from === state.player.id && e.to === r.with && e.kind === r.kind,
-      );
+      // kind 是闭集枚举：加载期已校验，这里再兜一层——放行非法值会写坏 state.relations，
+      // 存档下次启动直接载不回来（比 500 更糟）。
+      const parsedKind = RelationKindSchema.safeParse(r.kind);
+      if (!parsedKind.success) {
+        throw new Error(`开局 relation kind 不在闭集内：${r.kind}（目标 ${r.with}）`);
+      }
+      const kind = parsedKind.data;
+      const edge = state.relations.find((e) => e.from === state.player.id && e.to === r.with && e.kind === kind);
       if (edge) edge.value = Math.max(-100, Math.min(100, (edge.value ?? 0) + r.value));
       else {
         state.relations.push({
           from: state.player.id,
           to: r.with,
-          kind: r.kind as (typeof state.relations)[number]["kind"],
+          kind,
           source: "effect",
           visibility: "known", // 模板显式声明的开局关系，作者意图即玩家已知。
           value: Math.max(-100, Math.min(100, r.value)),
