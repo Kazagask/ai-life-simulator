@@ -782,16 +782,6 @@ button {
   padding: 4px 0 6px;
 }
 
-/* 流式草稿：与正式正文同一套排版，只是略淡（收尾后由正式块替换）。 */
-.narrative-draft {
-  margin: 8px 0 0;
-  white-space: pre-wrap;
-  opacity: 0.72;
-  font-family: var(--ls-serif, inherit);
-  font-size: var(--ls-narrative-size, 15px);
-  line-height: var(--ls-narrative-leading, 1.8);
-}
-
 /* 盒中盒：普通事件内联在叙事结尾，比外框低一层（不是另一张大卡）。 */
 .story-inset {
   margin: 2px 0 0;
@@ -815,11 +805,21 @@ button {
   color: var(--text-dim, var(--muted));
 }
 
-/* 占满形态（转盘 / 战斗）：不留叙事，也不留「上一轮」的残影。 */
+/*
+ * 占满形态（转盘 / 战斗）：**换掉卡体**，不是塞进滚动区。
+ *
+ * 上一版把它们装进 50vh 的滚动容器：转盘下面拖一条滚动条，战斗面板挤成一坨
+ * （用户 2026-11-19 截图）。现在回到"独立一张卡"的密度：内容按自己高度铺开，
+ * 由页面整体滚动，外层标题行仍是 `.story-head`，与阅读形态严格对齐。
+ */
 .story-takeover {
-  padding: 12px 14px 14px;
+  padding: 12px 14px 16px;
   animation: story-inset-in 0.18s ease-out;
 }
+
+/* 边框随占位者着色（只给占满形态；阅读形态保持中性，免得抢正文） */
+.story-card--takeover[data-tone="wheel"] { border-color: color-mix(in srgb, var(--gold) 45%, var(--border)); }
+.story-card--takeover[data-tone="battle"] { border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
 
 .story-takeover h2 { margin: 0 0 6px; font-size: 18px; }
 

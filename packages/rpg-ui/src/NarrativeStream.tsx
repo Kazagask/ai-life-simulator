@@ -45,6 +45,14 @@ export interface NarrativeStreamProps {
    */
   onTypewriterDone?: () => void;
   /**
+   * 流式草稿（SSE 增量，服务端已剥标签）。
+   *
+   * **直接接在已有正文后面**、用同一套排版渲染（用户 2026-11-19：单独一块慢慢长出来、
+   * 收尾再被正式块替换，观感很生硬）。渲染成「最后一个正文块」后，逐字增长就是
+   * 小说续写的样子；正式块到位的同一位置、同一字号 ⇒ 替换时看不出跳变。
+   */
+  draft?: string;
+  /**
    * `onTypewriterDone` 的**复位键**（宿主传 `turnIndex`）。
    *
    * 没有它会漏一轮：某一回合没有新增正文块时，最后一块的 id / 字数都没变，
@@ -254,6 +262,7 @@ export function NarrativeStream({
   disabled = false,
   onTypewriterDone,
   typewriterKey,
+  draft,
 }: NarrativeStreamProps) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   // hooks 必须在任何 early return 之前调用（空叙事那一支也要走到这里）。
@@ -269,6 +278,8 @@ export function NarrativeStream({
    */
   const blocks = content.filter((block) => block.kind !== "option");
 
+  /** 草稿：空白草稿不占位（SSE 首帧可能只有换行）。 */
+  const draftText = (draft ?? "").trim() === "" ? "" : (draft ?? "");
   const lastBlock = blocks.length > 0 ? blocks[blocks.length - 1] : undefined;
   const lastBlockId = lastBlock?.blockId;
   const tailLength = (lastBlock?.text ?? "").length;
@@ -282,7 +293,7 @@ export function NarrativeStream({
     // 依赖里必须带上「末尾**可见**字数」：逐字揭示 / 上游流式追加时块数与 blockId 都不变，
     // 只靠块数会让粘底失效（文字长到可视区外面还在原处）。
     el.scrollTop = el.scrollHeight;
-  }, [blocks.length, lastBlockId, tailLength, typedLength]);
+  }, [blocks.length, lastBlockId, tailLength, typedLength, draftText.length]);
 
   /**
    * 「最后一个正文块已经完整显示」⇒ 回调一次（同一块不重复回调）。
@@ -304,13 +315,31 @@ export function NarrativeStream({
     onTypewriterDone();
   }, [frame, lastBlockId, tailLength, typewriterKey, onTypewriterDone]);
 
+  /**
+   * 草稿块：与正式正文**同一套排版**（同一个 block class），只多一个 `ls-narrative__draft`
+   * 用于 `pre-wrap`（草稿内部有换行）与淡入。它永远是最后一段 —— 正式块追上来时，
+   * 视觉上就是"这一段的字终于到齐了"，而不是"换了一块重新打"。
+   */
+  const draftNode =
+    draftText === "" ? null : (
+      <p className="ls-narrative__block ls-narrative__block--prose ls-narrative__draft" aria-live="polite">
+        {draftText}
+      </p>
+    );
+
   // 一句正文都没有（开局前）才是「故事尚未开始」；局中这一轮只写了选项块时，上面的历史正文
   // 还在，照常渲染 —— 绝不能在这时候把开局文案印到屏幕上。
   if (content.length === 0) {
-    return <p className="ls-narrative__empty">故事尚未开始。</p>;
+    if (draftNode === null) return <p className="ls-narrative__empty">故事尚未开始。</p>;
+    // 开局后的第一段就来自流式：仍然要有容器，否则草稿无处可去（会直接不显示）。
+    return (
+      <div className="ls-narrative" ref={scrollerRef} role="log" aria-label="叙事">
+        {draftNode}
+      </div>
+    );
   }
   // 过滤后一块都不剩（例如本轮只产出 option 块）：不占位，也不留空容器。
-  if (blocks.length === 0) return null;
+  if (blocks.length === 0 && draftNode === null) return null;
 
   /**
    * 每轮至多内联一张资源，且只有画面槽（`cg*` / `scene*`）允许内联
@@ -353,6 +382,7 @@ export function NarrativeStream({
         // `blockId` 是内容块在 trace 里的稳定标识（agent-runtime 契约：optionId 不落块）。
         return <Fragment key={block.blockId}>{render?.(shown)}</Fragment>;
       })}
+      {draftNode}
     </div>
   );
 }

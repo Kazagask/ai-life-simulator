@@ -442,7 +442,15 @@ function App() {
         // 再用 trace 读回替换草稿（正式块是唯一真相，草稿不留在屏上）。
         await Promise.race([streamDone, new Promise((resolve) => setTimeout(resolve, 200))]);
         streamAbort?.abort();
-        if (wid) setNarrative(await fetchNarrative(wid));
+        /**
+         * 正式块与「清草稿」必须**同一次提交**。
+         *
+         * 先 setNarrative、再 setNarrativeDraft 会多出一帧「草稿 + 正式块」并存 ——
+         * 同一段文字在屏幕上出现两遍，然后闪掉一份（2026-11-19 用户反馈「过渡很生硬」）。
+         * 先把块取回来，再连着清草稿一起 set：React 18 在 promise 里也会批处理成一次渲染。
+         */
+        const nextBlocks = wid ? await fetchNarrative(wid) : null;
+        if (nextBlocks !== null) setNarrative(nextBlocks);
         setNarrativeDraft("");
       } catch (e) {
         streamAbort?.abort();

@@ -31,8 +31,12 @@ export interface StoryStageProps {
   /** 头部的次要信息（如「过去半小时」），muted 小字。 */
   note?: string;
   /**
-   * 占满故事区的内容（转盘 / 战斗）。给了它就不渲染叙事——
-   * 这两种东西要玩家全部注意力，「结算后返回」叙事（槽位清空 ⇒ 这里自动变回 undefined）。
+   * 占满故事区的内容（转盘 / 战斗）。
+   *
+   * 给了它就**换掉整个卡体**：不再渲染叙事，也不再有滚动容器 —— 这两种面板按自己的
+   * 高度铺开、由页面整体滚动（用户 2026-11-19：上一版把它们塞进 50vh 的滚动区，
+   * 满屏滚动条、战斗区挤成一坨，不如原来那版）。外层标题行「故事 / 过去 N 天 / 战斗」
+   * 保持与阅读形态同一套 `.story-head`，两块正好对齐。
    */
   takeover?: ReactNode;
   /**
@@ -56,12 +60,12 @@ export interface StoryStageProps {
  *
  * 三种形态：
  * - 普通事件 ⇒ 叙事 + 结尾的**盒中盒**（流式结束后长出来）；
- * - 随机事件（转盘）/ 战斗 ⇒ 直接**占满**这一区，结算（槽位清空）后自动回到叙事；
+ * - 随机事件（转盘）/ 战斗 ⇒ **换掉卡体**，铺满这一区；结算（槽位清空）后自动回到叙事；
  * - 自由行动 ⇒ 只有叙事，输入归底部行动坞。
  *
- * 只有一个滚动容器（本组件 `.story-body`）：`.ls-narrative` 在里面的内部滚动被关掉，
+ * 阅读形态只有一个滚动容器（本组件 `.story-body`）：`.ls-narrative` 在里面的内部滚动被关掉，
  * 否则会出现「双层滚动」——玩家滑一下，外层和内层各滚一半。粘底逻辑也在这里统一做，
- * 所以「回到底部」按钮只有一处实现。
+ * 所以「回到底部」按钮只有一处实现。占满形态**没有**内部滚动（页面自己滚）。
  */
 export function StoryStage({
   view,
@@ -149,29 +153,16 @@ export function StoryStage({
   const writing = streaming || view.llmPending === true;
 
   const takeoverOn = takeover !== undefined && takeover !== null;
+
   // 新内容到来：贴底就跟着走（滑上去看历史时不打扰）。
   useLayoutEffect(() => {
-    if (takeoverOn || !stickRef.current) return;
+    if (takeoverOn) return;
+    if (!stickRef.current) return;
     const el = bodyRef.current;
     if (el === null) return;
     el.scrollTop = el.scrollHeight;
     setAtBottom(true);
   }, [view.turnIndex, draft, takeoverOn, insetReady]);
-
-  /**
-   * 占满形态（转盘 / 战斗）**滚到顶**，不是滚到底。
-   *
-   * 战斗面板顶上是敌我血条与回合数、下面是技能与日志：自动滚到底会把「还剩多少血」
-   * 推到屏幕外，玩家第一步就看到一排技能按钮（2026-11-19 走查实拍）。
-   */
-  useLayoutEffect(() => {
-    if (!takeoverOn) return;
-    const el = bodyRef.current;
-    if (el === null) return;
-    stickRef.current = false;
-    el.scrollTop = 0;
-    setAtBottom(el.scrollHeight <= el.clientHeight + 4);
-  }, [takeoverOn, view.turnIndex]);
 
   /**
    * 盒中盒出现时**强制**把它推到可视区：玩家要看的是它，不是刚才那半页历史。
@@ -208,14 +199,16 @@ export function StoryStage({
   }, [syncScrollState]);
 
   /**
-   * 「回到底部」只在**阅读形态**出现。占满形态（转盘 / 战斗）不挂：
-   * 战斗面板通篇比可视区高，按钮会常驻并正好压住右下角的技能（2026-11-19 走查实拍），
-   * 而那边玩家要的是技能而不是"跳到底部看日志"。
+   * 「回到底部」只在**阅读形态**出现。占满形态没有内部滚动（页面自己滚），
+   * 挂在这里只会压住战斗面板右下角的技能（2026-11-19 走查实拍）。
    */
   const showJump = !takeoverOn && scrollable && !atBottom;
 
   return (
-    <section className={`card story-card${takeoverOn ? " is-takeover" : ""}`}>
+    <section
+      className={`card story-card${takeoverOn ? " story-card--takeover" : ""}`}
+      {...(takeoverOn && badge !== undefined ? { "data-tone": badge.tone } : {})}
+    >
       <header className="story-head">
         <span className="slot-label">故事</span>
         <span className="story-head__right">
@@ -225,11 +218,11 @@ export function StoryStage({
         </span>
       </header>
 
-      <div className="story-body" ref={bodyRef} onScroll={syncScrollState}>
-        {takeoverOn ? (
-          <div className="story-takeover">{takeover}</div>
-        ) : (
-          <>
+      {takeoverOn ? (
+        <div className="story-takeover">{takeover}</div>
+      ) : (
+        <>
+          <div className="story-body" ref={bodyRef} onScroll={syncScrollState}>
             <CgStage media={bannerMedia} />
             {portraits.length > 0 && (
               <div className="ls-portrait-row">
@@ -241,17 +234,13 @@ export function StoryStage({
             <NarrativeStream
               content={view.content}
               media={view.media}
+              draft={draft}
               onAct={onAct}
               disabled={busy}
               typewriter={instantTurn !== view.turnIndex && !skipTypingForInset}
               onTypewriterDone={onTypewriterDone}
               typewriterKey={view.turnIndex}
             />
-            {streaming && (
-              <p className="narrative-draft" aria-live="polite">
-                {draft}
-              </p>
-            )}
             {/* 盒中盒：等流式 + 逐字结束才出现；出现时容器给一段 0.18s 的展开动画。 */}
             {inset !== undefined && inset !== null && insetReady && (
               <div className="story-inset" ref={insetRef}>
@@ -259,15 +248,15 @@ export function StoryStage({
               </div>
             )}
             {footer !== undefined && footer !== null && <div className="story-foot">{footer}</div>}
-          </>
-        )}
-      </div>
+          </div>
 
-      {showJump && (
-        <button type="button" className="story-jump" onClick={() => scrollToBottom("smooth")}>
-          回到底部
-          <span aria-hidden="true">↓</span>
-        </button>
+          {showJump && (
+            <button type="button" className="story-jump" onClick={() => scrollToBottom("smooth")}>
+              回到底部
+              <span aria-hidden="true">↓</span>
+            </button>
+          )}
+        </>
       )}
     </section>
   );

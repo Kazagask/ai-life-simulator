@@ -131,6 +131,17 @@
   max-width: 36em;
 }
 
+/*
+ * 流式草稿（用户 2026-11-19）：本身也是一段正文，**接在已有正文后面**。
+ * 与 `.ls-narrative__block--prose` 共用字体 / 字号 / 行高 / 首行缩进，只多两件事：
+ * - `pre-wrap`：草稿内部有换行，不保留就会挤成一坨；
+ * - 轻微的淡入：草稿是"正在长"的一段，不需要逐字闪动（字是 SSE 一个个来的）。
+ */
+.ls-narrative__draft {
+  white-space: pre-wrap;
+  animation: ls-fade-in 0.2s ease-out both;
+}
+
 .ls-narrative__block--flavor {
   margin-bottom: 0.7em;
   color: var(--ls-text-dim);
