@@ -1935,6 +1935,7 @@ function LifeTab({
                   busy={busy}
                   onCommand={onBattle}
                   onContinue={onConfirmWheel}
+                  onSelectStatus={(status) => pushDetail(statusToDetail(status))}
                 />
               )
             : undefined;

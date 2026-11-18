@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { BattleCommand } from "@life-sim/shared";
-import type { BattleVM } from "@life-sim/shared";
+import type { BattleVM, StatusVM } from "@life-sim/shared";
 import { StyledName, styleBoxClassName, styleBoxInline } from "./StyledName.js";
 
 export interface BattleBoardProps {
@@ -14,6 +14,51 @@ export interface BattleBoardProps {
   onCommand: (command: BattleCommand) => void;
   /** 战斗结束后「离开战场」的推进函数。 */
   onContinue: () => void;
+  /**
+   * 点开某条补正的详情（玩家 / 友军 / 敌人身上的都算）。
+   * 不传 ⇒ 芯片只读（自定义前端没有浮层时也不会出现「点了没反应」）。
+   */
+  onSelectStatus?: (status: StatusVM) => void;
+}
+
+/**
+ * 补正芯片（战斗内唯一实现：玩家、友军、敌人共用）。
+ *
+ * 战斗态一律换成语义色（增益绿 / 异常红 / 中性灰）：打法上先看这个，
+ * 身份色（神话 / 传说）留在详情浮层里看。没有语义标签的纯天赋才退回身份色。
+ */
+function StatusChips({
+  statuses,
+  onSelect,
+}: {
+  statuses: readonly StatusVM[];
+  onSelect?: (status: StatusVM) => void;
+}) {
+  if (statuses.length === 0) return null;
+  return (
+    <span className="enemy-status ls-battle-chips">
+      {statuses.map((s) => {
+        const st = s.battleStyle ?? s.style;
+        const box = styleBoxClassName(st);
+        const label = (
+          <>
+            <StyledName name={s.name} style={st} />
+            {s.stacks > 1 ? `×${s.stacks}` : ""}
+          </>
+        );
+        const cls = `ls-battle-status${box === undefined ? "" : ` ${box}`}`;
+        return onSelect === undefined ? (
+          <span key={s.id} className={cls} style={styleBoxInline(st)}>
+            {label}
+          </span>
+        ) : (
+          <button key={s.id} type="button" className={cls} style={styleBoxInline(st)} onClick={() => onSelect(s)}>
+            {label}
+          </button>
+        );
+      })}
+    </span>
+  );
 }
 
 /**
@@ -28,7 +73,14 @@ export interface BattleBoardProps {
  *    同样由投影层用与引擎**同一个**控制判定算出，这里只按结论置灰 + 写原因，不查补正表。
  *  - 逃跑按钮**常显但可禁用**（D-12）：不给按钮会让玩家以为「没有逃跑这个选项」。
  */
-export function BattleBoard({ battle: b, labels, busy = false, onCommand, onContinue }: BattleBoardProps) {
+export function BattleBoard({
+  battle: b,
+  labels,
+  busy = false,
+  onCommand,
+  onContinue,
+  onSelectStatus,
+}: BattleBoardProps) {
   const [target, setTarget] = useState<string>("");
 
   const locked = !b.over && !b.player.canAct;
@@ -69,6 +121,15 @@ export function BattleBoard({ battle: b, labels, busy = false, onCommand, onCont
           </div>
           <span className="attr-value">{b.player.mp}/{b.player.maxMp}</span>
         </div>
+        {/*
+          自身补正（2026-11-19 用户反馈「战斗时自己的补正没展示」）。
+          数据一直在 `battle.player.statuses` 里（投影已把战斗内 + 世界层补正合并去重），
+          只是这一块之前只画了两条资源条。
+        */}
+        <StatusChips
+          statuses={b.player.statuses}
+          {...(onSelectStatus !== undefined ? { onSelect: onSelectStatus } : {})}
+        />
       </div>
 
       {b.allies.length > 0 && (
@@ -81,26 +142,10 @@ export function BattleBoard({ battle: b, labels, busy = false, onCommand, onCont
                 <div className="bar-fill ally-hp" style={{ width: `${(a.hp / Math.max(1, a.maxHp)) * 100}%` }} />
               </div>
               <span className="attr-value">{a.hp}/{a.maxHp}</span>
-              {a.statuses.length > 0 && (
-                <span className="enemy-status ls-battle-chips">
-                  {a.statuses.map((s) => {
-                    // 战斗态一律换成语义色（增益绿 / 异常红 / 中性灰）：打法上先看这个，
-                    // 身份色（神话 / 传说）留在详情浮层里看。没有语义标签的纯天赋才退回身份色。
-                    const st = s.battleStyle ?? s.style;
-                    const box = styleBoxClassName(st);
-                    return (
-                      <span
-                        key={s.id}
-                        className={`ls-battle-status${box === undefined ? "" : ` ${box}`}`}
-                        style={styleBoxInline(st)}
-                      >
-                        <StyledName name={s.name} style={st} />
-                        {s.stacks > 1 ? `×${s.stacks}` : ""}
-                      </span>
-                    );
-                  })}
-                </span>
-              )}
+              <StatusChips
+                statuses={a.statuses}
+                {...(onSelectStatus !== undefined ? { onSelect: onSelectStatus } : {})}
+              />
             </div>
           ))}
         </div>
@@ -119,24 +164,10 @@ export function BattleBoard({ battle: b, labels, busy = false, onCommand, onCont
               <div className="bar-fill enemy-hp" style={{ width: `${(e.hp / Math.max(1, e.maxHp)) * 100}%` }} />
             </div>
             <span className="attr-value">{e.hp}/{e.maxHp}</span>
-            {e.statuses.length > 0 && (
-              <span className="enemy-status ls-battle-chips">
-                {e.statuses.map((s) => {
-                  const st = s.battleStyle ?? s.style;
-                  const box = styleBoxClassName(st);
-                  return (
-                    <span
-                      key={s.id}
-                      className={`ls-battle-status${box === undefined ? "" : ` ${box}`}`}
-                      style={styleBoxInline(st)}
-                    >
-                      <StyledName name={s.name} style={st} />
-                      {s.stacks > 1 ? `×${s.stacks}` : ""}
-                    </span>
-                  );
-                })}
-              </span>
-            )}
+            <StatusChips
+              statuses={e.statuses}
+              {...(onSelectStatus !== undefined ? { onSelect: onSelectStatus } : {})}
+            />
           </button>
         ))}
       </div>

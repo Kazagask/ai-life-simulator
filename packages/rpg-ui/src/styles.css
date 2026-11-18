@@ -947,11 +947,18 @@
 /* 放进已有 tag-row 时不要再撑开下边距（那里本来就是一行 chips）。 */
 .ls-tagchips.tag-row { margin: 0 0 8px; }
 
+/*
+ * 边框色**不要**写在这里：`.ls-box--*` 是给标签/芯片上色的（同一元素同时挂两个类），
+ * 而两条规则特异性相同、本文件里 `.ls-tag` 在后面 ⇒ 会把彩色边框盖回灰边
+ * （2026-11-19 实测：标签写着「唯一·神话」，边框却是默认灰）。
+ * 默认色放 `:where()`（特异性 0），任何 `.ls-box--*` 都盖得住。
+ */
 .ls-tag {
   display: inline-flex;
   align-items: center;
   padding: 1px 8px;
-  border: 1px solid var(--ls-border);
+  border-width: 1px;
+  border-style: solid;
   border-radius: 999px;
   font-size: 11px;
   line-height: 1.7;
@@ -967,13 +974,27 @@
   flex-wrap: wrap;
   gap: 4px;
 }
+/* 芯片可点（看详情）时是 <button>：去掉 UA 的底色 / 字体，外观仍由样式类决定。 */
+.ls-battle-chips button.ls-battle-status {
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+}
+.ls-battle-chips button.ls-battle-status:active { opacity: 0.75; }
+
+/* 同 `.ls-tag`：默认边框色必须零特异性，否则战斗芯片的语义色（绿/红/灰）只剩文字。 */
 .ls-battle-status {
   display: inline-flex;
   align-items: center;
   gap: 1px;
   padding: 0 6px;
-  border: 1px solid var(--ls-border);
+  border-width: 1px;
+  border-style: solid;
   border-radius: 999px;
   font-size: 11px;
   line-height: 1.7;
+}
+
+:where(.ls-tag, .ls-battle-status) {
+  border-color: var(--ls-border);
 }
