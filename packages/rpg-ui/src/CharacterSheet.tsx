@@ -1,7 +1,7 @@
 import type { EvaluationVM, PlayerVM, StatusVM } from "@life-sim/shared";
 import { AiNarrativeTag } from "./AiNarrativeTag.js";
 import { EvaluationPanel } from "./EvaluationPanel.js";
-import { StyledName } from "./StyledName.js";
+import { StyledName, styleBoxClassName, styleBoxInline } from "./StyledName.js";
 
 export interface CharacterSheetProps {
   /** 玩家卡投影（属性条已按模板顺序排好、`proficiency*` 已剔除）。 */
@@ -83,15 +83,18 @@ export function CharacterSheet({
                 {s.stacks > 1 ? `×${s.stacks}` : ""}
               </>
             );
+            const box = [styleBoxClassName(s.style)].filter(Boolean).join(" ");
+            const boxStyle = styleBoxInline(s.style);
             return onSelectStatus === undefined ? (
-              <span key={s.id} className="chip status-chip">
+              <span key={s.id} className={`chip status-chip${box === "" ? "" : ` ${box}`}`} style={boxStyle}>
                 {label}
               </span>
             ) : (
               <button
                 key={s.id}
                 type="button"
-                className="chip status-chip status-chip--action"
+                className={`chip status-chip status-chip--action${box === "" ? "" : ` ${box}`}`}
+                style={boxStyle}
                 onClick={() => onSelectStatus(s)}
               >
                 {label}

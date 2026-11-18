@@ -179,3 +179,66 @@ describe("开局 DAG 与样式解耦（回归）", () => {
 // 让未使用的类型导入不报 lint（EffectSummary 用于上面的 schema 断言）
 const _typecheck: EffectSummary = { text: "x", kind: "attr" };
 void _typecheck;
+
+describe("开局所得（ADR-002 D4 的开局版本）", () => {
+  it("每步与 commit 用同一份 collectOpeningGains：技能/物品/补正/属性都出现", async () => {
+    const { loadTemplates } = await import("../../apps/server/src/templates.ts");
+    const { createOpeningSession, resolveStep, collectOpeningGains } = await import(
+      "../../packages/game-core/src/v2/opening-dag.ts"
+    );
+    const entry = loadTemplates({ warn: () => {}, error: () => {}, info: () => {} }).resolve({
+      id: "jjk-2006",
+      version: "2.0.0",
+    });
+    if (entry?.status !== "ready" || entry.openingDag === undefined) throw new Error("not ready");
+
+    let session = createOpeningSession(entry.openingDag, 4242);
+    for (let guard = 0; !session.done && guard < 40; guard += 1) {
+      const node = entry.openingDag.nodes.find((n) => n.node === session.nodeId);
+      if (node === undefined) break;
+      session =
+        node.mode === "roll"
+          ? resolveStep(entry.openingDag, session, { kind: "roll" }).session
+          : resolveStep(entry.openingDag, session, { kind: "choose", optionId: node.options![0]!.id }).session;
+    }
+
+    const gains = collectOpeningGains(entry.openingDag, session, entry.template, entry.ui);
+    const categories = new Set(gains.map((g) => g.category));
+    expect(categories.has("status")).toBe(true);
+    expect(categories.has("skill")).toBe(true);
+    expect(categories.has("item")).toBe(true);
+    // 属性增减（jjk 模板只用 add；`set` 的形态由下一条用例覆盖）
+    expect(gains.some((g) => g.category === "attribute" && (g.action === "up" || g.action === "down"))).toBe(true);
+    // 条目自带详情快照（否则开局面板点开详情会「没反应」）
+    const status = gains.find((g) => g.category === "status");
+    expect(status?.effects?.length ?? 0).toBeGreaterThan(0);
+  });
+});
+
+describe("开局所得：初始值形态（action=set）", () => {
+  it("mode:set 的属性记成 set，展示为绝对值而不是 +N", async () => {
+    const { createOpeningSession, resolveStep, collectOpeningGains } = await import(
+      "../../packages/game-core/src/v2/opening-dag.ts"
+    );
+    const { entry } = makeWorld();
+    const dag = OpeningBranchDagSchema.parse({
+      openingId: "op-attr",
+      name: "属性测验",
+      entry: "a",
+      params: [{ id: "attr", kind: "attribute" }],
+      nodes: [
+        {
+          node: "a",
+          title: "t",
+          mode: "choose",
+          options: [{ id: "o", text: "x", set: { attr: { id: "luck", value: 12, mode: "set" } } }],
+        },
+      ],
+    });
+    let session = createOpeningSession(dag, 1);
+    session = resolveStep(dag, session, { kind: "choose", optionId: "o" }).session;
+    const gains = collectOpeningGains(dag, session, entry.template);
+    expect(gains).toHaveLength(1);
+    expect(gains[0]).toMatchObject({ category: "attribute", action: "set", amount: 12 });
+  });
+});

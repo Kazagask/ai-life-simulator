@@ -1,6 +1,7 @@
 import type { TurnGain, UiConfig, WorldStateV2 } from "@life-sim/shared";
 import type { TemplateLookup } from "../lookup.js";
 import { resolveStyle } from "./style.js";
+import { durationLabel, equipmentEffectSummaries, itemEffectSummaries, skillEffectSummaries, statusEffectSummaries } from "./effects.js";
 
 /**
  * 回合增量（ADR-002 D4）：**基线 + 差分**，只走响应、不落库。
@@ -75,6 +76,8 @@ export function diffGains(
       stacks: next ?? 0,
       ...(def?.quality !== undefined ? { quality: def.quality } : {}),
       ...(style !== undefined ? { style } : {}),
+      ...(def?.description !== undefined ? { description: def.description } : {}),
+      ...(def !== undefined ? { effects: statusEffectSummaries(def, lookup), durationLabel: durationLabel(def) } : {}),
     });
   }
 
@@ -91,6 +94,8 @@ export function diffGains(
       name: def?.name ?? id,
       ...(def?.quality !== undefined ? { quality: def.quality } : {}),
       ...(style !== undefined ? { style } : {}),
+      ...(def?.description !== undefined ? { description: def.description } : {}),
+      ...(def !== undefined ? { effects: skillEffectSummaries(def, lookup) } : {}),
     });
   }
 
@@ -110,6 +115,10 @@ export function diffGains(
       amount: next - prev,
       ...(def?.quality !== undefined ? { quality: def.quality } : {}),
       ...(style !== undefined ? { style } : {}),
+      ...(def?.description !== undefined ? { description: def.description } : {}),
+      ...(def !== undefined
+        ? { effects: def.type === "equipment" ? equipmentEffectSummaries(def, lookup) : itemEffectSummaries(def, lookup) }
+        : {}),
     });
   }
 
@@ -130,6 +139,8 @@ export function diffGains(
       name: def?.name ?? itemId,
       ...(def?.quality !== undefined ? { quality: def.quality } : {}),
       ...(style !== undefined ? { style } : {}),
+      ...(def?.description !== undefined ? { description: def.description } : {}),
+      ...(def !== undefined ? { effects: equipmentEffectSummaries(def, lookup) } : {}),
     });
   }
 

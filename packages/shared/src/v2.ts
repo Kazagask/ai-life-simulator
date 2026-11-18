@@ -516,7 +516,7 @@ export interface BattleEnemyView {
   hp: number;
   maxHp: number;
   alive: boolean;
-  statuses: Array<{ id: string; name: string; stacks: number }>;
+  statuses: StatusView[];
 }
 
 export interface BattleView {
@@ -528,7 +528,7 @@ export interface BattleView {
     maxHp: number;
     mp: number;
     maxMp: number;
-    statuses: Array<{ id: string; name: string; stacks: number }>;
+    statuses: StatusView[];
     skills: Array<{ id: string; name: string; description: string; costMp: number; cooldownLeft: number }>;
     items: Array<{ itemId: string; name: string; count: number }>;
     /**
@@ -760,7 +760,7 @@ export interface V2Snapshot {
      * 当前补正（ADR-0019）。**只投影 visibility=known 的定义**，与玩家补正同一过滤口径；
      * unknown / hidden 补正不外泄，避免「状态列表」变成侧信道。
      */
-    statuses: Array<{ id: string; name: string; stacks: number }>;
+    statuses: StatusView[];
     /** 人生阶段 id（按模板阶段表由 NPC 年龄推导，与玩家口径一致）。 */
     lifeStage: string;
     /** 人生阶段显示标签（模板未给 label 时回退 stage id）。 */

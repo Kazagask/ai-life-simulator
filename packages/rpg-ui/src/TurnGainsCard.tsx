@@ -1,5 +1,5 @@
 import type { TurnGainVM } from "@life-sim/shared";
-import { StyledName } from "./StyledName.js";
+import { StyledName, styleBoxClassName, styleBoxInline } from "./StyledName.js";
 
 const GROUP_ORDER = ["attribute", "status", "skill", "item", "equipment"] as const;
 const GROUP_LABEL: Record<(typeof GROUP_ORDER)[number], string> = {
@@ -40,6 +40,12 @@ function prefixOf(gain: TurnGainVM): string {
   }
 }
 
+/** 属性条目的显示：初始值（set）不带正负号，增减带 +/-。 */
+function attributeText(gain: TurnGainVM): string {
+  if (gain.action === "set") return String(gain.amount ?? "");
+  return signed(gain.amount);
+}
+
 /**
  * 本轮收获（ADR-002 D4 / R-GAIN-01..03）。
  *
@@ -70,9 +76,11 @@ export function TurnGainsCard({ gains, wheel, onSelect }: TurnGainsCardProps) {
                 const clickable = gain.category !== "attribute" && onSelect !== undefined;
                 const tone =
                   gain.category === "attribute"
-                    ? gain.action === "up"
-                      ? "buff"
-                      : "debuff"
+                    ? gain.action === "set"
+                      ? "neutral"
+                      : gain.action === "up"
+                        ? "buff"
+                        : "debuff"
                     : gain.action === "lose" || gain.action === "unequip" || gain.action === "down"
                       ? "debuff"
                       : "buff";
@@ -85,7 +93,7 @@ export function TurnGainsCard({ gains, wheel, onSelect }: TurnGainsCardProps) {
                       <StyledName name={gain.name} style={gain.style} />
                     )}
                     {gain.category === "attribute" && (
-                      <span className="ls-gains__amount">{signed(gain.amount)}</span>
+                      <span className="ls-gains__amount">{attributeText(gain)}</span>
                     )}
                     {gain.category !== "attribute" && gain.amount !== undefined && (
                       <span className="ls-gains__amount">×{Math.abs(gain.amount)}</span>
@@ -96,7 +104,11 @@ export function TurnGainsCard({ gains, wheel, onSelect }: TurnGainsCardProps) {
                   </>
                 );
                 return (
-                  <li key={`${gain.category}-${gain.action}-${gain.id}`} className={`ls-gains__row ls-effect--${tone}`}>
+                  <li
+                    key={`${gain.category}-${gain.action}-${gain.id}`}
+                    className={`ls-gains__row ls-effect--${tone}${styleBoxClassName(gain.style) === undefined ? "" : ` ${styleBoxClassName(gain.style)}`}`}
+                    style={styleBoxInline(gain.style)}
+                  >
                     {clickable ? (
                       <button type="button" className="ls-gains__button" onClick={() => onSelect(gain)}>
                         {content}

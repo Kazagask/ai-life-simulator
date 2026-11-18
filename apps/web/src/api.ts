@@ -192,6 +192,8 @@ export interface OpeningStepResponse {
   done: boolean;
   resolved?: { nodeId: string; optionId: string; text: string; set: Record<string, unknown> };
   results: OpeningStepResultView[];
+  /** 到目前为止的开局所得（每步预览，与 commit 同一份实现）。 */
+  gains?: TurnGain[];
 }
 
 /** 可载入版本（`loadable: true`）：带完整展示字段与**属于该版本**的开局列表。 */
@@ -422,9 +424,10 @@ export const api = {
   },
   /** 开局完成才一次建世界；返回快照供最终面板展示。 */
   commitOpening(sessionId: string) {
-    return request<{ worldId: string; snapshot: WorldSnapshot }>(`/api/openings/${sessionId}/commit`, {
-      method: "POST",
-    });
+    return request<{ worldId: string; snapshot: WorldSnapshot; gains?: TurnGain[] }>(
+      `/api/openings/${sessionId}/commit`,
+      { method: "POST" },
+    );
   },
   /** 开局后改名：只写权威 self 实体，不推进时间。 */
   renameWorld(id: string, name: string) {

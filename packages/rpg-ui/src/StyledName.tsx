@@ -29,6 +29,25 @@ export function styleInline(style?: ResolvedStyle): CSSProperties | undefined {
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/**
+ * 容器样式（chip / 卡片边框）：文字染色只改字，玩家反馈「只有字体变色了 边框没变」。
+ * 预设 ⇒ 类名 `.ls-box--<preset>`（CSS 给边框色，彩虹是流动边框）；自定义颜色 ⇒ 内联 borderColor。
+ */
+export function styleBoxClassName(style?: ResolvedStyle): string | undefined {
+  if (style === undefined) return undefined;
+  const parts: string[] = ["ls-box"];
+  if (style.preset !== undefined) parts.push(`ls-box--${style.preset}`);
+  if (style.animation !== undefined && style.animation !== "none") parts.push(`ls-box-anim--${style.animation}`);
+  return parts.join(" ");
+}
+
+export function styleBoxInline(style?: ResolvedStyle): CSSProperties | undefined {
+  if (style === undefined) return undefined;
+  const out: CSSProperties = {};
+  if (style.color !== undefined) out.borderColor = style.color;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export interface StyledNameProps {
   children?: ReactNode;
   name?: string;

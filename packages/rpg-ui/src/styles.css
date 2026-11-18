@@ -605,6 +605,31 @@
   .ls-style--rainbow {
     background-position: 0% 50%;
   }
+  .ls-box--rainbow {
+    animation: none;
+    border-color: #c084fc;
+  }
+}
+
+/* ---------- 容器边框（chip / 卡片）与文字同步 ---------- */
+.ls-box--gold { border-color: #e7c66b; }
+.ls-box--silver { border-color: #cfd6dd; }
+.ls-box--bronze { border-color: #c98c5a; }
+.ls-box--crimson { border-color: #ff6b7a; }
+.ls-box--azure { border-color: #6fb6ff; }
+.ls-box--jade { border-color: #4fd1a5; }
+
+/* 彩虹边框：同一组颜色循环，与文字渐变同源，避免「字变了框没变」。 */
+.ls-box--rainbow {
+  border-color: #c084fc;
+  animation: ls-rainbow-border 6s linear infinite;
+}
+@keyframes ls-rainbow-border {
+  0%, 100% { border-color: #ff6b6b; }
+  20% { border-color: #ffd166; }
+  40% { border-color: #6ee7b7; }
+  60% { border-color: #60a5fa; }
+  80% { border-color: #c084fc; }
 }
 
 /* ---------- 效果列表 ---------- */

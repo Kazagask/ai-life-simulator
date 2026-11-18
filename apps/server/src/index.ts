@@ -14,6 +14,7 @@ import {
   createDefaultEndingConfig,
   createOpeningSession,
   commitOpening,
+  collectOpeningGains,
   createRunnerContext,
   createTimeAdapter,
   describeNode,
@@ -668,6 +669,9 @@ app.post("/api/openings/:id/step", async (request, reply) => {
       done: rec.core.done,
       ...(outcome.resolved !== undefined ? { resolved: outcome.resolved } : {}),
       results: rec.core.results,
+      // 每步都给「到目前为止拿到了什么」：向导里的「已经落定」直接展示它，
+      // 与 commit 后的最终面板同一份数据（不会出现预览与结果对不上）。
+      gains: collectOpeningGains(dag, rec.core, rec.entry.template, rec.entry.ui),
     };
   } catch (error) {
     return reply.code(400).send({ error: "opening_step_invalid", detail: error instanceof Error ? error.message : String(error) });
@@ -688,7 +692,11 @@ app.post("/api/openings/:id/commit", async (request, reply) => {
     worldStore.createFromState(state, rec.entry);
     openingSessions.delete(id);
     const snapshot = await decorateSnapshot(projectWorld(state, rec.entry), state, rec.entry, "player", request.llmProvider);
-    return reply.code(201).send({ worldId: state.id, snapshot });
+    return reply.code(201).send({
+      worldId: state.id,
+      snapshot,
+      gains: collectOpeningGains(dag, rec.core, rec.entry.template, rec.entry.ui),
+    });
   } catch (error) {
     return reply.code(400).send({ error: "opening_commit_failed", detail: error instanceof Error ? error.message : String(error) });
   }

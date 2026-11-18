@@ -17,6 +17,15 @@ import type {
 } from "@life-sim/shared";
 import { RelationKindSchema } from "@life-sim/shared";
 import { createRng, deriveOpeningSeed, pickWeighted } from "../rng.js";
+import type { TurnGain, UiConfig } from "@life-sim/shared";
+import { resolveStyle } from "./presentation/style.js";
+import {
+  durationLabel,
+  equipmentEffectSummaries,
+  itemEffectSummaries,
+  skillEffectSummaries,
+  statusEffectSummaries,
+} from "./presentation/effects.js";
 import { applyStatusToPlayer, maxHp, maxMp } from "./engine.js";
 import { createLookup } from "./lookup.js";
 import { createWorldV2, type SelfSelectionV2 } from "./turn.js";
@@ -242,6 +251,106 @@ export function commitOpening(
   // （表现得像「刷新后未开局」）。
   state.openingCompleted = true;
   return state;
+}
+
+
+/**
+ * 开局所得（ADR-002 D4 的开局版本）。
+ *
+ * 与世界的「回合增量」不同：开局没有「前一个状态」，玩家要看的不是差分而是
+ * **这一生开局拿到了什么**——技能 / 物品 / 补正 / 初始属性。
+ *
+ * 同一函数服务两处：`/step`（每步预览，界面上的「已经落定」）与 `/commit`（最终面板）。
+ * 只有一份实现，预览与结果不会对不上。
+ *
+ * 属性：`mode: set` 记为 `action: "set"`（展示成「咒力 126」，中性色），
+ * `mode: add` 记为 up/down（展示成「幸运 +2」，绿/红）。
+ */
+export function collectOpeningGains(
+  dag: OpeningBranchDag,
+  session: OpeningSessionCore,
+  template: WorldTemplateV2,
+  ui?: UiConfig,
+): TurnGain[] {
+  const params = resolveParamMap(dag, session);
+  const byKind = paramsByKind(dag, params);
+  const lookup = createLookup(template);
+  const out: TurnGain[] = [];
+
+  for (const { value } of byKind.get("attribute") ?? []) {
+    const a = asRecord(value);
+    if (typeof a?.id !== "string" || typeof a.value !== "number") continue;
+    const mode = a.mode === "set" ? "set" : a.value >= 0 ? "up" : "down";
+    out.push({
+      category: "attribute",
+      action: mode,
+      id: a.id,
+      name: lookup.attributeLabel(a.id),
+      amount: a.value,
+    });
+  }
+
+  for (const { value } of byKind.get("status") ?? []) {
+    for (const spec of Array.isArray(value) ? value : [value]) {
+      const id = typeof spec === "string" ? spec : asRecord(spec)?.id;
+      if (typeof id !== "string") continue;
+      const stacks = typeof asRecord(spec)?.stacks === "number" ? (asRecord(spec)?.stacks as number) : 1;
+      const def = lookup.status(id);
+      const style = resolveStyle(def?.style, def?.quality, ui);
+      out.push({
+        category: "status",
+        action: "gain",
+        id,
+        name: def?.name ?? id,
+        stacks,
+        ...(def?.quality !== undefined ? { quality: def.quality } : {}),
+        ...(style !== undefined ? { style } : {}),
+        ...(def?.description !== undefined ? { description: def.description } : {}),
+        ...(def !== undefined ? { effects: statusEffectSummaries(def, lookup), durationLabel: durationLabel(def) } : {}),
+      });
+    }
+  }
+
+  for (const { value } of byKind.get("skill") ?? []) {
+    for (const id of Array.isArray(value) ? value : [value]) {
+      if (typeof id !== "string") continue;
+      const def = lookup.skill(id);
+      const style = resolveStyle(def?.style, def?.quality, ui);
+      out.push({
+        category: "skill",
+        action: "gain",
+        id,
+        name: def?.name ?? id,
+        ...(def?.quality !== undefined ? { quality: def.quality } : {}),
+        ...(style !== undefined ? { style } : {}),
+        ...(def?.description !== undefined ? { description: def.description } : {}),
+        ...(def !== undefined ? { effects: skillEffectSummaries(def, lookup) } : {}),
+      });
+    }
+  }
+
+  for (const { value } of byKind.get("item") ?? []) {
+    const it = asRecord(value);
+    if (typeof it?.itemId !== "string") continue;
+    const count = typeof it.count === "number" ? it.count : 1;
+    const def = lookup.item(it.itemId);
+    const style = resolveStyle(def?.style, def?.quality, ui);
+    out.push({
+      category: "item",
+      action: "gain",
+      id: it.itemId,
+      name: def?.name ?? it.itemId,
+      amount: count,
+      ...(def?.quality !== undefined ? { quality: def.quality } : {}),
+      ...(style !== undefined ? { style } : {}),
+      ...(def?.description !== undefined ? { description: def.description } : {}),
+      ...(def !== undefined
+        ? { effects: def.type === "equipment" ? equipmentEffectSummaries(def, lookup) : itemEffectSummaries(def, lookup) }
+        : {}),
+    });
+  }
+
+  return out;
 }
 
 type ParamEntries = Array<{ id: string; value: unknown }>;

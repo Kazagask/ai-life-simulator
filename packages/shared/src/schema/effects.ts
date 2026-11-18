@@ -48,7 +48,11 @@ export type EffectSummary = z.infer<typeof EffectSummarySchema>;
 export const TurnGainSchema = z
   .object({
     category: z.enum(["attribute", "status", "skill", "item", "equipment"]),
-    action: z.enum(["gain", "lose", "up", "down", "equip", "unequip"]),
+    /**
+     * `set` = 初始值（开局定的绝对属性，不是增减），展示为 `咒力 126` 且用中性色。
+     * 其余：属性 up/down、物品 gain/lose、补正 gain/lose、装备 equip/unequip、技能 gain。
+     */
+    action: z.enum(["gain", "lose", "up", "down", "set", "equip", "unequip"]),
     /** 属性 key / statusId / skillId / itemId / 装备 instanceId。 */
     id: z.string(),
     /** 展示名（已按模板标签解析）。 */
@@ -57,6 +61,13 @@ export const TurnGainSchema = z
     stacks: z.number().optional(),
     quality: z.string().optional(),
     style: ResolvedStyleSchema.optional(),
+    /**
+     * 详情快照（追加）：让收获条目**自带**打开详情所需的一切。
+     * 没有它，开局面板 / 刷新后的列表都得回头去快照里查实体，查不到就成了「点了没反应」。
+     */
+    description: z.string().optional(),
+    effects: z.array(EffectSummarySchema).optional(),
+    durationLabel: z.string().optional(),
   })
   .strict();
 export type TurnGain = z.infer<typeof TurnGainSchema>;

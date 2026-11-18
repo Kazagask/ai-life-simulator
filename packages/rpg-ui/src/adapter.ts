@@ -6,6 +6,7 @@ import type {
   MediaVM,
   NpcVM,
   PlayerVM,
+  StatusVM,
   V2Snapshot,
   ViewModel,
   WheelResultView,
@@ -47,8 +48,28 @@ export function toWheelVM(wheel: WheelResultView): WheelVM {
 
 /** 战斗镜像 → 展示模型（`id` 取引擎实例 id，只作 React key / 目标标识）。 */
 export function toBattleVM(battle: NonNullable<V2Snapshot["battle"]>): BattleVM {
-  const statuses = (list: Array<{ id: string; name: string; stacks: number }>) =>
-    list.map((s) => ({ id: s.id, name: s.name, stacks: s.stacks }));
+  const statuses = (
+    list: Array<{
+      id: string;
+      name: string;
+      stacks: number;
+      style?: StatusVM["style"];
+      quality?: string;
+      effects?: StatusVM["effects"];
+      description?: string;
+      durationLabel?: string;
+    }>,
+  ) =>
+    list.map((s) => ({
+      id: s.id,
+      name: s.name,
+      stacks: s.stacks,
+      ...(s.description !== undefined ? { description: s.description } : {}),
+      ...(s.quality !== undefined ? { quality: s.quality } : {}),
+      ...(s.style !== undefined ? { style: s.style } : {}),
+      ...(s.effects !== undefined ? { effects: s.effects } : {}),
+      ...(s.durationLabel !== undefined ? { durationLabel: s.durationLabel } : {}),
+    }));
   return {
     round: battle.round,
     over: battle.over,
@@ -251,7 +272,16 @@ function toNpcVM(snapshot: V2Snapshot, npc: V2Snapshot["npcs"][number]): NpcVM {
     relationship: npc.relationship,
     personality: npc.personality,
     knownGoals: [...npc.knownGoals],
-    statuses: npc.statuses.map((s) => ({ id: s.id, name: s.name, stacks: s.stacks })),
+    statuses: npc.statuses.map((s) => ({
+      id: s.id,
+      name: s.name,
+      stacks: s.stacks,
+      ...(s.description !== undefined ? { description: s.description } : {}),
+      ...(s.quality !== undefined ? { quality: s.quality } : {}),
+      ...(s.style !== undefined ? { style: s.style } : {}),
+      ...(s.effects !== undefined ? { effects: s.effects } : {}),
+      ...(s.durationLabel !== undefined ? { durationLabel: s.durationLabel } : {}),
+    })),
     attributes: Object.entries(npc.attributes)
       // 顺序即模板 attributes.order：投影已按 order 构造，这里不重排、不过滤（0 是有效值）。
       .map(([key, value]) => ({ key, label: attrLabels[key] ?? key, value: Number(value) })),

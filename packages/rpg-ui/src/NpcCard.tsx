@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import type { NpcVM } from "@life-sim/shared";
+import type { NpcVM, StatusVM } from "@life-sim/shared";
 import { NpcDetails, type NpcDetailsProps } from "./NpcDetails.js";
 
 export interface NpcCardProps {
@@ -10,6 +10,8 @@ export interface NpcCardProps {
    * 扩展版本。覆盖整张卡时这个 prop 可以不用 —— 替换卡片的扩展自己决定详情怎么画。
    */
   Details?: ComponentType<NpcDetailsProps>;
+  /** 点开补正详情：透传给详情区（卡面本身不列补正）。 */
+  onSelectStatus?: (status: StatusVM) => void;
 }
 
 /**
@@ -19,7 +21,7 @@ export interface NpcCardProps {
  * 所有数值与文案都来自投影：好感条长只是视觉辅助（-100..100 映射到 0..100%），
  * 属性值原样展示（0 也是有效值），关系句由 `RelationList` 统一拼。
  */
-export function NpcCard({ npc, Details = NpcDetails }: NpcCardProps) {
+export function NpcCard({ npc, Details = NpcDetails, onSelectStatus }: NpcCardProps) {
   return (
     <section className={`card npc-card${npc.alive ? "" : " npc-card-inactive"}`}>
       <div className="row">
@@ -42,7 +44,7 @@ export function NpcCard({ npc, Details = NpcDetails }: NpcCardProps) {
         <span className="attr-value">{npc.relationship}</span>
       </div>
       {npc.knownGoals.length > 0 && <p className="known-goals">已知目标：{npc.knownGoals.join("；")}</p>}
-      <Details npc={npc} />
+      <Details npc={npc} {...(onSelectStatus !== undefined ? { onSelectStatus } : {})} />
     </section>
   );
 }

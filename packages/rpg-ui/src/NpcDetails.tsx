@@ -1,9 +1,12 @@
-import type { NpcVM } from "@life-sim/shared";
+import type { NpcVM, StatusVM } from "@life-sim/shared";
 import { RelationList } from "./RelationList.js";
+import { StyledName, styleBoxClassName, styleBoxInline } from "./StyledName.js";
 
 export interface NpcDetailsProps {
   /** NPC 卡投影（关系已只留出边、属性已带标签、生命周期文案已翻译）。 */
   npc: NpcVM;
+  /** 点开补正详情（ADR-002 / R-DETAIL-05）：NPC 身上的补正同样能点。 */
+  onSelectStatus?: (status: StatusVM) => void;
 }
 
 /**
@@ -14,7 +17,7 @@ export interface NpcDetailsProps {
  *
  * 所有数值与文案都来自投影；好感条只画在卡面上，这里不重复。
  */
-export function NpcDetails({ npc }: NpcDetailsProps) {
+export function NpcDetails({ npc, onSelectStatus }: NpcDetailsProps) {
   return (
     <details className="npc-details">
       <summary>
@@ -32,12 +35,31 @@ export function NpcDetails({ npc }: NpcDetailsProps) {
           <p className="muted">无异常状态。</p>
         ) : (
           <div className="chip-row">
-            {npc.statuses.map((s) => (
-              <span key={s.id} className="chip">
-                {s.name}
-                {s.stacks > 1 ? ` ×${s.stacks}` : ""}
-              </span>
-            ))}
+            {npc.statuses.map((s) => {
+              const box = [styleBoxClassName(s.style)].filter(Boolean).join(" ");
+              const boxStyle = styleBoxInline(s.style);
+              const label = (
+                <>
+                  <StyledName name={s.name} style={s.style} />
+                  {s.stacks > 1 ? ` ×${s.stacks}` : ""}
+                </>
+              );
+              return onSelectStatus === undefined ? (
+                <span key={s.id} className={`chip${box === "" ? "" : ` ${box}`}`} style={boxStyle}>
+                  {label}
+                </span>
+              ) : (
+                <button
+                  key={s.id}
+                  type="button"
+                  className={`chip status-chip--action${box === "" ? "" : ` ${box}`}`}
+                  style={boxStyle}
+                  onClick={() => onSelectStatus(s)}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
         )}
       </div>

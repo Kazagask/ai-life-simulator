@@ -308,14 +308,10 @@ export function projectSnapshotV2(
         relationship: npc.relationship,
         knownGoals: [...npc.knownGoals],
         attributes: projectNpcAttributes(npc.attributes, template),
+        // 与玩家卡同一份投影（ADR-002 D3）：NPC 面板上的「六眼」也要是同一身彩虹。
         statuses: npc.statuses
-          .map((inst) => {
-            const def = lookup.status(inst.statusId);
-            return def && def.visibility === "known"
-              ? { id: def.id, name: def.name, stacks: inst.stacks }
-              : null;
-          })
-          .filter((s): s is { id: string; name: string; stacks: number } => s !== null),
+          .map((inst) => toStatusView(inst, lookup, ui))
+          .filter((s): s is StatusView => s !== null),
         lifeStage: shown.stage,
         lifeStageLabel: shown.lifeStageLabel,
         // ADR-0020：生命周期与上屏解耦——inactive 照常上屏，只是带状态标注。

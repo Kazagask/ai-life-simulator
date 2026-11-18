@@ -889,6 +889,27 @@ function describeCreateError(
 }
 
 /**
+ * 收获条目 → 详情浮层（ADR-002）。
+ *
+ * 条目自带 description / effects / style / durationLabel，所以**不依赖任何快照查表**：
+ * 开局面板（此时还没有世界）和刷新后的列表都能点开详情，不会再出现「点了没反应」。
+ */
+function detailOfGain(gain: TurnGainVM): DetailSheetData {
+  const subtitleParts = [
+    gain.quality,
+    gain.category === "status" && gain.stacks !== undefined && gain.stacks > 1 ? `×${gain.stacks}` : undefined,
+  ].filter((part): part is string => part !== undefined && part !== "");
+  return {
+    title: gain.name,
+    ...(subtitleParts.length > 0 ? { subtitle: subtitleParts.join(" · ") } : {}),
+    ...(gain.description !== undefined ? { description: gain.description } : {}),
+    ...(gain.effects !== undefined ? { effects: gain.effects } : {}),
+    ...(gain.durationLabel !== undefined ? { meta: `持续：${gain.durationLabel}` } : {}),
+    ...(gain.style !== undefined ? { style: gain.style } : {}),
+  };
+}
+
+/**
  * 前实例化开局向导（ADR-001）。
  *
  * 纪律：这里**只消费**服务端已决定的节点与结果——roll 在服务端按 seed+node 派生，客户端
@@ -920,6 +941,14 @@ function OpeningWizard({
   const [error, setError] = useState<string | null>(null);
   const [allocation, setAllocation] = useState<Record<string, number>>({});
   const [finalWorld, setFinalWorld] = useState<{ id: string; snapshot: WorldSnapshot } | null>(null);
+  /**
+   * 开局所得（ADR-002 D4 的开局版本）：服务端每步回传「到目前为止拿到了什么」，
+   * 与 commit 后的最终面板同一份实现。用户 2026-11-18：原来那块只列「选了哪个选项」，
+   * 看不出实际拿到了什么。
+   */
+  const [gains, setGains] = useState<TurnGainVM[]>([]);
+  /** 开局期间的详情浮层（补正 / 技能 / 物品）。 */
+  const [detail, setDetail] = useState<DetailSheetData | null>(null);
   const started = useRef(false);
   const stepping = useRef(false);
   /** 同一个 roll 节点只提交一次（重渲染 / 状态回填都不得重复消耗一次掷骰）。 */
@@ -953,6 +982,7 @@ function OpeningWizard({
       try {
         const res = await api.stepOpening(sessionId, input);
         setSteps((prev) => [...prev, { title, ...(text !== undefined ? { text } : {}), result }]);
+        if (res.gains !== undefined) setGains(res.gains);
         setNode(res.node);
         setAllocation({});
         if (res.done) {
@@ -984,6 +1014,7 @@ function OpeningWizard({
     api
       .stepOpening(sessionId, { kind: "roll" })
       .then((res) => {
+        if (res.gains !== undefined) setGains(res.gains);
         setReveal({ node, text: res.resolved?.text ?? "命数已落定", next: res });
       })
       .catch((e) => {
@@ -1061,44 +1092,10 @@ function OpeningWizard({
           <h1>{player.name}</h1>
           <p className="muted">{finalWorld.snapshot.formattedTime} · 世界已建立</p>
         </header>
+        <TurnGainsCard gains={gains} onSelect={(gain) => setDetail(detailOfGain(gain))} />
         <section className="card final-panel">
           <span className="tag">开局所得</span>
-          <h3>特质</h3>
-          <div className="final-tags">
-            {player.statuses.length === 0 ? (
-              <span className="muted">无</span>
-            ) : (
-              player.statuses.map((s) => (
-                <span key={s.id} className="chip">
-                  {s.name} ×{s.stacks}
-                </span>
-              ))
-            )}
-          </div>
-          <h3>技能</h3>
-          <div className="final-tags">
-            {player.skills.length === 0 ? (
-              <span className="muted">无</span>
-            ) : (
-              player.skills.map((s) => (
-                <span key={s.id} className="chip">
-                  {s.name}
-                </span>
-              ))
-            )}
-          </div>
-          <h3>物品</h3>
-          <div className="final-tags">
-            {player.inventory.length === 0 ? (
-              <span className="muted">无</span>
-            ) : (
-              player.inventory.map((i) => (
-                <span key={i.itemId} className="chip">
-                  {i.name} ×{i.count}
-                </span>
-              ))
-            )}
-          </div>
+          <p className="muted">点条目看效果；进入世界后这些都会出现在你的个人页。</p>
           {error && <p className="error-text">{error}</p>}
           <button
             className="primary"
@@ -1107,6 +1104,8 @@ function OpeningWizard({
             进入这个世界
           </button>
         </section>
+        {/* 最终面板自己也要有浮层：这里 return 得早，走不到步骤分支里的那个。 */}
+        <DetailSheet detail={detail} onClose={() => setDetail(null)} />
       </main>
     );
   }
@@ -1196,17 +1195,10 @@ function OpeningWizard({
           )}
         </section>
       )}
-      {steps.length > 0 && (
-        <section className="card opening-history">
-          <span className="tag">已经落定</span>
-          {steps.map((step, i) => (
-            <div key={`${step.title}-${i}`} className="opening-history-row">
-              <strong>{step.title}</strong>
-              <span>{step.result}</span>
-            </div>
-          ))}
-        </section>
+      {gains.length > 0 && (
+        <TurnGainsCard gains={gains} onSelect={(gain) => setDetail(detailOfGain(gain))} />
       )}
+      <DetailSheet detail={detail} onClose={() => setDetail(null)} />
       <button className="ghost" onClick={onCancel}>
         放弃开局，返回
       </button>
@@ -1734,43 +1726,8 @@ function LifeTab({
     },
     [snapshot.player.statuses],
   );
-  const openGain = useCallback(
-    (gain: TurnGainVM) => {
-      if (gain.category === "status") {
-        const found = snapshot.player.statuses.find((s) => s.id === gain.id);
-        if (found !== undefined) {
-          setDetail(statusToDetail(found));
-          return;
-        }
-      }
-      if (gain.category === "skill") {
-        const found = snapshot.player.skills.find((s) => s.id === gain.id);
-        if (found !== undefined) {
-          setDetail({
-            title: found.name,
-            subtitle: "技能",
-            ...(found.description !== "" ? { description: found.description } : {}),
-            ...(found.style !== undefined ? { style: found.style } : {}),
-            ...(found.effects !== undefined ? { effects: found.effects } : {}),
-          });
-        }
-        return;
-      }
-      const item =
-        snapshot.player.inventory.find((i) => i.itemId === gain.id) ??
-        snapshot.player.equipment?.find((e) => e.instanceId === gain.id);
-      if (item !== undefined) {
-        setDetail({
-          title: "name" in item && item.name !== undefined ? item.name : gain.name,
-          subtitle: gain.category === "equipment" ? "装备" : "物品",
-          ...(item.description !== "" ? { description: item.description } : {}),
-          ...(item.style !== undefined ? { style: item.style } : {}),
-          ...(item.effects !== undefined ? { effects: item.effects } : {}),
-        });
-      }
-    },
-    [snapshot.player.equipment, snapshot.player.inventory, snapshot.player.skills, snapshot.player.statuses],
-  );
+  // 条目自带详情快照 ⇒ 不需要再在快照里查实体（查不到就会「点了没反应」）。
+  const openGain = useCallback((gain: TurnGainVM) => setDetail(detailOfGain(gain)), []);
   // 人生总结的平台补写（后端没出 LLM 且用户没配 key 时才触发；失败保持模板总结）。
   const platformSummary = usePlatformSummary(snapshot, summarySource);
 
@@ -2259,6 +2216,8 @@ function WorldTab({
   const [sub, setSub] = useState<WorldSubTab>("overview");
   /** 从族谱跳过来时要定位的那张卡（null = 没有待定位目标）。 */
   const [focusNpcId, setFocusNpcId] = useState<string | null>(null);
+  /** 补正详情浮层：NPC 身上的补正也要能点开（ADR-002 / R-DETAIL-05）。 */
+  const [detail, setDetail] = useState<DetailSheetData | null>(null);
 
   useEffect(() => {
     if (sub !== "npc" || focusNpcId === null) return;
@@ -2344,13 +2303,20 @@ function WorldTab({
           {npcs.length === 0 && <p className="muted">这个世界还没有出现在你身边的人。</p>}
           {npcs.map((npc) => (
             <div key={npc.id} id={`npc-${npc.id}`}>
-              <NpcCardImpl npc={npc} Details={NpcDetailsImpl} />
+              <NpcCardImpl
+                npc={npc}
+                Details={NpcDetailsImpl}
+                onSelectStatus={(status) => setDetail(statusToDetail(status))}
+              />
             </div>
           ))}
         </>
       )}
 
       {ActiveComponent !== undefined && <ActiveComponent vm={vm} host={host} />}
+
+      {/* NPC 身上的补正同样能点开（ADR-002 / R-DETAIL-05）：浮层状态留在本 Tab 内。 */}
+      <DetailSheet detail={detail} onClose={() => setDetail(null)} />
     </div>
   );
 }

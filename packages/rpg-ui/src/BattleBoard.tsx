@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { BattleCommand } from "@life-sim/shared";
 import type { BattleVM } from "@life-sim/shared";
+import { StyledName } from "./StyledName.js";
 
 export interface BattleBoardProps {
   /** 战斗展示模型（来自 `toBattleVM`，不含引擎规则细节）。 */
@@ -81,7 +82,15 @@ export function BattleBoard({ battle: b, labels, busy = false, onCommand, onCont
               </div>
               <span className="attr-value">{a.hp}/{a.maxHp}</span>
               {a.statuses.length > 0 && (
-                <span className="enemy-status">{a.statuses.map((s) => `${s.name}${s.stacks > 1 ? `×${s.stacks}` : ""}`).join("、")}</span>
+                <span className="enemy-status">
+                  {a.statuses.map((s, i) => (
+                    <span key={s.id}>
+                      {i > 0 ? "、" : ""}
+                      <StyledName name={s.name} style={s.style} />
+                      {s.stacks > 1 ? `×${s.stacks}` : ""}
+                    </span>
+                  ))}
+                </span>
               )}
             </div>
           ))}
@@ -102,7 +111,15 @@ export function BattleBoard({ battle: b, labels, busy = false, onCommand, onCont
             </div>
             <span className="attr-value">{e.hp}/{e.maxHp}</span>
             {e.statuses.length > 0 && (
-              <span className="enemy-status">{e.statuses.map((s) => `${s.name}${s.stacks > 1 ? `×${s.stacks}` : ""}`).join("、")}</span>
+              <span className="enemy-status">
+                {e.statuses.map((s, i) => (
+                  <span key={s.id}>
+                    {i > 0 ? "、" : ""}
+                    <StyledName name={s.name} style={s.style} />
+                    {s.stacks > 1 ? `×${s.stacks}` : ""}
+                  </span>
+                ))}
+              </span>
             )}
           </button>
         ))}
