@@ -435,7 +435,20 @@ function applyAdditiveParams(
       }
       const s = asRecord(spec);
       if (typeof s?.id !== "string") continue;
-      applyStatusToPlayer(state, s.id, typeof s.stacks === "number" ? Math.max(1, s.stacks) : 1, lookup);
+      const dur = asRecord(s.duration);
+      const duration =
+        dur !== undefined && typeof dur.turns === "number"
+          ? { turns: dur.turns }
+          : dur?.untilCured === true
+            ? { untilCured: true as const }
+            : undefined;
+      applyStatusToPlayer(
+        state,
+        s.id,
+        typeof s.stacks === "number" ? Math.max(1, s.stacks) : 1,
+        lookup,
+        duration,
+      );
     }
   }
   for (const { value } of byKind.get("skill") ?? []) {

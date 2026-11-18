@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { PolaritySchema } from "./style.js";
-import { FormulaSchema } from "./common.js";
+import { DurationSchema, FormulaSchema } from "./common.js";
 import { StatusApplicationSchema } from "./skill.js";
 
 /**
@@ -52,10 +52,7 @@ export const CombatFacetSchema = z
   })
   .strict();
 
-export const DurationSchema = z.union([
-  z.object({ turns: z.number().int().positive() }).strict(),
-  z.object({ untilCured: z.literal(true) }).strict(),
-]);
+export { DurationSchema };
 
 export const CureConditionSchema = z.union([
   z.object({ item: z.string().min(1) }).strict(),

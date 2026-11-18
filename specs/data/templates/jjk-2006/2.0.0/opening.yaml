@@ -570,7 +570,9 @@ nodes:
       - id: begin
         text: 站起来，答「到」
         set:
-          weapon: { itemId: item-first-aid, count: 1 }
+          # 这里**不能**再写 weapon：`resolveParamMap` 是按结果顺序 Object.assign，
+          # 后写覆盖先写 ⇒ 第六格选的咒具会被入学式这一格悄悄换成急救包
+          # （用户 2026-11-18 实测「开局送的咒具没发到背包」）。
           gCreationDone: { id: creationDone, value: true }
           gOpeningDone: { id: openingDone, value: true }
           gChapter: { id: chapter, value: 1 }

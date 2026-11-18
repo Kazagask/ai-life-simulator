@@ -3,6 +3,7 @@ import {
   DEFAULT_TAGS,
   STYLE_PRESET_IDS,
   TAG_PRESET_IDS,
+  TAG_TONES,
   resolveColorToken,
   type Polarity,
   type ResolvedStyle,
@@ -92,6 +93,35 @@ export function resolveStyle(
     if (spec !== undefined) return toResolved(spec);
   }
   return undefined;
+}
+
+/**
+ * 从实体标签里取语义（ADR-002 D2c）：只认 `buff` / `abnormal` / `neutral` 三个预置 tag。
+ *
+ * 顺序即优先级：同时挂 `[mythic, buff]` ⇒ 品类标签没 tone，取到 `buff`。
+ */
+export function toneOfTags(tags: readonly string[] | undefined): Polarity | undefined {
+  for (const id of tags ?? []) {
+    const tone = TAG_TONES[id];
+    if (tone !== undefined) return tone;
+  }
+  return undefined;
+}
+
+/**
+ * 战斗态样式：**只看语义**，不看品级。
+ *
+ * 为什么战斗要单独一套：品级代表身份（神话 / 传说），打起来玩家要先知道「这是增益还是减益」。
+ * 非战斗仍是实体的身份色（`style`），战斗面板用 `battleStyle`（绿 / 红 / 灰）。
+ * 没有语义标签的实体（纯天赋）没有 battleStyle ⇒ 战斗里继续用身份色。
+ */
+export function resolveBattleStyle(
+  tags: readonly string[] | undefined,
+  ui: UiConfig | undefined,
+): ResolvedStyle | undefined {
+  const tone = toneOfTags(tags);
+  if (tone === undefined) return undefined;
+  return resolveStyle(undefined, undefined, ui, tone);
 }
 
 /**

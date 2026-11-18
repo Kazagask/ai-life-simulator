@@ -949,3 +949,20 @@
   color: var(--ls-text-dim);
   white-space: nowrap;
 }
+
+/* ---------- 战斗面板的补正芯片（ADR-002 D2c：一律语义色） ---------- */
+.ls-battle-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ls-battle-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0 6px;
+  border: 1px solid var(--ls-border);
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.7;
+}

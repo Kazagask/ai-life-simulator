@@ -179,6 +179,20 @@ export const DEFAULT_TAGS: Readonly<Record<string, TagDefinition>> = {
   neutral: { name: "中性", style: { preset: "gray" } },
 };
 
+/**
+ * 语义标签 → 正负零（ADR-002 D2c）。
+ *
+ * 只有**引擎预置的三个语义 tag** 参与：`buff` 增益 / `abnormal` 异常 / `neutral` 中性。
+ * 模板自己写的 tag 一律没有 tone —— 语义不能由作者随手命名决定，否则「战斗时红绿」就成了玄学。
+ *
+ * 用途：战斗面板的芯片用 tone 色（一眼看出增益还是异常），非战斗仍用实体自身的样式。
+ */
+export const TAG_TONES: Readonly<Record<string, Polarity>> = {
+  buff: "positive",
+  abnormal: "negative",
+  neutral: "neutral",
+};
+
 /** 投影后交给前端的标签（样式已解析）。 */
 export const ResolvedTagSchema = z
   .object({

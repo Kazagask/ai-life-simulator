@@ -19,7 +19,7 @@ import type { TemplateLookup } from "./lookup.js";
 import { slotEventView } from "./turn.js";
 import { controlOf } from "./battle.js";
 import { projectVisibleRelations } from "./relations.js";
-import { resolveStyle, resolveTags } from "./presentation/style.js";
+import { resolveBattleStyle, resolveStyle, resolveTags } from "./presentation/style.js";
 import {
   equipmentEffectSummaries,
   itemEffectSummaries,
@@ -780,6 +780,7 @@ function toStatusView(
   if (def === undefined || def.visibility !== "known") return null;
   const style = resolveStyle(def.style, def.quality, ui, def.polarity, def.tags);
   const tags = resolveTags(def.tags, ui);
+  const battleStyle = resolveBattleStyle(def.tags, ui);
   const effects = statusEffectSummaries(def, lookup, ui);
   return {
     id: def.id,
@@ -788,6 +789,7 @@ function toStatusView(
     ...(def.description !== undefined ? { description: def.description } : {}),
     ...(def.quality !== undefined ? { quality: def.quality } : {}),
     ...(style !== undefined ? { style } : {}),
+    ...(battleStyle !== undefined ? { battleStyle } : {}),
     ...(tags.length > 0 ? { tags } : {}),
     ...(effects.length > 0 ? { effects } : {}),
     durationLabel: statusDurationLabel(def),

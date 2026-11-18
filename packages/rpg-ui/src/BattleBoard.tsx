@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { BattleCommand } from "@life-sim/shared";
 import type { BattleVM } from "@life-sim/shared";
-import { StyledName } from "./StyledName.js";
+import { StyledName, styleBoxClassName, styleBoxInline } from "./StyledName.js";
 
 export interface BattleBoardProps {
   /** 战斗展示模型（来自 `toBattleVM`，不含引擎规则细节）。 */
@@ -82,14 +82,23 @@ export function BattleBoard({ battle: b, labels, busy = false, onCommand, onCont
               </div>
               <span className="attr-value">{a.hp}/{a.maxHp}</span>
               {a.statuses.length > 0 && (
-                <span className="enemy-status">
-                  {a.statuses.map((s, i) => (
-                    <span key={s.id}>
-                      {i > 0 ? "、" : ""}
-                      <StyledName name={s.name} style={s.style} />
-                      {s.stacks > 1 ? `×${s.stacks}` : ""}
-                    </span>
-                  ))}
+                <span className="enemy-status ls-battle-chips">
+                  {a.statuses.map((s) => {
+                    // 战斗态一律换成语义色（增益绿 / 异常红 / 中性灰）：打法上先看这个，
+                    // 身份色（神话 / 传说）留在详情浮层里看。没有语义标签的纯天赋才退回身份色。
+                    const st = s.battleStyle ?? s.style;
+                    const box = styleBoxClassName(st);
+                    return (
+                      <span
+                        key={s.id}
+                        className={`ls-battle-status${box === undefined ? "" : ` ${box}`}`}
+                        style={styleBoxInline(st)}
+                      >
+                        <StyledName name={s.name} style={st} />
+                        {s.stacks > 1 ? `×${s.stacks}` : ""}
+                      </span>
+                    );
+                  })}
                 </span>
               )}
             </div>
@@ -111,14 +120,21 @@ export function BattleBoard({ battle: b, labels, busy = false, onCommand, onCont
             </div>
             <span className="attr-value">{e.hp}/{e.maxHp}</span>
             {e.statuses.length > 0 && (
-              <span className="enemy-status">
-                {e.statuses.map((s, i) => (
-                  <span key={s.id}>
-                    {i > 0 ? "、" : ""}
-                    <StyledName name={s.name} style={s.style} />
-                    {s.stacks > 1 ? `×${s.stacks}` : ""}
-                  </span>
-                ))}
+              <span className="enemy-status ls-battle-chips">
+                {e.statuses.map((s) => {
+                  const st = s.battleStyle ?? s.style;
+                  const box = styleBoxClassName(st);
+                  return (
+                    <span
+                      key={s.id}
+                      className={`ls-battle-status${box === undefined ? "" : ` ${box}`}`}
+                      style={styleBoxInline(st)}
+                    >
+                      <StyledName name={s.name} style={st} />
+                      {s.stacks > 1 ? `×${s.stacks}` : ""}
+                    </span>
+                  );
+                })}
               </span>
             )}
           </button>

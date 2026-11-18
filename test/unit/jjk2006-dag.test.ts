@@ -138,6 +138,28 @@ describe("jjk-2006 2.0.0 · 前实例化开局", () => {
     expect(WorldStateV2Schema.safeParse(state).success).toBe(true);
   });
 
+  it("第六格选的咒具会进背包（入学式的 begin 不再覆盖 weapon）", () => {
+    const entry = loadV2();
+    let session = createOpeningSession(entry.openingDag, 9);
+    for (let g = 0; !session.done && g < 40; g += 1) {
+      const node = entry.openingDag.nodes.find((n) => n.node === session.nodeId);
+      if (node === undefined) break;
+      if (node.mode === "roll") {
+        session = resolveStep(entry.openingDag, session, { kind: "roll" }).session;
+        continue;
+      }
+      const pick =
+        node.node === "n06-weapon"
+          ? (node.options ?? []).find((o) => o.id === "spear")
+          : node.options?.[0];
+      if (pick === undefined) break;
+      session = resolveStep(entry.openingDag, session, { kind: "choose", optionId: pick.id }).session;
+    }
+    const state = commitOpening(entry.openingDag, session, entry.template, "w-weapon");
+    // 回归：`resolveParamMap` 是「后写覆盖先写」，n13 的 begin 曾把 weapon 覆写成急救包
+    expect(state.player.inventory["eq-ten-spear"]).toBe(1);
+  });
+
   it("装备也带标签：背包物品的标签与效果一起下发（ADR-002 D2b）", () => {
     const entry = loadV2();
     const state = runOpening(entry.openingDag, entry.template, "self-gojo");

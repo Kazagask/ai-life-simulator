@@ -97,7 +97,7 @@ statuses:
 
   - id: domain-pin
     name: 领域压制
-    tags: [excellent, abnormal]
+    tags: [abnormal]
     description: 被卷进别人的领域。术式被压制，身体像陷在泥里。
     duration: { turns: 3 }
     stacking: refresh
@@ -206,7 +206,7 @@ statuses:
 
   - id: curse-poison
     name: 咒毒
-    tags: [poor, abnormal]
+    tags: [abnormal]
     description: 咒灵的毒素侵蚀身体。
     duration: { turns: 3 }
     stacking: refresh
@@ -223,7 +223,7 @@ statuses:
 
   - id: cursed-burn
     name: 咒火
-    tags: [poor, abnormal]
+    tags: [abnormal]
     description: 被咒力灼烧，持续受损。
     duration: { turns: 2 }
     stacking: refresh
@@ -238,7 +238,7 @@ statuses:
 
   - id: injured-sim
     name: 重伤
-    tags: [excellent, abnormal]
+    tags: [abnormal]
     description: 骨头裂了，咒力回路也在漏。再挨一次，就真的站不起来了。
     # 品级 + 正负都靠标签：史诗（金）+ 减益（红）。
     duration: { turns: 3 }
@@ -252,7 +252,7 @@ statuses:
 
   - id: exhausted
     name: 力竭
-    tags: [fine, abnormal]
+    tags: [abnormal]
     description: 咒力见底，连抬手都费劲。
     duration: { turns: 2 }
     stacking: refresh
@@ -263,7 +263,7 @@ statuses:
 
   - id: grief
     name: 丧失
-    tags: [rare, abnormal]
+    tags: [abnormal]
     description: 有人死了，而你还活着。这件事会跟着你很久。
     duration: { turns: 8 }
     stacking: stack
@@ -274,7 +274,7 @@ statuses:
 
   - id: doubt
     name: 动摇
-    tags: [fine, abnormal]
+    tags: [abnormal]
     description: 你开始怀疑「保护非术师」这条准则是否站得住脚。
     duration: { turns: 6 }
     stacking: stack
@@ -285,7 +285,7 @@ statuses:
 
   - id: cursed-mark
     name: 厄运缠身
-    tags: [poor, abnormal]
+    tags: [abnormal]
     description: 转盘的大凶格留下了印记。走路都会踩到咒灵的巢。
     duration: { untilCured: true }
     stacking: unique
@@ -296,7 +296,7 @@ statuses:
 
   - id: blessed
     name: 大吉
-    tags: [epic, buff]
+    tags: [buff]
     description: 转盘停在最吉利的一格。今天做什么都顺手。
     duration: { turns: 3 }
     stacking: refresh
@@ -309,7 +309,7 @@ statuses:
 
   - id: stun
     name: 眩晕
-    tags: [common, abnormal]
+    tags: [abnormal]
     description: 无法行动。
     duration: { turns: 2 }
     stacking: refresh
@@ -320,7 +320,7 @@ statuses:
 
   - id: seal
     name: 封印
-    tags: [fine, abnormal]
+    tags: [abnormal]
     description: 咒力被封锁，无法使用技能。
     duration: { turns: 2 }
     stacking: refresh
@@ -331,7 +331,7 @@ statuses:
 
   - id: bind
     name: 束缚
-    tags: [rare, abnormal]
+    tags: [abnormal]
     description: 行动被咒力拘束。
     duration: { turns: 2 }
     stacking: refresh
@@ -342,7 +342,7 @@ statuses:
 
   - id: veil
     name: 帐护
-    tags: [excellent, buff]
+    tags: [buff]
     description: 一层薄薄的咒力帐裹住身体，攻击会被挡掉一部分。
     duration: { turns: 2 }
     stacking: refresh
@@ -353,7 +353,7 @@ statuses:
 
   - id: absorbed-curses
     name: 收集咒灵
-    tags: [epic, buff]
+    tags: [buff]
     description: 已吞下的咒灵储备。数量越多，旋涡的献祭威力越大。
     duration: { turns: 5 }
     stacking: stack
@@ -362,7 +362,7 @@ statuses:
 
   - id: enrage
     name: 狂化
-    tags: [excellent, buff]
+    tags: [buff]
     description: 咒灵被激怒，攻击性暴增。
     duration: { turns: 2 }
     stacking: refresh

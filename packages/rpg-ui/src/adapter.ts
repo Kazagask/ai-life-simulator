@@ -54,6 +54,7 @@ export function toBattleVM(battle: NonNullable<V2Snapshot["battle"]>): BattleVM 
       name: string;
       stacks: number;
       style?: StatusVM["style"];
+      battleStyle?: StatusVM["battleStyle"];
       tags?: StatusVM["tags"];
       quality?: string;
       effects?: StatusVM["effects"];
@@ -68,6 +69,7 @@ export function toBattleVM(battle: NonNullable<V2Snapshot["battle"]>): BattleVM 
       ...(s.description !== undefined ? { description: s.description } : {}),
       ...(s.quality !== undefined ? { quality: s.quality } : {}),
       ...(s.style !== undefined ? { style: s.style } : {}),
+      ...(s.battleStyle !== undefined ? { battleStyle: s.battleStyle } : {}),
       ...(s.tags !== undefined ? { tags: s.tags } : {}),
       ...(s.effects !== undefined ? { effects: s.effects } : {}),
       ...(s.durationLabel !== undefined ? { durationLabel: s.durationLabel } : {}),
@@ -281,6 +283,7 @@ function toNpcVM(snapshot: V2Snapshot, npc: V2Snapshot["npcs"][number]): NpcVM {
       ...(s.description !== undefined ? { description: s.description } : {}),
       ...(s.quality !== undefined ? { quality: s.quality } : {}),
       ...(s.style !== undefined ? { style: s.style } : {}),
+      ...(s.battleStyle !== undefined ? { battleStyle: s.battleStyle } : {}),
       ...(s.tags !== undefined ? { tags: s.tags } : {}),
       ...(s.effects !== undefined ? { effects: s.effects } : {}),
       ...(s.durationLabel !== undefined ? { durationLabel: s.durationLabel } : {}),
@@ -351,6 +354,7 @@ function toPlayerVM(snapshot: V2Snapshot): PlayerVM {
       ...(s.description !== undefined ? { description: s.description } : {}),
       ...(s.quality !== undefined ? { quality: s.quality } : {}),
       ...(s.style !== undefined ? { style: s.style } : {}),
+      ...(s.battleStyle !== undefined ? { battleStyle: s.battleStyle } : {}),
       ...(s.tags !== undefined ? { tags: s.tags } : {}),
       ...(s.effects !== undefined ? { effects: s.effects } : {}),
       ...(s.durationLabel !== undefined ? { durationLabel: s.durationLabel } : {}),

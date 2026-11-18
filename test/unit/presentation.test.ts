@@ -9,10 +9,12 @@ import {
   type StatusEffect,
 } from "@life-sim/shared";
 import {
+  applyStatusToPlayer,
   diffGains,
   captureGainBaseline,
   equipmentEffectSummaries,
   itemEffectSummaries,
+  resolveBattleStyle,
   resolveStyle,
   resolveTags,
   skillEffectSummaries,
@@ -305,6 +307,25 @@ describe("标签（ADR-002 D2b）", () => {
     const custom = UiConfigSchema.parse({ tags: { legendary: { name: "传说·改", style: { preset: "gold" } } } });
     expect(resolveTags(["legendary"], custom)[0]?.name).toBe("传说·改");
     expect(resolveTags(["mythic"], custom)[0]?.name).toBe("一品·神话");
+  });
+
+  it("战斗态样式只看语义：增益绿 / 异常红 / 纯天赋无战斗态", () => {
+    expect(resolveBattleStyle(["mythic-unique", "buff"], undefined)?.preset).toBe("green");
+    expect(resolveBattleStyle(["abnormal"], undefined)?.preset).toBe("red");
+    expect(resolveBattleStyle(["neutral"], undefined)?.preset).toBe("gray");
+    // 只有品级、没有语义标签 ⇒ 没有 battleStyle（战斗里继续用身份色）
+    expect(resolveBattleStyle(["mythic"], undefined)).toBeUndefined();
+    expect(resolveBattleStyle(undefined, undefined)).toBeUndefined();
+  });
+
+  it("施加点可以覆盖持续时间（同一条补正，这次只持续 1 回合）", () => {
+    const { state, entry } = makeWorld();
+    // fixture 的「轻伤」默认 2 回合；施加点说 1 回合就以施加点为准
+    applyStatusToPlayer(state, "inj", 1, entry.lookup, { turns: 1 });
+    expect(state.player.statuses.find((s) => s.statusId === "inj")?.turnsLeft).toBe(1);
+    // 不传 ⇒ 回落补正定义里的默认值（refresh 叠加也会把 turnsLeft 重置回默认）
+    applyStatusToPlayer(state, "inj", 1, entry.lookup);
+    expect(state.player.statuses.find((s) => s.statusId === "inj")?.turnsLeft).toBe(2);
   });
 
   it("加载期校验：未知标签 id 拒载", () => {

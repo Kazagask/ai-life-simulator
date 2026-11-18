@@ -574,6 +574,11 @@ export interface StatusView {
   effects?: EffectSummary[];
   /** 展示标签（ADR-002 D2b）：品级 / 增益减益。 */
   tags?: ResolvedTag[];
+  /**
+   * 战斗态样式（ADR-002 D2c）：按语义（增益 / 异常 / 中性）解析，**不是身份色**。
+   * 缺省 ⇒ 该实体没有语义标签，战斗里继续用 `style`。
+   */
+  battleStyle?: ResolvedStyle;
   /** 持续时间的人话（「持续到被移除」/「剩余 3 回合」）。 */
   durationLabel?: string;
 }

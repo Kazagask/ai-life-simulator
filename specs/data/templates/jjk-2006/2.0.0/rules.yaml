@@ -1,0 +1,36 @@
+# jjk-2006 · rules.yaml（叙事参与声明）
+#
+# ⚠ 这个文件不是可选的装饰：`runSettlementHooks` 在 `pipeline.rules === undefined` 时**直接 return**。
+# 也就是说**没有 rules.yaml 的模板永远不会有 LLM invocation** —— 玩家配了自定义 key 也不会被调用，
+# 前端那条 SSE 只能一直 idle（用户 2026-11-18 实测「配了 LLM 但 SSE 调用失败」就是这个）。
+#
+# 本模板的取法：**每回合一次旁白**，只读、不写分支（不声明 branchEventIds ⇒ 模型不能现造剧情）。
+llmTriggers:
+  - id: lt.turn-narrative
+    when:
+      - { op: always, args: {} }
+    # 必须显式 level：默认 edge 只在「上一轮假 → 本轮真」时发一次，而 always 恒真 ⇒ 一辈子只触发一次。
+    fireMode: level
+    invoke:
+      reason: jjk.turn.narrative
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      instruction: >-
+        只写这一回合内、主角亲身经历的一小段（150 字以内）。不要罗列世界动态、其他角色的行程、
+        属性数值或已知事实；除正在交谈的对象外，不要用「某某做了什么」的清单句式。
+      toolProfile: narrative
+
+toolProfile:
+  narrative:
+    - world.now
+    - world.history
+    - world.present
+    - world.self
+
+knowledgeGrants: []
+inferenceRules: []
+
+prompt:
+  style: |
+    贴近主角视角，句子短，动作具体；写感官与动作，不写总结陈词，不写数值与系统提示。

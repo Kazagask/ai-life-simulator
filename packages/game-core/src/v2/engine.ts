@@ -164,11 +164,24 @@ export function rollFormula(
 
 // ---------- 补正施加（模拟域；战斗域由 battle.ts 处理） ----------
 
-export function applyStatusToPlayer(state: WorldStateV2, statusId: string, stacks: number, lookup: TemplateLookup): void {
+/**
+ * 施加补正（模拟域）。
+ *
+ * `duration` 是**施加点**的持续时间，写了就覆盖补正定义里的默认值：
+ * 「同一件事持续多久」取决于这次是谁、用什么方式打上来的，不是补正类型的固有属性。
+ */
+export function applyStatusToPlayer(
+  state: WorldStateV2,
+  statusId: string,
+  stacks: number,
+  lookup: TemplateLookup,
+  duration?: { turns: number } | { untilCured: true },
+): void {
   const def = lookup.status(statusId);
   if (!def) return;
   const existing = state.player.statuses.find((s) => s.statusId === statusId);
-  const turnsLeft = "turns" in def.duration ? def.duration.turns : undefined;
+  const effective = duration ?? def.duration;
+  const turnsLeft = effective !== undefined && "turns" in effective ? effective.turns : undefined;
   if (existing) {
     switch (def.stacking) {
       case "refresh":
@@ -586,7 +599,7 @@ export function applyEffectsV2(
         break;
       }
       case "applyStatus":
-        applyStatusToPlayer(state, effect.status, effect.stacks ?? 1, lookup);
+        applyStatusToPlayer(state, effect.status, effect.stacks ?? 1, lookup, effect.duration);
         break;
       case "cureStatus":
         cureStatusFromPlayer(state, effect.status);

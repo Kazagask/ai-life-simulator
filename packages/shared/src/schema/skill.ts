@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EffectSchema, FormulaSchema } from "./common.js";
+import { DurationSchema, EffectSchema, FormulaSchema } from "./common.js";
 
 /**
  * 技能 Schema：战斗技能（消耗/命中/伤害/施加补正/冷却）与通用技能（解锁选项/效率/熟练度）。
@@ -22,6 +22,13 @@ export const StatusApplicationSchema = z
     stacks: z.number().int().positive().optional(),
     /** 缺省施加给技能目标；true 时施加给施放者自身（如收集类技能给自身叠层） */
     onSelf: z.boolean().optional(),
+    /**
+     * **施加点**的持续时间（覆盖补正定义里的 `duration`）。
+     *
+     * 领域上「多久」是这次施加的属性，不是补正类型的属性：同一个「眩晕」，杂鱼打中一回合、
+     * BOSS 打中三回合。补正上的 `duration` 是**默认值**，施加点写了就以施加点为准。
+     */
+    duration: DurationSchema.optional(),
   })
   .strict();
 

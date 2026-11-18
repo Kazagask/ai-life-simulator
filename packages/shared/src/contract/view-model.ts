@@ -105,6 +105,8 @@ export const StatusVMSchema = z
     effects: z.array(EffectSummaryVMSchema).optional(),
     /** 展示标签（ADR-002 D2b）：品级 / 增益减益，带自己的样式。 */
     tags: z.array(ResolvedTagSchema).optional(),
+    /** 战斗态样式（ADR-002 D2c）：按语义解析；缺省 = 战斗里继续用 `style`。 */
+    battleStyle: ResolvedStyleSchema.optional(),
     /** 持续时间的人话（「持续到被移除」/「剩余 3 回合」）。 */
     durationLabel: z.string().optional(),
   })

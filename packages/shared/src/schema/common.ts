@@ -223,6 +223,17 @@ export type OpenCondition = z.infer<typeof OpenConditionSchema>;
  * 触发器 / 知识授予共用的条件联合：声明式扁平 DSL ∪ `{ op, args }` 开放形。
  * （原先的 guards / completion 条件已随 DAG 子系统一起删除。）
  */
+/**
+ * 补正持续时间。原先在 `status-effect.ts`，2026-11-18 下沉到这里：
+ * 「施加点」（`StatusApplicationSchema`，在 skill.ts）也要能声明 duration，
+ * 而 status-effect.ts 反过来要 import skill.ts ⇒ 两边互相引用会形成循环。
+ */
+export const DurationSchema = z.union([
+  z.object({ turns: z.number().int().positive() }).strict(),
+  z.object({ untilCured: z.literal(true) }).strict(),
+]);
+export type Duration = z.infer<typeof DurationSchema>;
+
 export const TaskConditionSchema = z.union([ConditionSchema, OpenConditionSchema]);
 export type TaskCondition = z.infer<typeof TaskConditionSchema>;
 
@@ -324,7 +335,20 @@ export const EffectSchema = z.discriminatedUnion("type", [
     .strict(),
   z.object({ type: z.literal("grantItem"), itemId: z.string().min(1), count: z.number().int().positive() }).strict(),
   z.object({ type: z.literal("removeItem"), itemId: z.string().min(1), count: z.number().int().positive() }).strict(),
-  z.object({ type: z.literal("applyStatus"), status: z.string().min(1), stacks: z.number().int().positive().optional() }).strict(),
+  // `duration` 是**施加点**的持续时间（覆盖补正定义里的默认值）：同一次施加说了算。
+  z
+    .object({
+      type: z.literal("applyStatus"),
+      status: z.string().min(1),
+      stacks: z.number().int().positive().optional(),
+      duration: z
+        .union([
+          z.object({ turns: z.number().int().positive() }).strict(),
+          z.object({ untilCured: z.literal(true) }).strict(),
+        ])
+        .optional(),
+    })
+    .strict(),
   z.object({ type: z.literal("cureStatus"), status: z.string().min(1) }).strict(),
   z.object({ type: z.literal("unlockSkill"), skillId: z.string().min(1) }).strict(),
   z.object({ type: z.literal("adjustProficiency"), skillId: z.string().min(1), value: z.number() }).strict(),

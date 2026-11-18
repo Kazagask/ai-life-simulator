@@ -179,9 +179,6 @@ export function statusEffectSummaries(
         tone: combat.hitChance > 0 ? "buff" : "debuff",
       });
     }
-    if (combat.battleRounds !== undefined) {
-      out.push({ text: `战斗中持续 ${combat.battleRounds} 回合`, kind: "note" });
-    }
     for (const round of combat.onRoundEnd ?? []) {
       if (round.damage !== undefined) {
         out.push({ text: `每回合受到 ${formulaText(round.damage, lookup)} 点伤害`, kind: "combat", tone: "debuff" });
