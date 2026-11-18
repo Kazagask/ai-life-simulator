@@ -1,4 +1,5 @@
 import type { InventoryItemVM } from "@life-sim/shared";
+import { StyledName } from "./StyledName.js";
 import type { PersonalSelection } from "./personal.js";
 
 /** 背包分区（用户裁决：装备与物品在背包里分区，DNF 式）。按物品类型分栏，不混排。 */
@@ -76,7 +77,9 @@ export function BagPanel({ inventory, partition = "equipment", onPartition, sele
                 onClick={() => onSelect?.({ kind: "item", itemId: item.itemId })}
               >
                 <span className="cell-glyph">{itemGlyph(item.type)}</span>
-                <span className="cell-name">{item.name}</span>
+                <span className="cell-name">
+                  <StyledName name={item.name} style={item.style} />
+                </span>
                 {item.count > 1 && <span className="cell-count">×{item.count}</span>}
               </button>
             );

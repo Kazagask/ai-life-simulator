@@ -6,7 +6,7 @@ import {
   resolveStep,
 } from "../../packages/game-core/src/v2/opening-dag.ts";
 import type { OpeningBranchDag } from "@life-sim/shared";
-import { RelationKindSchema, WorldStateV2Schema } from "@life-sim/shared";
+import { RelationKindSchema, WorldStateV2Schema, WorldTemplateV2Schema } from "@life-sim/shared";
 import { projectSnapshotV2 } from "../../packages/game-core/src/v2/projection.ts";
 
 const silent = { warn: () => {}, error: () => {}, info: () => {} };
@@ -197,7 +197,32 @@ describe("jjk-2006 2.0.0 · 前实例化开局", () => {
     expect(worldIds).toContain("stun");
   });
 
-  it("装备也带标签：背包物品的标签与效果一起下发（ADR-002 D2b）", () => {
+  it("品级校验：阶梯 id 免声明，自定义词仍需模板白名单", () => {
+    const entry = loadV2();
+    const clone = () => structuredClone(entry.template);
+
+    // 阶梯 id：即使模板没声明 qualities 也合法（jjk 已删掉白名单）
+    const ok = clone();
+    expect(WorldTemplateV2Schema.safeParse(ok).success).toBe(true);
+
+    // 模板自己的一等词汇：声明白名单后合法
+    const custom = clone();
+    custom.equipment = { ...custom.equipment, qualities: ["cursed"] };
+    const spear = custom.items.find((i) => i.id === "eq-ten-spear");
+    expect(spear).toBeDefined();
+    spear!.quality = "cursed";
+    expect(WorldTemplateV2Schema.safeParse(custom).success).toBe(true);
+
+    // 既不是阶梯、也不在白名单 ⇒ 拒
+    const bad = clone();
+    bad.equipment = { ...bad.equipment, qualities: ["cursed"] };
+    bad.items.find((i) => i.id === "eq-bancho")!.quality = "unicorn";
+    const parsed = WorldTemplateV2Schema.safeParse(bad);
+    expect(parsed.success).toBe(false);
+    expect(JSON.stringify(parsed.error?.issues ?? [])).toContain("未知品质：unicorn");
+  });
+
+  it("装备只写 quality 就拿到品级标签与名字颜色（品级 ↔ 标签联动）", () => {
     const entry = loadV2();
     const state = runOpening(entry.openingDag, entry.template, "self-gojo");
     // 背包是 itemId → 数量的表（不是数组）
@@ -211,8 +236,9 @@ describe("jjk-2006 2.0.0 · 前实例化开局", () => {
       entry.ui,
     );
     const spear = view.player.inventory.find((i) => i.itemId === "eq-ten-spear");
-    expect(spear?.tags?.map((t) => t.name)).toEqual(["一品·神话", "增益"]);
-    // 名字颜色来自靠前的标签（一品·神话 = 静态彩），与标签保持同源
+    // 装备**不再写 tags**：`quality: mythic` 直接生成「一品·神话」标签（ADR-002 D2c 联动）
+    expect(spear?.tags?.map((t) => t.name)).toEqual(["一品·神话"]);
+    // 名字颜色来自这条标签（一品·神话 = 静态彩）
     expect(spear?.style?.preset).toBe("rainbow-static");
     expect(spear?.effects?.length ?? 0).toBeGreaterThan(0);
   });

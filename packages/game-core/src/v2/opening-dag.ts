@@ -18,7 +18,12 @@ import type {
 import { RelationKindSchema } from "@life-sim/shared";
 import { createRng, deriveOpeningSeed, pickWeighted } from "../rng.js";
 import type { TurnGain, UiConfig } from "@life-sim/shared";
-import { resolveStyle, resolveTags } from "./presentation/style.js";
+import {
+  resolveEntityStyle,
+  resolveEntityTags,
+  resolveStyle,
+  tagIdsOf,
+} from "./presentation/style.js";
 import {
   durationLabel,
   equipmentEffectSummaries,
@@ -296,8 +301,8 @@ export function collectOpeningGains(
       if (typeof id !== "string") continue;
       const stacks = typeof asRecord(spec)?.stacks === "number" ? (asRecord(spec)?.stacks as number) : 1;
       const def = lookup.status(id);
-      const style = resolveStyle(def?.style, def?.quality, ui, def?.polarity, def?.tags);
-      const tags = resolveTags(def?.tags, ui);
+      const style = resolveEntityStyle(def, ui);
+      const tags = resolveEntityTags(def, ui);
       out.push({
         category: "status",
         action: "gain",
@@ -317,7 +322,7 @@ export function collectOpeningGains(
     for (const id of Array.isArray(value) ? value : [value]) {
       if (typeof id !== "string") continue;
       const def = lookup.skill(id);
-      const style = resolveStyle(def?.style, def?.quality, ui);
+      const style = resolveStyle(def?.style, def?.quality, ui, undefined, tagIdsOf(def));
       out.push({
         category: "skill",
         action: "gain",
@@ -336,8 +341,8 @@ export function collectOpeningGains(
     if (typeof it?.itemId !== "string") continue;
     const count = typeof it.count === "number" ? it.count : 1;
     const def = lookup.item(it.itemId);
-    const style = resolveStyle(def?.style, def?.quality, ui, def?.polarity, def?.tags);
-    const tags = resolveTags(def?.tags, ui);
+    const style = resolveEntityStyle(def, ui);
+    const tags = resolveEntityTags(def, ui);
     out.push({
       category: "item",
       action: "gain",

@@ -193,6 +193,31 @@ export const TAG_TONES: Readonly<Record<string, Polarity>> = {
   neutral: "neutral",
 };
 
+/**
+ * 品级阶梯 id（从高到低）：`mythic-unique` … `poor`。
+ *
+ * 与 `DEFAULT_TAGS` 里的品级条目一一对应。实体写 `quality: <tier>` 时就**自动**得到
+ * 对应的标签与配色（见 `tagIdsOf`）—— 不再需要在 `tags` 里重复写一遍同名 id。
+ */
+export const QUALITY_TIER_IDS = [
+  "mythic-unique",
+  "mythic",
+  "legend",
+  "epic",
+  "treasure",
+  "excellent",
+  "rare",
+  "fine",
+  "common",
+  "poor",
+] as const;
+export type QualityTier = (typeof QUALITY_TIER_IDS)[number];
+
+/** 这个字符串是不是品级阶梯 id（模板自定义的 `quality` 词则不是）。 */
+export function isQualityTier(id: string | undefined): id is QualityTier {
+  return id !== undefined && (QUALITY_TIER_IDS as readonly string[]).includes(id);
+}
+
 /** 投影后交给前端的标签（样式已解析）。 */
 export const ResolvedTagSchema = z
   .object({

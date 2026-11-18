@@ -1,4 +1,5 @@
 import type { EquipmentSlotVM, PlayerVM } from "@life-sim/shared";
+import { StyledName } from "./StyledName.js";
 import { isSlotSelected } from "./personal.js";
 import type { PersonalSelection, SlotCell } from "./personal.js";
 import { buildSlotCells } from "./personal.js";
@@ -22,7 +23,14 @@ export function SlotTile({ cell, selected, onSelect }: SlotTileProps) {
         {cell.capacity > 1 ? ` ${cell.index + 1}` : ""}
       </span>
       <span className="cell-glyph">{cell.instance ? "◈" : "＋"}</span>
-      <span className={`cell-name ${cell.instance ? "" : "muted"}`}>{cell.instance?.name ?? "空"}</span>
+      <span className={`cell-name ${cell.instance ? "" : "muted"}`}>
+        {/* 装备格也要吃样式：品级色是玩家认装备的第一眼信息（2026-11-19）。 */}
+        {cell.instance === null ? (
+          "空"
+        ) : (
+          <StyledName name={cell.instance.name ?? cell.instance.itemId} style={cell.instance.style} />
+        )}
+      </span>
     </button>
   );
 }

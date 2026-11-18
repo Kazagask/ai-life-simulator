@@ -19,7 +19,13 @@ import type { TemplateLookup } from "./lookup.js";
 import { slotEventView } from "./turn.js";
 import { controlOf } from "./battle.js";
 import { projectVisibleRelations } from "./relations.js";
-import { resolveBattleStyle, resolveStyle, resolveTags } from "./presentation/style.js";
+import {
+  resolveBattleStyle,
+  resolveEntityStyle,
+  resolveEntityTags,
+  resolveStyle,
+  tagIdsOf,
+} from "./presentation/style.js";
 import {
   equipmentEffectSummaries,
   itemEffectSummaries,
@@ -149,7 +155,7 @@ export function projectSnapshotV2(
   const skills = player.skills.map((id) => {
     const def = lookup.skill(id);
     // 技能不参与正负零（用户 2026-11-18 裁决）：只有品级 / 自身 style。
-    const style = resolveStyle(def?.style, def?.quality, ui);
+    const style = resolveStyle(def?.style, def?.quality, ui, undefined, tagIdsOf(def));
     const effects = def === undefined ? [] : skillEffectSummaries(def, lookup, ui);
     return {
       id,
@@ -181,8 +187,8 @@ export function projectSnapshotV2(
         quality: def?.quality,
         ...(() => {
           if (def === undefined) return {};
-          const style = resolveStyle(def.style, def.quality, ui, def.polarity, def.tags);
-          const tags = resolveTags(def.tags, ui);
+          const style = resolveEntityStyle(def, ui);
+          const tags = resolveEntityTags(def, ui);
           const effects =
             def.type === "equipment"
               ? equipmentEffectSummaries(def, lookup)
@@ -265,8 +271,8 @@ export function projectSnapshotV2(
           quality: def?.quality,
           ...(() => {
             if (def === undefined) return {};
-            const style = resolveStyle(def.style, def.quality, ui, def.polarity, def.tags);
-            const tags = resolveTags(def.tags, ui);
+            const style = resolveEntityStyle(def, ui);
+            const tags = resolveEntityTags(def, ui);
             const effects = equipmentEffectSummaries(def, lookup);
             return {
               ...(style !== undefined ? { style } : {}),
@@ -778,8 +784,8 @@ function toStatusView(
 ): StatusView | null {
   const def = lookup.status(inst.statusId);
   if (def === undefined || def.visibility !== "known") return null;
-  const style = resolveStyle(def.style, def.quality, ui, def.polarity, def.tags);
-  const tags = resolveTags(def.tags, ui);
+  const style = resolveEntityStyle(def, ui);
+  const tags = resolveEntityTags(def, ui);
   const battleStyle = resolveBattleStyle(def.tags, ui);
   const effects = statusEffectSummaries(def, lookup, ui);
   return {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { QUALITY_TIER_IDS, isQualityTier } from "./style.js";
 import { TaskConditionSchema, TemplateEffectSchema, LifeStageSchema, TimeAmountSchema, isCoreEffect } from "./common.js";
 import { CharacterSchema, GenderDefSchema } from "./character.js";
 import { PLAYER_ID } from "./relation.js";
@@ -642,8 +643,21 @@ export const WorldTemplateV2Schema = z
         if (!slot.allowedCategories.includes(item.category ?? "")) {
           add(["items", i, "category"], `槽位 ${slot.id} 不允许类别：${item.category ?? "(缺失)"}（allowedCategories: ${slot.allowedCategories.join(", ")}）`);
         }
-        if (qualitySet.size > 0 && !qualitySet.has(item.quality ?? "")) {
-          add(["items", i, "quality"], `未知品质：${item.quality ?? "(缺失)"}（qualities 白名单：${[...qualitySet].join(", ")}）`);
+        /**
+         * 品级（2026-11-19）：**引擎的品级阶梯 id 直接合法**，不需要模板在
+         * `equipment.qualities` 里再抄一遍；白名单只用于模板自定义的品质词。
+         * 这样「装备品级」与「品级标签」是同一套词汇，装备只写 `quality: legend` 即可。
+         */
+        const quality = item.quality;
+        if (quality === undefined) {
+          if (qualitySet.size > 0) {
+            add(["items", i, "quality"], "未知品质：(缺失)（模板声明了 qualities 白名单，装备必须写 quality）");
+          }
+        } else if (!isQualityTier(quality) && qualitySet.size > 0 && !qualitySet.has(quality)) {
+          add(
+            ["items", i, "quality"],
+            `未知品质：${quality}（可为品级阶梯 ${QUALITY_TIER_IDS.join("/")}，或模板 qualities：${[...qualitySet].join(", ")}）`,
+          );
         }
         if (item.dynamicModifier) {
           const msg = checkDynamicModifierSpec(item.dynamicModifier, { attributeIds, statusIds });

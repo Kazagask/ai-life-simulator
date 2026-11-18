@@ -1,7 +1,9 @@
 import {
   DEFAULT_POLARITY_STYLES,
   DEFAULT_TAGS,
+  QUALITY_TIER_IDS,
   STYLE_PRESET_IDS,
+  isQualityTier,
   TAG_PRESET_IDS,
   TAG_TONES,
   resolveColorToken,
@@ -122,6 +124,52 @@ export function resolveBattleStyle(
   const tone = toneOfTags(tags);
   if (tone === undefined) return undefined;
   return resolveStyle(undefined, undefined, ui, tone);
+}
+
+/**
+ * 实体的标签 id：写了 `tags` 就用它；否则把 `quality` 当**品级阶梯 id** 生成一个。
+ *
+ * 这是「装备品级」与「品级标签」的联动（用户 2026-11-19）：装备此前同时要写
+ * `quality: cursed`（一个什么也不做的旧字段）和 `tags: [legend, buff]`（真正生效的那行），
+ * 两套词汇各说各话。现在 `quality` 直接写阶梯 id（`legend` / `epic` / …），
+ * 名字与配色自动来自预置标签，**不必再写 tags**。
+ *
+ * 非阶梯的自定义 quality 词不生成标签（那时颜色仍走 `ui.qualityStyles` 的旧通道）。
+ */
+export function tagIdsOf(def: { tags?: readonly string[]; quality?: string } | undefined): string[] {
+  if (def === undefined) return [];
+  if (def.tags !== undefined && def.tags.length > 0) return [...def.tags];
+  return isQualityTier(def.quality) ? [def.quality] : [];
+}
+
+/** 只读实体（补正 / 物品 / 装备 / 技能）的样式来源字段。 */
+export interface StyledEntity {
+  style?: string;
+  quality?: string;
+  tags?: readonly string[];
+  polarity?: Parameters<typeof resolveStyle>[3];
+}
+
+/**
+ * 实体的最终样式（含 `quality` → 品级标签的联动）。
+ *
+ * ⚠ 技能**不参与正负零**（用户 2026-11-18 裁决），技能样式请直接调
+ * `resolveStyle(def.style, def.quality, ui, undefined, tagIdsOf(def))`，不要走这里。
+ */
+export function resolveEntityStyle(
+  def: StyledEntity | undefined,
+  ui: UiConfig | undefined,
+): ResolvedStyle | undefined {
+  if (def === undefined) return undefined;
+  return resolveStyle(def.style, def.quality, ui, def.polarity, tagIdsOf(def));
+}
+
+/** 实体的展示标签（`quality` 为品级阶梯 id 时自动生成一条）。 */
+export function resolveEntityTags(
+  def: { tags?: readonly string[]; quality?: string } | undefined,
+  ui: UiConfig | undefined,
+): ResolvedTag[] {
+  return resolveTags(tagIdsOf(def), ui);
 }
 
 /**

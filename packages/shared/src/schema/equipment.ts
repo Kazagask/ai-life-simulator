@@ -147,7 +147,13 @@ export type EquipmentInstance = z.infer<typeof EquipmentInstanceSchema>;
 
 export const EquipmentConfigSchema = z
   .object({
-    /** 品质白名单（模板可配）；声明后装备 quality 必须取值于此 */
+    /**
+     * 品质白名单（可选，**只用于模板自定义的品质词**）。
+     *
+     * 引擎已有品级阶梯（`QUALITY_TIER_IDS`：mythic-unique…poor），那些 id 直接合法，
+     * 不必在这里重复声明。只有当模板想用自己的一等词汇（如 `cursed`）时才需要写，
+     * 且装备的 `quality` 必须是「阶梯 id 或白名单里的词」之一。
+     */
     qualities: z.array(z.string().min(1)).optional(),
     slots: z.array(EquipmentSlotSchema).optional(),
     initialEquipment: z

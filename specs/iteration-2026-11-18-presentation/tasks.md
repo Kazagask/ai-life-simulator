@@ -307,3 +307,21 @@ T0 ──┬─> T1 ──┐
 实测（jjk 五条悟开局 → 巡逻进战斗）：世界层补正 `six-eyes, tech-ten-shadow,
 heavenly-restriction`，战斗面板只剩 `six-eyes, tech-ten-shadow` —— 天与咒缚（纯体质）不再上战斗区。
 新增单测 1 例（`blessed` 只有 simulation ⇒ 不进战斗；个人页仍可见）。`pnpm test` 全绿。
+
+## 验收返工记录（2026-11-19：品级 ↔ 标签合流 + 补齐装备的样式消费点）
+
+1. **品级合流（ADR-002 D2e）**：装备此前要同时写 `quality: cursed`（模板白名单里的词，
+   什么也不做）和 `tags: [legend, buff]`（真正生效的那行）。现在 `quality` 直接写
+   引擎品级阶梯 id，`tagIdsOf` 自动生成对应标签 —— 装备**不必再打 tags**。
+   - 校验放宽：`equipment.qualities` 白名单只用于模板自定义词；阶梯 id 免声明。
+     jjk 的 `equipment.yaml` 已删掉白名单，5 件装备改成 `quality: mythic/legend/epic/treasure`。
+   - `resolveEntityStyle` / `resolveEntityTags` 两个入口统一处理「tags 优先、否则 quality 当阶梯」；
+     技能仍不走 polarity（既有裁决），只借用 tier 标签。
+2. **装备样式的三个漏点**：
+   - 角色页装备格（`SlotTile`）名字；
+   - 空槽详情里的**可装备列表**（同时还去掉了把 `quality` 原样印出来的「mythic · cursed-tool」）；
+   - 背包格子（`BagPanel`）名字。
+
+验证：`pnpm test` 51 文件 / 334 例全绿；`tsc` 0 错；web build 通过；
+CDP 实拍：穿上天逆鉾后角色页格子里名字是静态彩、空槽可装备列表显示「一品·神话」标签、
+背包格子同样是静态彩名字；投影核对 `quality: mythic → tags 一品·神话 / preset rainbow-static`。

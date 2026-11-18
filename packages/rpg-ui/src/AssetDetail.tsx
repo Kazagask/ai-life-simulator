@@ -110,9 +110,12 @@ export function AssetDetail({
             {candidates.map((item) => (
               <div key={item.itemId} className="detail-row">
                 <div>
-                  <strong>{item.name}</strong>
+                  <strong>
+                    <StyledName name={item.name} style={item.style} />
+                  </strong>
+                  {/* 品级不再印 `quality` 原文（那是引擎词）；改由标签行承担（ADR-002 D2b/D2c）。 */}
+                  <TagChips tags={item.tags} className="tag-row" />
                   <p className="muted">
-                    {item.quality ? `${item.quality} · ` : ""}
                     {item.category ?? "无类别"}
                     {item.count > 1 ? ` · 备用 ${item.count}` : ""}
                   </p>

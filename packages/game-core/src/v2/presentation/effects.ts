@@ -9,7 +9,13 @@ import type {
 } from "@life-sim/shared";
 import type { TemplateLookup } from "../lookup.js";
 import { fixedEffectCopy } from "./fixed-effects.js";
-import { resolveStyle, resolveTags } from "./style.js";
+import {
+  resolveEntityStyle,
+  resolveEntityTags,
+  resolveStyle,
+  resolveTags,
+  tagIdsOf,
+} from "./style.js";
 
 /**
  * 引用实体的详情快照：让「施加 力竭」在任意浮层里都能点开。
@@ -35,8 +41,8 @@ function refDetailOf(
   if (kind === "status") {
     const def = lookup.status(id);
     if (def === undefined) return {};
-    const style = resolveStyle(def.style, def.quality, ui, def.polarity, def.tags);
-    const tags = resolveTags(def.tags, ui);
+    const style = resolveEntityStyle(def, ui);
+    const tags = resolveEntityTags(def, ui);
     return {
       refDetail: {
         title: def.name,
@@ -51,8 +57,8 @@ function refDetailOf(
   if (kind === "item") {
     const def = lookup.item(id);
     if (def === undefined) return {};
-    const style = resolveStyle(def.style, def.quality, ui, def.polarity, def.tags);
-    const tags = resolveTags(def.tags, ui);
+    const style = resolveEntityStyle(def, ui);
+    const tags = resolveEntityTags(def, ui);
     return {
       refDetail: {
         title: def.name,
@@ -68,7 +74,7 @@ function refDetailOf(
   }
   const def = lookup.skill(id);
   if (def === undefined) return {};
-  const style = resolveStyle(def.style, def.quality, ui);
+  const style = resolveStyle(def.style, def.quality, ui, undefined, tagIdsOf(def));
   return {
     refDetail: {
       title: def.name,

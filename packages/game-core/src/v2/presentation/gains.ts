@@ -1,6 +1,6 @@
 import type { TurnGain, UiConfig, WorldStateV2 } from "@life-sim/shared";
 import type { TemplateLookup } from "../lookup.js";
-import { resolveStyle, resolveTags } from "./style.js";
+import { resolveEntityStyle, resolveEntityTags, resolveStyle, tagIdsOf } from "./style.js";
 import { durationLabel, equipmentEffectSummaries, itemEffectSummaries, skillEffectSummaries, statusEffectSummaries } from "./effects.js";
 
 /**
@@ -67,8 +67,8 @@ export function diffGains(
     const next = nextStatus.get(id);
     if (prev === next) continue;
     const def = lookup.status(id);
-    const style = resolveStyle(def?.style, def?.quality, ui, def?.polarity, def?.tags);
-    const tags = resolveTags(def?.tags, ui);
+    const style = resolveEntityStyle(def, ui);
+    const tags = resolveEntityTags(def, ui);
     out.push({
       category: "status",
       action: prev === undefined ? "gain" : next === undefined ? "lose" : next > prev ? "gain" : "lose",
@@ -88,7 +88,7 @@ export function diffGains(
   const nextSkills = new Set(after.player.skills);
   for (const id of [...nextSkills].filter((s) => !prevSkills.has(s)).sort(byId)) {
     const def = lookup.skill(id);
-    const style = resolveStyle(def?.style, def?.quality, ui);
+    const style = resolveStyle(def?.style, def?.quality, ui, undefined, tagIdsOf(def));
     out.push({
       category: "skill",
       action: "gain",
@@ -108,8 +108,8 @@ export function diffGains(
     const next = after.player.inventory[id] ?? 0;
     if (next === prev) continue;
     const def = lookup.item(id);
-    const style = resolveStyle(def?.style, def?.quality, ui, def?.polarity, def?.tags);
-    const tags = resolveTags(def?.tags, ui);
+    const style = resolveEntityStyle(def, ui);
+    const tags = resolveEntityTags(def, ui);
     out.push({
       category: "item",
       action: next > prev ? "gain" : "lose",
@@ -135,8 +135,8 @@ export function diffGains(
     if (prev === next) continue;
     const itemId = next ?? prev ?? "";
     const def = lookup.item(itemId);
-    const style = resolveStyle(def?.style, def?.quality, ui, def?.polarity, def?.tags);
-    const tags = resolveTags(def?.tags, ui);
+    const style = resolveEntityStyle(def, ui);
+    const tags = resolveEntityTags(def, ui);
     out.push({
       category: "equipment",
       action: next !== undefined ? "equip" : "unequip",

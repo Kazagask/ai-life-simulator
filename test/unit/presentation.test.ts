@@ -4,6 +4,7 @@ import {
   OpeningBranchDagSchema,
   StyleSpecSchema,
   UiConfigSchema,
+  isQualityTier,
   type EffectSummary,
   type Item,
   type StatusEffect,
@@ -15,7 +16,10 @@ import {
   equipmentEffectSummaries,
   itemEffectSummaries,
   resolveBattleStyle,
+  resolveEntityStyle,
+  resolveEntityTags,
   resolveStyle,
+  tagIdsOf,
   resolveTags,
   skillEffectSummaries,
   statusEffectSummaries,
@@ -326,6 +330,23 @@ describe("标签（ADR-002 D2b）", () => {
     // 不传 ⇒ 回落补正定义里的默认值（refresh 叠加也会把 turnsLeft 重置回默认）
     applyStatusToPlayer(state, "inj", 1, entry.lookup);
     expect(state.player.statuses.find((s) => s.statusId === "inj")?.turnsLeft).toBe(2);
+  });
+
+  it("quality 写品级阶梯 id 会自动生成标签（装备不必再写 tags）", () => {
+    expect(isQualityTier("legend")).toBe(true);
+    expect(isQualityTier("cursed")).toBe(false);
+
+    // 只写 quality ⇒ 自动一条品级标签
+    expect(tagIdsOf({ quality: "legend" })).toEqual(["legend"]);
+    expect(resolveEntityTags({ quality: "legend" }, undefined).map((t) => t.name)).toEqual(["二品·传说"]);
+    expect(resolveEntityStyle({ quality: "legend" }, undefined)?.preset).toBe("gold");
+
+    // 写了 tags ⇒ tags 优先（品级 + 增益这种多标签场景仍然可用）
+    expect(tagIdsOf({ quality: "legend", tags: ["epic", "buff"] })).toEqual(["epic", "buff"]);
+
+    // 自定义 quality 词不生成标签（仍可走 ui.qualityStyles 的旧通道）
+    expect(tagIdsOf({ quality: "cursed" })).toEqual([]);
+    expect(tagIdsOf(undefined)).toEqual([]);
   });
 
   it("加载期校验：未知标签 id 拒载", () => {

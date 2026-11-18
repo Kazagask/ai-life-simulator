@@ -33,7 +33,9 @@ styles:
   blue: { preset: blue }
   white: { preset: white }
 
-# 品质（模板自己的词）→ 样式 id。改这里即可整体换色，不用动实体。
+# 品质 → 样式 id：**只给模板自定义的品质词用**（如 cursed）。
+# 品级阶梯 id（mythic-unique…poor）不需要在这里映射 —— 引擎预置标签自带配色，
+# 实体写 `quality: legend` 就直接得到「二品·传说」。
 qualityStyles:
   rainbow: rainbow
   rainbow-static: rainbow-static
