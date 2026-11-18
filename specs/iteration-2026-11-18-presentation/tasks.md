@@ -292,3 +292,18 @@ T0 ──┬─> T1 ──┐
 （六眼 / 术式·十种影法术 / 天与咒缚），战斗态一律语义绿（文字与边框都是 `rgb(79,209,165)`），
 与角色卡上的身份色（彩虹 / 金）形成对比；点芯片弹出毛玻璃详情。
 `tsc` 0 错；`pnpm test` 全绿；web build 通过。
+
+## 验收返工记录（2026-11-19：战斗区只展示战斗补正）
+
+用户：战斗区不展示**非战斗补正**（没有 `combat` 字段就不展示）。
+
+- 过滤落在**投影层**（`battleView` 的 `statusViews`），不在前端做：
+  「这条补正是否与战斗有关」是定义上的事实，前端拿不到定义，只能拿投影结果。
+- 判据 `lookup.status(id).combat !== undefined`。`StatusEffectSchema` 的 refine 保证每条补正
+  至少有 `simulation` 或 `combat` 之一，所以这条判据正好切出「纯模拟域」。
+- 只影响战斗视图：个人页 / NPC 卡 / 收获卡仍展示全部补正。
+- 玩家（战斗镜像 + 世界层合并）、友军、敌人共用同一个过滤。
+
+实测（jjk 五条悟开局 → 巡逻进战斗）：世界层补正 `six-eyes, tech-ten-shadow,
+heavenly-restriction`，战斗面板只剩 `six-eyes, tech-ten-shadow` —— 天与咒缚（纯体质）不再上战斗区。
+新增单测 1 例（`blessed` 只有 simulation ⇒ 不进战斗；个人页仍可见）。`pnpm test` 全绿。

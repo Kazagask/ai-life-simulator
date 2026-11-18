@@ -160,6 +160,43 @@ describe("jjk-2006 2.0.0 · 前实例化开局", () => {
     expect(state.player.inventory["eq-ten-spear"]).toBe(1);
   });
 
+  it("战斗面板只展示带 combat 的补正（纯模拟域补正不进战斗区）", () => {
+    const entry = loadV2();
+    const state = runOpening(entry.openingDag, entry.template, "self-gojo");
+    // `blessed`（大吉）只有 simulation；`stun`（眩晕）有 combat 面
+    state.player.statuses = [
+      { statusId: "blessed", stacks: 1, appliedTurn: 0 },
+      { statusId: "stun", stacks: 1, appliedTurn: 0, turnsLeft: 1 },
+    ] as never;
+    state.battle = {
+      eventId: "ev-fight",
+      settle: { enemies: [] },
+      round: 1,
+      player: { hp: 100, mp: 40, statuses: [], skillCooldowns: {} },
+      enemies: [],
+      allies: [],
+      log: [],
+      over: null,
+    } as never;
+
+    const view = projectSnapshotV2(
+      state,
+      entry.template,
+      entry.lookup,
+      null,
+      entry.endingConfig?.endings,
+      entry.ui,
+    );
+    const battleIds = view.battle?.player.statuses.map((s) => s.id) ?? [];
+    expect(battleIds).toContain("stun");
+    // 用户 2026-11-19：没有 combat 字段的补正不该出现在战斗区
+    expect(battleIds).not.toContain("blessed");
+    // 非战斗视图不受影响：个人页仍然展示全部补正
+    const worldIds = view.player.statuses.map((s) => s.id);
+    expect(worldIds).toContain("blessed");
+    expect(worldIds).toContain("stun");
+  });
+
   it("装备也带标签：背包物品的标签与效果一起下发（ADR-002 D2b）", () => {
     const entry = loadV2();
     const state = runOpening(entry.openingDag, entry.template, "self-gojo");

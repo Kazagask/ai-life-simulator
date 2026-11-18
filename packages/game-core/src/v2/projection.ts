@@ -803,8 +803,20 @@ function battleView(
   ui: UiConfig | undefined,
 ): BattleView {
   const battle = state.battle!;
+  /**
+   * 战斗面板的补正列表：**只留带 `combat` 字段的**（用户 2026-11-19）。
+   *
+   * 「六眼」「天与咒缚」这类纯模拟域补正（只有 `simulation`）在战斗里没有任何行为语义，
+   * 打在面板上只会把真正要看的控制 / 增伤挤掉。判据用定义本身（`lookup.status(id).combat`），
+   * 不看名字、也不看 `battleStyle` —— 后者只决定配色，不决定「是否与战斗有关」。
+   *
+   * 非战斗视图（个人页 / NPC 卡）不受影响：那边仍然展示全部补正。
+   */
   const statusViews = (instances: Array<{ statusId: string; stacks: number }>) =>
-    instances.map((inst) => toStatusView(inst, lookup, ui)).filter((s): s is StatusView => s !== null);
+    instances
+      .filter((inst) => lookup.status(inst.statusId)?.combat !== undefined)
+      .map((inst) => toStatusView(inst, lookup, ui))
+      .filter((s): s is StatusView => s !== null);
 
   const battleStatuses = statusViews(battle.player.statuses);
   const worldStatuses = statusViews(state.player.statuses);
