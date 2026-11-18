@@ -153,6 +153,46 @@ export interface OpeningSummary {
   description: string;
 }
 
+/** 该版本使用前实例化开局向导（ADR-001）；`GET /api/templates` 只下发声明，不下发 DAG 正文。 */
+export interface OpeningDagSummary {
+  openingId: string;
+  name: string;
+  description?: string;
+}
+
+/** 开局节点视图：roll 的选项只用于转盘扇区；allocate 带点数规格。 */
+export interface OpeningNodeView {
+  nodeId: string;
+  title: string;
+  text?: string;
+  mode: "roll" | "choose" | "allocate";
+  options: Array<{ id: string; text: string; weight?: number }>;
+  allocation?: {
+    param: string;
+    budget: number;
+    targets: Array<{ attribute: string; min?: number; max?: number }>;
+  };
+}
+
+export interface OpeningStepResultView {
+  nodeId: string;
+  optionId?: string;
+  rollIndex?: number;
+  allocation?: Record<string, Record<string, number>>;
+}
+
+export type OpeningStepInput =
+  | { kind: "roll" }
+  | { kind: "choose"; optionId: string }
+  | { kind: "allocate"; allocation: Record<string, number> };
+
+export interface OpeningStepResponse {
+  node: OpeningNodeView | null;
+  done: boolean;
+  resolved?: { nodeId: string; optionId: string; text: string; set: Record<string, unknown> };
+  results: OpeningStepResultView[];
+}
+
 /** 可载入版本（`loadable: true`）：带完整展示字段与**属于该版本**的开局列表。 */
 export interface LoadableTemplateVersion {
   id: string;
@@ -161,6 +201,8 @@ export interface LoadableTemplateVersion {
   description: string;
   startYear: number;
   openings: OpeningSummary[];
+  /** 存在即走前实例化开局向导；旧模板缺字段走原建局表单。 */
+  openingDag?: OpeningDagSummary;
   assetCount: number;
   assetFingerprint: string;
   loadable: true;
@@ -303,7 +345,8 @@ export interface ArchiveResponse {
 
 export interface CreateWorldInput {
   templateId: string;
-  playerName: string;
+  /** 可空：不填即“无名氏”（ADR-001 D-5）。 */
+  playerName?: string;
   /**
    * R2.8 / R-TG-01：版本目录名。**始终带上**——多版本时服务端强制要求
    * （缺 ⇒ 400 `template_version_required`），单版本时显式传更可诊断（服务端亦接受）。
@@ -344,11 +387,47 @@ export const api = {
       method: "POST",
       body: JSON.stringify({
         templateId: input.templateId,
-        playerName: input.playerName,
+        ...(input.playerName !== undefined ? { playerName: input.playerName } : {}),
         ...(input.templateVersion !== undefined ? { templateVersion: input.templateVersion } : {}),
         ...(input.seed !== undefined ? { seed: input.seed } : {}),
         ...(input.openingId !== undefined ? { openingId: input.openingId } : {}),
       }),
+    });
+  },
+  /** ADR-001：前实例化开局——建会话，不建世界。 */
+  createOpening(input: {
+    templateId: string;
+    templateVersion?: string;
+    playerName?: string;
+    seed?: number;
+  }) {
+    return request<{ sessionId: string; seed: number; node: OpeningNodeView | null }>("/api/openings", {
+      method: "POST",
+      body: JSON.stringify({
+        templateId: input.templateId,
+        ...(input.templateVersion !== undefined ? { templateVersion: input.templateVersion } : {}),
+        ...(input.playerName !== undefined ? { playerName: input.playerName } : {}),
+        ...(input.seed !== undefined ? { seed: input.seed } : {}),
+      }),
+    });
+  },
+  stepOpening(sessionId: string, step: OpeningStepInput) {
+    return request<OpeningStepResponse>(`/api/openings/${sessionId}/step`, {
+      method: "POST",
+      body: JSON.stringify(step),
+    });
+  },
+  /** 开局完成才一次建世界；返回快照供最终面板展示。 */
+  commitOpening(sessionId: string) {
+    return request<{ worldId: string; snapshot: WorldSnapshot }>(`/api/openings/${sessionId}/commit`, {
+      method: "POST",
+    });
+  },
+  /** 开局后改名：只写权威 self 实体，不推进时间。 */
+  renameWorld(id: string, name: string) {
+    return request<{ worldId: string; snapshot: WorldSnapshot }>(`/api/worlds/${id}/rename`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
     });
   },
   getWorld(id: string) {

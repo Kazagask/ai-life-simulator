@@ -39,17 +39,17 @@ import type { ReadyTemplateEntry, TemplateRegistry } from "./templates.js";
  */
 
 /**
- * 信封版本（F3 / T-07）：**3 → 4**。
+ * 信封版本（ADR-001 / D-3 裁决）：**4 → 5**。
  *
- * 4 的破坏面：`WorldStateV2` 改状态模型（锚点 / `traceRef` 进存档、LLM 叙事正文只进
- * append-only `*.trace.jsonl`、不进 state）。本次**不做迁移 / 不推断版本 / 不回填**：
- * schemaVersion !== 4 的旧档（含全部 v3 档）一律走封闭拒载码
- * `envelope_schema_version_unsupported`，世界列表仍可见 + 可删（用户 2026-11-15
- * 已明确接受「旧档再次拒载」这个代价）。
+ * 5 的破坏面：self 完整切换（R-SELF-01）——权威 self 实体由 `selfId` 指向 `state.player`，
+ * 被扮演的模板角色不再另建 NPC 副本；开局改前实例化会话（参数表）。字段语义变了，
+ * **不做迁移 / 不推断版本 / 不回填**：schemaVersion !== 5 的旧档（含全部 v1–v4）
+ * 一律走封闭拒载码 `envelope_schema_version_unsupported`，世界列表仍可见 + 可删。
+ * 用户 2026-11-18 已明确裁决升 5 并接受「旧档拒载」代价。
  *
- * 历史：R2.5 升 1 → 2；ADR-0034 §5 升 2 → 3；F3 升 3 → 4。
+ * 历史：R2.5 升 1 → 2；ADR-0034 §5 升 2 → 3；F3 升 3 → 4；ADR-001 升 4 → 5。
  */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 /** 内存保存时间（savedAt），列表接口按其倒序。 */
 const savedAtById = new Map<string, string>();
@@ -438,10 +438,13 @@ export function hydrate(records: readonly WorldRecord[]): void {
 
 export interface CreateWorldInputV2 {
   templateId: string;
-  playerName: string;
+  /** 可空（R-NAME-01）：不填时按开局参数 / "无名氏" 兜底。 */
+  playerName?: string;
   seed?: number;
   /** R-OP-01：多开局模板时按 openingId 选择；省略则取加载顺序首个。 */
   openingId?: string;
+  /** R-SELF-01：前实例化会话解析出的 self 选择（T4 接入；默认 default）。 */
+  self?: import("@life-sim/game-core").SelfSelectionV2;
 }
 
 export const worldStore = {
@@ -453,6 +456,7 @@ export const worldStore = {
     // 第 4 参 `ctx` 刻意仍传 `undefined`：不传 ctx ⇒ 沿用 `Math.random()` 派生 seed 的既有口径，
     // 改成 `createRunnerContext(...)` 会改变建局 seed 的来源，破坏确定性复现。
     const base = createWorldV2(input, entry.template, randomUUID(), undefined);
+    // self 选择由 createWorldV2 落进 base.selfId / base.player（R-SELF-01）。
     // 开局为可选分域：提供 opening.yaml 时跑自定义开局，否则用最小默认开局；
     // 两条路径都执行 runOpening + handoff，使新世界 openingCompleted === true。
     // 本轮按 openingId 选择（R-OP-01）；未指定时取加载顺序首个。
@@ -472,6 +476,17 @@ export const worldStore = {
     unloadableById.delete(world.id);
     persist(world);
     return world;
+  },
+  /**
+   * ADR-001 前实例化 commit：世界已由 `commitOpening` 一次建好，这里只固化 ref + 落盘。
+   * 与 `create()` 的区别是**不跑旧 opening 管线**（不消耗 turnIndex、不入队开局事件）。
+   */
+  createFromState(state: WorldStateV2, entry: ReadyTemplateEntry): WorldStateV2 {
+    if (worlds.has(state.id)) throw new Error(`world_already_exists: ${state.id}`);
+    worlds.set(state.id, { state, entry });
+    unloadableById.delete(state.id);
+    persist(state);
+    return state;
   },
   get(id: string): WorldRecord | undefined {
     return worlds.get(id);

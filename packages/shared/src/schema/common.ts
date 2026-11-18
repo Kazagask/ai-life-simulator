@@ -147,6 +147,17 @@ export const RequiresSkillConditionSchema = z
   .object({ requiresSkill: z.string().min(1) })
   .strict();
 
+/**
+ * 当前 self（玩家正在扮演的演员）判定（2026-11-18 · 模板 branch 角色分派）。
+ * self 永远是单值 ⇒ 同一节点的多个 `as` 变体天然互斥，不可能同时命中。
+ * 服务模板侧 branch 的 node 级 `as` 语法：变体事件带 selfIs 条件，goto 到多变体节点时
+ * 加载期展开成同形选项的 visibleWhen 门控（玩家只看到一条，不额外占轮次）。
+ * `selfIsNot` 是对称的排除式判定：给**无 as 的兜底变体**用，表达「self 不是上述任何角色」，
+ * 否则兜底会与 as 变体同时通过 trigger.conditions 而串戏。两者都只读 `selfIdOf(state)`。
+ */
+export const SelfIsConditionSchema = z.object({ selfIs: z.string().min(1) }).strict();
+export const SelfIsNotConditionSchema = z.object({ selfIsNot: z.string().min(1) }).strict();
+
 export const RandomConditionSchema = z
   .object({ random: z.number().min(0).max(1) })
   .strict();
@@ -192,6 +203,8 @@ export const ConditionSchema = z.union([
   MoodConditionSchema,
   RelationConditionSchema,
   RequiresSkillConditionSchema,
+  SelfIsConditionSchema,
+  SelfIsNotConditionSchema,
   RandomConditionSchema,
   TimeConditionSchema,
   NpcStateConditionSchema,
@@ -234,6 +247,11 @@ export const EffectSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("setIdentity"),
+      /**
+       * 名字（R-NAME-02 / ADR-001）：开局后改名 / 固定身份开局写权威名。
+       * 只写传入字段；不传 = 保留原名（不清空）。空串拒载——空名统一由引擎写"无名氏"。
+       */
+      name: z.string().min(1).optional(),
       gender: z.string().min(1).optional(),
       age: z.number().int().nonnegative().optional(),
       fatherId: z.string().min(1).optional(),

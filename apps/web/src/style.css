@@ -1715,3 +1715,104 @@ details.llm-config .llm-saved {
     animation: none;
   }
 }
+
+/* ---------- 前实例化开局向导（ADR-001） ---------- */
+
+.opening-step h2 {
+  margin: 10px 0 6px;
+  font-size: 19px;
+}
+
+.wheel-sectors {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.wheel-sector {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-card-2);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.wheel-sector.spinning {
+  animation: opening-wheel-pulse 0.7s ease-in-out infinite alternate;
+  border-color: var(--gold);
+  color: var(--text);
+}
+
+@keyframes opening-wheel-pulse {
+  from { opacity: 0.45; transform: translateX(0); }
+  to { opacity: 1; transform: translateX(4px); }
+}
+
+.alloc-grid {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.alloc-grid label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.alloc-grid input {
+  width: 88px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card-2);
+  color: var(--text);
+}
+
+.opening-history {
+  display: grid;
+  gap: 8px;
+}
+
+.opening-history-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.opening-history-row strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.final-panel {
+  display: grid;
+  gap: 6px;
+}
+
+.final-panel h3 {
+  margin: 14px 0 4px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.final-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.final-panel .primary {
+  margin-top: 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wheel-sector.spinning {
+    animation: none;
+  }
+}

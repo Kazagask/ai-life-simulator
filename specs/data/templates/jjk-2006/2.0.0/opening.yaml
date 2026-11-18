@@ -1,0 +1,588 @@
+# JJK 2.0.0 · 前实例化开局（ADR-001）
+#
+# 旧 1.0.0 的 13 步 `source: chain` 已全部迁到这里的 branch DAG；events.yaml 不再有
+# ev-opening-wheel / ev-w01..ev-w13 / chain-creation。**mood 不入闭集**，原 adjustMood 效果删除。
+# status 在 commit 时统一获得；time 是开局时间锚（替代 advanceTo），turnIndex 全程为 0。
+# 最后一个节点一次性落下 chapter / era / ready1 / 各章 flag 与 92 天时间锚。
+
+openingId: op-2006-destiny
+name: 命数十二年
+description: 2006 年春，先定下你是谁，再让命数转盘把十二年铺开。全程在世界实例化之前完成。
+entry: n-self
+params:
+  - { id: who, kind: self }
+  - { id: nick, kind: name }
+  - { id: sex, kind: gender }
+  - { id: years, kind: age }
+  - { id: pathAttr, kind: attribute }
+  - { id: originAttr, kind: attribute, ui: { label: 出身资质, hidden: true } }
+  - { id: originAttr2, kind: attribute, ui: { label: 出身资质2, hidden: true } }
+  - { id: aptitudeAttr, kind: attribute, ui: { label: 咒力资质, hidden: true } }
+  - { id: aptitudeAttr2, kind: attribute, ui: { label: 咒力资质2, hidden: true } }
+  - { id: techAttr, kind: attribute, ui: { label: 术式补正, hidden: true } }
+  - { id: appAttr, kind: attribute, ui: { label: 术式应用, hidden: true } }
+  - { id: styleAttr, kind: attribute, ui: { label: 战斗风格, hidden: true } }
+  - { id: personalityAttr, kind: attribute, ui: { label: 性格补正, hidden: true } }
+  - { id: personalityAttr2, kind: attribute, ui: { label: 性格补正2, hidden: true } }
+  - { id: mentorAttr, kind: attribute, ui: { label: 师承补正, hidden: true } }
+  - { id: motiveAttr, kind: attribute, ui: { label: 动机补正, hidden: true } }
+  - { id: priceAttr, kind: attribute, ui: { label: 代价补正, hidden: true } }
+  - { id: fateAttr, kind: attribute, ui: { label: 命定补正, hidden: true } }
+  - { id: techStatus, kind: status }
+  - { id: priceStatus, kind: status }
+  - { id: fateStatus, kind: status }
+  - { id: pathSkill, kind: skill }
+  - { id: appSkill, kind: skill }
+  - { id: styleSkill, kind: skill }
+  - { id: mentorSkill, kind: skill }
+  - { id: fateSkill, kind: skill }
+  - { id: weapon, kind: item }
+  - { id: fateItem, kind: item }
+  - { id: fateItemExtra, kind: item }
+  - { id: pathRel1, kind: relation }
+  - { id: pathRel2, kind: relation }
+  - { id: pathRel3, kind: relation }
+  - { id: pathRel4, kind: relation }
+  - { id: pathRel5, kind: relation }
+  - { id: pathRel6, kind: relation }
+  - { id: bondRel1, kind: relation }
+  - { id: bondRel2, kind: relation }
+  - { id: bondRel3, kind: relation }
+  - { id: mentorRel, kind: relation }
+  - { id: motiveRel, kind: relation }
+  - { id: f01, kind: flag }
+  - { id: f02, kind: flag }
+  - { id: f03, kind: flag }
+  - { id: f04, kind: flag }
+  - { id: f05, kind: flag }
+  - { id: f06, kind: flag }
+  - { id: f07, kind: flag }
+  - { id: f08, kind: flag }
+  - { id: f09, kind: flag }
+  - { id: f10, kind: flag }
+  - { id: f11, kind: flag }
+  - { id: f12, kind: flag }
+  - { id: fPath, kind: flag }
+  - { id: fTransfer, kind: flag }
+  - { id: fSecondTech, kind: flag }
+  - { id: fOrigin, kind: flag }
+  - { id: fTech, kind: flag }
+  - { id: fDomain, kind: flag }
+  - { id: fReverse, kind: flag }
+  - { id: fBlackFlash, kind: flag }
+  - { id: fOrphan, kind: flag }
+  - { id: fMarked, kind: flag }
+  - { id: fLone, kind: flag }
+  - { id: fReckless, kind: flag }
+  - { id: fMentor, kind: flag }
+  - { id: fMotive, kind: flag }
+  - { id: gCreationDone, kind: flag }
+  - { id: gOpeningDone, kind: flag }
+  - { id: gChapter, kind: flag }
+  - { id: gReady1, kind: flag }
+  - { id: gEra, kind: flag }
+  - { id: gStudentYear, kind: flag }
+  - { id: gSpDone, kind: flag }
+  - { id: gBsDone, kind: flag }
+  - { id: gNpDone, kind: flag }
+  - { id: gJvDone, kind: flag }
+  - { id: gShDone, kind: flag }
+  - { id: gCgDone, kind: flag }
+  - { id: gSjDone, kind: flag }
+  - { id: gGetoGone, kind: flag }
+  - { id: gHaibaraDead, kind: flag }
+  - { id: gGojoGone, kind: flag }
+  - { id: gNanamiGone, kind: flag }
+  - { id: gYutaGone, kind: flag }
+  - { id: gYujiJoined, kind: flag }
+  - { id: gGetoStayed, kind: flag }
+  - { id: gSavedRiko, kind: flag }
+  - { id: gSavedGojo, kind: flag }
+  - { id: gGojoSealed, kind: flag }
+  - { id: gShibuyaSurvived, kind: flag }
+  - { id: gDefected, kind: flag }
+  - { id: gMoleClue, kind: flag }
+  - { id: clock, kind: time }
+
+nodes:
+  - node: n-self
+    title: 此身是谁
+    text: 转盘停在你面前。你可以借一个已经写在历史上的名字，也可以从空白开始。
+    mode: choose
+    options:
+      - id: self-new
+        text: 以无名术师入学（自定义）
+        set:
+          who: { kind: new, id: player, name: 无名氏, gender: male, age: 16, attributes: {}, skills: [] }
+      - id: self-gojo
+        text: 扮演五条悟（复用原作人物）
+        set: { who: { kind: reuse, characterId: npc-gojo } }
+      - id: self-riko
+        text: 扮演天内理子（复用原作人物 · 短线必然活不到十二年后）
+        set: { who: { kind: reuse, characterId: npc-riko } }
+
+  - node: n00-path
+    title: 起点
+    text: 2006 年春。你先被分到哪所学校，决定了最初认识谁。
+    mode: choose
+    options:
+      - id: path-tokyo
+        text: 东京高专一年生
+        set:
+          fPath: { id: openingPath, value: tokyo }
+          pathRel1: { with: npc-nanami, value: 8, kind: classmate }
+          pathRel2: { with: npc-haibara, value: 10, kind: classmate }
+          pathRel3: { with: npc-yaga, value: 6, kind: teacher }
+          pathRel4: { with: npc-gojo, value: 4, kind: senior }
+          pathRel5: { with: npc-geto, value: 4, kind: senior }
+          pathRel6: { with: npc-shoko, value: 3, kind: medic }
+      - id: path-kyoto
+        text: 京都校交流生
+        set:
+          fPath: { id: openingPath, value: kyoto }
+          pathAttr: { id: reputation, value: 5, mode: add }
+          pathRel1: { with: npc-geto, value: 10, kind: senior }
+          pathRel2: { with: npc-gojo, value: 2, kind: senior }
+          pathRel3: { with: npc-nanami, value: 3, kind: classmate }
+          pathRel4: { with: npc-yaga, value: 4, kind: teacher }
+          fTransfer: { id: transfer, value: kyoto }
+
+  - node: n01-gender
+    title: 性别
+    text: 转盘的第一格是一面镜子。镜子里的人还没有脸。
+    mode: choose
+    options:
+      - { id: male, text: 男性, set: { sex: male, f01: { id: w01, value: 男 } } }
+      - { id: female, text: 女性, set: { sex: female, f01: { id: w01, value: 女 } } }
+      - { id: agender, text: 无性别, set: { sex: agender, f01: { id: w01, value: 无性别 } } }
+      - { id: femboy, text: 男娘, set: { sex: femboy, f01: { id: w01, value: 男娘 } } }
+
+  - node: n02-origin
+    title: 年龄与出身
+    text: 第二格是你的来处。你多大了，从哪儿来，家里有没有人知道「咒术」这两个字。
+    mode: choose
+    options:
+      - id: civilian
+        text: 十五岁 · 东京都内的普通上班族家庭
+        set:
+          years: 15
+          f02: { id: w02, value: 都内平民 }
+          fOrigin: { id: origin, value: civilian }
+          originAttr: { id: luck, value: 2, mode: add }
+      - id: branch-family
+        text: 十五岁 · 地方咒术家族的分家
+        set:
+          years: 15
+          f02: { id: w02, value: 分家 }
+          fOrigin: { id: origin, value: branch-family }
+          originAttr: { id: cursedEnergy, value: 3, mode: add }
+          originAttr2: { id: reputation, value: 6, mode: add }
+      - id: civilian-late
+        text: 十六岁 · 非术师家庭，比别人晚一年才被找到
+        set:
+          years: 16
+          f02: { id: w02, value: 晚一年 }
+          fOrigin: { id: origin, value: civilian-late }
+          originAttr: { id: intellect, value: 2, mode: add }
+      - id: orphan
+        text: 十五岁 · 从孤儿院出来，被高专的人领走
+        set:
+          years: 15
+          f02: { id: w02, value: 孤儿 }
+          fOrigin: { id: origin, value: orphan }
+          fOrphan: { id: orphan, value: true }
+          originAttr: { id: physique, value: 2, mode: add }
+
+  - node: n03-aptitude
+    title: 咒力资质
+    text: 第三格是量尺。夜蛾把你按在椅子上，用一根黑绳量你的咒力。
+    mode: roll
+    options:
+      - id: grade4
+        text: 几乎测不出 · 四级
+        weight: 2
+        set:
+          f03: { id: w03, value: 四级 }
+          aptitudeAttr: { id: cursedEnergy, value: 1, mode: add }
+      - id: grade2
+        text: 二级相当 · 够用
+        weight: 4
+        set:
+          f03: { id: w03, value: 二级 }
+          aptitudeAttr: { id: cursedEnergy, value: 5, mode: add }
+      - id: grade1
+        text: 一级胚子 · 夜蛾停了一秒
+        weight: 3
+        set:
+          f03: { id: w03, value: 一级 }
+          aptitudeAttr: { id: cursedEnergy, value: 9, mode: add }
+          aptitudeAttr2: { id: reputation, value: 4, mode: add }
+      - id: special
+        text: 特级胚子 · 绳子烧断了
+        weight: 1
+        set:
+          f03: { id: w03, value: 特级 }
+          fMarked: { id: marked, value: true }
+          aptitudeAttr: { id: cursedEnergy, value: 15, mode: add }
+          aptitudeAttr2: { id: reputation, value: 10, mode: add }
+
+  - node: n04-tech
+    title: 生得术式
+    text: 第四格是术式。生得术式是生下来就写在你身体里的东西。
+    mode: choose
+    options:
+      - id: shadow
+        text: 十种影法术 —— 影子里养着十只式神
+        set:
+          f04: { id: w04, value: 十种影法术 }
+          fTech: { id: tech, value: shadow }
+          techStatus: tech-ten-shadow
+          pathSkill: [sk-ten-shadow, sk-ten-nue, sk-ten-mahoraga]
+      - id: blood
+        text: 赤血操术 —— 血从皮肤下出来就是刀
+        set:
+          f04: { id: w04, value: 赤血操术 }
+          fTech: { id: tech, value: blood }
+          techStatus: tech-red-blood
+          pathSkill: [sk-red-blood, sk-blood-cage, sk-blood-hardening]
+      - id: doll
+        text: 刍灵咒法 —— 一根钉子就能要人的命
+        set:
+          f04: { id: w04, value: 刍灵咒法 }
+          fTech: { id: tech, value: doll }
+          techStatus: tech-doll
+          pathSkill: [sk-doll-curse, sk-doll-nail, sk-doll-trance]
+      - id: thunder
+        text: 雷电 —— 你出手总比对手快半拍
+        set:
+          f04: { id: w04, value: 雷电 }
+          fTech: { id: tech, value: thunder }
+          techStatus: tech-thunder
+          pathSkill: [sk-thunder, sk-thunder-spear, sk-thunder-field]
+      - id: speech
+        text: 咒言 —— 你说出的话会成为规则
+        set:
+          f04: { id: w04, value: 咒言 }
+          fTech: { id: tech, value: speech }
+          techStatus: tech-speech
+          pathSkill: [sk-cursed-speech, sk-speech-command, sk-speech-seal]
+      - id: none
+        text: 没有术式 —— 你身上一点咒力都没有
+        set:
+          f04: { id: w04, value: 无术式 }
+          fTech: { id: tech, value: none }
+          techStatus: heavenly-restriction
+          techAttr: { id: physique, value: 6, mode: add }
+          pathSkill: [sk-heavenly-body, sk-heavenly-rush]
+
+  - node: n05-application
+    title: 术式的应用
+    text: 术式只是原料。真正的分岔在于你把它往哪个方向拧。
+    mode: choose
+    options:
+      - id: domain
+        text: 领域 —— 你想让一片空间只听你的话
+        set:
+          f05: { id: w05, value: 领域 }
+          fDomain: { id: domainApt, value: true }
+          appSkill: [sk-domain-expansion]
+          appAttr: { id: cursedEnergy, value: 3, mode: add }
+      - id: reverse
+        text: 反转术式 —— 你想学会把伤口合上
+        set:
+          f05: { id: w05, value: 反转 }
+          fReverse: { id: reverseApt, value: true }
+          appSkill: [sk-reverse-heal]
+          appAttr: { id: intellect, value: 2, mode: add }
+      - id: black-flash
+        text: 黑闪 —— 你想打出那一击，哪怕只有一次
+        set:
+          f05: { id: w05, value: 黑闪 }
+          fBlackFlash: { id: blackFlashApt, value: true }
+          appSkill: [sk-black-flash]
+          appAttr: { id: physique, value: 2, mode: add }
+      - id: basics
+        text: 还没想好 —— 先把一招练到不会忘
+        set:
+          f05: { id: w05, value: 未定 }
+          appSkill: [sk-curtain, sk-cursed-strike]
+          appAttr: { id: luck, value: 2, mode: add }
+
+  - node: n06-weapon
+    title: 咒具
+    text: 第六格是武器架。高专的库房里躺着几件特级咒具——每一件都有人为它死过。
+    mode: choose
+    options:
+      - id: spear
+        text: 天逆鉾 —— 贯穿一切，能强制解除术式
+        set: { f06: { id: w06, value: 天逆鉾 }, weapon: { itemId: eq-ten-spear, count: 1 } }
+      - id: lock
+        text: 万里锁 —— 无限伸缩，远近皆宜
+        set: { f06: { id: w06, value: 万里锁 }, weapon: { itemId: eq-bancho, count: 1 } }
+      - id: blade
+        text: 释魂刀 —— 切割灵魂，对咒灵尤其致命
+        set: { f06: { id: w06, value: 释魂刀 }, weapon: { itemId: eq-shakujin, count: 1 } }
+      - id: barehand
+        text: 空手 —— 别人的兵器用着不顺手
+        set:
+          f06: { id: w06, value: 空手 }
+          styleAttr: { id: agility, value: 3, mode: add }
+          weapon: { itemId: item-first-aid, count: 1 }
+
+  - node: n07-style
+    title: 战斗风格
+    text: 第七格照出你以后在战场上的样子。不是想成为的样子，是只剩一口气时会变成的样子。
+    mode: choose
+    options:
+      - id: brawler
+        text: 体术流 —— 贴上去，打在能打中的地方
+        set:
+          f07: { id: w07, value: 体术 }
+          styleAttr: { id: physique, value: 4, mode: add }
+          styleSkill: [sk-cursed-strike]
+      - id: technique
+        text: 术式流 —— 拉开距离，让它在你手里成型
+        set:
+          f07: { id: w07, value: 术式 }
+          styleAttr: { id: cursedEnergy, value: 4, mode: add }
+      - id: support
+        text: 支援流 —— 别人打，你负责让别人活下来
+        set:
+          f07: { id: w07, value: 支援 }
+          styleAttr: { id: intellect, value: 3, mode: add }
+          styleSkill: [sk-investigation]
+      - id: lone
+        text: 独狼流 —— 你不想指望任何人
+        set:
+          f07: { id: w07, value: 独狼 }
+          fLone: { id: lone, value: true }
+          styleAttr: { id: agility, value: 4, mode: add }
+
+  - node: n08-personality
+    title: 性格
+    text: 第八格是别人眼里的你。你还没开口，教室里的人已经对你有了判断。
+    mode: choose
+    options:
+      - id: gentle
+        text: 温和 —— 会有人愿意坐到你旁边
+        set:
+          f08: { id: w08, value: 温和 }
+          bondRel1: { with: npc-geto, value: 4 }
+          bondRel2: { with: npc-nanami, value: 3 }
+          bondRel3: { with: npc-haibara, value: 3 }
+      - id: sharp
+        text: 尖锐 —— 你说话不太好听，但没人敢走神
+        set:
+          f08: { id: w08, value: 尖锐 }
+          personalityAttr: { id: reputation, value: 4, mode: add }
+          bondRel1: { with: npc-nanami, value: -2 }
+          bondRel2: { with: npc-gojo, value: 4 }
+      - id: silent
+        text: 沉默 —— 你更愿意听
+        set:
+          f08: { id: w08, value: 沉默 }
+          personalityAttr: { id: intellect, value: 2, mode: add }
+          personalityAttr2: { id: luck, value: 1, mode: add }
+      - id: wild
+        text: 有点疯 —— 别人退的时候你会往前一步
+        set:
+          f08: { id: w08, value: 疯 }
+          fReckless: { id: reckless, value: true }
+          personalityAttr: { id: agility, value: 3, mode: add }
+          personalityAttr2: { id: reputation, value: -2, mode: add }
+
+  - node: n09-mentor
+    title: 引路人
+    text: 第九格不是「师父」——高专没有师徒制。这一格写的是：谁会在你走错路的时候多看你一眼。
+    mode: choose
+    options:
+      - id: yaga
+        text: 夜蛾正道 —— 他会骂你，也会替你挡事
+        set:
+          f09: { id: w09, value: 夜蛾 }
+          fMentor: { id: mentor, value: yaga }
+          mentorRel: { with: npc-yaga, value: 15 }
+          mentorAttr: { id: intellect, value: 2, mode: add }
+      - id: gojo
+        text: 五条悟 —— 学长。教你打架，也教你不上课
+        set:
+          f09: { id: w09, value: 五条 }
+          fMentor: { id: mentor, value: gojo }
+          mentorRel: { with: npc-gojo, value: 14 }
+          mentorAttr: { id: cursedEnergy, value: 3, mode: add }
+      - id: geto
+        text: 夏油杰 —— 学长。他讲的道理你听得进去
+        set:
+          f09: { id: w09, value: 夏油 }
+          fMentor: { id: mentor, value: geto }
+          mentorRel: { with: npc-geto, value: 14 }
+          mentorAttr: { id: intellect, value: 2, mode: add }
+      - id: shoko
+        text: 家入硝子 —— 校医。她只教你一件事：怎么活着回来
+        set:
+          f09: { id: w09, value: 硝子 }
+          fMentor: { id: mentor, value: shoko }
+          mentorRel: { with: npc-shoko, value: 14 }
+          mentorSkill: [sk-curtain]
+
+  - node: n10-motive
+    title: 动机
+    text: 第十格问的是「为什么」。这个答案不会写在你的档案上，但会写在每一次你选择往前而不是往后的瞬间。
+    mode: choose
+    options:
+      - id: save
+        text: 因为有人需要被救
+        set:
+          f10: { id: w10, value: 救人 }
+          fMotive: { id: motive, value: save }
+          motiveRel: { with: npc-haibara, value: 4 }
+      - id: strong
+        text: 因为我想变强，强到没人能决定我的命
+        set:
+          f10: { id: w10, value: 变强 }
+          fMotive: { id: motive, value: strong }
+          motiveAttr: { id: cursedEnergy, value: 3, mode: add }
+          motiveRel: { with: npc-gojo, value: 4 }
+      - id: truth
+        text: 因为我想知道人为什么会变成咒灵
+        set:
+          f10: { id: w10, value: 求知 }
+          fMotive: { id: motive, value: truth }
+          motiveAttr: { id: intellect, value: 3, mode: add }
+          motiveRel: { with: npc-geto, value: 4 }
+      - id: survive
+        text: 因为我没有别的地方可去
+        set:
+          f10: { id: w10, value: 活命 }
+          fMotive: { id: motive, value: survive }
+          motiveAttr: { id: luck, value: 2, mode: add }
+
+  - node: n11-price
+    title: 代价
+    text: 第十一格是账单。命数转盘从不做慈善——你得到的每一样东西，都从别的地方扣。
+    mode: choose
+    options:
+      - id: heavenly
+        text: 天与咒缚 —— 用全部咒力，换一具超越常识的肉体
+        set:
+          f11: { id: w11, value: 天与 }
+          priceStatus: heavenly-restriction
+          priceAttr: { id: physique, value: 6, mode: add }
+      - id: injury
+        text: 旧伤 —— 入学前那次事故，肋骨没长好
+        set:
+          f11: { id: w11, value: 旧伤 }
+          priceStatus: injured-sim
+          priceAttr: { id: physique, value: 2, mode: add }
+      - id: mark
+        text: 印记 —— 你出生时身上就有一道像缝合线的疤
+        set:
+          f11: { id: w11, value: 印记 }
+          fMarked: { id: marked, value: true }
+          priceStatus: cursed-mark
+          priceAttr: { id: cursedEnergy, value: 2, mode: add }
+      - id: fame
+        text: 名声 —— 上面已经把你的名字写进了名单
+        set:
+          f11: { id: w11, value: 名声 }
+          priceAttr: { id: reputation, value: 12, mode: add }
+      - id: none
+        text: 没有代价 —— 转盘这次什么都没扣
+        set:
+          f11: { id: w11, value: 无 }
+          priceAttr: { id: luck, value: 3, mode: add }
+
+  - node: n12-fate
+    title: 命定一转
+    text: 最后你亲手转了一次。指针在八格之间绕了三圈才慢下来——这一格，就是命。
+    mode: roll
+    options:
+      - id: blessed-cursed-energy
+        text: 天赐的咒力
+        weight: 2
+        set:
+          f12: { id: w12, value: 天赐 }
+          fateAttr: { id: cursedEnergy, value: 7, mode: add }
+      - id: luck
+        text: 幸运女神的偏爱
+        weight: 3
+        set:
+          f12: { id: w12, value: 幸运 }
+          fateStatus: blessed
+          fateItem: { itemId: item-mp-candy, count: 2 }
+      - id: body
+        text: 一具好身体
+        weight: 3
+        set:
+          f12: { id: w12, value: 身体 }
+          fateStatus: special-physique
+      - id: relic
+        text: 一件旧遗物
+        weight: 2
+        set:
+          f12: { id: w12, value: 遗物 }
+          fateItem: { itemId: eq-cursed-blade, count: 1 }
+          fateItemExtra: { itemId: item-first-aid, count: 2 }
+      - id: second-tech
+        text: 第二个术式
+        weight: 1
+        set:
+          f12: { id: w12, value: 第二术式 }
+          fSecondTech: { id: secondTech, value: true }
+          fateStatus: multi-technique
+          fateSkill: [sk-cursed-strike]
+      - id: relapse
+        text: 旧伤复发
+        weight: 1
+        set:
+          f12: { id: w12, value: 旧伤 }
+          fateStatus: injured-sim
+      - id: cursed-mark
+        text: 被诅咒的印记
+        weight: 1
+        set:
+          f12: { id: w12, value: 印记 }
+          fateStatus: cursed-mark
+      - id: smooth
+        text: 平顺
+        weight: 3
+        set:
+          f12: { id: w12, value: 平顺 }
+          fateItem: { itemId: item-mp-candy, count: 1 }
+
+  - node: n13-entrance
+    title: 入学式
+    text: 2006 年 4 月 3 日，东京咒术高专。樱花落在你肩上。夜蛾念到你的名字时抬了一下眼：「从今天起，你是咒术师了。——前提是你能活到毕业。」
+    mode: choose
+    options:
+      - id: begin
+        text: 站起来，答「到」
+        set:
+          weapon: { itemId: item-first-aid, count: 1 }
+          gCreationDone: { id: creationDone, value: true }
+          gOpeningDone: { id: openingDone, value: true }
+          gChapter: { id: chapter, value: 1 }
+          gReady1: { id: ready1, value: true }
+          gEra: { id: era, value: 1 }
+          gStudentYear: { id: studentYear, value: 2006 }
+          gSpDone: { id: spDone, value: false }
+          gBsDone: { id: bsDone, value: false }
+          gNpDone: { id: npDone, value: false }
+          gJvDone: { id: jvDone, value: false }
+          gShDone: { id: shDone, value: false }
+          gCgDone: { id: cgDone, value: false }
+          gSjDone: { id: sjDone, value: false }
+          gGetoGone: { id: getoGone, value: false }
+          gHaibaraDead: { id: haibaraDead, value: false }
+          gGojoGone: { id: gojoGone, value: false }
+          gNanamiGone: { id: nanamiGone, value: false }
+          gYutaGone: { id: yutaGone, value: false }
+          gYujiJoined: { id: yujiJoined, value: false }
+          gGetoStayed: { id: getoStayed, value: false }
+          gSavedRiko: { id: savedRiko, value: false }
+          gSavedGojo: { id: savedGojo, value: false }
+          gGojoSealed: { id: gojoSealed, value: false }
+          gShibuyaSurvived: { id: shibuyaSurvived, value: false }
+          gDefected: { id: defected, value: false }
+          gMoleClue: { id: moleClue, value: false }
+          clock: { value: 92, unit: day }

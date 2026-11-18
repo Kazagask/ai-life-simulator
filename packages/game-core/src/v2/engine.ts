@@ -262,6 +262,14 @@ export function checkCondition(cond: Condition, ctx: ConditionContext): boolean 
   if ("requiresSkill" in cond) {
     return state.player.skills.includes(cond.requiresSkill);
   }
+  if ("selfIs" in cond) {
+    // 当前 self 单值 ⇒ 天然互斥。selfId 缺省回落 PLAYER_NODE_ID（旧档逐字段不变）。
+    return selfIdOf(state) === cond.selfIs;
+  }
+  if ("selfIsNot" in cond) {
+    // 排除式：给无 as 的兜底变体用，避免它与带 as 的变体同时通过 trigger.conditions 而串戏。
+    return selfIdOf(state) !== cond.selfIsNot;
+  }
   if ("random" in cond) {
     return rng() < cond.random;
   }
@@ -416,6 +424,8 @@ export function applyEffectsV2(
       case "setIdentity": {
         // 开局创建链用：性别 / 起始年龄由玩家在事件里定下。
         // 年龄必须同时写回 playerAgeAtStart，否则下一次按公历推进时会被旧基准覆盖。
+        // 名字（ADR-001 / R-NAME-02）：只写传入字段；改名后世界列表读 player.name 自然同步。
+        if (effect.name !== undefined) state.player.name = effect.name;
         if (effect.gender !== undefined) state.player.gender = effect.gender;
         if (effect.age !== undefined) {
           state.player.age = effect.age;

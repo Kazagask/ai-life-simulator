@@ -1,0 +1,180 @@
+# JJK Demo 世界模板 · world.yaml
+# 元信息、历法、性别枚举、心情档位、状态栏、属性/资源、回复与判定默认值。
+meta:
+  id: jjk-2006
+  name: 咒术回战 · 命数十二年
+  description: 2006 年春，你转动命数转盘，成为东京咒术高专的一年生——七海建人与灰原雄的同班同学，五条悟与夏油杰的学弟学妹。此后十二年，怀玉、玉折、百鬼夜行、涩谷、死灭回游、新宿决战会依次找上门。你要活到亲手写下结局的那天。
+  startYear: 2006
+  engineProtocol: v2
+
+# 亲缘走**模式一（边）**：本模板只有一条 `npc-megumi → enemy-toji [father]`
+# 和一条 `gap: true` 的远亲边，值不上家族扩展（`extensions/family/doc/FAMILY-GRAPH.md` §6 的迁移结论）。
+# 因此**不声明** `extensions.family`，亲属称谓由模板自己写的边直接给出；
+# 声明了反而会与本文件的亲属边冲突（加载期 `kinship_conflict`）。
+
+# 运行包版本：这个世界按 master 0.1.0 写；主包升级到不兼容版本时加载期拒载。
+requires:
+  core: "^0.1.0"
+
+time:
+  # 一轮 = 一天：本模板是「一学年」节奏的人生切片，靠剧情节点的 advanceTo 跳月/跳季，
+  # 而不是把 4 小时一步的细粒度强行拉长到几十年（旧模板寿终不可达的根因）。
+  defaultStep: { value: 1, unit: day }
+  # R2.6 / ADR-0013：真实公历（月长 28–31、闰年）；缺省 approx（1 月=30 天）。
+  # TimeSpec 字符串字面量（如 "2006-12-24"、"3d2h"）自此按真实日历解析。
+  calendar:
+    preset: gregorian
+  lifeStageSteps:
+    childhood: { value: 1, unit: day }
+    youth: { value: 1, unit: day }
+    adulthood: { value: 1, unit: day }
+    elderhood: { value: 1, unit: day }
+  # 人生阶段阈值（模板可配置，替代引擎硬编码）
+  lifeStages:
+    - { id: childhood, label: 幼年, maxAge: 12 }
+    - { id: youth, label: 青年, maxAge: 29 }
+    - { id: adulthood, label: 壮年, maxAge: 59 }
+    - { id: elderhood, label: 暮年 }
+
+# 性别为世界自定义枚举（非二元），角色只能取此处 id
+genders:
+  - { id: male, label: 男 }
+  - { id: female, label: 女 }
+  - { id: femboy, label: 男娘 }
+  - { id: agender, label: 无性别 }
+  - { id: custom-heli, label: 武装直升机 }
+
+mood:
+  min: 0
+  max: 100
+  defaultValue: 60
+  bands:
+    - { id: low, label: 消沉, min: 0, max: 40, attributeModifiers: { intellect: -1 } }
+    - { id: normal, label: 平静, min: 41, max: 70, attributeModifiers: {} }
+    - { id: high, label: 高昂, min: 71, max: 100, attributeModifiers: { physique: 1 } }
+
+statusBar:
+  - { id: sb-identity, label: 基本, source: identity }
+  - { id: sb-mood, label: 心情, source: mood }
+  - { id: sb-hp, label: 生命, source: resource, key: hp }
+  - { id: sb-mp, label: 咒力, source: resource, key: mp }
+  - { id: sb-attrs, label: 属性, source: attribute, keys: [cursedEnergy, intellect, physique, agility, luck, reputation] }
+  - { id: sb-status, label: 补正, source: status }
+  - id: sb-cursed-quality
+    label: 咒力质感
+    source: custom
+    visibleWhen:
+      - { status: cursed-quality, present: true }
+
+attributes:
+  order: [cursedEnergy, intellect, physique, agility, luck, reputation]
+  defaults: { cursedEnergy: 5, intellect: 6, physique: 5, agility: 5, luck: 5, reputation: 0 }
+  caps: { cursedEnergy: 200 }
+  # 显示名由模板声明：引擎/投影/前端一律读这里，不在代码里写死世界观用词
+  labels: { cursedEnergy: 咒力, intellect: 智力, physique: 体术, agility: 敏捷, luck: 幸运, reputation: 声望 }
+
+# HP/MP 为共享资源池：战斗与模拟读写同一池子（见规格 10.3）
+# 上限 = base + perLevel × growthLevel + Σ perAttribute[attr] × 基础属性值
+# 初始（玩家咒力 5）→ HP 100 / MP 50；咒力成长会同步推高上限
+resources:
+  hp: { base: 75, perLevel: 10, perAttribute: { cursedEnergy: 5 } }
+  mp: { base: 40, perLevel: 5, perAttribute: { cursedEnergy: 2 } }
+
+# 回复节奏跟模拟轮次
+regen:
+  perTurn: { hp: 2, mp: 1 }
+  actions:
+    rest: { hp: 20, mp: 10 }
+
+# 玩家行动（action-hook 事件引用此处 id；rest 同时享受 regen.actions.rest 额外回复）
+# 设计意图：六个行动各自挂着不同的「钩子」——修炼/上课/交友是稳定收益，
+# 巡逻/探索是高风险高回报的转盘，休息是回血与推进剧情的安全键。
+actions:
+  - id: train
+    label: 修炼
+    description: 打熬咒力与体术。咒力 +1，代价是耗掉一些体力。
+    duration: { value: 1, unit: day }
+    effects:
+      - { type: adjustAttribute, attribute: cursedEnergy, value: 1 }
+      - { type: adjustResource, resource: mp, value: -5 }
+  - id: patrol
+    label: 巡逻
+    description: 在结界薄弱处巡逻——大概率遇见什么，小概率什么也没遇见。
+    duration: { value: 1, unit: day }
+    effects:
+      - { type: adjustFlag, id: patrolCount, value: 1 }
+  - id: explore
+    label: 探索
+    description: 钻进废弃校舍、地下道与咒灵巢穴。风险自负。
+    duration: { value: 1, unit: day }
+    effects:
+      - { type: adjustFlag, id: exploreCount, value: 1 }
+  - id: study
+    label: 上课
+    description: 高专的咒理课程。智力 +1，偶尔会被点名。
+    duration: { value: 1, unit: day }
+    effects:
+      - { type: adjustAttribute, attribute: intellect, value: 1 }
+  - id: socialize
+    label: 交往
+    description: 与同伴度过一天。心情与羁绊都会变好。
+    duration: { value: 1, unit: day }
+    effects:
+      - { type: adjustMood, value: 4 }
+  - id: rest
+    label: 休息
+    description: 回宿舍休整，恢复 HP/MP。
+    duration: { value: 1, unit: day }
+  # 战败后的恢复手段：把「受伤 / 力竭」真正治好，否则下一章会因带伤而被拒之门外。
+  - id: recuperate
+    label: 疗养
+    description: 去医务室躺两天。治好伤势与力竭，但这两天什么也做不了。
+    duration: { value: 2, unit: day }
+    effects:
+      - { type: cureStatus, status: injured-sim }
+      - { type: cureStatus, status: exhausted }
+      - { type: adjustResource, resource: hp, value: 30 }
+      - { type: adjustResource, resource: mp, value: 20 }
+      - { type: adjustMood, value: 4 }
+
+# NPC 自主行动（触发式 + 效用评分；goalMatch/traitAffinity 对应角色的 private.goals/traits）
+npcActions:
+  # 角色创建（命数转盘 13 步 + 入学式）期间冻结所有 NPC 自主行动；
+  # 否则玩家还在选出身时，History 里已经在刷「某 NPC 找同伴闲聊」。
+  - id: npc-train
+    summary: "{name} 独自打熬咒力。"
+    trigger: { probability: 0.25, cooldownTurns: 2 , conditions: [{ flag: creationDone, eq: true }] }
+    utility:
+      base: 1
+      goalMatch: [become-stronger]
+      traitAffinity: [diligent]
+    effects:
+      - { type: adjustRelation, npcId: __self__, value: 1 }
+  - id: npc-mission
+    summary: "{name} 接下了一项祓除任务。"
+    trigger: { probability: 0.2, requireKnowledge: [missions] , conditions: [{ flag: creationDone, eq: true }] }
+    utility:
+      base: 1
+      traitAffinity: [diligent, vigilant]
+    effects:
+      - { type: adjustFlag, id: missionsCompleted, value: 1 }
+  - id: npc-socialize
+    summary: "{name} 找同伴闲聊。"
+    trigger: { probability: 0.3 , conditions: [{ flag: creationDone, eq: true }] }
+    utility:
+      base: 1
+      traitAffinity: [caring, confident]
+    effects:
+      - { type: adjustRelation, npcId: __self__, value: 2 }
+
+# NPC 刷新规则（ADR-0022：配置层 → 实例层队列 → spawnLog 事实层）
+#
+# 被规则管辖的角色在世界创建时处于 `unspawned`：不上人物面板、不进入自主行动候选、
+# 不参与任何以他为 ref 的战斗（引擎默认判活，模板无需再写判活条件）。
+# 由模板事件的 `{ type: spawnNpc, ruleId: ... }` 触发登场，同一 ruleId 重复触发幂等。
+#
+# 乙骨忧太：2006–2017 年在海外，2017 百鬼夜行归国参战（ev-np-01 第一波结束后登场，
+# 因此 ev-np-02a / ev-np-02b 里他能作为友军 ref 参战）。spawnNpc 时按规则年龄重算 birthTime，
+# 所以 2006 年他不会被投影成「11 年前就已经 16 岁」。
+npcSpawnRules:
+  - { id: rule-yuta-arrival, characterRef: npc-yuta, age: 16 }

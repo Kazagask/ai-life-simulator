@@ -95,8 +95,24 @@ const MAX_NEXT_TURN_SPINS = 32;
 
 // ---------- 创建世界 ----------
 
+/**
+ * self 选择（R-SELF-01 / ADR-001）：决定玩家"是谁"。
+ *
+ * - 省略 / `kind: "default"`：沿用 playerTemplate，self id = `"player"`（旧行为逐字段不变）。
+ * - `kind: "reuse"`：扮演模板已声明的某个角色（如 `npc-gojo`）。**基本属性整组取自该角色**，
+ *   self id = 该角色 id，该角色不再单独进 `state.npcs`（同一实体，不能有两份真相），
+ *   关系边照常按角色声明生成。`input.playerName` 被忽略——名字就是角色名。
+ * - `kind: "new"`：新建固定实例化的人物（不进 spawnRules），基本属性由调用方给。
+ *
+ * 附加属性（技能 / 道具 / 关系 / flag / 属性 add）由后续开局参数层叠加，这里只定基线。
+ */
+export type SelfSelectionV2 =
+  | { kind?: "default" }
+  | { kind: "reuse"; characterId: string }
+  | { kind: "new"; id: string; name: string; gender: string; age: number; attributes: Record<string, number>; skills?: string[] };
+
 export function createWorldV2(
-  input: { templateId: string; playerName: string; seed?: number },
+  input: { templateId: string; playerName?: string; seed?: number; self?: SelfSelectionV2 },
   template: WorldTemplateV2,
   worldId: string,
   ctx?: RunnerContext,
@@ -104,9 +120,38 @@ export function createWorldV2(
   // 保持公开签名兼容：不传 ctx 时沿用原有默认；传入时用注入 rng 派生确定性 seed。
   const seed = input.seed ?? (ctx ? Math.floor(ctx.rng() * 0xffffffff) : Math.floor(Math.random() * 0xffffffff));
   const pt = template.playerTemplate;
-  /** 玩家节点的唯一 id（A 期 seam）：本函数里 `player.id`、关系边端点、`state.selfId` 全用它。 */
-  const selfId = PLAYER_NODE_ID;
-  const playerAge = pt?.identity.age ?? 16;
+  /**
+   * self 的唯一 id（R-SELF-01）：`player.id`、关系边端点、`state.selfId` 全用它。
+   * 默认 "player"（旧档逐字段不变）；reuse 指向模板角色 id；new 用调用方给的 id。
+   */
+  const selection = input.self;
+  let selfId = PLAYER_NODE_ID;
+  let baselineName: string | undefined;
+  let baselineGender: string | undefined;
+  let baselineAge: number | undefined;
+  let baselineAttributes: Record<string, number> | undefined;
+  let baselineSkills: string[] | undefined;
+  let reusedCharacterId: string | undefined;
+  if (selection?.kind === "reuse") {
+    const c = template.characters.find((x) => x.id === selection.characterId);
+    if (!c) throw new Error(`self_reuse_character_not_found: ${selection.characterId}`);
+    if (c.isEnemy) throw new Error(`self_reuse_enemy_not_allowed: ${selection.characterId}`);
+    selfId = c.id;
+    reusedCharacterId = c.id;
+    baselineName = c.identity.name;
+    baselineGender = c.identity.gender;
+    baselineAge = c.identity.age;
+    baselineAttributes = { ...template.attributes.defaults, ...c.attributes };
+    baselineSkills = [...(c.skills ?? [])];
+  } else if (selection?.kind === "new") {
+    selfId = selection.id;
+    baselineName = selection.name;
+    baselineGender = selection.gender;
+    baselineAge = selection.age;
+    baselineAttributes = { ...template.attributes.defaults, ...selection.attributes };
+    baselineSkills = [...(selection.skills ?? [])];
+  }
+  const playerAge = baselineAge ?? pt?.identity.age ?? 16;
   const mood = pt?.mood ?? template.mood.defaultValue;
   // 初始装备（协议 §19 equipment.initialEquipment；槽位/类型/类别已由 Schema 加载期校验）。
   // 这是**独立的穿戴授予**，不从背包扣除（ADR-0008）：模板若同时在 playerTemplate.items
@@ -123,22 +168,22 @@ export function createWorldV2(
     });
   }
   const player = {
-    // 玩家节点 id 的唯一来源（A 期）：关系图端点、演员表、战斗镜像都用它，
-    // 不再各处写 `"player"` 字面量。切换到「玩家也是一个 npc 实例」时只改这里。
+    // 玩家节点 id 的唯一来源（R-SELF-01）：关系图端点、演员表、战斗镜像都用它。
     id: selfId,
-    name: input.playerName,
-    gender: pt?.identity.gender ?? template.genders[0]?.id ?? "",
+    // reuse / new 用基线身份；default 沿用 playerName（可空 ⇒ "无名氏"）。
+    name: baselineName ?? input.playerName ?? "无名氏",
+    gender: baselineGender ?? pt?.identity.gender ?? template.genders[0]?.id ?? "",
     age: playerAge,
-    // 玩家属性 = 世界 defaults 与 playerTemplate 的合并（后者覆盖前者）：
-    // 模板作者只需在 playerTemplate 里写差异项，新增自定义属性不会因遗漏而取 0
-    attributes: { ...template.attributes.defaults, ...(pt?.attributes ?? {}) },
+    // 玩家属性 = 世界 defaults 与基线的合并（后者覆盖前者）：
+    // 模板作者只需写差异项，新增自定义属性不会因遗漏而取 0。
+    attributes: baselineAttributes ?? { ...template.attributes.defaults, ...(pt?.attributes ?? {}) },
     hp: 0,
     mp: 0,
     mood,
     statuses: [],
     skillCooldowns: {},
     inventory: {} as Record<string, number>,
-    skills: [...(pt?.skills ?? [])],
+    skills: [...(baselineSkills ?? pt?.skills ?? [])],
     growthLevel: 0,
     equipment: initialEquipment,
     // 玩家也有父/母指针（`extensions/family/doc/FAMILY-GRAPH.md` §3.1「玩家不是特例」）：
@@ -151,7 +196,10 @@ export function createWorldV2(
   const initCalendar = createTimeAdapter(template);
   // ADR-0022：配置层刷新规则 → 实例层队列。规则指向的角色在出生前不进世界（unspawned），
   // 由事件效果 spawnNpc 建出。实例只记引用，不复制配置域定义。
-  const spawnRuleInstances = (template.npcSpawnRules ?? []).map((rule) => ({
+  const spawnRuleInstances = (template.npcSpawnRules ?? [])
+    // 被 self 复用的角色不走刷新队列（它已是玩家实体，不能被 spawnNpc 再生成一份）。
+    .filter((rule) => rule.characterRef !== reusedCharacterId)
+    .map((rule) => ({
     ruleId: rule.id,
     characterRef: rule.characterRef,
     status: "pending" as const,
@@ -172,7 +220,9 @@ export function createWorldV2(
     // 敌人不实例化：它只是战斗事件的 `enemies[].ref` 目标，不进实例表、不跑自主行动、
     // 不上 NPC 卡。跨敌我的关系边因此不能靠实例解析，改由关系投影单独处理。
     npcs: template.characters
-      .filter((c) => !c.isEnemy)
+      // R-SELF-01：被扮演的角色**不另建 NPC 实例**——它与玩家是同一个实体，
+      // 再建一份就会出现"两个五条悟"（属性各写各的、投影打架）。关系边不受影响。
+      .filter((c) => !c.isEnemy && c.id !== reusedCharacterId)
       .map((c) => ({
         id: c.id,
         name: c.identity.name,

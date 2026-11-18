@@ -1,0 +1,42 @@
+# JJK-2006 人生评价分域（协议 V2.1 §18）
+#
+# 评价只读本局事实，不决定结局、不写状态；结局类型不得作为评分依据。
+# 五个维度覆盖「这一年你成长了多少 / 留下了几段羁绊 / 做成了什么 /
+# 看穿了多少真相 / 有没有按自己的方式活」。
+dimensions:
+  - id: growth
+    label: 成长
+    weight: 1.2
+    ranges: [-50, 100]
+    explainRules:
+      - 咒力、体术、智力的提升计入成长。
+      - 解锁高阶技能（黑闪、领域、反转精通）额外加分。
+  - id: bonds
+    label: 羁绊
+    weight: 1.0
+    ranges: [-50, 100]
+    explainRules:
+      - 与同窗、师长的关系值计入羁绊。
+      - 救人、挽留、同行等选择额外加分。
+
+worldSpecificDimensions:
+  - id: deeds
+    label: 功绩
+    weight: 1.1
+    ranges: [-50, 100]
+    explainRules:
+      - 讨伐咒灵、守护平民、大事件中的表现计入功绩。
+      - 加入诅咒师会显著扣分。
+  - id: truth
+    label: 真相
+    weight: 0.9
+    ranges: [-30, 100]
+    explainRules:
+      - 察觉伏击、看穿夏油的变化、追查都市传说等「知道得更多」的选择计入真相。
+  - id: freedom
+    label: 自由
+    weight: 0.8
+    ranges: [-30, 100]
+    explainRules:
+      - 违抗规则但承担后果的选择计入自由。
+      - 完全顺从或完全放任都会降低这一项。

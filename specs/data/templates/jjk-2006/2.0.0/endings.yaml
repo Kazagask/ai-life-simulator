@@ -1,0 +1,302 @@
+# JJK 结局 / 终止 / 死亡路径（协议 V2.1 §17 · R-EN-01..07）
+#
+# 判据纪律：终止与死亡只看声明式条件与 battleDefeat 信号，
+# **不得以 HP 数值或 HP 归零为判据**（R-EN-07 / P9，加载期会拒绝）。
+#
+# 本局是 2006 → 2019 的十二年：跑满 4755 天自然收束（2019-01-10），也可随时主动结束。
+# 结局由「终章命运之轮」的 finalEnd 与几件关键事决定：
+#   救下理子 / 拦下夏油 / 拆掉狱门疆 / 涩谷救人 —— 四个都做到，是隐藏结局。
+
+terminationConditions:
+  - type: timeReached
+    params:
+      conditions:
+        - { time: { gte: { value: 4755, unit: day } } }
+    combinator: AND
+    terminationMode: afterSettle
+
+  - type: playerRequested
+    params:
+      conditions: []
+    combinator: AND
+    terminationMode: afterSettle
+
+  # 终章战败就地收束（P0 修复）：finalEnd=hero-death 一旦落盘，就在结算边界直接终止，
+  # 不再回日常/尾声事件。旧实现里战败只写 finalEnd、nextEventId 仍指向 ev-sj-04，
+  # 于是「战死」之后还会「在便利店买一罐热咖啡」，收束要拖到跑满 4755 天才算。
+  # 战败信号本身已由战斗边界的 battleDefeat 提供，这里只读落盘的 flag，不读 HP 数值
+  # （R-EN-07 / P9：不得以 HP 归零作判据）。
+  - type: worldState
+    params:
+      conditions:
+        - { flag: finalEnd, eq: hero-death }
+    combinator: AND
+    terminationMode: afterSettle
+
+  # 天内理子短线（2.0.0）：两条 badend 都在 2006 年收束，必然活不到十二年后。
+  - type: worldState
+    params:
+      conditions:
+        - { flag: rikoShortEnd, eq: assimilated }
+    combinator: AND
+    terminationMode: afterSettle
+
+  - type: worldState
+    params:
+      conditions:
+        - { flag: rikoShortEnd, eq: shot }
+    combinator: AND
+    terminationMode: afterSettle
+
+# 本模板不设 deathRoute：死亡只用「终章战败落 finalEnd=hero-death → 上面的 worldState 终止条件」
+# 表达。理由 —— 前三章的战败只给「力竭 / 重伤」，让玩家有时间疗养；真正的死只发生在最后一场
+# （一阶段 ev-sj-02 与二番战 ev-sj-02b 的战败同等处理）。
+
+endings:
+  # ---------- 天内理子短线 · 两个 badend（ADR-001 D2 验收） ----------
+
+  - endingId: end-riko-assimilated
+    name: 星浆体
+    description: 2006 年夏，你与天元同化。天内理子这个名字留在了阶上。
+    triggerConditions:
+      - { flag: rikoShortEnd, eq: assimilated }
+    priority: 72
+    endingType: tragedy
+    narrativeConfig:
+      source: template
+      title: 星浆体
+      summary: 你走进薨星宫时十四岁。光从脚下漫上来，先是手指，然后是名字。天元活了下去，而"天内理子"这四个字，从此只是一件留在石阶上的外套。十二年后的新宿，没有你。
+
+  - endingId: end-riko-shot
+    name: 一枪
+    description: 2006 年夏，你死在薨星宫侧门外。
+    triggerConditions:
+      - { flag: rikoShortEnd, eq: shot }
+    priority: 72
+    endingType: tragedy
+    narrativeConfig:
+      source: template
+      title: 一枪
+      summary: 侧门后面是伏黑甚尔。他没有追，只是抬手，很轻的一声。盘星教的信徒在门外鼓掌——他们为你"没有完成同化"而欢呼。你死在十二年前，死在一个没人问过你想不想活的夏天。
+
+  # ---------- 终章直接决定 ----------
+
+  - endingId: end-death
+    name: 战殁
+    description: 新宿那一夜，你没能走出来。
+    triggerConditions:
+      - { flag: finalEnd, eq: hero-death }
+    priority: 70
+    endingType: sacrifice
+    narrativeConfig:
+      source: template
+      title: 战殁
+      summary: 十二年前你站在高专的讲台下答「到」。十二年后你站在新宿的废墟上，把最后一个人推了出去。命运之轮没能转到你这一格——但你替别人转到了。
+
+  - endingId: end-special
+    name: 特级
+    description: 你成了咒术界公认的特级术师。
+    triggerConditions:
+      - { flag: finalEnd, eq: special }
+    priority: 64
+    endingType: glory
+    narrativeConfig:
+      source: template
+      title: 特级
+      summary: 名录上你的名字后面多了两个字。国内只有四个人配得上这两个字，现在多了一个。有人不服，但没人敢当面说。
+
+  - endingId: end-legend
+    name: 传说
+    description: 你的名字会写进以后的教科书。
+    triggerConditions:
+      - { flag: finalEnd, eq: legend }
+    priority: 63
+    endingType: glory
+    narrativeConfig:
+      source: template
+      title: 传说
+      summary: 后来的人提起新宿，会先提五条悟，然后提你。再往后，也许先提你也说不定。传说这种东西，本来就是活着的人编的。
+
+  - endingId: end-lost
+    name: 失力
+    description: 你活下来了，但咒力回路断在了那一夜。
+    triggerConditions:
+      - { flag: finalEnd, eq: lost }
+    priority: 62
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 失力
+      summary: 医生说你还能走路、还能吃饭、还能活很久。只是再也看不见咒灵了。这大概算是一种退休——你花了很久才学会把它当成好事。
+
+  - endingId: end-lost-all
+    name: 幸存者
+    description: 你活下来了，身边却没有人了。
+    triggerConditions:
+      - { flag: finalEnd, eq: lost-all }
+    priority: 61
+    endingType: tragedy
+    narrativeConfig:
+      source: template
+      title: 幸存者
+      summary: 名单上一行一行划过去，最后剩下的那个名字是你。有人来问你那天晚上发生了什么，你说了三个小时，说完发现自己没提任何一个人的名字——因为提了也没人认识了。
+
+  - endingId: end-retire
+    name: 退隐
+    description: 你活下来了，然后离开了咒术界。
+    triggerConditions:
+      - { flag: finalEnd, eq: retire }
+    priority: 60
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 退隐
+      summary: 你交回证件，搬去一个没有咒灵的城市。第一年你还会在夜里惊醒，第三年开始能在超市里挑西红柿挑十分钟。有人问你以前做什么的，你说：「做过一阵子很危险的工作。」
+
+  # P0 修复：命运轮的 finalEnd=survived 原先没有对应结局，最高频的结果掉进 end-ordinary 兜底。
+  - endingId: end-survived
+    name: 活下来的人
+    description: 你活下来了，然后继续做这一行。
+    triggerConditions:
+      - { flag: finalEnd, eq: survived }
+    # 放在 legend(63)/special(64) 之下、生涯型结局（38–44）之上：
+    # 它是命运轮明确给出的收束，但不该盖住更稀有的荣誉线。
+    priority: 57
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 活下来的人
+      summary: 新宿那一夜之后，你学会了在便利店挑一种不太甜的咖啡。第二年你还在出任务，第三年还在，第十年也还在。你没有变成传说，也没有离开——你只是把这件事做成了日常，而这件事本身就是一种答案。
+
+  - endingId: end-half-world
+    name: 半座世界
+    description: 狱门疆封住了最强的那个人，剩下的由你们分掉。
+    triggerConditions:
+      - { flag: gojoSealed, eq: true }
+      - { flag: storyDone, eq: true }
+    # gojoSealed 的结局读取点：封印改变了「谁在扛」，因此压过 glory 线。
+    # 与 end-secret-thrice 互斥（那条要求 savedGojo=true）。
+    priority: 65
+    endingType: tragedy
+    narrativeConfig:
+      source: template
+      title: 半座世界
+      summary: 狱门疆被运走的时候，没有人敢说那口箱子什么时候会开。最强的那个不在了，于是事情被分成很多份，落到很多个人身上——包括你。十二年里你学会的不是怎么赢，是怎么在没有他的情况下继续站着。
+
+  - endingId: end-defected
+    name: 叛逃
+    description: 你选择了另一条路。
+    triggerConditions:
+      - { flag: defected, eq: true }
+    # P0 修复：原来 58 < legend(63)/special(64)，叛逃者照样能拿「传说」。
+    # 叛逃是一个定义性结局，压到 death(70) 之下、其余全部之上。
+    priority: 68
+    endingType: dark
+    narrativeConfig:
+      source: template
+      title: 叛逃
+      summary: 你被列为特级诅咒师。通缉令上的照片是十二年前那张入学照，笑得很难看。有时候你会想，如果那天在雨里转身的是他而不是你，现在坐在哪一边？
+
+  # ---------- 隐藏结局：四件事全做到 ----------
+
+  - endingId: end-secret-thrice
+    name: 四度逆行
+    description: 你把四件本该发生的事，全部改写了。
+    triggerConditions:
+      - { flag: savedRiko, eq: true }
+      - { flag: getoStayed, eq: true }
+      - { flag: savedGojo, eq: true }
+      - { flag: shibuyaSurvived, eq: true }
+    priority: 66
+    endingType: secret
+    narrativeConfig:
+      source: template
+      title: 四度逆行
+      summary: 理子在同化前被带走，夏油在雨里被拉住，狱门疆在封印前一秒被拆开，涩谷的天亮了一千四百米半径。历史书会写「这一年什么也没发生」——只有四个人知道那句话有多重。
+      masked:
+        title: 未公开的结局
+        summary: 有一个不会出现在公开名录里的结局被达成了。
+
+  - endingId: end-secret-two
+    name: 两次逆行
+    description: 你至少改写了其中两件事。
+    triggerConditions:
+      - { flag: savedRiko, eq: true }
+      - { flag: getoStayed, eq: true }
+    priority: 54
+    endingType: secret
+    narrativeConfig:
+      source: template
+      title: 两次逆行
+      summary: 有些事你没能改变，但最重要的两件改变了。理子活着，夏油没有走进那场雨。剩下的遗憾依然在，只是分量轻了一点。
+      masked:
+        title: 未公开的结局
+        summary: 有一个不会出现在公开名录里的结局被达成了。
+
+  # ---------- 生涯型结局 ----------
+
+  - endingId: end-guardian
+    name: 守护者
+    description: 你这一生救下的人，比你杀掉的多得多。
+    triggerConditions:
+      - { flag: savedCivilians, gte: 10 }
+    priority: 44
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 守护者
+      summary: 没有人给你发过奖章。但每年盂兰盆节，总有几户人家会在门口多点一盏灯——他们说不清在给谁点，只是觉得该点。
+
+  - endingId: end-teacher
+    name: 留下来的人
+    description: 你留在了高专，一届一届把新人送出校门。
+    triggerConditions:
+      - { flag: hasKouhai, eq: true }
+      - { flag: montage, eq: teach }
+    priority: 42
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 留下来的人
+      summary: 你成了那种会在讲台上念名字的老师。每年入学式你都会想起 2006 年那个春天，然后对着台下新生的脸说同一句话：「前提是你能活到毕业。」
+
+  - endingId: end-truth
+    name: 知道得太多的人
+    description: 你把那些被盖章「已结案」的档案全翻完了。
+    triggerConditions:
+      - { flag: truthBits, gte: 12 }
+    priority: 40
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 知道得太多的人
+      summary: 你知道了那个横跨千年的局是怎么布的，知道了缝合线下面是什么，知道了「已结案」三个字通常意味着什么。知道这些不会让人好过，但至少不会再被骗。
+
+  - endingId: end-together
+    name: 有人一起
+    description: 十二年里，你始终没有一个人。
+    triggerConditions:
+      - { relation: npc-gojo, gte: 30 }
+      - { relation: npc-geto, gte: 30 }
+    priority: 38
+    endingType: bond
+    narrativeConfig:
+      source: template
+      title: 有人一起
+      summary: 到后来你们都懒得算谁欠谁。有人负责闯祸，有人负责收拾，有人负责在医务室骂人。十二年很长，但如果是三个人一起过，就还好。
+
+  # ---------- 兜底 ----------
+
+  - endingId: end-ordinary
+    name: 普通术师
+    description: 你活下来了，成了一个还不错的术师。
+    triggerConditions: []
+    priority: 0
+    endingType: neutral
+    fallback: true
+    narrativeConfig:
+      source: template
+      title: 普通术师
+      summary: 没有特级，没有传说，没有写进书里。你只是每年处理几十只咒灵，救下几个刚好在你附近的人，然后在年末给自己放两天假。这也算一种活法。
+
+fallback: end-ordinary

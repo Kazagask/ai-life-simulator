@@ -159,7 +159,167 @@ export const OpeningRunSchema = z
   })
   .strict();
 
+// ---------- 前实例化开局（ADR-001 / R-OP-01..07） ----------
+//
+// 新语法与上面的旧 opening.yaml 分域**并存**：旧分域继续服务 1.0.0 模板（旧档拒载由
+// schemaVersion=5 统一处理），新分域由 2.0.0 的 `opening.yaml` 声明，加载期择一解释。
+// 参数落点由引擎注册（模板只给 kind/约束/展示提示），这里只约束"声明的形状"。
+
+/** 参数闭集（R-OP-05）：新参数类型需改 core + ADR，不在模板里自造落点。 */
+export const OpeningParamKindSchema = z.enum([
+  "self",
+  "name",
+  "gender",
+  "age",
+  "attribute",
+  "status",
+  "skill",
+  "item",
+  "relation",
+  "flag",
+  "time",
+  "points",
+  "extensions",
+]);
+export type OpeningParamKind = z.infer<typeof OpeningParamKindSchema>;
+
+/** 展示组件提示（渲染层消费；v1 内联，ui.yaml 定案后迁出）。 */
+export const OpeningParamUiSchema = z
+  .object({
+    label: z.string().min(1),
+    component: z.enum(["text", "enum", "wheel", "points"]).optional(),
+    order: z.number().int().nonnegative().optional(),
+    hidden: z.boolean().optional(),
+  })
+  .strict();
+
+/** 单个开局参数声明：id 是模板侧别名，kind 决定引擎落点（不写 target）。 */
+export const OpeningParamDeclSchema = z
+  .object({
+    id: z.string().min(1),
+    kind: OpeningParamKindSchema,
+    /** 枚举可选值（kind=gender/self 等）；引擎不解释语义，只透传展示与校验。 */
+    values: z.array(z.string().min(1)).optional(),
+    min: z.number().optional(),
+    max: z.number().optional(),
+    /** 点数分配规格（kind=points）：预算 + 各属性上下界。 */
+    budget: z.number().int().positive().optional(),
+    targets: z
+      .array(
+        z
+          .object({
+            attribute: z.string().min(1),
+            min: z.number().optional(),
+            max: z.number().optional(),
+          })
+          .strict(),
+      )
+      .optional(),
+    ui: OpeningParamUiSchema.optional(),
+  })
+  .strict();
+
+/** 一步"抽到/选到就 set 哪些参数"。set 的键必须是本模板声明过的 param id。 */
+export const OpeningBranchSetSchema = z.record(z.string().min(1), z.unknown());
+
+/** 转盘权重：v1 只静态 weight（D-4 裁决：不支持 weightBy）。 */
+export const OpeningBranchOptionSchema = z
+  .object({
+    id: z.string().min(1),
+    text: z.string().min(1),
+    weight: z.number().nonnegative().optional(),
+    /** 加载期拒载任何 weightBy —— 开局期未实例化，世界属性加权复用不了。 */
+    weightBy: z.unknown().optional(),
+    set: OpeningBranchSetSchema,
+    goto: z.string().min(1).optional(),
+  })
+  .strict()
+  .refine((o) => o.weightBy === undefined, { message: "开局 roll 不支持 weightBy（ADR-001 D-4）" });
+
+/** branch DAG 节点：roll 自动掷、choose 玩家点、allocate 加点；可任意交错（R-OP-02）。 */
+export const OpeningBranchNodeSchema = z
+  .object({
+    node: z.string().min(1),
+    title: z.string().min(1),
+    text: z.string().min(1).optional(),
+    mode: z.enum(["roll", "choose", "allocate"]),
+    /** allocate 节点指向的 points 参数 id；roll/choose 可省略。 */
+    param: z.string().min(1).optional(),
+    options: z.array(OpeningBranchOptionSchema).optional(),
+    goto: z.string().min(1).optional(),
+  })
+  .strict();
+
+/** 前实例化开局声明（新 opening.yaml 的顶层形状，可选分域）。 */
+export const OpeningBranchDagSchema = z
+  .object({
+    openingId: z.string().min(1),
+    name: z.string().min(1),
+    description: z.string().min(1).optional(),
+    params: z.array(OpeningParamDeclSchema),
+    entry: z.string().min(1),
+    nodes: z.array(OpeningBranchNodeSchema).min(1),
+  })
+  .strict()
+  .superRefine((dag, ctx) => {
+    const ids = new Set(dag.params.map((p) => p.id));
+    if (ids.size !== dag.params.length) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["params"], message: "重复 param id" });
+    }
+    const nodes = new Set<string>();
+    dag.nodes.forEach((n, i) => {
+      if (nodes.has(n.node)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["nodes", i, "node"], message: `重复节点 id：${n.node}` });
+      }
+      nodes.add(n.node);
+      for (const [optionIndex, option] of (n.options ?? []).entries()) {
+        for (const key of Object.keys(option.set)) {
+          if (!ids.has(key)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["nodes", i, "options", optionIndex, "set", key],
+              message: `set 引用未声明参数：${key}`,
+            });
+          }
+        }
+      }
+    });
+    if (!nodes.has(dag.entry)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["entry"], message: `entry 指向不存在的节点：${dag.entry}` });
+    }
+  });
+
+/** 会话一步的结果（只记结果，不记 Draft / 中间世界）。 */
+export const OpeningStepResultSchema = z
+  .object({
+    nodeId: z.string().min(1),
+    optionId: z.string().min(1).optional(),
+    rollIndex: z.number().int().nonnegative().optional(),
+    /** allocate 节点的最终分配结果：paramId -> attribute -> value */
+    allocation: z.record(z.string(), z.record(z.string(), z.number())).optional(),
+  })
+  .strict();
+
+/** 会话契约（服务端资源，不进 WorldStateV2）。 */
+export const OpeningSessionSchema = z
+  .object({
+    id: z.string().min(1),
+    templateId: z.string().min(1),
+    templateVersion: z.string().min(1),
+    openingId: z.string().min(1),
+    seed: z.number().int(),
+    nodeId: z.string().min(1),
+    results: z.array(OpeningStepResultSchema),
+    done: z.boolean(),
+  })
+  .strict();
+
 export type OpeningTemplate = z.infer<typeof OpeningTemplateSchema>;
+export type OpeningBranchDag = z.infer<typeof OpeningBranchDagSchema>;
+export type OpeningBranchNode = z.infer<typeof OpeningBranchNodeSchema>;
+export type OpeningBranchOption = z.infer<typeof OpeningBranchOptionSchema>;
+export type OpeningSession = z.infer<typeof OpeningSessionSchema>;
+export type OpeningStepResult = z.infer<typeof OpeningStepResultSchema>;
 export type OpeningRun = z.infer<typeof OpeningRunSchema>;
 export type OpeningStep = z.infer<typeof OpeningStepSchema>;
 export type OpeningEventPool = z.infer<typeof OpeningEventPoolSchema>;

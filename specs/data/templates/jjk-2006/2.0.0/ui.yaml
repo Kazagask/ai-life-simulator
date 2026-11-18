@@ -1,0 +1,18 @@
+# 展示层声明（`specs/SPEC.md` §1.5 形状 B）。
+# 这份是「等价现状」的基线：每个能力都落在它今天实际所在的位置，
+# 所以加载它前后页面逐字相同。改某一行即可搬迁或关掉入口，不需要改代码。
+# 注意：本文件不进语义指纹 —— 改这里不会让旧存档拒载。
+place:
+  life: tab
+  personal: tab
+  world: tab
+  log: tab
+  records: tab
+  character: slot:personal
+  equipment: slot:personal
+  inventory: slot:personal
+  skills: slot:personal
+  relations: slot:npcList
+  wheel: overlay
+  battle: overlay
+  event: overlay

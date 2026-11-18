@@ -11,10 +11,10 @@ import { PLAYER_NODE_ID } from "./relations.js";
  * **做法**：引入 `selfIdOf(state)` 作为「玩家这个节点的唯一名字」，再给一个
  * `actorOf(state, id)` 把两类身份统一成 `ActorRef`。调用方不再关心「这是玩家还是 NPC」。
  *
- * **本期范围（只做关系面）**：玩家存储**没有**切换 —— `state.player` 仍是独立的
- * `V2Player`，没有进 `state.npcs`。这里只提前接通访问层与关系图端点。
- * 切换存储那期只需 `createWorldV2` 把玩家推进 `npcs`（id = `selfId`），
- * 本文件的 `actorOf` 因为**先查实例**、天然优先命中实例条目，上层调用点不用改。
+ * **完整切换（ADR-001 / 2026-11-18）**：权威 self 实体就是 `state.player`，`selfId` 是它在
+ * 演员表 / 关系图里的名字。扮演模板角色时 `selfId = <characterId>`，该角色**不另建 npc 实例**
+ * （杜绝两份真相与同步补丁）；`actorOf` 在 `npcs` 找不到时按 `id === selfId` 回落到玩家，
+ * 因此所有上层调用点（关系 / 战斗 / 投影）天然正确，不需要改。
  *
  * 关系图节点 id 与实例 id 是同一个字符串（`nodeId` 字段留给将来需要区分的场景）。
  */
@@ -64,7 +64,8 @@ export function actorOf(state: WorldStateV2, id: string): ActorRef | null {
  * - `generatedCharacters` 是 `submitBranch` 造的人，正常情况下同时有 `unspawned` 实例，
  *   放在实例前面只是兜底（定义在、实例被裁掉时仍能取到名字）；
  * - 实例覆盖前两者（实例是运行时权威，名字可能被生成内容改过）；
- * - 玩家放最后：切存储后实例与玩家是同一个人，用 `state.player.name` 为准不掉价。
+ * - 玩家放最后：被 self 复用的角色虽在模板声明里有一行，但**没有 npc 实例**，
+ *   这里用 `state.player.name` 覆盖它——权威名只有一个来源。
  *
  * 引用完整性：加载期 `WorldTemplateV2Schema.superRefine` 已保证 `relations[].to` /
  * `addRelationEdge.toId` 只能指向「已声明角色」或 `PLAYER_ID`，所以本目录**必然命中**。

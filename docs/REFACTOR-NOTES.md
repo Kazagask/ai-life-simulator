@@ -69,6 +69,19 @@
   - **yaml 也能用同一套语法**：`events.yaml` 条目写 `branch:`，加载期展开成普通事件；
     首节点**沿用父 id**（外部 `nextEventId` / `eventResolved` 引用零改动），其余 `<id>#<node>`。
     真样例：`specs/data/templates/jjk-shinjuku/1.0.0/events.yaml` 的 `evt:north-counter`。
+  - **YAML 专用扩展（2026-11-18）：`branch` 的 node 可写 `as: <actorId>`**，同一 `node` 别名写多份、
+    每份带不同 `as` ⇒ **同一个节点、不同 self 看到不同剧情**（正文与选项整套不同）。self 恒单值 ⇒
+    变体天然互斥；多变体时必须有一份无 `as` 的兜底变体防软锁。
+    加载期把变体展开成独立事件 `<id>#<node>@<as>`，as 变体带一等条件 `selfIs`、兜底带一组 `selfIsNot`
+    （逐条 AND，否则 chain 来源下兜底会与 as 变体同时成立而串戏）。
+    `goto` 到多变体节点、以及**外部 `nextEventId` 指向多变体首节点父 id**（chain 入队不看 conditions）
+    都自动展开为多条 self 门控的同一选项 —— 玩家仍只看到一条、不额外占轮次，不是"给某些角色多一个选项"；
+    random.wheel / combat outcome 指多变体首节点 ⇒ 加载期拒载（无处挂 visibleWhen）。
+    **2026-11-18 追加**：**首节点也允许 `as`**（用户裁决：很可能共用触发器、首节点就不一样，彻底 close 不留遗留）。
+    多个首节点变体**共用父 trigger**，兜底沿用父 id（外部引用零改动），as 变体用 `<id>#<node>@<as>`。
+    新增对称原语 `selfIsNot`（`shared/schema/common.ts` + `engine.ts#checkCondition`），与 `selfIs` 一样只读
+    `selfIdOf(state)`。**只对模板开放**：LLM 的 `submitBranch` node 没有 `as`，其 option 也没有 `visibleWhen`，
+    LLM 不感知角色分派（参与时角色早已确定）。
 
 ## 6. 我判断错、已被纠正的点（别再犯）
 

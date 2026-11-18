@@ -417,6 +417,7 @@ function buildSnapshotActors(
     });
   }
   const player = state.player;
+  // 权威 self 实体（ADR-001）：被扮演的角色不另建 npc 实例，这里把它作为演员写进目录。
   // 玩家没有 lifecycle：恒在世、恒可见（见 hiddenNodeIds 的硬保留说明）。
   actors.set(selfId, {
     id: selfId,

@@ -12,6 +12,7 @@ import {
   EvaluationConfigSchema,
   EventTriggerSchema,
   ENGINE_VERSION,
+  OpeningBranchDagSchema,
   OpeningTemplateSchema,
   RulesSchema,
   satisfiesVersion,
@@ -23,6 +24,7 @@ import {
   type EndingConfig,
   type EvaluationConfig,
   type LoreRule,
+  type OpeningBranchDag,
   type OpeningTemplate,
   type Rules,
   type TimeSpec,
@@ -454,6 +456,8 @@ export interface ReadyTemplateEntry extends TemplateEntryBase {
   template: WorldTemplateV2;
   lookup: TemplateLookup;
   openings: OpeningTemplate[];
+  /** ADR-001：新语法前实例化开局 DAG（与 legacy openings 互斥）。 */
+  openingDag?: OpeningBranchDag;
   endingConfig?: EndingConfig;
   evaluationConfig?: EvaluationConfig;
   pipeline: TurnPipelineConfig;
@@ -500,6 +504,8 @@ export type TemplateVersionSummary =
       description: string;
       startYear: number;
       openings: Array<{ id: string; name: string; description: string }>;
+      /** ADR-001：该版本使用前实例化开局向导；存在即前端走 /api/openings 流程。 */
+      openingDag?: { openingId: string; name: string; description?: string };
       assetCount: number;
       assetFingerprint: string;
       /** T-06：从 assetManifest 派生的 assetId 列表（无 path / 无二进制）。 */
@@ -683,6 +689,16 @@ const TemplateBranchGotoSchema = z.union([
 const TemplateBranchNodeSchema = z
   .object({
     node: z.string().min(1).max(40),
+    /**
+     * **角色分派（YAML 专用）**：同一 `node` 别名可写多份，每份带不同 `as` —— 表示这一幕
+     * 只有当前 self 是该演员时呈现。self 恒单值 ⇒ 同别名的多个变体天然互斥。
+     * **首节点同样可写 `as`**：多个首节点变体共用父 trigger，靠一等条件 `selfIs` /
+     * `selfIsNot` 在出队终判互斥（"共用触发器、首节点不一样"）。无 as 的兜底变体沿用父 id。
+     * 变体节点在加载期展开成独立事件；入口处 `goto` 与外部 `nextEventId` 自动翻译成
+     * 按 self 门控的同形选项（玩家仍只看到一条、不额外占轮次）。
+     * LLM 的 `submitBranch` node 没有这个字段（它参与时角色已确定）。
+     */
+    as: z.string().min(1).optional(),
     title: z.string().min(1).max(40).optional(),
     text: z.string().min(1).max(600),
     actors: z.array(z.string().min(1)).max(6).optional(),
@@ -748,7 +764,10 @@ const TemplateBranchEventSchema = z
  *
  * 真样例见 `specs/data/templates/jjk-shinjuku/1.0.0/events.yaml` 的 `evt:north-counter`。
  */
-function expandTemplateEvents(rawEvents: readonly unknown[]): unknown[] {
+function expandTemplateEvents(
+  rawEvents: readonly unknown[],
+  actorIds?: ReadonlySet<string>,
+): unknown[] {
   // 第一遍：所有声明的事件 id 先占位（**含 branch 父 id**）；手写 id 自身重复即拒载。
   const ids = new Set<string>();
   for (const raw of rawEvents) {
@@ -761,6 +780,8 @@ function expandTemplateEvents(rawEvents: readonly unknown[]): unknown[] {
   }
 
   const out: unknown[] = [];
+  /** 多变体首节点的父 id → 各变体（含 id / as）；供第二遍把"指向父 id 的入边"改写成 self 门控。 */
+  const firstVariantsByParent = new Map<string, { id: string; as?: string }[]>();
   for (const raw of rawEvents) {
     const rec = asRecord(raw);
     if (rec === null || rec.branch === undefined) {
@@ -781,10 +802,44 @@ function expandTemplateEvents(rawEvents: readonly unknown[]): unknown[] {
     }
     const event = parsed.data;
     const prefix = `${event.id}#`;
-    const aliases = new Set(event.branch.map((n) => n.node));
-    if (aliases.size !== event.branch.length) {
-      throw new Error(`events: ${event.id} 的 node 别名重复`);
+    const firstAlias = event.branch[0]?.node;
+    /**
+     * 同一 node 别名可写多份 `as` 变体 ⇒ 同一幕、不同 self 看到不同剧情，天然互斥。
+     * 必须留一个无 as 的兜底变体，否则未覆盖的角色走到这里会软锁。
+     * 首节点同样适用：兜底变体沿用父 id 作稳定入口，as 变体展开成 `<id>#<node>@<as>`。
+     */
+    const variantsByNode = new Map<string, typeof event.branch>();
+    for (const node of event.branch) {
+      const list = variantsByNode.get(node.node) ?? [];
+      list.push(node);
+      variantsByNode.set(node.node, list);
     }
+    for (const [alias, variants] of variantsByNode) {
+      const seen = new Set<string>();
+      for (const variant of variants) {
+        const key = variant.as ?? "*";
+        if (seen.has(key)) {
+          throw new Error(`events: ${event.id} 的节点 ${alias} 的 as 重复：${key}`);
+        }
+        seen.add(key);
+        if (variant.as !== undefined && actorIds !== undefined && !actorIds.has(variant.as)) {
+          throw new Error(`events: ${event.id} 的节点 ${alias} 的 as 指向未知演员：${variant.as}`);
+        }
+      }
+      if (variants.length > 1 && !variants.some((v) => v.as === undefined)) {
+        throw new Error(`events: ${event.id} 的节点 ${alias} 缺少无 as 的兜底变体`);
+      }
+    }
+    const aliases = new Set(variantsByNode.keys());
+    /**
+     * 某节点所有 as 变体的演员 id（用于给**兜底变体**装配 selfIsNot 门控）。
+     * 没有它，兜底会与 as 变体同时通过 trigger.conditions（chain 在出队终判、pool 在候选门控），
+     * 造成"两个首节点都触发"的串戏；self 恒单值 ⇒ selfIsNot 列表天然与 selfIs 互斥。
+     */
+    const otherAsOf = (alias: string, selfAs: string | undefined): string[] =>
+      (variantsByNode.get(alias) ?? [])
+        .map((v) => v.as)
+        .filter((a): a is string => a !== undefined && a !== selfAs);
     // goto 闭合 + 同一目标 after 一致（与 submitBranch 同一口径）。
     const afterByTarget = new Map<string, { canonical: string; spec?: TimeSpec }>();
     for (const node of event.branch) {
@@ -808,20 +863,51 @@ function expandTemplateEvents(rawEvents: readonly unknown[]): unknown[] {
       }
     }
 
-    // 首节点沿用父 id：先摘掉自己的占位，再逐节点 add（否则会把自己判成撞车）。
+    // 首节点的**兜底变体**（无 as）沿用父 id：外部 nextEventId / eventResolved 零改动。
+    // 若首节点只有 as 变体（无兜底），它们已在上方的多变体校验中被拒，故这里必能找到兜底。
+    // 先摘掉自己的占位，再逐节点 add（否则会把自己判成撞车）。
     ids.delete(event.id);
-    const expandedId = (alias: string): string =>
-      alias === event.branch[0]?.node ? event.id : `${prefix}${alias}`;
+    const expandedId = (alias: string, as?: string): string =>
+      alias === firstAlias && as === undefined
+        ? event.id
+        : `${prefix}${alias}${as !== undefined ? `@${as}` : ""}`;
 
-    for (const [index, node] of event.branch.entries()) {
-      const id = expandedId(node.node);
+    // 记录多变体首节点：入边（上游 nextEventId）也要按 self 门控，否则 as 变体永远进不来。
+    const firstVariants = variantsByNode.get(firstAlias ?? "") ?? [];
+    if (firstVariants.length > 1) {
+      firstVariantsByParent.set(
+        event.id,
+        firstVariants.map((v) => ({
+          id: expandedId(firstAlias!, v.as),
+          ...(v.as !== undefined ? { as: v.as } : {}),
+        })),
+      );
+    }
+
+    for (const node of event.branch) {
+      const id = expandedId(node.node, node.as);
       if (ids.has(id)) {
         throw new Error(
           `events: branch 展开后的事件 id 撞车：${id}（与手写事件或另一条分支重复）`,
         );
       }
       ids.add(id);
-      const afterSpec = index > 0 ? afterByTarget.get(node.node)?.spec : undefined;
+      const isFirst = node.node === firstAlias;
+      // 首节点是入口、没有上游 goto ⇒ 永不挂 after（与变体书写顺序无关）。
+      const afterSpec = !isFirst ? afterByTarget.get(node.node)?.spec : undefined;
+      /**
+       * 一等 self 门控：
+       * - as 变体 ⇒ `{ selfIs: <as> }`（只有该 self 命中）；
+       * - 兜底变体且同节点有 as 变体 ⇒ 一条 `{ selfIsNot }` 排除每一个 as（都不命中才走兜底）；
+       * - 无 as 变体的普通节点 ⇒ 不装配，零回归。
+       * chain 来源在出队终判求值（scheduler.checkEventPremise），pool 来源在候选门控求值，
+       * 两条路径都能保证同一时刻只有一个变体成立。
+       */
+      const selfGate =
+        node.as !== undefined
+          ? [{ selfIs: node.as }]
+          : otherAsOf(node.node, undefined).map((a) => ({ selfIsNot: a }));
+      const inherited = event.trigger.conditions ?? [];
       out.push({
         id,
         title: node.title ?? event.title ?? node.node,
@@ -830,33 +916,116 @@ function expandTemplateEvents(rawEvents: readonly unknown[]): unknown[] {
         ...(node.actors !== undefined ? { actors: [...node.actors] } : {}),
         ...(node.mentions !== undefined ? { mentions: [...node.mentions] } : {}),
         ...(node.npcs !== undefined ? { npcs: [...node.npcs] } : {}),
-        trigger:
-          index === 0
-            ? event.trigger
-            : {
-                source: "chain",
-                ...(afterSpec !== undefined ? { window: { start: afterSpec } } : {}),
-              },
+        trigger: isFirst
+          ? // 首节点（兜底 + 各 as 变体）**共用父 trigger**：source / window / once / 权重等
+            // 全部继承，只把 self 门控并进 conditions —— 这就是"共用触发器、首节点不一样"。
+            selfGate.length > 0
+            ? { ...event.trigger, conditions: [...inherited, ...selfGate] }
+            : event.trigger
+          : {
+              source: "chain",
+              ...(afterSpec !== undefined ? { window: { start: afterSpec } } : {}),
+              // 变体事件再用一等条件 selfIs/selfIsNot 兜一层：直接按 id 入队也不会串戏。
+              ...(selfGate.length > 0 ? { conditions: [...inherited, ...selfGate] } : {}),
+            },
         settle: {
           normal: {
-            options: node.options.map((option, optionIndex) => ({
-              id: `${id}.opt.${optionIndex + 1}`,
-              text: option.text,
-              ...(option.effects !== undefined ? { effects: option.effects } : {}),
-              ...(option.goto !== undefined
-                ? {
-                    nextEventId: expandedId(
-                      typeof option.goto === "string" ? option.goto : option.goto.node,
-                    ),
-                  }
-                : option.nextEventId !== undefined
-                  ? // 跳出分支：目标在模板主线里，原样透传（存在性由 parse 的 superRefine 校验）
-                    { nextEventId: option.nextEventId }
-                  : {}),
-            })),
+            // goto 到有 as 变体的节点 ⇒ 展开成多条 selfIs 门控的「同一条选项」；
+            // self 单值 ⇒ 玩家仍只看到一条，不额外耗一轮、也不做角色选择题。
+            options: node.options.flatMap((option, optionIndex) => {
+              const base = {
+                text: option.text,
+                ...(option.effects !== undefined ? { effects: option.effects } : {}),
+              };
+              if (option.goto !== undefined) {
+                const target = typeof option.goto === "string" ? { node: option.goto } : option.goto;
+                const targets = variantsByNode.get(target.node) ?? [];
+                return targets.map((t, targetIndex) => ({
+                  ...base,
+                  id: `${id}.opt.${optionIndex + 1}${targets.length > 1 ? `.${targetIndex + 1}` : ""}`,
+                  ...(t.as !== undefined ? { visibleWhen: [{ selfIs: t.as }] } : {}),
+                  nextEventId: expandedId(target.node, t.as),
+                }));
+              }
+              if (option.nextEventId !== undefined) {
+                // 跳出分支：目标在模板主线里，原样透传（存在性由 parse 的 superRefine 校验）。
+                return [{ ...base, id: `${id}.opt.${optionIndex + 1}`, nextEventId: option.nextEventId }];
+              }
+              return [{ ...base, id: `${id}.opt.${optionIndex + 1}` }];
+            }),
           },
         },
       });
+    }
+  }
+
+  /**
+   * 第二遍：**入边分派**。首节点 as 变体共用父 trigger，但 chain 来源靠 `nextEventId`
+   * 直接入队（applySuccessor 不看 conditions）—— 若所有上游都指向父 id（兜底变体），
+   * as 变体永远进不来。这里把"指向多变体首节点父 id"的入边改写成按 self 门控的同形项：
+   * - normal option：一条拆成 N 条同文同 effects、各带 visibleWhen 的选项（玩家只见一条）；
+   * - random wheel / combat outcome：没有 visibleWhen 可挂 ⇒ 加载期拒载，避免静默串戏。
+   *
+   * 门控语义（self 恒单值 ⇒ 恒互斥，且必有兜底）：
+   * - as 变体 ⇒ `visibleWhen: [{ selfIs: <as> }]`；
+   * - 兜底变体 ⇒ `visibleWhen: [ ...每个 as 各一条 { selfIsNot } ]`（数组内 AND，逐条展开）。
+   */
+  if (firstVariantsByParent.size > 0) {
+    const rejectUnsupported = (kind: string, target: string, where: string): never => {
+      throw new Error(
+        `events: ${kind} 的 ${where} 指向有多角色首节点的事件 ${target}；该入边无法按角色分派，请改用 normal 选项进入`,
+      );
+    };
+    /** 把一条带 nextEventId 的项拆成 self 门控的多条；返回 null 表示无需改写。 */
+    const gatedEntries = (item: Record<string, unknown>): Record<string, unknown>[] | null => {
+      const target = item.nextEventId;
+      if (typeof target !== "string") return null;
+      const list = firstVariantsByParent.get(target);
+      if (list === undefined) return null;
+      const allAs = list.map((v) => v.as).filter((a): a is string => a !== undefined);
+      return list.map((v, i) => ({
+        ...item,
+        id: `${String(item.id)}.entry.${i + 1}`,
+        visibleWhen:
+          v.as !== undefined
+            ? [{ selfIs: v.as }]
+            : allAs.map((a) => ({ selfIsNot: a })),
+        nextEventId: v.id,
+      }));
+    };
+
+    for (const raw of out) {
+      const rec = asRecord(raw);
+      if (rec === null) continue;
+      const settle = asRecord(rec.settle);
+      if (settle === null) continue;
+      const kind = String(rec.kind ?? "");
+      if (kind === "normal") {
+        const normal = asRecord(settle.normal);
+        if (normal === null || !Array.isArray(normal.options)) continue;
+        normal.options = normal.options.flatMap((o) => {
+          const item = asRecord(o);
+          if (item === null) return [o];
+          return gatedEntries(item) ?? [o];
+        });
+      } else if (kind === "random") {
+        const random = asRecord(settle.random);
+        const wheel = random === null ? null : asRecord(random.wheel);
+        for (const seg of (wheel?.segments ?? []) as unknown[]) {
+          const item = asRecord(seg);
+          if (item !== null && typeof item.nextEventId === "string" && firstVariantsByParent.has(item.nextEventId)) {
+            rejectUnsupported("random.wheel", item.nextEventId, "segment");
+          }
+        }
+      } else if (kind === "combat") {
+        const combat = asRecord(settle.combat);
+        for (const key of ["onVictory", "onDefeat", "onFlee"]) {
+          const item = combat === null ? null : asRecord(combat[key]);
+          if (item !== null && typeof item.nextEventId === "string" && firstVariantsByParent.has(item.nextEventId)) {
+            rejectUnsupported("combat", item.nextEventId, key);
+          }
+        }
+      }
     }
   }
   return out;
@@ -887,19 +1056,39 @@ function loadTemplate(versionDir: string, files: ReadonlySet<string>): WorldTemp
     }
   }
   // P1：模板侧 `events[].branch` 在加载期展开成普通事件；非数组原样交给 schema 报类型错。
+  // 角色分派 `as` 只认模板角色 id（或默认 self "player"），未知 id 在加载期拒载。
   if (Array.isArray(merged.events)) {
-    merged.events = expandTemplateEvents(merged.events);
+    const actorIds = new Set<string>(["player"]);
+    if (Array.isArray(merged.characters)) {
+      for (const c of merged.characters) {
+        if (c !== null && typeof c === "object" && typeof c.id === "string") actorIds.add(c.id);
+      }
+    }
+    merged.events = expandTemplateEvents(merged.events, actorIds);
   }
   return WorldTemplateV2Schema.parse(merged);
 }
 
 /** 读取可选 opening.yaml；openingId 重复属模板缺陷，加载期即失败。 */
-function loadOpenings(versionDir: string, files: ReadonlySet<string>): OpeningTemplate[] {
-  if (!files.has("opening.yaml")) return [];
+function loadOpenings(
+  versionDir: string,
+  files: ReadonlySet<string>,
+): { legacy: OpeningTemplate[]; branchDag?: OpeningBranchDag } {
+  if (!files.has("opening.yaml")) return { legacy: [] };
   const file = path.join(versionDir, "opening.yaml");
+  const raw = parse(readFileSync(file, "utf8"));
+  // ADR-001：新语法是**单个 branch DAG 对象**（有 `params`/`entry`/`nodes`），
+  // 旧语法是 OpeningTemplate 数组。两者择一，按形状判别，加载期都走严格 schema。
+  if (raw !== null && typeof raw === "object" && !Array.isArray(raw) && "nodes" in raw) {
+    try {
+      return { legacy: [], branchDag: OpeningBranchDagSchema.parse(raw) };
+    } catch (error) {
+      throw new Error(`opening.yaml: ${firstIssue(error)}`);
+    }
+  }
   let list: OpeningTemplate[];
   try {
-    list = z.array(OpeningTemplateSchema).parse(parse(readFileSync(file, "utf8")));
+    list = z.array(OpeningTemplateSchema).parse(raw);
   } catch (error) {
     throw new Error(`opening.yaml: ${firstIssue(error)}`);
   }
@@ -908,7 +1097,7 @@ function loadOpenings(versionDir: string, files: ReadonlySet<string>): OpeningTe
     if (ids.has(t.openingId)) throw new Error(`opening.yaml: openingId 重复：${t.openingId}`);
     ids.add(t.openingId);
   }
-  return list;
+  return { legacy: list };
 }
 
 /** 按文件存在性加载单个可选分域；校验失败由调用方决定 fail-fast 还是标 invalid。 */
@@ -1212,7 +1401,9 @@ function scanVersion(
     // 三个模板已全部合规（valmont 迁到 fatherId/motherId 指针，jjk-2006 撤掉 family 声明），
     // 闸门自此真正生效；它是软码（只废这一个版本，不拒进程），见 SOFT_REASON_CODES。
     assertKinshipCompliance(template);
-    const openings = loadOpenings(versionDir, present);
+    const loadedOpenings = loadOpenings(versionDir, present);
+    const openings = loadedOpenings.legacy;
+    const openingDag = loadedOpenings.branchDag;
     const endingConfig = loadOptionalConfig(versionDir, "endings.yaml", present, EndingConfigSchema);
     const evaluationConfig = loadOptionalConfig(
       versionDir,
@@ -1247,6 +1438,7 @@ function scanVersion(
       template,
       lookup: createLookup(template),
       openings,
+      ...(openingDag !== undefined ? { openingDag } : {}),
       ...(endingConfig !== undefined ? { endingConfig } : {}),
       ...(evaluationConfig !== undefined ? { evaluationConfig } : {}),
       ...(rules !== undefined ? { rules } : {}),
@@ -1568,6 +1760,17 @@ function createRegistry(dir: string, result: ScanResult, logger: TemplateScanLog
                 name: o.name,
                 description: o.description,
               })),
+              ...(entry.openingDag !== undefined
+                ? {
+                    openingDag: {
+                      openingId: entry.openingDag.openingId,
+                      name: entry.openingDag.name,
+                      ...(entry.openingDag.description !== undefined
+                        ? { description: entry.openingDag.description }
+                        : {}),
+                    },
+                  }
+                : {}),
               assetCount: entry.assetCount,
               assetFingerprint: entry.assetFingerprint,
               // T-06：assetId 列表 + kind + characterRef；不下发 path / 二进制。

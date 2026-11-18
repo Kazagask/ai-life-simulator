@@ -334,14 +334,23 @@ export interface WorldStateV2 {
   playerAgeAtStart: number;
   player: V2Player;
   /**
-   * 玩家在**演员表 / 关系图**里的节点 id（A 期 seam，2026-11-16）。
+   * 玩家在**演员表 / 关系图**里的节点 id（ADR-001 / R-SELF-01，2026-11-18 完整切换）。
    *
-   * 目标形态是「玩家也是一个 npc 实例，用一个 self 指针指向它」；本期只提前施工这一半：
-   * 玩家仍存在 `state.player`（不切存储），但所有把玩家当图节点的代码
-   * 一律走 `selfIdOf(state)` / `actorOf(state, id)`，不再写死字面量 `"player"`。
-   * 可选 + 缺省 `"player"` ⇒ 旧档直载；切换存储那期只需让 `actorOf` 从 `npcs` 命中它。
+   * 权威 self 实体**就是 `state.player`**（唯一真源）：`selfId` 是它在图里的名字。
+   * 默认 `"player"`；扮演剧本人物时为角色 id（如 `npc-gojo`），**该角色不再进 `npcs`**
+   * （同一实体不建两份，杜绝属性双写补丁）。所有把玩家当图节点的代码一律走
+   * `selfIdOf(state)` / `actorOf(state, id)`，不写死字面量 `"player"`。
+   * 可选 + 缺省 `"player"` 仅为旧读法兜底；schemaVersion 5 的新档一律显式写入。
    */
   selfId?: string;
+  /**
+   * 前实例化开局的落盘记录（ADR-001）：openingId + 每一步的 results。
+   * 可选（schemaVersion 5 的新档一定会写）；只记结果，不记 Draft / 中间世界。
+   */
+  opening?: {
+    openingId: string;
+    results: Array<{ nodeId: string; optionId?: string; rollIndex?: number; allocation?: Record<string, Record<string, number>> }>;
+  };
   npcs: V2Npc[];
   /**
    * R2.6 / ADR-0014：关系图边（实例层）。kind 语义 = from→to（`{from:A,to:B,kind:"father"}` =

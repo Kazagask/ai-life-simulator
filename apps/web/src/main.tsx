@@ -23,6 +23,8 @@ import type {
   EndingView,
   EventFlavorMap,
   NarrativeSource,
+  OpeningNodeView,
+  OpeningStepInput,
   SlotEventView,
   TemplateSummary,
   V2Snapshot,
@@ -113,6 +115,15 @@ function elapsedText(elapsed: { value: number; unit: string }): string {
 
 type Tab = "life" | "personal" | "world" | "log" | "records";
 
+/** 前实例化开局的启动参数（从建局表单带来，不含世界状态）。 */
+interface OpeningLaunch {
+  templateId: string;
+  templateVersion: string;
+  name: string;
+  playerName?: string;
+  seed?: number;
+}
+
 interface LastResult {
   /** 该响应对应的轮次：用于判断「这批结果是刚结算的」还是「从存档恢复的」（D-09） */
   turnIndex: number;
@@ -174,6 +185,7 @@ const SLOT_BADGE: Record<SlotOccupant, string> = {
 
 function App() {
   const [worldId, setWorldId] = useState<string | null>(loadWorldId());
+  const [openingLaunch, setOpeningLaunch] = useState<OpeningLaunch | null>(null);
   const [snapshot, setSnapshot] = useState<WorldSnapshot | null>(null);
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
   const [worlds, setWorlds] = useState<WorldSummary[]>([]);
@@ -551,6 +563,26 @@ function App() {
     void wrap(() => api.advanceTurn(wid, { type: "free", description: "" }, true));
   }, [wrap]);
 
+  /** 开局后改名（R-NAME-02）：只写权威 self 实体，不推进时间；列表读 player.name 自然同步。 */
+  const rename = useCallback(async () => {
+    const wid = worldIdRef.current;
+    if (wid === null) return;
+    const next = window.prompt("给角色改名", snapshot?.player.name ?? "");
+    if (next === null) return;
+    const trimmed = next.trim();
+    if (trimmed === "") {
+      setError("名字不能为空");
+      return;
+    }
+    setError(null);
+    try {
+      const res = await api.renameWorld(wid, trimmed);
+      setSnapshot(res.snapshot);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [snapshot?.player.name]);
+
   const reset = useCallback(() => {
     clearWorldId();
     setWorldId(null);
@@ -558,6 +590,17 @@ function App() {
     setNotice(null);
     setLastResult(null);
   }, []);
+
+  // ADR-001：版本声明了 openingDag 时先跑前实例化向导；这里不建世界、不实例化 NPC。
+  if (openingLaunch !== null) {
+    return (
+      <OpeningWizard
+        launch={openingLaunch}
+        onCreated={handleCreated}
+        onCancel={() => setOpeningLaunch(null)}
+      />
+    );
+  }
 
   if (!worldId || !snapshot) {
     return (
@@ -580,6 +623,7 @@ function App() {
           authReady={authReady}
           session={session}
           onCreated={handleCreated}
+          onOpening={setOpeningLaunch}
           onOpen={openWorld}
           onDelete={deleteWorld}
         />
@@ -624,6 +668,7 @@ function App() {
         </div>
         <div className="topbar-right">
           <span className="chip">第 {snapshot.turnIndex} 轮</span>
+          <button className="ghost" onClick={() => void rename()}>改名</button>
           <button className="ghost" onClick={reset}>重开</button>
         </div>
       </header>
@@ -822,6 +867,256 @@ function describeCreateError(
   }
 }
 
+/**
+ * 前实例化开局向导（ADR-001）。
+ *
+ * 纪律：这里**只消费**服务端已决定的节点与结果——roll 在服务端按 seed+node 派生，客户端
+ * 的转盘动画只是呈现；commit 之前页面上没有世界、没有 NPC、没有第 1 轮。
+ * 最终面板只展示玩家关心的三样：**特质 / 技能 / 物品**，不展开基本/附加属性细节。
+ */
+function OpeningWizard({
+  launch,
+  onCreated,
+  onCancel,
+}: {
+  launch: OpeningLaunch;
+  onCreated: (id: string, snapshot: V2Snapshot) => void;
+  onCancel: () => void;
+}) {
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [node, setNode] = useState<OpeningNodeView | null>(null);
+  const [steps, setSteps] = useState<Array<{ title: string; text?: string; result: string }>>([]);
+  const [spinning, setSpinning] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [allocation, setAllocation] = useState<Record<string, number>>({});
+  const [finalWorld, setFinalWorld] = useState<{ id: string; snapshot: WorldSnapshot } | null>(null);
+  const started = useRef(false);
+  const stepping = useRef(false);
+
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    setBusy(true);
+    api
+      .createOpening({
+        templateId: launch.templateId,
+        templateVersion: launch.templateVersion,
+        ...(launch.playerName !== undefined ? { playerName: launch.playerName } : {}),
+        ...(launch.seed !== undefined ? { seed: launch.seed } : {}),
+      })
+      .then((res) => {
+        setSessionId(res.sessionId);
+        setNode(res.node);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setBusy(false));
+  }, [launch]);
+
+  const advance = useCallback(
+    async (input: OpeningStepInput, result: string, title: string, text?: string) => {
+      if (sessionId === null || stepping.current) return;
+      stepping.current = true;
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await api.stepOpening(sessionId, input);
+        setSteps((prev) => [...prev, { title, ...(text !== undefined ? { text } : {}), result }]);
+        setNode(res.node);
+        setAllocation({});
+        if (res.done) {
+          const committed = await api.commitOpening(sessionId);
+          setFinalWorld({ id: committed.worldId, snapshot: committed.snapshot });
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        stepping.current = false;
+        setBusy(false);
+      }
+    },
+    [sessionId],
+  );
+
+  // roll 节点连续推进：动画只呈现，真正的落定结果由服务端在 step 里回传。
+  useEffect(() => {
+    if (sessionId === null || node === null || node.mode !== "roll" || finalWorld !== null) return;
+    setSpinning(true);
+    const timer = window.setTimeout(() => {
+      setSpinning(false);
+      void advance({ kind: "roll" }, "命数已落定", node.title, node.text);
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [node?.nodeId, sessionId, finalWorld, advance]);
+
+  if (finalWorld !== null) {
+    const player = finalWorld.snapshot.player;
+    return (
+      <main className="shell setup">
+        <header>
+          <p className="eyebrow">OPENING COMPLETE · 第 0 轮</p>
+          <h1>{player.name}</h1>
+          <p className="muted">{finalWorld.snapshot.formattedTime} · 世界已建立</p>
+        </header>
+        <section className="card final-panel">
+          <span className="tag">开局所得</span>
+          <h3>特质</h3>
+          <div className="final-tags">
+            {player.statuses.length === 0 ? (
+              <span className="muted">无</span>
+            ) : (
+              player.statuses.map((s) => (
+                <span key={s.id} className="chip">
+                  {s.name} ×{s.stacks}
+                </span>
+              ))
+            )}
+          </div>
+          <h3>技能</h3>
+          <div className="final-tags">
+            {player.skills.length === 0 ? (
+              <span className="muted">无</span>
+            ) : (
+              player.skills.map((s) => (
+                <span key={s.id} className="chip">
+                  {s.name}
+                </span>
+              ))
+            )}
+          </div>
+          <h3>物品</h3>
+          <div className="final-tags">
+            {player.inventory.length === 0 ? (
+              <span className="muted">无</span>
+            ) : (
+              player.inventory.map((i) => (
+                <span key={i.itemId} className="chip">
+                  {i.name} ×{i.count}
+                </span>
+              ))
+            )}
+          </div>
+          {error && <p className="error-text">{error}</p>}
+          <button
+            className="primary"
+            onClick={() => onCreated(finalWorld.id, finalWorld.snapshot)}
+          >
+            进入这个世界
+          </button>
+        </section>
+      </main>
+    );
+  }
+
+  const budget = node?.allocation?.budget ?? 0;
+  const allocated = Object.values(allocation).reduce((sum, v) => sum + v, 0);
+  const remaining = budget - allocated;
+
+  return (
+    <main className="shell setup">
+      <header>
+        <p className="eyebrow">OPENING · 前实例化</p>
+        <h1>{launch.name}</h1>
+        <p className="muted">
+          {launch.playerName ?? "无名氏"} · 第 {steps.length + 1} 步 · 进入世界前定下此身
+        </p>
+      </header>
+      {error && <p className="error-text">{error}</p>}
+      {node === null && <section className="card"><p className="muted">正在展开开局…</p></section>}
+      {node !== null && (
+        <section className="card opening-step">
+          <span className="tag">
+            {node.mode === "roll" ? "命数转盘" : node.mode === "choose" ? "你的选择" : "分配点数"}
+          </span>
+          <h2>{node.title}</h2>
+          {node.text && <p>{node.text}</p>}
+
+          {node.mode === "roll" && (
+            <div className="wheel-sectors">
+              {node.options.map((opt, i) => (
+                <div
+                  key={opt.id}
+                  className={`wheel-sector${spinning ? " spinning" : ""}`}
+                  style={{ animationDelay: `${i * 70}ms` }}
+                >
+                  {opt.text}
+                </div>
+              ))}
+              <p className="muted">骰子已由命运握在手里…</p>
+            </div>
+          )}
+
+          {node.mode === "choose" &&
+            node.options.map((opt) => (
+              <button
+                key={opt.id}
+                className="option"
+                disabled={busy}
+                onClick={() => void advance({ kind: "choose", optionId: opt.id }, opt.text, node.title, node.text)}
+              >
+                {opt.text}
+              </button>
+            ))}
+
+          {node.mode === "allocate" && (
+            <div className="alloc-grid">
+              <p className="muted">剩余 {remaining} 点（合计须正好等于 {budget}）</p>
+              {(node.allocation?.targets ?? []).map((target) => {
+                const value = allocation[target.attribute] ?? 0;
+                return (
+                  <label key={target.attribute}>
+                    <span>{target.attribute}</span>
+                    <input
+                      type="number"
+                      min={target.min ?? 0}
+                      max={target.max}
+                      value={value}
+                      onChange={(e) =>
+                        setAllocation((prev) => ({
+                          ...prev,
+                          [target.attribute]: Number.parseInt(e.target.value, 10) || 0,
+                        }))
+                      }
+                    />
+                  </label>
+                );
+              })}
+              <button
+                className="primary"
+                disabled={busy || remaining !== 0}
+                onClick={() =>
+                  void advance(
+                    { kind: "allocate", allocation },
+                    "分配完成",
+                    node.title,
+                    node.text,
+                  )
+                }
+              >
+                确定分配
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+      {steps.length > 0 && (
+        <section className="card opening-history">
+          <span className="tag">已经落定</span>
+          {steps.map((step, i) => (
+            <div key={`${step.title}-${i}`} className="opening-history-row">
+              <strong>{step.title}</strong>
+              <span>{step.result}</span>
+            </div>
+          ))}
+        </section>
+      )}
+      <button className="ghost" onClick={onCancel}>
+        放弃开局，返回
+      </button>
+    </main>
+  );
+}
+
 function SetupScreen({
   templates,
   worlds,
@@ -829,6 +1124,7 @@ function SetupScreen({
   authReady,
   session,
   onCreated,
+  onOpening,
   onOpen,
   onDelete,
 }: {
@@ -840,6 +1136,7 @@ function SetupScreen({
   /** 当前会话；首屏只用来显示「已登录 / 未登录」，不参与任何游戏判定 */
   session: CloudSession | null;
   onCreated: (id: string, snapshot: V2Snapshot) => void;
+  onOpening: (launch: OpeningLaunch) => void;
   onOpen: (id: string) => void;
   onDelete: (id: string) => void;
 }) {
@@ -936,10 +1233,6 @@ function SetupScreen({
   };
 
   const start = async () => {
-    if (!name.trim()) {
-      setLocalError("请先给角色起一个名字");
-      return;
-    }
     if (template === undefined || version === undefined) {
       setLocalError("世界模板还没载入完成（或该版本不可载入），请稍候或换一个版本");
       return;
@@ -952,11 +1245,23 @@ function SetupScreen({
       const validSeed = parsedSeed !== undefined && Number.isInteger(parsedSeed) ? parsedSeed : undefined;
       // 开局防御：只提交**属于当前版本**的 id，绝不把别的模板/版本的开局发出去（R-TG-14）。
       const openingForSubmit = openings.some((o) => o.id === openingId) ? openingId : undefined;
+      const playerName = name.trim() === "" ? undefined : name.trim();
+      // ADR-001：版本声明 openingDag 时，**先跑前实例化向导**，这里绝不 createWorld。
+      if (version.openingDag !== undefined) {
+        onOpening({
+          templateId: template.id,
+          templateVersion: version.version,
+          name: version.openingDag.name,
+          ...(playerName !== undefined ? { playerName } : {}),
+          ...(validSeed !== undefined ? { seed: validSeed } : {}),
+        });
+        return;
+      }
       const res = await api.createWorld({
         templateId: template.id,
         // 恒带版本：多版本时服务端强制要求；单版本时显式传更可诊断（服务端同样接受）。
         templateVersion: version.version,
-        playerName: name.trim(),
+        ...(playerName !== undefined ? { playerName } : {}),
         ...(validSeed !== undefined ? { seed: validSeed } : {}),
         ...(openingForSubmit !== undefined ? { openingId: openingForSubmit } : {}),
       });
@@ -1081,8 +1386,8 @@ function SetupScreen({
           </label>
         )}
         <label>
-          <span>角色姓名</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="例如：乙羽遥" maxLength={20} />
+          <span>角色姓名（可留空 → 无名氏）</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="留空则由开局决定 / 无名氏" maxLength={20} />
         </label>
         {openings.length > 1 && (
           <label>
@@ -1103,7 +1408,11 @@ function SetupScreen({
         {/* 服务端在 400/404 里给了候选（版本 / 合法开局），原样展示，不静默失败 */}
         {candidates.length > 0 && <p className="muted">可选：{candidates.join(" / ")}</p>}
         <button className="primary" disabled={busy || version === undefined} onClick={start}>
-          {busy ? "正在构建世界…" : "进入这个世界"}
+          {busy
+            ? "正在展开开局…"
+            : version?.openingDag !== undefined
+              ? "开始开局"
+              : "进入这个世界"}
         </button>
       </section>
 

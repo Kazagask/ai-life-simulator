@@ -290,6 +290,24 @@ export const WorldStateV2Schema = z
      * **可选**：引入前落盘的存档没有它，读取时回落 `PLAYER_ID`（"player"），行为逐字段不变。
      */
     selfId: z.string().min(1).optional(),
+    /** ADR-001：前实例化开局落盘记录（只记结果）。schemaVersion 5 新档必写。 */
+    opening: z
+      .object({
+        openingId: z.string().min(1),
+        results: z
+          .array(
+            z
+              .object({
+                nodeId: z.string().min(1),
+                optionId: z.string().min(1).optional(),
+                rollIndex: z.number().int().nonnegative().optional(),
+                allocation: z.record(z.string(), z.record(z.string(), z.number())).optional(),
+              })
+              .strict(),
+          ),
+      })
+      .strict()
+      .optional(),
     npcs: z.array(V2NpcSchema),
     /** R2.6 / ADR-0014：关系图边（实例层，NPC↔NPC 与 NPC↔玩家同构；配置域不复制） */
     relations: z.array(RelationEdgeSchema),

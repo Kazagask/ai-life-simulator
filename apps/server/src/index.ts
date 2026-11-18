@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import { randomUUID } from "node:crypto";
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -11,8 +12,12 @@ import {
   buildEvaluationSummaryRequest,
   chooseOptionV2,
   createDefaultEndingConfig,
+  createOpeningSession,
+  commitOpening,
   createRunnerContext,
   createTimeAdapter,
+  describeNode,
+  resolveStep,
   equipErrorCodeOf,
   equipV2,
   evaluateLifeV2,
@@ -442,7 +447,8 @@ const createWorldSchema = z.object({
   templateId: z.string().min(1),
   /** R2.8 / R-TG-01：版本目录名；该 id 只有一个可载版本时可省略（隐式取它）。 */
   templateVersion: z.string().min(1).max(40).optional(),
-  playerName: z.string().min(1).max(20),
+  /** 可空（R-NAME-01 / D-5）：不填 ⇒ 开局参数名或"无名氏"。 */
+  playerName: z.string().min(0).max(20).optional(),
   seed: z.number().int().optional(),
   /** R-OP-01：可选，按 openingId 选择开局；省略则用默认/首个开局。 */
   openingId: z.string().min(1).optional(),
@@ -567,6 +573,133 @@ app.get("/api/templates/:id/:version/assets/:assetId", async (request, reply) =>
     .type(ASSET_CONTENT_TYPES[ext]!)
     .header("Cache-Control", "public, max-age=3600")
     .send(readFileSync(target));
+});
+
+// ---------- 前实例化开局会话（ADR-001 / R-OP-01..07） ----------
+// 会话是 server 资源，**不属于世界**：commit 之前没有 WorldStateV2 / NPC / delayQueue。
+// 只记 results；roll 在服务端按 node 派生掷骰，客户端动画只是"已定结果的呈现"。
+interface OpeningSessionRecord {
+  entry: ReadyTemplateEntry;
+  core: ReturnType<typeof createOpeningSession>;
+  playerName?: string;
+  seed?: number;
+}
+const openingSessions = new Map<string, OpeningSessionRecord>();
+
+const openingCreateSchema = z.object({
+  templateId: z.string().min(1),
+  templateVersion: z.string().min(1).max(40).optional(),
+  seed: z.number().int().optional(),
+  playerName: z.string().max(20).optional(),
+});
+const openingStepSchema = z.union([
+  z.object({ kind: z.literal("roll") }),
+  z.object({ kind: z.literal("choose"), optionId: z.string().min(1) }),
+  z.object({ kind: z.literal("allocate"), allocation: z.record(z.string(), z.number()) }),
+]);
+const renameSchema = z.object({ name: z.string().min(1).max(20) });
+
+function readyEntryFor(
+  reply: { code: (n: number) => { send: (b: unknown) => unknown } },
+  templateId: string,
+  templateVersion?: string,
+): ReadyTemplateEntry | null {
+  const ready = allReadyEntries().filter((e) => e.ref.id === templateId);
+  let entry: ReadyTemplateEntry | undefined;
+  if (templateVersion !== undefined) {
+    entry = ready.find((e) => e.ref.version === templateVersion);
+    if (!entry) {
+      reply.code(404).send({ error: "template_version_missing", templateId, templateVersion });
+      return null;
+    }
+  } else if (ready.length === 1) entry = ready[0];
+  else {
+    reply.code(ready.length === 0 ? 404 : 400).send({
+      error: ready.length === 0 ? "template_not_found" : "template_version_required",
+      templateId,
+      ...(ready.length > 1 ? { versions: ready.map((e) => e.ref.version) } : {}),
+    });
+    return null;
+  }
+  return entry;
+}
+
+/** 包装 `templates.ensureFresh()` 的只读列表（与 /api/templates 同一入口）。 */
+function allReadyEntries(): ReadyTemplateEntry[] {
+  registry.ensureFresh();
+  return registry.listTemplates().flatMap((t) =>
+    registry.versionsOf(t.id).filter((e): e is ReadyTemplateEntry => e.status === "ready"),
+  );
+}
+
+app.post("/api/openings", async (request, reply) => {
+  const parsed = openingCreateSchema.safeParse(request.body);
+  if (!parsed.success) return reply.code(400).send({ error: "invalid_body", detail: parsed.error.flatten() });
+  const entry = readyEntryFor(reply, parsed.data.templateId, parsed.data.templateVersion);
+  if (!entry) return;
+  if (!entry.openingDag) {
+    return reply.code(404).send({ error: "opening_dag_not_found", templateId: parsed.data.templateId });
+  }
+  const seed = parsed.data.seed ?? Math.floor(Math.random() * 0xffffffff);
+  const core = createOpeningSession(entry.openingDag, seed);
+  const id = `open-${randomUUID()}`;
+  openingSessions.set(id, { entry, core, playerName: parsed.data.playerName, seed: parsed.data.seed });
+  return reply.code(201).send({ sessionId: id, seed, node: describeNode(entry.openingDag, core) });
+});
+
+app.post("/api/openings/:id/step", async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const rec = openingSessions.get(id);
+  if (!rec) return reply.code(404).send({ error: "opening_session_not_found" });
+  const dag = rec.entry.openingDag;
+  if (!dag) return reply.code(404).send({ error: "opening_dag_not_found" });
+  const parsed = openingStepSchema.safeParse(request.body);
+  if (!parsed.success) return reply.code(400).send({ error: "invalid_body", detail: parsed.error.flatten() });
+  try {
+    const outcome = resolveStep(dag, rec.core, parsed.data);
+    rec.core = outcome.session;
+    return {
+      node: describeNode(dag, rec.core),
+      done: rec.core.done,
+      ...(outcome.resolved !== undefined ? { resolved: outcome.resolved } : {}),
+      results: rec.core.results,
+    };
+  } catch (error) {
+    return reply.code(400).send({ error: "opening_step_invalid", detail: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+app.post("/api/openings/:id/commit", async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const rec = openingSessions.get(id);
+  if (!rec) return reply.code(404).send({ error: "opening_session_not_found" });
+  const dag = rec.entry.openingDag;
+  if (!dag) return reply.code(404).send({ error: "opening_dag_not_found" });
+  try {
+    // commit 一次建世界：前实例化参数直接写进 world，turnIndex = 0，无 delayQueue 开局事件。
+    const state = commitOpening(dag, rec.core, rec.entry.template, randomUUID());
+    // 会话里传的 playerName 作为兜底（参数表未声明 name 时）。
+    if (rec.playerName && state.player.name === "无名氏") state.player.name = rec.playerName;
+    worldStore.createFromState(state, rec.entry);
+    openingSessions.delete(id);
+    const snapshot = await decorateSnapshot(projectWorld(state, rec.entry), state, rec.entry, "player", request.llmProvider);
+    return reply.code(201).send({ worldId: state.id, snapshot });
+  } catch (error) {
+    return reply.code(400).send({ error: "opening_commit_failed", detail: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+/** 开局后改名（R-NAME-02）：只写权威 self 实体的名字，世界列表自然同步。 */
+app.post("/api/worlds/:id/rename", async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const found = getWorld(id);
+  if (!found) return reply.code(404).send({ error: "world_not_found" });
+  const parsed = renameSchema.safeParse(request.body);
+  if (!parsed.success) return reply.code(400).send({ error: "invalid_body", detail: parsed.error.flatten() });
+  found.world.player.name = parsed.data.name;
+  worldStore.save(found.world);
+  const snapshot = await decorateSnapshot(projectWorld(found.world, found.entry), found.world, found.entry, "player", request.llmProvider);
+  return { worldId: id, snapshot };
 });
 
 app.post("/api/worlds", async (request, reply) => {

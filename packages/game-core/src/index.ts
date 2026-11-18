@@ -11,6 +11,8 @@ export * from "./v2/projection.js";
 export * from "./v2/runner-context.js";
 export * from "./v2/replay.js";
 export * from "./v2/opening.js";
+// ADR-001：前实例化开局会话内核（createOpeningSession / resolveStep / commitOpening）
+export * from "./v2/opening-dag.js";
 export * from "./v2/narrative.js";
 export * from "./v2/life-evaluation.js";
 export * from "./v2/archive.js";

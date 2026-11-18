@@ -270,8 +270,18 @@ place:
 - `goto` 只能指向**本分支内**的节点；`goto.after` 让下一节点"过一段时间再演"（不占槽，可穿插）；
 - 选项可用 `nextEventId` **跳出分支**回到模板主线；
 - `goto` 与 `nextEventId` 互斥；同一节点被两个 `goto` 要求不同 `after` ⇒ 拒载。
+- **角色分派（YAML 专用 · 2026-11-18）**：**node** 可写 `as: <actorId>`；同一 `node` 别名写多份、
+  各自带不同 `as` ⇒ 同一节点按当前 self 呈现不同正文与选项（天然互斥，self 恒单值）。
+  多变体时必须有一份无 `as` 的兜底变体（首节点同样适用）。加载期展开成 `<id>#<node>@<as>` 独立事件，
+  变体事件带一等条件 `selfIs`，兜底变体带一组 `selfIsNot`（排除所有 as，逐条 AND）。
+  `goto` 到多变体节点、或**外部 `nextEventId` 指向多变体首节点父 id** 时，都自动展开为按 self 门控的
+  多条**同一选项**（玩家仍只看到一条、不额外占轮次）；random/combat 的 nextEventId 指多变体首节点 ⇒ 拒载。
+  **首节点可写 `as`**：多个首节点变体共用父 trigger（"共用触发器、首节点不一样"），只叠 self 门控；
+  兜底变体沿用父 id（外部 `nextEventId` / `eventResolved` 零改动），as 变体用 `<id>#<node>@<as>`。
+  一等条件 `selfIs` / `selfIsNot` 都读 `selfIdOf(state)`（缺省 `"player"`）。
+  这是**模板侧独有**，LLM 的 `submitBranch` 不开放 `as`（其参与时角色已定，无需分派）。
 
-LLM 侧有一条同形的 DSL（`story.submitBranch`），见 §4.4。
+LLM 侧有一条同形的 DSL（`story.submitBranch`），见 §4.4；它**不含** `as` 角色分派字段。
 
 ---
 
