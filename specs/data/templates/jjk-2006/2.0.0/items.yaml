@@ -67,6 +67,7 @@ items:
   - id: eq-ten-spear
     type: equipment
     name: 咒具·天逆鉾
+    tags: [legend, buff]
     description: 特级咒具。贯穿一切的矛，能强制解除对手的术式。
     stackable: false
     usableInBattle: false
@@ -82,6 +83,7 @@ items:
   - id: eq-bancho
     type: equipment
     name: 咒具·万里锁
+    tags: [epic, buff]
     description: 特级咒具。无限伸缩的锁链，远近皆宜。
     stackable: false
     usableInBattle: false
@@ -97,6 +99,7 @@ items:
   - id: eq-shakujin
     type: equipment
     name: 咒具·释魂刀
+    tags: [epic, buff]
     description: 特级咒具。能切割灵魂的利刃，对咒灵尤为致命。
     stackable: false
     usableInBattle: false
@@ -112,6 +115,7 @@ items:
   - id: eq-kurobuna
     type: equipment
     name: 咒具·黑绳
+    tags: [artifact, buff]
     description: 特级咒具。注入咒力的特制黑绳，专门干扰术式运转。
     stackable: false
     usableInBattle: false
@@ -127,6 +131,7 @@ items:
   - id: eq-cursed-blade
     type: equipment
     name: 咒具·游云
+    tags: [rare, buff]
     description: 经年保养的咒具刀。术者的咒力越强，刀身越沉。
     stackable: false
     usableInBattle: false

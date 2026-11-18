@@ -19,7 +19,7 @@ import type { TemplateLookup } from "./lookup.js";
 import { slotEventView } from "./turn.js";
 import { controlOf } from "./battle.js";
 import { projectVisibleRelations } from "./relations.js";
-import { resolveStyle } from "./presentation/style.js";
+import { resolveStyle, resolveTags } from "./presentation/style.js";
 import {
   equipmentEffectSummaries,
   itemEffectSummaries,
@@ -150,7 +150,7 @@ export function projectSnapshotV2(
     const def = lookup.skill(id);
     // 技能不参与正负零（用户 2026-11-18 裁决）：只有品级 / 自身 style。
     const style = resolveStyle(def?.style, def?.quality, ui);
-    const effects = def === undefined ? [] : skillEffectSummaries(def, lookup);
+    const effects = def === undefined ? [] : skillEffectSummaries(def, lookup, ui);
     return {
       id,
       name: def?.name ?? id,
@@ -181,13 +181,15 @@ export function projectSnapshotV2(
         quality: def?.quality,
         ...(() => {
           if (def === undefined) return {};
-          const style = resolveStyle(def.style, def.quality, ui, def.polarity);
+          const style = resolveStyle(def.style, def.quality, ui, def.polarity, def.tags);
+          const tags = resolveTags(def.tags, ui);
           const effects =
             def.type === "equipment"
               ? equipmentEffectSummaries(def, lookup)
-              : itemEffectSummaries(def, lookup);
+              : itemEffectSummaries(def, lookup, ui);
           return {
             ...(style !== undefined ? { style } : {}),
+            ...(tags.length > 0 ? { tags } : {}),
             ...(effects.length > 0 ? { effects } : {}),
           };
         })(),
@@ -263,10 +265,12 @@ export function projectSnapshotV2(
           quality: def?.quality,
           ...(() => {
             if (def === undefined) return {};
-            const style = resolveStyle(def.style, def.quality, ui, def.polarity);
+            const style = resolveStyle(def.style, def.quality, ui, def.polarity, def.tags);
+            const tags = resolveTags(def.tags, ui);
             const effects = equipmentEffectSummaries(def, lookup);
             return {
               ...(style !== undefined ? { style } : {}),
+              ...(tags.length > 0 ? { tags } : {}),
               ...(effects.length > 0 ? { effects } : {}),
             };
           })(),
@@ -774,8 +778,9 @@ function toStatusView(
 ): StatusView | null {
   const def = lookup.status(inst.statusId);
   if (def === undefined || def.visibility !== "known") return null;
-  const style = resolveStyle(def.style, def.quality, ui, def.polarity);
-  const effects = statusEffectSummaries(def, lookup);
+  const style = resolveStyle(def.style, def.quality, ui, def.polarity, def.tags);
+  const tags = resolveTags(def.tags, ui);
+  const effects = statusEffectSummaries(def, lookup, ui);
   return {
     id: def.id,
     name: def.name,
@@ -783,6 +788,7 @@ function toStatusView(
     ...(def.description !== undefined ? { description: def.description } : {}),
     ...(def.quality !== undefined ? { quality: def.quality } : {}),
     ...(style !== undefined ? { style } : {}),
+    ...(tags.length > 0 ? { tags } : {}),
     ...(effects.length > 0 ? { effects } : {}),
     durationLabel: statusDurationLabel(def),
   };

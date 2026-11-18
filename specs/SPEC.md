@@ -210,30 +210,43 @@ place:
 > （效果摘要）、**这一回合发生了什么**（回合增量）、**这一回合怎么讲**（叙事分段）。
 > 全部是只读投影：不进 `WorldStateV2`、不参与判定、不进语义指纹。
 
-**样式词汇受控**。模板只能写 `preset`（`rainbow/gold/silver/bronze/crimson/azure/jade`）、
+**样式词汇受控**。模板只能写 `preset`（稀有度 8 档 `rainbow`(动虹) / `rainbow-static`(静虹) /
+`gold` / `orange` / `pink` / `purple` / `blue` / `white`，正负 3 档 `green` / `red` / `gray`）、
 `color`/`background`（`#rgb`/`#rrggbb`/`#rrggbbaa` 或引擎 token）、`bold`、
 `animation`（`none/rainbow-flow/pulse/glow`）；**不接受任意 CSS**。
-解析顺序：实体 `style` > `ui.qualityStyles[quality]` > 默认，由
-`game-core/v2/presentation/style.ts` 在投影期完成，各端拿到同一份 `ResolvedStyle`。
-未知样式 id 在**加载期拒载**（`style_ref_invalid`），不静默回退。
+解析顺序（`game-core/v2/presentation/style.ts`，投影期唯一实现）：
+实体 `style` > **命中样式的第一个 tag** > `ui.qualityStyles[quality]` > `ui.polarityStyles[polarity]`。
+未知样式 id / 未知标签 id 在**加载期拒载**（`style_ref_invalid` / `style_ref_invalid`），不静默回退。
+
+**标签（D2b）**：`rainbow` 是引擎的视觉变量名，**不出现在界面上**；玩家看到的是模板词。
+`ui.yaml: tags` 声明 `id → { name, style }`，补正 / 物品用 `tags: [...]` 引用，顺序即优先级
+（品级写在前面 ⇒ 名字与品级同色）。技能不参与标签。
 
 ```yaml
-# ui.yaml 追加两段
+# ui.yaml 追加三段
 styles:
   rainbow: { preset: rainbow, animation: rainbow-flow }
 qualityStyles:
-  mythic: rainbow          # 六眼等最高品质实体自动用这套
+  mythic: rainbow          # 没有标签时的简写（保留兼容）
+tags:
+  mythic: { name: 神话, style: { preset: rainbow, animation: rainbow-flow } }
+  buff: { name: 增益, style: { preset: green } }
 ```
 
+`tags[].style` 同时作用于**标签芯片**与**实体名**：`六眼` 挂 `[mythic, buff]` ⇒ 名字动虹、
+标签「神话」动虹、「增益」绿，四端（个人页 / NPC / 战斗 / 浮层）一致。
+
 **效果摘要**（`presentation/effects.ts`）：从定义派生 `{ text, kind, tone, ref? }`。
-`kind: "control"` 是固定效果（「无法行动」），前端加**下划线**；数值条目带 `+/-` 与
+`kind: "control"` 是固定效果（「战斗中无法行动」），前端加**下划线**；数值条目带 `+/-` 与
 增益绿 / 减益红 / 中性灰。动态补正只描述规则（`3 + 0.2×咒力`），**不算值**。
+底层效果**只写能力限制，不写回合数**——「几回合」是补正的 `duration` / `combat.battleRounds`。
 
 **回合增量**（`presentation/gains.ts`）：`captureGainBaseline` + `diffGains` 差分玩家可见
 五类（属性 / 补正 / 技能 / 物品 / 装备）。五个写操作响应统一带 `gains`，**不落库**，
 刷新即消失；历史由叙事区承担。
 
-**叙事分段**（`narrative/turn.ts`）：每回合最多一条叙事块写进同一 trace。
+**叙事分段**（`narrative/turn.ts`）：每回合最多一条叙事块写进同一 trace；转盘只在
+**确认后**才把 `⚄ …` 写进正文（`state.slot.eventId === wheelResult.eventId` ⇒ 尚未结算）。
 判据是 **provider 是否为 mock**（不是「trace 里有没有块」——invocation 落盘时机与事务收尾
 不保证先后）；真实 LLM 是作者，模板只填空缺。`ContentBlockVM` 带 `turnIndex`，
 前端据此只给最新回合播打字机。

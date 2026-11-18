@@ -277,17 +277,25 @@ export function createWorldV2(
     //
     // A 期：模板侧写的是 `to: player`（`PLAYER_ID`），落库时统一换成 `selfId` ——
     // 关系图的端点从此只有一个真源，将来 `selfId` 指向实例时图数据不需要迁移。
-    relations: template.characters.flatMap((c) =>
-      (c.relations ?? []).map((r) => ({
-        from: c.id,
-        to: r.to === PLAYER_ID ? selfId : r.to,
-        kind: r.kind,
-        source: "template" as const,
-        visibility: r.visibility ?? ("unknown" as const),
-        ...(r.value !== undefined ? { value: r.value } : {}),
-        ...(r.gap !== undefined ? { gap: r.gap } : {}),
-      })),
-    ),
+    relations: template.characters
+      .flatMap((c) =>
+        (c.relations ?? []).map((r) => ({
+          from: c.id,
+          to: r.to === PLAYER_ID ? selfId : r.to,
+          kind: r.kind,
+          source: "template" as const,
+          visibility: r.visibility ?? ("unknown" as const),
+          ...(r.value !== undefined ? { value: r.value } : {}),
+          ...(r.gap !== undefined ? { gap: r.gap } : {}),
+        })),
+      )
+      /**
+       * 复用模板角色当自己（`as: npc-gojo`）时，该角色声明的 `to: player` 会被替换成
+       * 自己的 id ⇒ 自环。schema 明确禁止自环（「关系边不允许自环」），写进去就是一份
+       * **载不回来的存档**（GET 直接 `world_state_invalid`）。这里丢掉这条边：
+       * 「五条悟把玩家当弟子」在玩家就是五条悟时本来也没有语义。
+       */
+      .filter((edge) => edge.from !== edge.to),
     flags: {},
     firedEvents: {},
     // R2.5 实例层 / 事实层：全部由 createWorldV2 显式初始化，存档 strict 校验逐字段要求存在。

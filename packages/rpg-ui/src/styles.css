@@ -574,33 +574,43 @@
 .ls-style--gray { color: #a2957f; }
 
 /*
- * 流动彩虹：渐变文字（background-clip:text）。这是「最高品质」的默认表达
- * （模板用 `qualityStyles: { mythic: rainbow }` 绑定），不是给某一件物品写死的样式。
+ * 流动彩虹（动虹 / 静虹）。
+ *
+ * **一个渐变、一条时间轴**：字与框都读同一组 CSS 变量，所以颜色与速度天然同步
+ * （用户 2026-11-18 两次反馈「各动各的」：第一次是周期算错，第二次是两套 keyframes）。
+ *
+ * 周期推导（别改一个不改另一个）：
+ *   background-size: 200% ⇒ 渐变宽度 = 元素宽 ×2；
+ *   background-position 0% → 200% ⇒ 位移 = 元素宽 ×2 = 一个完整渐变宽 ⇒ **一个周期**。
+ * 于是 `--ls-rainbow-duration` 就是「渐变走完一圈」的时长，字和框都按它循环。
  */
+:root {
+  --ls-rainbow-gradient: linear-gradient(100deg, #ff6b6b, #ffd166, #6ee7b7, #60a5fa, #c084fc, #ff6b6b);
+  --ls-rainbow-size: 200% 100%;
+  --ls-rainbow-duration: 6s;
+  --ls-rainbow-rest: 25% 50%;
+}
+
+/* 文字：渐变裁到字形上。 */
 .ls-style--rainbow,
 .ls-style--rainbow-static {
-  background-image: linear-gradient(100deg, #ff6b6b, #ffd166, #6ee7b7, #60a5fa, #c084fc, #ff6b6b);
-  background-size: 300% 100%;
+  background-image: var(--ls-rainbow-gradient);
+  background-size: var(--ls-rainbow-size);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
 }
 /* 静虹：同一套渐变，静止在最美的一帧。 */
-.ls-style--rainbow-static { background-position: 25% 50%; }
+.ls-style--rainbow-static { background-position: var(--ls-rainbow-rest); }
 
-/*
- * 动虹的节奏：9s 走完 3 个渐变周期 ⇒ 每个周期 3s。
- * 边框动画（下面 .ls-box--rainbow）必须用**同一个 3s**，否则字和框各转各的
- * ——用户 2026-11-18 实测就是这个毛病。
- */
-.ls-anim--rainbow-flow { animation: ls-rainbow-flow 9s linear infinite; }
+.ls-anim--rainbow-flow { animation: ls-rainbow-flow var(--ls-rainbow-duration) linear infinite; }
 .ls-anim--pulse { animation: ls-pulse 2.4s ease-in-out infinite; }
 .ls-anim--glow { text-shadow: 0 0 10px currentColor; }
 
 @keyframes ls-rainbow-flow {
   from { background-position: 0% 50%; }
-  to { background-position: 300% 50%; }
+  to { background-position: 200% 50%; }
 }
 @keyframes ls-pulse {
   0%, 100% { opacity: 0.72; }
@@ -614,11 +624,11 @@
     animation: none;
   }
   .ls-style--rainbow {
-    background-position: 0% 50%;
+    background-position: var(--ls-rainbow-rest);
   }
-  .ls-box--rainbow {
+  .ls-box--rainbow::before {
     animation: none;
-    border-color: #c084fc;
+    background-position: var(--ls-rainbow-rest);
   }
 }
 
@@ -633,19 +643,43 @@
 .ls-box--red { border-color: #ff6b7a; }
 .ls-box--gray { border-color: #a2957f; }
 
-/* 彩虹边框：同一组颜色循环，与文字渐变同源，避免「字变了框没变」。 */
-/* 与文字同节奏：3s 一个颜色周期（9s / 3 个周期）。 */
-.ls-box--rainbow {
-  border-color: #c084fc;
-  animation: ls-rainbow-border 3s linear infinite;
+/*
+ * 彩虹边框：**同一份渐变**用「遮罩掏空中间」画成 1px 描边。
+ *
+ * 为什么不继续用 `border-color` 动画：边框色只有一个值，要让四种颜色流转就必须自己
+ * 排关键帧，节奏永远对不上文字那圈渐变（玩家看到的就是字和框各转各的）。
+ * 这里让描边直接复用 `--ls-rainbow-gradient` + `ls-rainbow-flow`，两者是同一段时间。
+ */
+.ls-box { position: relative; }
+.ls-box--rainbow,
+.ls-box--rainbow-static { border-color: transparent; }
+.ls-box--rainbow::before,
+.ls-box--rainbow-static::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  border-radius: inherit;
+  padding: 1px;
+  background-image: var(--ls-rainbow-gradient);
+  background-size: var(--ls-rainbow-size);
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
 }
-.ls-box--rainbow-static { border-color: #c084fc; }
-@keyframes ls-rainbow-border {
-  0%, 100% { border-color: #ff6b6b; }
-  20% { border-color: #ffd166; }
-  40% { border-color: #6ee7b7; }
-  60% { border-color: #60a5fa; }
-  80% { border-color: #c084fc; }
+.ls-box--rainbow::before {
+  animation: ls-rainbow-flow var(--ls-rainbow-duration) linear infinite;
+}
+.ls-box--rainbow-static::before { background-position: var(--ls-rainbow-rest); }
+
+/* 不支持遮罩合成的旧内核：退回静态紫色描边（宁可不动，也不要露出一整块渐变挡住文字）。 */
+@supports not ((mask-composite: exclude) or (-webkit-mask-composite: xor)) {
+  .ls-box--rainbow::before,
+  .ls-box--rainbow-static::before { display: none; }
+  .ls-box--rainbow,
+  .ls-box--rainbow-static { border-color: #c084fc; }
 }
 
 /* ---------- 效果列表 ---------- */
@@ -888,4 +922,28 @@
   font-size: 13px;
   line-height: 1.6;
   color: var(--ls-text);
+}
+
+/* ---------- 标签（品级 / 增益减益，ADR-002 D2b） ---------- */
+.ls-tagchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+/* 放进已有 tag-row 时不要再撑开下边距（那里本来就是一行 chips）。 */
+.ls-tagchips.tag-row { margin: 0 0 8px; }
+
+.ls-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border: 1px solid var(--ls-border);
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.7;
+  letter-spacing: 0.04em;
+  /* 标签里是模板词（神话 / 增益），默认不加粗；颜色由标签自己的样式给。 */
+  color: var(--ls-text-dim);
+  white-space: nowrap;
 }

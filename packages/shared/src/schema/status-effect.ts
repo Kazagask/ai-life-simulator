@@ -72,6 +72,8 @@ export const StatusEffectSchema = z
     simulation: SimulationFacetSchema.optional(),
     combat: CombatFacetSchema.optional(),
     cureConditions: z.array(CureConditionSchema).optional(),
+    /** 展示标签（ADR-002 D2b）：引用 `ui.tags` 的键，顺序即展示顺序。 */
+    tags: z.array(z.string().min(1)).optional(),
     visibility: z.enum(["known", "hidden"]),
     /** 品质（纯展示，模板自由定义；配合 `ui.qualityStyles` 决定样式）。 */
     quality: z.string().min(1).optional(),

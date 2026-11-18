@@ -1,6 +1,7 @@
-import type { EvaluationVM, PlayerVM } from "@life-sim/shared";
+import type { EvaluationVM, PlayerVM, StatusVM } from "@life-sim/shared";
 import { AiNarrativeTag } from "./AiNarrativeTag.js";
 import { EvaluationPanel } from "./EvaluationPanel.js";
+import { StyledName, styleBoxClassName, styleBoxInline } from "./StyledName.js";
 
 export interface StatsPanelProps {
   player: PlayerVM;
@@ -15,6 +16,13 @@ export interface StatsPanelProps {
   summary?: string;
   /** 这行总结是否由 AI 补写（true ⇒ 带「AI 叙事」小标记）。 */
   summaryFromAi?: boolean;
+  /**
+   * 点击补正芯片 → 打开详情。
+   *
+   * 个人页此前是**唯一**漏掉样式的补正入口：这里直接写 `<span>{s.name}</span>`，
+   * 既没有颜色也没挂点击（用户 2026-11-18：「个人页面的补正没有下发 style」）。
+   */
+  onSelectStatus?: (status: StatusVM) => void;
 }
 
 /**
@@ -42,6 +50,7 @@ export function StatsPanel({
   turnIndex,
   summary,
   summaryFromAi = false,
+  onSelectStatus,
 }: StatsPanelProps) {
   return (
     <section className="card">
@@ -63,12 +72,34 @@ export function StatsPanel({
       </div>
       {player.statuses.length > 0 && (
         <div className="status-chips">
-          {player.statuses.map((s) => (
-            <span key={s.id} className="chip status-chip">
-              {s.name}
-              {s.stacks > 1 ? `×${s.stacks}` : ""}
-            </span>
-          ))}
+          {player.statuses.map((s) => {
+            const box = styleBoxClassName(s.style);
+            const label = (
+              <>
+                <StyledName name={s.name} style={s.style} />
+                {s.stacks > 1 ? `×${s.stacks}` : ""}
+              </>
+            );
+            return onSelectStatus === undefined ? (
+              <span
+                key={s.id}
+                className={`chip status-chip${box === undefined ? "" : ` ${box}`}`}
+                style={styleBoxInline(s.style)}
+              >
+                {label}
+              </span>
+            ) : (
+              <button
+                key={s.id}
+                type="button"
+                className={`chip status-chip status-chip--action${box === undefined ? "" : ` ${box}`}`}
+                style={styleBoxInline(s.style)}
+                onClick={() => onSelectStatus(s)}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
       )}
       <div className="meta-row">

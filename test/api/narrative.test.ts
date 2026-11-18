@@ -104,6 +104,36 @@ describe("API 叙事：录制回放 + SSE 服务端剥标签", () => {
     expect((blocks[0]?.text ?? "").length).toBeGreaterThan(0);
   });
 
+  it("转盘只在确认后进叙事：同一格不会被写两遍（ADR-002 D5）", async () => {
+    app = await startServer();
+    const world = await createP0(app.baseUrl, "op-gojo");
+
+    await api(app.baseUrl, "POST", `/api/worlds/${world.worldId}/turns`, {
+      action: { type: "patrol", description: "" },
+      mode: "single",
+    });
+    // 选择之后的这一趟会把转盘"呈现"出来（槽仍是 random，尚未结算）
+    await api(app.baseUrl, "POST", `/api/worlds/${world.worldId}/events/choose`, { optionId: "opt-go" });
+
+    const before = await api<{ blocks: Array<{ kind: string; text?: string }> }>(
+      app.baseUrl,
+      "GET",
+      `/api/worlds/${world.worldId}/narrative?fromTurn=0`,
+    );
+    expect(before.blocks.filter((b) => (b.text ?? "").includes("⚄")).length).toBe(0);
+
+    await api(app.baseUrl, "POST", `/api/worlds/${world.worldId}/wheels/confirm`);
+
+    const after = await api<{ blocks: Array<{ kind: string; text?: string; turnIndex?: number }> }>(
+      app.baseUrl,
+      "GET",
+      `/api/worlds/${world.worldId}/narrative?fromTurn=0`,
+    );
+    // 恰好一条正文里带转盘结论；不是"掷出时一条 + 确认时一条"
+    const wheelBlocks = after.blocks.filter((b) => b.kind === "narrative" && (b.text ?? "").includes("⚄"));
+    expect(wheelBlocks.length).toBe(1);
+  });
+
   it("无标签：SSE 零 delta + narrative_tag_missing + 玩家侧无正文", async () => {
     fake = await startReplayOpenAi({
       fixture: "test/fixtures/llm/p0-narrative.jsonl",

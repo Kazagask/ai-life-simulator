@@ -5,52 +5,75 @@ import type {
   Skill,
   StatusEffect,
   TemplateEffect,
+  UiConfig,
 } from "@life-sim/shared";
 import type { TemplateLookup } from "../lookup.js";
 import { fixedEffectCopy } from "./fixed-effects.js";
-import { resolveStyle } from "./style.js";
+import { resolveStyle, resolveTags } from "./style.js";
 
-/** 引用实体的详情快照：让「施加 力竭」在任意浮层里都能点开。 */
+/**
+ * 引用实体的详情快照：让「施加 力竭」在任意浮层里都能点开。
+ *
+ * `ui` 必须一路传下来：标签与自定义样式都定义在 `ui.yaml`，不传就只能解析引擎预设，
+ * 模板自己写的标签会在浮层里凭空消失（玩家会以为「这个补正没标签」）。
+ */
 function refDetailOf(
   lookup: TemplateLookup,
   kind: "status" | "item" | "skill",
   id: string,
-): { refDetail?: { title: string; description?: string; effects?: EffectSummary[]; durationLabel?: string; style?: ReturnType<typeof resolveStyle> } } {
+  ui: UiConfig | undefined,
+): {
+  refDetail?: {
+    title: string;
+    description?: string;
+    effects?: EffectSummary[];
+    durationLabel?: string;
+    style?: ReturnType<typeof resolveStyle>;
+    tags?: ReturnType<typeof resolveTags>;
+  };
+} {
   if (kind === "status") {
     const def = lookup.status(id);
     if (def === undefined) return {};
-    const style = resolveStyle(def.style, def.quality, undefined, def.polarity);
+    const style = resolveStyle(def.style, def.quality, ui, def.polarity, def.tags);
+    const tags = resolveTags(def.tags, ui);
     return {
       refDetail: {
         title: def.name,
         ...(def.description !== undefined ? { description: def.description } : {}),
-        effects: statusEffectSummaries(def, lookup),
+        effects: statusEffectSummaries(def, lookup, ui),
         durationLabel: durationLabel(def),
         ...(style !== undefined ? { style } : {}),
+        ...(tags.length > 0 ? { tags } : {}),
       },
     };
   }
   if (kind === "item") {
     const def = lookup.item(id);
     if (def === undefined) return {};
-    const style = resolveStyle(def.style, def.quality, undefined, def.polarity);
+    const style = resolveStyle(def.style, def.quality, ui, def.polarity, def.tags);
+    const tags = resolveTags(def.tags, ui);
     return {
       refDetail: {
         title: def.name,
         ...(def.description !== undefined ? { description: def.description } : {}),
-        effects: def.type === "equipment" ? equipmentEffectSummaries(def, lookup) : itemEffectSummaries(def, lookup),
+        effects:
+          def.type === "equipment"
+            ? equipmentEffectSummaries(def, lookup)
+            : itemEffectSummaries(def, lookup, ui),
         ...(style !== undefined ? { style } : {}),
+        ...(tags.length > 0 ? { tags } : {}),
       },
     };
   }
   const def = lookup.skill(id);
   if (def === undefined) return {};
-  const style = resolveStyle(def.style, def.quality, undefined);
+  const style = resolveStyle(def.style, def.quality, ui);
   return {
     refDetail: {
       title: def.name,
       ...(def.description !== undefined ? { description: def.description } : {}),
-      effects: skillEffectSummaries(def, lookup),
+      effects: skillEffectSummaries(def, lookup, ui),
       ...(style !== undefined ? { style } : {}),
     },
   };
@@ -87,13 +110,20 @@ function formulaList(list: readonly Formula[] | undefined, lookup: TemplateLooku
   return list.map((f) => formulaText(f, lookup)).join(" + ");
 }
 
-/** 补正持续时间的人话。 */
+/**
+ * 补正持续时间的人话（**不含「持续：」前缀**——展示层统一加，否则会读出
+ * 「持续：持续到被移除」，用户 2026-11-18 截图里正是这句）。
+ */
 export function durationLabel(def: StatusEffect): string {
-  return "turns" in def.duration ? `持续 ${def.duration.turns} 回合` : "持续到被移除";
+  return "turns" in def.duration ? `${def.duration.turns} 回合` : "直到被移除";
 }
 
 /** 补正 → 效果摘要（仿真面属性 / 行动效率 / 心情，战斗面控制 / 增减伤 / 命中 / 每回合）。 */
-export function statusEffectSummaries(def: StatusEffect, lookup: TemplateLookup): EffectSummary[] {
+export function statusEffectSummaries(
+  def: StatusEffect,
+  lookup: TemplateLookup,
+  ui?: UiConfig,
+): EffectSummary[] {
   const out: EffectSummary[] = [];
 
   for (const [attr, value] of Object.entries(def.simulation?.attributeModifiers ?? {})) {
@@ -164,7 +194,7 @@ export function statusEffectSummaries(def: StatusEffect, lookup: TemplateLookup)
           text: `每回合施加 ${lookup.status(app.status)?.name ?? app.status}`,
           kind: "apply",
           ref: { kind: "status", id: app.status },
-          ...refDetailOf(lookup, "status", app.status),
+          ...refDetailOf(lookup, "status", app.status, ui),
         });
       }
     }
@@ -174,7 +204,7 @@ export function statusEffectSummaries(def: StatusEffect, lookup: TemplateLookup)
 }
 
 /** 技能 → 效果摘要（战斗技能：消耗 / 目标 / 命中 / 伤害 / 治疗 / 施加补正 / 冷却）。 */
-export function skillEffectSummaries(def: Skill, lookup: TemplateLookup): EffectSummary[] {
+export function skillEffectSummaries(def: Skill, lookup: TemplateLookup, ui?: UiConfig): EffectSummary[] {
   const out: EffectSummary[] = [];
   if (def.kind === "combat") {
     out.push({ text: `消耗 ${def.cost.mp} ${lookup.resourceLabel("mp")}`, kind: "cost" });
@@ -189,7 +219,7 @@ export function skillEffectSummaries(def: Skill, lookup: TemplateLookup): Effect
         text: `施加 ${lookup.status(app.status)?.name ?? app.status}${app.stacks !== undefined ? ` ×${app.stacks}` : ""}`,
         kind: "apply",
         ref: { kind: "status", id: app.status },
-        ...refDetailOf(lookup, "status", app.status),
+        ...refDetailOf(lookup, "status", app.status, ui),
       });
     }
     if (def.consumeStatus !== undefined) {
@@ -197,7 +227,7 @@ export function skillEffectSummaries(def: Skill, lookup: TemplateLookup): Effect
         text: `消耗自身 ${lookup.status(def.consumeStatus.status)?.name ?? def.consumeStatus.status}`,
         kind: "remove",
         ref: { kind: "status", id: def.consumeStatus.status },
-        ...refDetailOf(lookup, "status", def.consumeStatus.status),
+        ...refDetailOf(lookup, "status", def.consumeStatus.status, ui),
       });
     }
     out.push({ text: `冷却 ${def.cooldownTurns} 回合`, kind: "cost" });
@@ -228,16 +258,20 @@ const TARGET_LABELS: Readonly<Record<"enemy" | "self" | "ally" | "all_enemies", 
 };
 
 /** 物品 `use` 效果 → 人话（消耗品详情 / 收获卡详情共用）。 */
-export function itemEffectSummaries(def: Item, lookup: TemplateLookup): EffectSummary[] {
+export function itemEffectSummaries(def: Item, lookup: TemplateLookup, ui?: UiConfig): EffectSummary[] {
   const out: EffectSummary[] = [];
   for (const effect of def.use ?? []) {
-    const line = effectSummaryOf(effect, lookup);
+    const line = effectSummaryOf(effect, lookup, ui);
     if (line !== undefined) out.push(line);
   }
   return out;
 }
 
-function effectSummaryOf(effect: TemplateEffect, lookup: TemplateLookup): EffectSummary | undefined {
+function effectSummaryOf(
+  effect: TemplateEffect,
+  lookup: TemplateLookup,
+  ui: UiConfig | undefined,
+): EffectSummary | undefined {
   // `TemplateEffect` 是「闭合 DSL ∪ 开放形（catchall unknown）」的联合，字段类型不可直接读；
   // 这里按类型值逐项窄化，未知形态一律返回 undefined（展示层不该因为一条读不懂的效果崩掉）。
   const e = effect as unknown as Record<string, unknown>;
@@ -280,7 +314,7 @@ function effectSummaryOf(effect: TemplateEffect, lookup: TemplateLookup): Effect
         text: `施加 ${lookup.status(status)?.name ?? status}${stacks !== undefined ? ` ×${stacks}` : ""}`,
         kind: "apply",
         ref: { kind: "status", id: status },
-        ...refDetailOf(lookup, "status", status),
+        ...refDetailOf(lookup, "status", status, ui),
       };
     }
     case "cureStatus": {
@@ -290,7 +324,7 @@ function effectSummaryOf(effect: TemplateEffect, lookup: TemplateLookup): Effect
         text: `移除 ${lookup.status(status)?.name ?? status}`,
         kind: "remove",
         ref: { kind: "status", id: status },
-        ...refDetailOf(lookup, "status", status),
+        ...refDetailOf(lookup, "status", status, ui),
       };
     }
     case "grantItem": {

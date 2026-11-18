@@ -97,6 +97,24 @@ export function resolveColorToken(token: ColorToken): string {
   return COLOR_TOKEN_TO_VAR[token] ?? token;
 }
 
+/**
+ * 标签（ADR-002 D2b，用户 2026-11-18）：**展示规格**，与样式解耦。
+ *
+ * 为什么要单独一层：`rainbow` 是引擎的视觉变量名，玩家不该看到「RAINBOW」。
+ * 玩家该看到的是「神话」这种**模板自己定的词**。所以标签 = `name` + 自带 `style`，
+ * 补正 / 装备用 `tags: [id...]` 引用；同一个实体可以既挂品级标签又挂增益标签。
+ *
+ * 边界：tag 只在 `ui.yaml` 里声明（展示域），不进语义指纹、不参与判定。
+ */
+export const TagDefinitionSchema = z
+  .object({
+    name: z.string().min(1),
+    /** 标签自己的样式（可与实体样式不同）。缺省 ⇒ 中性默认。 */
+    style: StyleSpecSchema.optional(),
+  })
+  .strict();
+export type TagDefinition = z.infer<typeof TagDefinitionSchema>;
+
 /** 投影后交给前端的最终样式：颜色已解析，动画仍是 id（CSS 类名由展示层拼）。 */
 export const ResolvedStyleSchema = z
   .object({
@@ -108,3 +126,13 @@ export const ResolvedStyleSchema = z
   })
   .strict();
 export type ResolvedStyle = z.infer<typeof ResolvedStyleSchema>;
+
+/** 投影后交给前端的标签（样式已解析）。 */
+export const ResolvedTagSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    style: ResolvedStyleSchema.optional(),
+  })
+  .strict();
+export type ResolvedTag = z.infer<typeof ResolvedTagSchema>;

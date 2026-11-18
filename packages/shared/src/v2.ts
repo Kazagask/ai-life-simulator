@@ -18,7 +18,7 @@ import type {
   TerminationRecord,
 } from "./schema/index.js";
 import type { EffectSummary } from "./schema/effects.js";
-import type { ResolvedStyle } from "./schema/style.js";
+import type { ResolvedStyle, ResolvedTag } from "./schema/style.js";
 import type { ObservationLedger } from "./contract/perspective.js";
 import type { LlmInvocation } from "./contract/llm-invocation.js";
 
@@ -572,6 +572,8 @@ export interface StatusView {
   style?: ResolvedStyle;
   /** 效果摘要（属性 / 战斗面 / 控制语义），由定义派生。 */
   effects?: EffectSummary[];
+  /** 展示标签（ADR-002 D2b）：品级 / 增益减益。 */
+  tags?: ResolvedTag[];
   /** 持续时间的人话（「持续到被移除」/「剩余 3 回合」）。 */
   durationLabel?: string;
 }
@@ -657,6 +659,7 @@ export interface V2Snapshot {
       quality?: string;
       style?: ResolvedStyle;
       effects?: EffectSummary[];
+      tags?: ResolvedTag[];
     }>;
     inventory: Array<{
       itemId: string;
@@ -673,6 +676,7 @@ export interface V2Snapshot {
       quality?: string;
       style?: ResolvedStyle;
       effects?: EffectSummary[];
+      tags?: ResolvedTag[];
     }>;
     /**
      * 已装备实例投影：只含展示字段（实例 id / 物品 id / 槽位 / 层数 / 耐久 / 显示名 / 说明）。
@@ -692,6 +696,7 @@ export interface V2Snapshot {
       quality?: string;
       style?: ResolvedStyle;
       effects?: EffectSummary[];
+      tags?: ResolvedTag[];
     }>;
   };
   /**

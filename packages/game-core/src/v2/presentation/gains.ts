@@ -1,6 +1,6 @@
 import type { TurnGain, UiConfig, WorldStateV2 } from "@life-sim/shared";
 import type { TemplateLookup } from "../lookup.js";
-import { resolveStyle } from "./style.js";
+import { resolveStyle, resolveTags } from "./style.js";
 import { durationLabel, equipmentEffectSummaries, itemEffectSummaries, skillEffectSummaries, statusEffectSummaries } from "./effects.js";
 
 /**
@@ -67,7 +67,8 @@ export function diffGains(
     const next = nextStatus.get(id);
     if (prev === next) continue;
     const def = lookup.status(id);
-    const style = resolveStyle(def?.style, def?.quality, ui, def?.polarity);
+    const style = resolveStyle(def?.style, def?.quality, ui, def?.polarity, def?.tags);
+    const tags = resolveTags(def?.tags, ui);
     out.push({
       category: "status",
       action: prev === undefined ? "gain" : next === undefined ? "lose" : next > prev ? "gain" : "lose",
@@ -76,8 +77,9 @@ export function diffGains(
       stacks: next ?? 0,
       ...(def?.quality !== undefined ? { quality: def.quality } : {}),
       ...(style !== undefined ? { style } : {}),
+      ...(tags.length > 0 ? { tags } : {}),
       ...(def?.description !== undefined ? { description: def.description } : {}),
-      ...(def !== undefined ? { effects: statusEffectSummaries(def, lookup), durationLabel: durationLabel(def) } : {}),
+      ...(def !== undefined ? { effects: statusEffectSummaries(def, lookup, ui), durationLabel: durationLabel(def) } : {}),
     });
   }
 
@@ -95,7 +97,7 @@ export function diffGains(
       ...(def?.quality !== undefined ? { quality: def.quality } : {}),
       ...(style !== undefined ? { style } : {}),
       ...(def?.description !== undefined ? { description: def.description } : {}),
-      ...(def !== undefined ? { effects: skillEffectSummaries(def, lookup) } : {}),
+      ...(def !== undefined ? { effects: skillEffectSummaries(def, lookup, ui) } : {}),
     });
   }
 
@@ -106,7 +108,8 @@ export function diffGains(
     const next = after.player.inventory[id] ?? 0;
     if (next === prev) continue;
     const def = lookup.item(id);
-    const style = resolveStyle(def?.style, def?.quality, ui, def?.polarity);
+    const style = resolveStyle(def?.style, def?.quality, ui, def?.polarity, def?.tags);
+    const tags = resolveTags(def?.tags, ui);
     out.push({
       category: "item",
       action: next > prev ? "gain" : "lose",
@@ -115,9 +118,10 @@ export function diffGains(
       amount: next - prev,
       ...(def?.quality !== undefined ? { quality: def.quality } : {}),
       ...(style !== undefined ? { style } : {}),
+      ...(tags.length > 0 ? { tags } : {}),
       ...(def?.description !== undefined ? { description: def.description } : {}),
       ...(def !== undefined
-        ? { effects: def.type === "equipment" ? equipmentEffectSummaries(def, lookup) : itemEffectSummaries(def, lookup) }
+        ? { effects: def.type === "equipment" ? equipmentEffectSummaries(def, lookup) : itemEffectSummaries(def, lookup, ui) }
         : {}),
     });
   }
@@ -131,7 +135,8 @@ export function diffGains(
     if (prev === next) continue;
     const itemId = next ?? prev ?? "";
     const def = lookup.item(itemId);
-    const style = resolveStyle(def?.style, def?.quality, ui, def?.polarity);
+    const style = resolveStyle(def?.style, def?.quality, ui, def?.polarity, def?.tags);
+    const tags = resolveTags(def?.tags, ui);
     out.push({
       category: "equipment",
       action: next !== undefined ? "equip" : "unequip",
@@ -139,6 +144,7 @@ export function diffGains(
       name: def?.name ?? itemId,
       ...(def?.quality !== undefined ? { quality: def.quality } : {}),
       ...(style !== undefined ? { style } : {}),
+      ...(tags.length > 0 ? { tags } : {}),
       ...(def?.description !== undefined ? { description: def.description } : {}),
       ...(def !== undefined ? { effects: equipmentEffectSummaries(def, lookup) } : {}),
     });

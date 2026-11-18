@@ -898,6 +898,9 @@ function detailOfEffect(snapshot: V2Snapshot, effect: EffectSummaryVM): DetailSh
   if (effect.refDetail !== undefined) {
     return {
       title: effect.refDetail.title,
+      ...(effect.refDetail.tags !== undefined && effect.refDetail.tags.length > 0
+        ? { tags: effect.refDetail.tags }
+        : {}),
       ...(effect.refDetail.description !== undefined ? { description: effect.refDetail.description } : {}),
       ...(effect.refDetail.effects !== undefined ? { effects: effect.refDetail.effects } : {}),
       ...(effect.refDetail.durationLabel !== undefined ? { meta: `持续：${effect.refDetail.durationLabel}` } : {}),
@@ -930,13 +933,13 @@ function resolveStatusDetail(snapshot: V2Snapshot, statusId: string): DetailShee
  * 开局面板（此时还没有世界）和刷新后的列表都能点开详情，不会再出现「点了没反应」。
  */
 function detailOfGain(gain: TurnGainVM): DetailSheetData {
-  const subtitleParts = [
-    gain.quality,
-    gain.category === "status" && gain.stacks !== undefined && gain.stacks > 1 ? `×${gain.stacks}` : undefined,
-  ].filter((part): part is string => part !== undefined && part !== "");
+  // 品质是引擎里的选择器，玩家看的是标签（神话 / 增益）；副标题只留层数这类中性信息。
+  const subtitle =
+    gain.category === "status" && gain.stacks !== undefined && gain.stacks > 1 ? `×${gain.stacks}` : undefined;
   return {
     title: gain.name,
-    ...(subtitleParts.length > 0 ? { subtitle: subtitleParts.join(" · ") } : {}),
+    ...(gain.tags !== undefined && gain.tags.length > 0 ? { tags: gain.tags } : {}),
+    ...(subtitle !== undefined ? { subtitle } : {}),
     ...(gain.description !== undefined ? { description: gain.description } : {}),
     ...(gain.effects !== undefined ? { effects: gain.effects } : {}),
     ...(gain.durationLabel !== undefined ? { meta: `持续：${gain.durationLabel}` } : {}),
@@ -2182,6 +2185,7 @@ function PersonalTab({
             turnIndex={view.turnIndex}
             summary={summary}
             summaryFromAi={summaryFromAi}
+            onSelectStatus={(status) => setDetails((prev) => [...prev, statusToDetail(status)])}
           />
           <AssetDetail
             selection={active}

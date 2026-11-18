@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ResolvedStyleSchema } from "../schema/style.js";
+import { ResolvedStyleSchema, ResolvedTagSchema } from "../schema/style.js";
 import { EffectSummarySchema, TurnGainSchema, type EffectSummary, type TurnGain } from "../schema/effects.js";
 
 /**
@@ -38,6 +38,8 @@ export const EquipmentVMSchema = z
     style: ResolvedStyleSchema.optional(),
     /** 效果摘要（展示用）。 */
     effects: z.array(EffectSummaryVMSchema).optional(),
+    /** 展示标签（ADR-002 D2b）：品级 / 增益减益等，带自己的样式。 */
+    tags: z.array(ResolvedTagSchema).optional(),
   })
   .strict();
 export type EquipmentVM = z.infer<typeof EquipmentVMSchema>;
@@ -70,6 +72,7 @@ export const InventoryItemVMSchema = z
     quality: z.string().optional(),
     style: ResolvedStyleSchema.optional(),
     effects: z.array(EffectSummaryVMSchema).optional(),
+    tags: z.array(ResolvedTagSchema).optional(),
   })
   .strict();
 export type InventoryItemVM = z.infer<typeof InventoryItemVMSchema>;
@@ -100,6 +103,8 @@ export const StatusVMSchema = z
     style: ResolvedStyleSchema.optional(),
     /** 效果摘要：属性补正 / 战斗面 / 控制语义。 */
     effects: z.array(EffectSummaryVMSchema).optional(),
+    /** 展示标签（ADR-002 D2b）：品级 / 增益减益，带自己的样式。 */
+    tags: z.array(ResolvedTagSchema).optional(),
     /** 持续时间的人话（「持续到被移除」/「剩余 3 回合」）。 */
     durationLabel: z.string().optional(),
   })

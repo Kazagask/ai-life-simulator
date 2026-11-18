@@ -28,6 +28,7 @@ const ITEM_KEYS = [
   "quality",
   "dynamicModifier",
   "style",
+  "tags",
   "polarity",
 ] as const;
 
@@ -55,6 +56,8 @@ const ItemShape = z
     use: z.array(TemplateEffectSchema).optional(),
     /** 样式 id（`ui.styles` 的键或引擎预设 id，ADR-002 D2）；纯展示。 */
     style: z.string().min(1).optional(),
+    /** 展示标签（ADR-002 D2b）：引用 `ui.tags` 的键。 */
+    tags: z.array(z.string().min(1)).optional(),
     /** 正负零（与 `quality` 独立），决定默认配色。 */
     polarity: PolaritySchema.optional(),
     ...EquipmentDefinitionFields,
@@ -76,6 +79,7 @@ type ItemClean = {
   quality?: string;
   dynamicModifier?: DynamicModifierSpec;
   style?: string;
+  tags?: string[];
   polarity?: Polarity;
 };
 

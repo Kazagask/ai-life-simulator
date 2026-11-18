@@ -64,7 +64,15 @@ export function recordTurnNarrative(
   // 该回合已有块（LLM / 结局 / 人生总结）⇒ 保留原样。
   if (readNarrativeBlocks(worldId, state, turnIndex).length > 0) return false;
 
-  const text = composeTurnNarrative(state, turnIndex, wheel);
+  /**
+   * 转盘只在**确认后**才写进叙事（用户 2026-11-18 实测「一件事重复叙述了」）。
+   *
+   * 一次「巡逻」会先掷出转盘（槽仍是该事件、只呈现不结算），再等玩家确认。两趟的
+   * `wheelResult` 是同一格，无脑拼进去就是同一句 `⚄ 巡逻 · 命数：X` 写两遍。
+   * 判据用 `state.slot.eventId === wheel.eventId`：槽还停在这个转盘上 ⇒ 尚未结算。
+   */
+  const settledWheel = wheel !== null && wheel !== undefined && state.slot?.eventId !== wheel.eventId ? wheel : null;
+  const text = composeTurnNarrative(state, turnIndex, settledWheel);
   if (text === "") return false;
 
   recordNarrative(state, entry, {

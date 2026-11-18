@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ResolvedStyleSchema, type ResolvedStyle } from "./style.js";
+import { ResolvedStyleSchema, ResolvedTagSchema, type ResolvedStyle, type ResolvedTag } from "./style.js";
 
 /**
  * 表现层数据（ADR-002 D3 / D4）：**只读投影**，不参与判定、不进 `WorldStateV2`。
@@ -24,6 +24,8 @@ export interface EffectRefDetail {
   effects?: EffectSummary[];
   durationLabel?: string;
   style?: ResolvedStyle;
+  /** 被引用实体的标签（品级 / 增益减益）。 */
+  tags?: ResolvedTag[];
 }
 
 export interface EffectSummary {
@@ -50,6 +52,7 @@ export const EffectSummarySchema: z.ZodType<EffectSummary> = z
         effects: z.array(z.lazy(() => EffectSummarySchema)).optional(),
         durationLabel: z.string().optional(),
         style: ResolvedStyleSchema.optional(),
+        tags: z.array(ResolvedTagSchema).optional(),
       })
       .strict()
       .optional(),
@@ -82,6 +85,8 @@ export const TurnGainSchema = z
     stacks: z.number().optional(),
     quality: z.string().optional(),
     style: ResolvedStyleSchema.optional(),
+    /** 展示标签（ADR-002 D2b）：品级 / 增益减益，带自己的样式。 */
+    tags: z.array(ResolvedTagSchema).optional(),
     /**
      * 详情快照（追加）：让收获条目**自带**打开详情所需的一切。
      * 没有它，开局面板 / 刷新后的列表都得回头去快照里查实体，查不到就成了「点了没反应」。

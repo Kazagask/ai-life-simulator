@@ -14,6 +14,7 @@ import {
   equipmentEffectSummaries,
   itemEffectSummaries,
   resolveStyle,
+  resolveTags,
   skillEffectSummaries,
   statusEffectSummaries,
   validateStyleRefs,
@@ -93,7 +94,11 @@ describe("效果摘要（ADR-002 D3）", () => {
       combat: { control: ["cannot_act"], hitChance: -0.1 },
     };
     const out = statusEffectSummaries(def, lookup);
-    expect(out.find((e) => e.kind === "control")?.text).toBe("无法行动");
+    // 底层效果只描述战斗能力限制，**不带回合数**（回合数属于补正的 duration）
+    const control = out.find((e) => e.kind === "control");
+    expect(control?.text).toBe("战斗中无法行动");
+    expect(control?.text).not.toContain("回合");
+    expect(control?.note).not.toContain("回合");
     expect(out.some((e) => e.kind === "attr" && e.tone === "debuff")).toBe(true);
     expect(out.some((e) => e.text.includes("命中"))).toBe(true);
   });
@@ -268,4 +273,36 @@ describe("开局所得：初始值形态（action=set）", () => {
     expect(gains).toHaveLength(1);
     expect(gains[0]).toMatchObject({ category: "attribute", action: "set", amount: 12 });
   });
+});
+
+describe("标签（ADR-002 D2b）", () => {
+  it("标签自带样式，且名字颜色由它决定（品质不再是展示字段）", () => {
+    const ui = UiConfigSchema.parse({
+      tags: {
+        mythic: { name: "神话", style: { preset: "rainbow", animation: "rainbow-flow" } },
+        buff: { name: "增益", style: { preset: "green" } },
+      },
+    });
+    const tags = resolveTags(["mythic", "buff"], ui);
+    expect(tags.map((t) => t.name)).toEqual(["神话", "增益"]);
+    expect(tags[0]?.style?.preset).toBe("rainbow");
+    // 靠前的标签优先：神话压过增益
+    expect(resolveStyle(undefined, undefined, ui, undefined, ["mythic", "buff"])?.preset).toBe("rainbow");
+    expect(resolveStyle(undefined, undefined, ui, undefined, ["buff"])?.preset).toBe("green");
+    // 未声明的 id ⇒ 丢弃（不编造名字），空输入 ⇒ 空数组
+    expect(resolveTags(["nope"], ui)).toEqual([]);
+    expect(resolveTags(undefined, ui)).toEqual([]);
+  });
+
+  it("加载期校验：未知标签 id 拒载", () => {
+    const { entry } = makeWorld();
+    const ui = UiConfigSchema.parse({ tags: {} });
+    const broken = {
+      ...entry.template,
+      statuses: [{ ...entry.template.statuses[0]!, tags: ["ghost-tag"] }, ...entry.template.statuses.slice(1)],
+    };
+    const issues = validateStyleRefs(broken, ui);
+    expect(issues.some((i) => i.path === "statuses[0].tags" && i.message.includes("ghost-tag"))).toBe(true);
+  });
+
 });

@@ -1,5 +1,8 @@
 import type { EquipmentSlotVM, EquipmentVM, InventoryItemVM } from "@life-sim/shared";
 import type { PersonalSelection } from "./personal.js";
+import { EffectList } from "./EffectList.js";
+import { TagChips } from "./TagChips.js";
+import { StyledName } from "./StyledName.js";
 
 /** 层数 / 耐久只在投影确实下发时展示，缺失即不渲染（不推算默认值）。 */
 function EquipMeta({ equipment }: { equipment: EquipmentVM }) {
@@ -68,16 +71,19 @@ export function AssetDetail({
       return (
         <section className="card detail-card">
           <div className="row">
-            <h3>{worn.name ?? worn.itemId}</h3>
+            <h3>
+              <StyledName name={worn.name ?? worn.itemId} style={worn.style} />
+            </h3>
             <span className="tag">{worn.slotLabel ?? worn.slot}</span>
           </div>
+          <TagChips tags={worn.tags} className="tag-row" />
           <div className="tag-row">
             <span className="tag">已装备</span>
             {worn.category && <span className="tag">类别 {worn.category}</span>}
-            {worn.quality && <span className="tag">品质 {worn.quality}</span>}
           </div>
           {worn.description && <p className="item-desc">{worn.description}</p>}
           <EquipMeta equipment={worn} />
+          <EffectList effects={worn.effects} dense />
           <div className="detail-actions">
             <button className="ghost" disabled={busy} onClick={() => onUnequip?.(worn.instanceId)}>
               卸下
@@ -135,18 +141,19 @@ export function AssetDetail({
     <section className="card detail-card">
       <div className="row">
         <h3>
-          {item.name}
+          <StyledName name={item.name} style={item.style} />
           {item.count > 1 ? ` ×${item.count}` : ""}
         </h3>
         <span className="tag">{ITEM_TYPE_LABEL[item.type]}</span>
       </div>
+      <TagChips tags={item.tags} className="tag-row" />
       <div className="tag-row">
         {item.slotLabel && <span className="tag">槽位 {item.slotLabel}</span>}
         {item.category && <span className="tag">类别 {item.category}</span>}
-        {item.quality && <span className="tag">品质 {item.quality}</span>}
         {item.usableInBattle && <span className="tag">战斗可用</span>}
       </div>
       {item.description && <p className="item-desc">{item.description}</p>}
+      <EffectList effects={item.effects} dense />
       <div className="detail-actions">
         {isEquipment && (
           <button className="primary" disabled={busy} onClick={() => onEquip?.(item.itemId)}>

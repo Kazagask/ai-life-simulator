@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PolaritySchema, StyleSpecSchema } from "./style.js";
+import { PolaritySchema, StyleSpecSchema, TagDefinitionSchema } from "./style.js";
 
 /**
  * `ui.yaml` —— 模板的展示层声明（形状 B：落位）。
@@ -64,6 +64,11 @@ export const UiConfigSchema = z
      * positive→green / negative→red / neutral→gray。
      */
     polarityStyles: z.record(PolaritySchema, z.string().min(1)).optional(),
+    /**
+     * 标签（ADR-002 D2b）：id → `{ name, style }`。
+     * 补正 / 装备用 `tags: [id...]` 引用；未知 id 在加载期拒载（不静默丢弃）。
+     */
+    tags: z.record(z.string().min(1), TagDefinitionSchema).optional(),
   })
   .strict();
 

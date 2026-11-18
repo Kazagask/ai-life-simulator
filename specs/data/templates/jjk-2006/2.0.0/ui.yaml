@@ -49,3 +49,21 @@ polarityStyles:
   positive: green
   negative: red
   neutral: gray
+
+# ── 标签（ADR-002 D2b）───────────────────────────────────────────
+# 玩家看到的**词**在这里定，引擎只给「视觉」（rainbow / green 这些名字不出现在界面上）。
+# 补正 / 装备用 `tags: [id...]` 引用；顺序即优先级，靠前的标签决定名字颜色：
+#   同时挂 `mythic` 与 `buff` ⇒ 名字是神话的动虹，不是增益的绿。
+# 品级 8 档（高 → 低）+ 正负 3 档，和 DNF 的稀有度阶梯对齐。
+tags:
+  mythic: { name: 神话, style: { preset: rainbow, animation: rainbow-flow } }
+  legend: { name: 传说, style: { preset: rainbow-static } }
+  epic: { name: 史诗, style: { preset: gold } }
+  artifact: { name: 神器, style: { preset: orange } }
+  rare: { name: 稀有, style: { preset: pink } }
+  superior: { name: 高级, style: { preset: purple } }
+  fine: { name: 优良, style: { preset: blue } }
+  common: { name: 普通, style: { preset: white } }
+  buff: { name: 增益, style: { preset: green } }
+  debuff: { name: 减益, style: { preset: red } }
+  neutral: { name: 中性, style: { preset: gray } }

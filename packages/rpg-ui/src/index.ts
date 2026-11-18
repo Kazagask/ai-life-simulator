@@ -102,6 +102,8 @@ export { isPortraitSlot } from "./slots.js";
 
 export { StyledName, styleClassName, styleInline, styleBoxClassName, styleBoxInline } from "./StyledName.js";
 export type { StyledNameProps } from "./StyledName.js";
+export { TagChips } from "./TagChips.js";
+export type { TagChipsProps } from "./TagChips.js";
 export { EffectList } from "./EffectList.js";
 export type { EffectListProps } from "./EffectList.js";
 export { DetailSheet, ModifierSheet, statusToDetail } from "./ModifierSheet.js";

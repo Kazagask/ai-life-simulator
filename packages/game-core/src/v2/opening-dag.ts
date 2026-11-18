@@ -18,7 +18,7 @@ import type {
 import { RelationKindSchema } from "@life-sim/shared";
 import { createRng, deriveOpeningSeed, pickWeighted } from "../rng.js";
 import type { TurnGain, UiConfig } from "@life-sim/shared";
-import { resolveStyle } from "./presentation/style.js";
+import { resolveStyle, resolveTags } from "./presentation/style.js";
 import {
   durationLabel,
   equipmentEffectSummaries,
@@ -296,7 +296,8 @@ export function collectOpeningGains(
       if (typeof id !== "string") continue;
       const stacks = typeof asRecord(spec)?.stacks === "number" ? (asRecord(spec)?.stacks as number) : 1;
       const def = lookup.status(id);
-      const style = resolveStyle(def?.style, def?.quality, ui, def?.polarity);
+      const style = resolveStyle(def?.style, def?.quality, ui, def?.polarity, def?.tags);
+      const tags = resolveTags(def?.tags, ui);
       out.push({
         category: "status",
         action: "gain",
@@ -305,8 +306,9 @@ export function collectOpeningGains(
         stacks,
         ...(def?.quality !== undefined ? { quality: def.quality } : {}),
         ...(style !== undefined ? { style } : {}),
+        ...(tags.length > 0 ? { tags } : {}),
         ...(def?.description !== undefined ? { description: def.description } : {}),
-        ...(def !== undefined ? { effects: statusEffectSummaries(def, lookup), durationLabel: durationLabel(def) } : {}),
+        ...(def !== undefined ? { effects: statusEffectSummaries(def, lookup, ui), durationLabel: durationLabel(def) } : {}),
       });
     }
   }
@@ -324,7 +326,7 @@ export function collectOpeningGains(
         ...(def?.quality !== undefined ? { quality: def.quality } : {}),
         ...(style !== undefined ? { style } : {}),
         ...(def?.description !== undefined ? { description: def.description } : {}),
-        ...(def !== undefined ? { effects: skillEffectSummaries(def, lookup) } : {}),
+        ...(def !== undefined ? { effects: skillEffectSummaries(def, lookup, ui) } : {}),
       });
     }
   }
@@ -334,7 +336,8 @@ export function collectOpeningGains(
     if (typeof it?.itemId !== "string") continue;
     const count = typeof it.count === "number" ? it.count : 1;
     const def = lookup.item(it.itemId);
-    const style = resolveStyle(def?.style, def?.quality, ui, def?.polarity);
+    const style = resolveStyle(def?.style, def?.quality, ui, def?.polarity, def?.tags);
+    const tags = resolveTags(def?.tags, ui);
     out.push({
       category: "item",
       action: "gain",
@@ -343,9 +346,10 @@ export function collectOpeningGains(
       amount: count,
       ...(def?.quality !== undefined ? { quality: def.quality } : {}),
       ...(style !== undefined ? { style } : {}),
+      ...(tags.length > 0 ? { tags } : {}),
       ...(def?.description !== undefined ? { description: def.description } : {}),
       ...(def !== undefined
-        ? { effects: def.type === "equipment" ? equipmentEffectSummaries(def, lookup) : itemEffectSummaries(def, lookup) }
+        ? { effects: def.type === "equipment" ? equipmentEffectSummaries(def, lookup) : itemEffectSummaries(def, lookup, ui) }
         : {}),
     });
   }
@@ -450,6 +454,13 @@ function applyAdditiveParams(
   for (const { value } of byKind.get("relation") ?? []) {
     const r = asRecord(value);
     if (typeof r?.with !== "string" || typeof r.value !== "number") continue;
+    /**
+     * 复用原作人物时，模板里写死的「和某个角色有关系」可能正好指向**你扮演的那个人**
+     * （jjk 的林间路线就会有 `with: npc-gojo`）。自环关系在 schema 层非法
+     * （「关系边不允许自环」），写进去就是一份**载不回来的存档**——直接跳过这条：
+     * 「五条悟和五条悟是同事」本来也没有语义。
+     */
+    if (r.with === state.player.id) continue;
     const target = state.npcs.find((n) => n.id === r.with);
     if (target) {
       target.relationship = Math.max(-100, Math.min(100, target.relationship + r.value));

@@ -4,6 +4,7 @@ import {
   resolveColorToken,
   type Polarity,
   type ResolvedStyle,
+  type ResolvedTag,
   type StyleSpec,
   type UiConfig,
   type WorldTemplateV2,
@@ -49,15 +50,29 @@ function toResolved(spec: StyleSpec): ResolvedStyle {
 /**
  * 解析一个实体的最终样式。`ui` 缺省（无 `ui.yaml` / 自定义前端不传）时返回 `undefined`，
  * 与「没写样式」完全等价 —— 零回归。
+ *
+ * 顺序（ADR-002 D2b）：
+ *   实体 `style` > **命中样式的第一个 tag** > `qualityStyles[quality]` > `polarityStyles[polarity]`
+ *
+ * 为什么标签排在 quality 之前：标签是**模板给玩家看的词**（神话 / 增益），本身带颜色；
+ * `quality` / `polarity` 只是早期「按枚举映射」的简写。两者同时存在时，玩家看到的那一行字
+ * 必须和他看到的标签同色，否则同一张卡上会出现「神话是彩虹、名字是白的」。
+ *
+ * `tags` 的顺序即优先级：先写品级、再写增益减益，品级就会盖过正负色（神话 > 增益）。
  */
 export function resolveStyle(
   styleId: string | undefined,
   quality: string | undefined,
   ui: UiConfig | undefined,
   polarity?: Polarity,
+  tags?: readonly string[],
 ): ResolvedStyle | undefined {
   if (styleId !== undefined) {
     const spec = styleSpecFor(styleId, ui);
+    if (spec !== undefined) return toResolved(spec);
+  }
+  for (const tagId of tags ?? []) {
+    const spec = ui?.tags?.[tagId]?.style;
     if (spec !== undefined) return toResolved(spec);
   }
   if (quality !== undefined) {
@@ -74,6 +89,27 @@ export function resolveStyle(
     if (spec !== undefined) return toResolved(spec);
   }
   return undefined;
+}
+
+/**
+ * 解析实体的展示标签（ADR-002 D2b）。
+ *
+ * 标签是**模板的展示词**（神话 / 增益），不是引擎的样式名（rainbow / green）——
+ * 后者只活在 CSS 类名里，玩家不该看到。同一个实体可挂多个标签，顺序即声明顺序。
+ *
+ * `ui` 缺省 ⇒ 空数组（等价「模板没写标签」）。未知 id 在加载期已拒载，
+ * 这里再做一次防御：查不到就跳过，不编造名字。
+ */
+export function resolveTags(ids: readonly string[] | undefined, ui: UiConfig | undefined): ResolvedTag[] {
+  if (ids === undefined || ids.length === 0) return [];
+  const out: ResolvedTag[] = [];
+  for (const id of ids) {
+    const def = ui?.tags?.[id];
+    if (def === undefined) continue;
+    const style = def.style === undefined ? undefined : toResolved(def.style);
+    out.push({ id, name: def.name, ...(style !== undefined ? { style } : {}) });
+  }
+  return out;
 }
 
 export interface StyleIssue {
@@ -123,6 +159,20 @@ export function validateStyleRefs(template: WorldTemplateV2, ui: UiConfig | unde
   template.statuses.forEach((s, i) => check(s.style, `statuses[${i}].style`));
   template.skills.forEach((s, i) => check(s.style, `skills[${i}].style`));
   template.items.forEach((s, i) => check(s.style, `items[${i}].style`));
+
+  // 标签引用（ADR-002 D2b）：未知 tag id 同样拒载——静默丢弃会让「我明明写了品级标签」变成查不出原因的空白。
+  const checkTags = (ids: readonly string[] | undefined, path: string): void => {
+    for (const id of ids ?? []) {
+      if (ui?.tags?.[id] === undefined) {
+        issues.push({
+          path,
+          message: `未知标签 id：${id}（未在 ui.tags 声明）`,
+        });
+      }
+    }
+  };
+  template.statuses.forEach((s, i) => checkTags(s.tags, `statuses[${i}].tags`));
+  template.items.forEach((s, i) => checkTags(s.tags, `items[${i}].tags`));
 
   return issues;
 }

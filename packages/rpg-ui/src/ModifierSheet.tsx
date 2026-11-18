@@ -1,13 +1,16 @@
 import { useEffect } from "react";
-import type { EffectSummaryVM, ResolvedStyle, StatusVM } from "@life-sim/shared";
+import type { EffectSummaryVM, ResolvedStyle, ResolvedTag, StatusVM } from "@life-sim/shared";
 import { EffectList } from "./EffectList.js";
 import { StyledName } from "./StyledName.js";
+import { TagChips } from "./TagChips.js";
 
 /** 浮层内容（补正 / 技能 / 物品 / 装备共用一套排版）。 */
 export interface DetailSheetData {
   title: string;
-  /** 副标题：品质 / 类型 / 层数（右对齐的小字）。 */
+  /** 副标题：类型 / 层数这类**中性**小字（不要放品质——那是标签的活）。 */
   subtitle?: string;
+  /** 标签（品级 / 增益减益）：带各自样式，渲染在标题上方。 */
+  tags?: ResolvedTag[];
   /** 说明正文。 */
   description?: string;
   /** 一行元信息（持续时间 / 消耗 / 冷却…）。 */
@@ -49,6 +52,7 @@ export function DetailSheet({ detail, onClose, onOpenRef }: DetailSheetProps) {
       <section className="ls-sheet__card">
         <header className="ls-sheet__head">
           <div>
+            <TagChips tags={detail.tags} />
             {detail.subtitle !== undefined && <span className="ls-sheet__quality">{detail.subtitle}</span>}
             <h3>
               <StyledName name={detail.title} style={detail.style} />
@@ -75,12 +79,12 @@ export function DetailSheet({ detail, onClose, onOpenRef }: DetailSheetProps) {
 
 /** `StatusVM` → 浮层内容（宿主在别处也要展示补正详情时复用它，避免两套排版）。 */
 export function statusToDetail(status: StatusVM): DetailSheetData {
-  const subtitle = [status.quality, status.stacks > 1 ? `×${status.stacks}` : undefined]
-    .filter((part): part is string => part !== undefined && part !== "")
-    .join(" · ");
+  // 品质（quality）是**引擎里的选择器**，不是给玩家看的词：玩家看到的是 tags 里的「神话」。
+  const subtitle = status.stacks > 1 ? `×${status.stacks}` : undefined;
   return {
     title: status.name,
-    ...(subtitle !== "" ? { subtitle } : {}),
+    ...(status.tags !== undefined && status.tags.length > 0 ? { tags: status.tags } : {}),
+    ...(subtitle !== undefined ? { subtitle } : {}),
     ...(status.description !== undefined ? { description: status.description } : {}),
     ...(status.durationLabel !== undefined ? { meta: `持续：${status.durationLabel}` } : {}),
     ...(status.style !== undefined ? { style: status.style } : {}),

@@ -117,11 +117,44 @@ describe("jjk-2006 2.0.0 · 前实例化开局", () => {
     );
     const six = view.player.statuses.find((s) => s.id === "six-eyes");
     expect(six).toBeDefined();
-    expect(six?.quality).toBe("rainbow");
+    // 品级由标签表达（ADR-002 D2b）：quality 不再是展示字段
+    expect(six?.quality).toBeUndefined();
+    expect(six?.tags?.map((t) => t.id)).toEqual(["mythic", "buff"]);
+    expect(six?.tags?.map((t) => t.name)).toEqual(["神话", "增益"]);
     expect(six?.style?.preset).toBe("rainbow");
     expect(six?.style?.animation).toBe("rainbow-flow");
     // 效果摘要也随投影下发（补正详情浮层的数据源）
     expect(six?.effects?.some((e) => e.kind === "attr")).toBe(true);
+  });
+
+  it("复用五条悟：不写出自环关系（关系边不允许自环，否则存档载不回来）", () => {
+    const entry = loadV2();
+    const state = runOpening(entry.openingDag, entry.template, "self-gojo");
+    // characters.yaml 里五条悟声明了 `to: player`；当玩家**就是**五条悟时它会变成自环
+    expect(state.relations.length).toBeGreaterThan(0);
+    expect(state.relations.every((r) => r.from !== r.to)).toBe(true);
+    // 存档必须能过 schema（这是当初 `world_state_invalid` 的入口）
+    expect(WorldStateV2Schema.safeParse(state).success).toBe(true);
+  });
+
+  it("装备也带标签：背包物品的标签与效果一起下发（ADR-002 D2b）", () => {
+    const entry = loadV2();
+    const state = runOpening(entry.openingDag, entry.template, "self-gojo");
+    // 背包是 itemId → 数量的表（不是数组）
+    state.player.inventory = { ...state.player.inventory, "eq-ten-spear": 1 };
+    const view = projectSnapshotV2(
+      state,
+      entry.template,
+      entry.lookup,
+      null,
+      entry.endingConfig?.endings,
+      entry.ui,
+    );
+    const spear = view.player.inventory.find((i) => i.itemId === "eq-ten-spear");
+    expect(spear?.tags?.map((t) => t.name)).toEqual(["传说", "增益"]);
+    // 名字颜色来自靠前的标签（传说 = 静虹），与标签保持同源
+    expect(spear?.style?.preset).toBe("rainbow-static");
+    expect(spear?.effects?.length ?? 0).toBeGreaterThan(0);
   });
 
   it("天内理子短线：首节点 as 分派互斥，两个 badend 独占终结条件", () => {
