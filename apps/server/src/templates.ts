@@ -30,7 +30,9 @@ import {
   type TimeSpec,
   type UiConfig,
   type WorldTemplateV2,
+  type TemplateSource,
 } from "@life-sim/shared";
+import { FsTemplateSource } from "./template-source-fs.js";
 import {
   BUILTIN_CONDITION_OPS,
   collectExtensionConditions,
@@ -1039,14 +1041,34 @@ function expandTemplateEvents(
   return out;
 }
 
+/**
+ * **纯加载入口**（本地化迁移第一步，2026-11-21）。
+ *
+ * 只吃 `TemplateSource` + 文件清单，不碰 fs —— 判定的全部内容（合并分域、schema、跨文件
+ * 引用、扩展版本）都在这里。服务端用 `FsTemplateSource`，测试 / 将来的客户端用
+ * `MemoryTemplateSource`，两边跑的是同一段逻辑。
+ *
+ * 与 `scanVersion` 的分工：这里不负责目录发现、mtime、资产扫描与注册表策略，
+ * 那些属于**适配器**。调用方拿到的要么是模板，要么是一条带文件名的错误。
+ */
+export function loadTemplateFromSource(
+  source: TemplateSource,
+  files?: ReadonlySet<string>,
+): WorldTemplateV2 {
+  // 缺省按「源里实际存在」求 present 集：内存源常常只有几个文件，
+  // 传全量白名单会让它去读不存在的 combat-ai.yaml，报错指向错的文件。
+  const present = files ?? new Set([...DECLARATIVE_SET].filter((rel) => source.exists(rel)));
+  return loadTemplate(source, present);
+}
+
 /** 合并模板主域为一份 `WorldTemplateV2`（只读存在的文件，缺文件由 schema 校验报错）。 */
-function loadTemplate(versionDir: string, files: ReadonlySet<string>): WorldTemplateV2 {
+function loadTemplate(source: TemplateSource, files: ReadonlySet<string>): WorldTemplateV2 {
   const merged: Record<string, unknown> = {};
   for (const file of [...files].filter((f) => TEMPLATE_MERGE_FILES.has(f)).sort()) {
     // 解析失败必须能定位到**文件**（只报行号不足以判断是哪个分域文件坏了）。
     let doc: Record<string, unknown> | null;
     try {
-      doc = parse(readFileSync(path.join(versionDir, file), "utf8")) as Record<string, unknown> | null;
+      doc = parse(source.read(file)) as Record<string, unknown> | null;
     } catch (error) {
       throw new Error(`${file}: ${firstIssue(error)}`);
     }
@@ -1079,12 +1101,11 @@ function loadTemplate(versionDir: string, files: ReadonlySet<string>): WorldTemp
 
 /** 读取可选 opening.yaml；openingId 重复属模板缺陷，加载期即失败。 */
 function loadOpenings(
-  versionDir: string,
+  source: TemplateSource,
   files: ReadonlySet<string>,
 ): { legacy: OpeningTemplate[]; branchDag?: OpeningBranchDag } {
   if (!files.has("opening.yaml")) return { legacy: [] };
-  const file = path.join(versionDir, "opening.yaml");
-  const raw = parse(readFileSync(file, "utf8"));
+  const raw = parse(source.read("opening.yaml"));
   // ADR-001：新语法是**单个 branch DAG 对象**（有 `params`/`entry`/`nodes`），
   // 旧语法是 OpeningTemplate 数组。两者择一，按形状判别，加载期都走严格 schema。
   if (raw !== null && typeof raw === "object" && !Array.isArray(raw) && "nodes" in raw) {
@@ -1110,14 +1131,14 @@ function loadOpenings(
 
 /** 按文件存在性加载单个可选分域；校验失败由调用方决定 fail-fast 还是标 invalid。 */
 function loadOptionalConfig<T>(
-  versionDir: string,
+  source: TemplateSource,
   file: string,
   files: ReadonlySet<string>,
   schema: { parse: (input: unknown) => T },
 ): T | undefined {
   if (!files.has(file)) return undefined;
   try {
-    return schema.parse(parse(readFileSync(path.join(versionDir, file), "utf8")));
+    return schema.parse(parse(source.read(file)));
   } catch (error) {
     throw new Error(`${file}: ${firstIssue(error)}`);
   }
@@ -1132,9 +1153,9 @@ function loadOptionalConfig<T>(
  * 的 catch 收敛成 `{ ok: false, reason }`：启动期 ⇒ `template_invalid` 拒绝启动；
  * 运行期 ⇒ 该版本标 `invalid`（有旧 Entry 则保留旧的）。绝不再「warn + 静默丢文件」。
  */
-function loadRules(versionDir: string): Rules {
+function loadRules(source: TemplateSource): Rules {
   try {
-    return RulesSchema.parse(parse(readFileSync(path.join(versionDir, "rules.yaml"), "utf8")));
+    return RulesSchema.parse(parse(source.read("rules.yaml")));
   } catch (error) {
     throw new Error(`rules.yaml: ${firstIssue(error)}`);
   }
@@ -1147,10 +1168,10 @@ function loadRules(versionDir: string): Rules {
  * 键名写错一律加载期拒载，不静默忽略。能力 id 的合法集合 = 宿主内建集 ∪ 已注册扩展声明的
  * `uiCapabilities`；这样扩展新增视图不需要改主包 schema。
  */
-function loadUi(versionDir: string): UiConfig {
+function loadUi(source: TemplateSource): UiConfig {
   let config: UiConfig;
   try {
-    config = UiConfigSchema.parse(parse(readFileSync(path.join(versionDir, "ui.yaml"), "utf8")));
+    config = UiConfigSchema.parse(parse(source.read("ui.yaml")));
   } catch (error) {
     throw new Error(`ui.yaml: ${firstIssue(error)}`);
   }
@@ -1254,20 +1275,18 @@ export function parseLoreMarkdown(text: string): LoreRule[] {
   return entries;
 }
 
-function loadLore(versionDir: string): LoreRule[] {
+function loadLore(source: TemplateSource): LoreRule[] {
   try {
-    return parseLoreMarkdown(readFileSync(path.join(versionDir, "lore.md"), "utf8"));
+    return parseLoreMarkdown(source.read("lore.md"));
   } catch (error) {
     throw new Error(`lore.md: ${firstIssue(error)}`);
   }
 }
 
 /** `assets/manifest.yaml` 独立加载器：契约 = `AssetManifestSchema`，失败同样加载期即抛。 */
-function loadAssetManifest(versionDir: string): AssetManifest {
+function loadAssetManifest(source: TemplateSource): AssetManifest {
   try {
-    return AssetManifestSchema.parse(
-      parse(readFileSync(path.join(versionDir, "assets/manifest.yaml"), "utf8")),
-    );
+    return AssetManifestSchema.parse(parse(source.read("assets/manifest.yaml")));
   } catch (error) {
     throw new Error(`assets/manifest.yaml: ${firstIssue(error)}`);
   }
@@ -1347,22 +1366,24 @@ function scanVersion(
   logger: TemplateScanLogger,
 ): VersionScan | null {
   const ref: TemplateRef = { id, version };
+  // 本地化迁移第一步：声明式文件的读取统一走 `TemplateSource`，扫描与资产仍走 fs。
+  const source = new FsTemplateSource(versionDir);
   const declarative: string[] = [];
 
-  let dirEntries: Dirent[];
+  let dirEntries;
   try {
-    dirEntries = readdirSync(versionDir, { withFileTypes: true });
+    dirEntries = source.list("");
   } catch (error) {
     return { ok: false, reason: `${keyOf(ref)}: 版本目录不可读：${firstIssue(error)}`, mtime: 0 };
   }
 
   for (const entry of dirEntries) {
-    const rel = entry.name;
-    if (entry.isFile() && DECLARATIVE_SET.has(rel)) {
+    const rel = entry.rel;
+    if (entry.kind === "file" && DECLARATIVE_SET.has(rel)) {
       declarative.push(rel);
       continue;
     }
-    if (entry.isFile()) {
+    if (entry.kind === "file") {
       // 非白名单文件（游离 notes.yaml / .md / .png …）：warn + 忽略，不拒载（H-1）。
       logger.warn(
         { templateId: id, version, file: rel },
@@ -1370,8 +1391,8 @@ function scanVersion(
       );
       continue;
     }
-    if (entry.isDirectory() && rel === "assets") continue; // 由 scanAssets 统一扫
-    if (entry.isDirectory()) {
+    if (entry.kind === "dir" && rel === "assets") continue; // 由 scanAssets 统一扫
+    if (entry.kind === "dir") {
       logger.warn(
         { templateId: id, version, dir: rel },
         "template_directory_ignored: 版本目录根只允许 assets/ 子目录",
@@ -1383,7 +1404,7 @@ function scanVersion(
   // 中不可见，顶层循环后按相对路径定向补读；不改上面 assets/ 目录的 `continue` 语义
   // （assets/ 仍不作为声明式目录整体扫描），只做定向补读。
   for (const rel of NESTED_DECLARATIVE) {
-    if (existsSync(path.join(versionDir, rel))) declarative.push(rel);
+    if (source.exists(rel)) declarative.push(rel);
   }
 
   if (declarative.length === 0) return null; // 空版本目录：占位，不是模板（B-4 第 3 条）
@@ -1394,7 +1415,7 @@ function scanVersion(
 
   const present = new Set(declarative);
   try {
-    const template = loadTemplate(versionDir, present);
+    const template = loadTemplate(source, present);
     // A-7：`world.templateId` 恒等于 `template.meta.id`（createWorldV2 写入），因此
     // `meta.id ≡ <id> 目录名` 是身份正确性的唯一保证 —— 不等即模板缺陷。
     if (template.meta.id !== id) {
@@ -1409,12 +1430,12 @@ function scanVersion(
     // 三个模板已全部合规（valmont 迁到 fatherId/motherId 指针，jjk-2006 撤掉 family 声明），
     // 闸门自此真正生效；它是软码（只废这一个版本，不拒进程），见 SOFT_REASON_CODES。
     assertKinshipCompliance(template);
-    const loadedOpenings = loadOpenings(versionDir, present);
+    const loadedOpenings = loadOpenings(source, present);
     const openings = loadedOpenings.legacy;
     const openingDag = loadedOpenings.branchDag;
-    const endingConfig = loadOptionalConfig(versionDir, "endings.yaml", present, EndingConfigSchema);
+    const endingConfig = loadOptionalConfig(source, "endings.yaml", present, EndingConfigSchema);
     const evaluationConfig = loadOptionalConfig(
-      versionDir,
+      source,
       "evaluation.yaml",
       present,
       EvaluationConfigSchema,
@@ -1426,12 +1447,12 @@ function scanVersion(
     // T-06：两个新声明式文件各有独立 loader，**加载期即 schema 校验并 fail-fast**——
     // 坏 `rules.yaml` / `assets/manifest.yaml` 走与其它白名单文件同一条失败通道（catch → reason），
     // 不再「warn + 静默丢文件」（否则 malformed rules 会退化成 undefined，运行时才炸）。
-    const rules = present.has("rules.yaml") ? loadRules(versionDir) : undefined;
-    const lore = present.has("lore.md") ? loadLore(versionDir) : undefined;
+    const rules = present.has("rules.yaml") ? loadRules(source) : undefined;
+    const lore = present.has("lore.md") ? loadLore(source) : undefined;
     const assetManifest = present.has("assets/manifest.yaml")
-      ? loadAssetManifest(versionDir)
+      ? loadAssetManifest(source)
       : undefined;
-    const ui = present.has("ui.yaml") ? loadUi(versionDir) : undefined;
+    const ui = present.has("ui.yaml") ? loadUi(source) : undefined;
     // ADR-002 D2：未知样式 id 一律拒载（不静默回退）——静默回退会让模板作者以为改了颜色，
     // 线上却没变，比加载失败更难查。错误带字段路径 + 实体位置。
     const styleIssues = validateStyleRefs(template, ui);
@@ -1489,7 +1510,7 @@ function scanVersion(
         ...[...declarative]
           .filter((file) => file !== "ui.yaml")
           .sort()
-          .map((file) => ({ name: file, content: readFileSync(path.join(versionDir, file), "utf8") })),
+          .map((file) => ({ name: file, content: source.read(file) })),
         ...extensionPairs,
       ],
     );
