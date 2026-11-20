@@ -1,0 +1,421 @@
+# JJK Demo 世界模板 · world.yaml
+# 元信息、历法、性别枚举、心情档位、状态栏、属性/资源、回复与判定默认值。
+meta:
+  id: jjk-2006
+  name: 咒术回战 · 命数十二年
+  description: 2006 年春，你转动命数转盘，成为东京咒术高专的一年生——七海建人与灰原雄的同班同学，五条悟与夏油杰的学弟学妹。此后十二年，怀玉、玉折、百鬼夜行、涩谷、死灭回游、新宿决战会依次找上门。你要活到亲手写下结局的那天。
+  startYear: 2006
+  engineProtocol: v2
+
+# 亲缘走**模式一（边）**：本模板只有一条 `npc-megumi → npc-toji [father]`
+# 和一条 `gap: true` 的远亲边，值不上家族扩展（`extensions/family/doc/FAMILY-GRAPH.md` §6 的迁移结论）。
+# 因此**不声明** `extensions.family`，亲属称谓由模板自己写的边直接给出；
+# 声明了反而会与本文件的亲属边冲突（加载期 `kinship_conflict`）。
+
+# 运行包版本：这个世界按 master 0.1.0 写；主包升级到不兼容版本时加载期拒载。
+requires:
+  core: "^0.1.0"
+
+time:
+  # 一轮 = 一天：本模板是「一学年」节奏的人生切片，靠剧情节点的 advanceTo 跳月/跳季，
+  # 而不是把 4 小时一步的细粒度强行拉长到几十年（旧模板寿终不可达的根因）。
+  defaultStep: { value: 1, unit: day }
+  # R2.6 / ADR-0013：真实公历（月长 28–31、闰年）；缺省 approx（1 月=30 天）。
+  # TimeSpec 字符串字面量（如 "2006-12-24"、"3d2h"）自此按真实日历解析。
+  calendar:
+    preset: gregorian
+  lifeStageSteps:
+    childhood: { value: 1, unit: day }
+    youth: { value: 1, unit: day }
+    adulthood: { value: 1, unit: day }
+    elderhood: { value: 1, unit: day }
+  # 人生阶段阈值（模板可配置，替代引擎硬编码）
+  lifeStages:
+    - { id: childhood, label: 幼年, maxAge: 12 }
+    - { id: youth, label: 青年, maxAge: 29 }
+    - { id: adulthood, label: 壮年, maxAge: 59 }
+    - { id: elderhood, label: 暮年 }
+
+# 性别为世界自定义枚举（非二元），角色只能取此处 id
+genders:
+  - { id: male, label: 男 }
+  - { id: female, label: 女 }
+  - { id: femboy, label: 男娘 }
+  - { id: agender, label: 无性别 }
+  - { id: custom-heli, label: 武装直升机 }
+
+mood:
+  min: 0
+  max: 100
+  defaultValue: 60
+  bands:
+    - { id: low, label: 消沉, min: 0, max: 40, attributeModifiers: { intellect: -1 } }
+    - { id: normal, label: 平静, min: 41, max: 70, attributeModifiers: {} }
+    - { id: high, label: 高昂, min: 71, max: 100, attributeModifiers: { physique: 1 } }
+
+statusBar:
+  - { id: sb-identity, label: 基本, source: identity }
+  - { id: sb-mood, label: 心情, source: mood }
+  - { id: sb-hp, label: 生命, source: resource, key: hp }
+  - { id: sb-mp, label: 咒力, source: resource, key: mp }
+  - { id: sb-attrs, label: 属性, source: attribute, keys: [cursedEnergy, intellect, physique, agility, luck, reputation] }
+  - { id: sb-status, label: 补正, source: status }
+  - id: sb-cursed-quality
+    label: 咒力质感
+    source: custom
+    visibleWhen:
+      - { status: cursed-quality, present: true }
+
+attributes:
+  order: [cursedEnergy, intellect, physique, agility, luck, reputation, grade, innateTechnique, infamy, virtue, fame]
+  defaults: { cursedEnergy: 5, intellect: 6, physique: 5, agility: 5, luck: 5, reputation: 0, grade: grade-4, innateTechnique: none, infamy: 0, virtue: 0 }
+  caps: { cursedEnergy: 200, infamy: 2, virtue: 2 }
+  # 显示名由模板声明：引擎/投影/前端一律读这里，不在代码里写死世界观用词
+  labels:
+    cursedEnergy: 咒力
+    intellect: 智力
+    physique: 体术
+    agility: 敏捷
+    luck: 幸运
+    reputation: 声望
+    grade: 等级
+    innateTechnique: 生得术式
+    infamy: 恶名
+    virtue: 善名
+    fame: 名誉
+  # ADR-003：属性类型。未声明的属性一律 number（咒力/智力…保持原样）。
+  defs:
+    grade:
+      kind: enum
+      values:
+        - { id: grade-4, label: 四级, style: gray }
+        - { id: grade-3, label: 三级, style: green }
+        - { id: grade-2, label: 二级, style: blue }
+        - { id: grade-1, label: 一级, style: purple }
+        - { id: special, label: 特级, style: gold }
+    innateTechnique:
+      kind: enum
+      values:
+        - { id: ten-shadows, label: 十种影法术, style: blue }
+        - { id: red-blood, label: 赤血操术, style: red }
+        - { id: doll, label: 刍灵咒法, style: orange }
+        - { id: thunder, label: 雷电, style: cyan }
+        - { id: speech, label: 咒言, style: pink }
+        - { id: cursed-spirits, label: 咒灵操术, style: purple }
+        - { id: shrine, label: 御厨子, style: red }
+        - { id: limitless, label: 无下限术式, style: rainbow }
+        # 原创术式系（原作没有，只供玩家自定义角色抽取；label 写成术式名而非分类词）
+        - { id: space, label: 空间, style: cyan }
+        - { id: illusion, label: 幻象, style: pink }
+        - { id: flesh, label: 血肉, style: red }
+        - { id: gravity, label: 重力, style: purple }
+        - { id: shadow, label: 影, style: blue }
+        - { id: sound, label: 声, style: orange }
+        - { id: toxin, label: 毒, style: green }
+        - { id: matter, label: 物质, style: gold }
+        - { id: rule, label: 规则, style: white }
+        - { id: fate, label: 命运, style: rainbow }
+        - { id: none, label: 无术式, style: gray }
+        - { id: latent, label: 未觉醒, style: gray }
+    # 恶名 / 善名：两条隐藏的 0..2 轴，只作为「名誉」的输入，不单独上面板。
+    infamy:
+      kind: ladder
+      hidden: true
+      tiers:
+        - { id: none, label: "—", at: 0 }
+        - { id: plus, label: "＋", at: 1 }
+        - { id: plus2, label: "＋＋", at: 2 }
+    virtue:
+      kind: ladder
+      hidden: true
+      tiers:
+        - { id: none, label: "—", at: 0 }
+        - { id: plus, label: "＋", at: 1 }
+        - { id: plus2, label: "＋＋", at: 2 }
+    # 名誉 = 恶名 × 善名 的派生称号（优先序：先匹配先得，兜底默默无闻）。
+    fame:
+      kind: composite
+      sources: [infamy, virtue]
+      cases:
+        - when: { infamy: { gte: 2 }, virtue: { gte: 2 } }
+          label: 乱世枭雄
+          style: rainbow
+        - when: { infamy: { gte: 2 } }
+          label: 恶贯满盈
+          style: red
+        - when: { infamy: { gte: 1 }, virtue: { gte: 1 } }
+          label: 亦正亦邪
+          style: purple
+        - when: { infamy: { gte: 1 } }
+          label: 声名狼藉
+          style: orange
+        - when: { virtue: { gte: 2 } }
+          label: 名震天下
+          style: gold
+        - when: { virtue: { gte: 1 } }
+          label: 声名远扬
+          style: green
+      fallback: { label: 默默无闻, style: gray }
+
+# HP/MP 为共享资源池：战斗与模拟读写同一池子（见规格 10.3）
+# 上限 = base + perLevel × growthLevel + Σ perAttribute[attr] × 基础属性值
+#
+# 咒力上限**只由咒力属性决定**（2026-11-19 用户裁决）：base 从 40 改成 0。
+# 这样「天与咒缚」不需要任何特判 —— 基础咒力 0 的人上限自然是 0，而不是
+# 一个「没有咒力却有 40 点咒力池」的怪东西。
+#
+# 注意分母变了：玩家开局咒力 5 时 MP 从 50 掉到 10，所以技能消耗（苍 18 / 赫 32）
+# 必须按新的池子重调 —— 这件事不再靠手算，用 `pnpm inspect sim` 打木桩量。
+resources:
+  hp: { base: 75, perLevel: 10, perAttribute: { cursedEnergy: 5 } }
+  mp: { base: 0, perLevel: 5, perAttribute: { cursedEnergy: 2 } }
+
+# 召唤名额：**世界维度、按档共享**（2026-11-20 用户裁决）。
+# 所有英雄档召唤物共用 hero 个位置、所有杂兵共用 minion 个位置 ——
+# 不是「玉犬 1 个、円鹿 1 个」各算各的。技能只写「一次几只」与「强度系数」。
+# 这条也是「十影只能同时站一只式神」的来源：想换手先收回（进 bench，状态原样保留）。
+summonLimits: { minion: 3, hero: 1 }
+
+# 回复节奏跟模拟轮次
+regen:
+  perTurn: { hp: 2, mp: 1 }
+  actions:
+    rest: { hp: 20, mp: 10 }
+
+# 玩家行动（action-hook 事件引用此处 id；rest 同时享受 regen.actions.rest 额外回复）
+# 设计意图：六个行动各自挂着不同的「钩子」——修炼/上课/交友是稳定收益，
+# 巡逻/探索是高风险高回报的转盘，休息是回血与推进剧情的安全键。
+actions:
+  - id: train
+    label: 修炼
+    description: 打熬咒力与体术。咒力 +1，代价是耗掉一些体力。
+    duration: { value: 1, unit: day }
+    effects:
+      - { type: adjustAttribute, attribute: cursedEnergy, value: 1 }
+      - { type: adjustResource, resource: mp, value: -5 }
+  - id: patrol
+    label: 巡逻
+    description: 在结界薄弱处巡逻——大概率遇见什么，小概率什么也没遇见。
+    duration: { value: 1, unit: day }
+    effects:
+      - { type: adjustFlag, id: patrolCount, value: 1 }
+  - id: explore
+    label: 探索
+    description: 钻进废弃校舍、地下道与咒灵巢穴。风险自负。
+    duration: { value: 1, unit: day }
+    effects:
+      - { type: adjustFlag, id: exploreCount, value: 1 }
+  - id: study
+    label: 上课
+    description: 高专的咒理课程。智力 +1，偶尔会被点名。
+    duration: { value: 1, unit: day }
+    effects:
+      - { type: adjustAttribute, attribute: intellect, value: 1 }
+  - id: socialize
+    label: 交往
+    description: 与同伴度过一天。心情与羁绊都会变好。
+    duration: { value: 1, unit: day }
+    effects:
+      - { type: adjustMood, value: 4 }
+  - id: rest
+    label: 休息
+    description: 回宿舍休整，恢复 HP/MP。
+    duration: { value: 1, unit: day }
+  # 战败后的恢复手段：把「受伤 / 力竭」真正治好，否则下一章会因带伤而被拒之门外。
+  - id: recuperate
+    label: 疗养
+    description: 去医务室躺两天。治好伤势与力竭，但这两天什么也做不了。
+    duration: { value: 2, unit: day }
+    effects:
+      - { type: cureStatus, status: injured-sim }
+      - { type: cureStatus, status: exhausted }
+      - { type: adjustResource, resource: hp, value: 30 }
+      - { type: adjustResource, resource: mp, value: 20 }
+      - { type: adjustMood, value: 4 }
+
+# NPC 自主行动（触发式 + 效用评分；goalMatch/traitAffinity 对应角色的 private.goals/traits）
+npcActions:
+  # 角色创建（命数转盘 13 步 + 入学式）期间冻结所有 NPC 自主行动；
+  # 否则玩家还在选出身时，History 里已经在刷「某 NPC 找同伴闲聊」。
+  - id: npc-train
+    summary: "{name} 独自打熬咒力。"
+    trigger: { probability: 0.25, cooldownTurns: 2 , conditions: [{ flag: creationDone, eq: true }] }
+    utility:
+      base: 1
+      goalMatch: [become-stronger]
+      traitAffinity: [diligent]
+    effects:
+      - { type: adjustRelation, npcId: __self__, value: 1 }
+  - id: npc-mission
+    summary: "{name} 接下了一项祓除任务。"
+    trigger: { probability: 0.2, requireKnowledge: [missions] , conditions: [{ flag: creationDone, eq: true }] }
+    utility:
+      base: 1
+      traitAffinity: [diligent, vigilant]
+    effects:
+      - { type: adjustFlag, id: missionsCompleted, value: 1 }
+  - id: npc-socialize
+    summary: "{name} 找同伴闲聊。"
+    trigger: { probability: 0.3 , conditions: [{ flag: creationDone, eq: true }] }
+    utility:
+      base: 1
+      traitAffinity: [caring, confident]
+    effects:
+      - { type: adjustRelation, npcId: __self__, value: 2 }
+
+# NPC 刷新规则（ADR-0022：配置层 → 实例层队列 → spawnLog 事实层）
+#
+# 被规则管辖的角色在世界创建时处于 `unspawned`：不上人物面板、不进入自主行动候选、
+# 不参与任何以他为 ref 的战斗（引擎默认判活，模板无需再写判活条件）。
+#
+# **本节只说「这个人是谁、登场时几岁」**：哪天登场写在下面 `scheduledFacts` 里
+# （ADR-007 D1 把时间搬到统一时间表，规则不再自带 `when`）。
+#
+# 参战更要紧的一层保险：任何以他们为 `enemies[].ref` 的事件都同时声明 `npcs:`，
+# 占槽时先 materialize（`materializeEventNpcs`）。定时是常态，事件内兜底是为了
+# 不让「时间没走到 / 档被跳读」把一场战斗变成空场（空 enemies 会被判即胜）。
+#
+# `age` = 登场时的年龄；spawnNpc 按它重算 birthTime，所以 2006 年不会把 2018 年
+# 才入学的人投影成「12 年前就 15 岁」。
+npcSpawnRules:
+  # ── 2006 秋 · 怀玉（第 1 章）──────────────────────────────
+  # 甚尔：星浆体事件的杀手，2006 年这一章才进世界。
+  - { id: rule-toji-2006, characterRef: npc-toji, age: 31 }
+
+  # ── 2017 冬 · 百鬼夜行（第 3 章）──────────────────────────
+  # 乙骨：2006–2017 在海外，百鬼夜行归国（旧实现挂在 ev-np-01 的胜负出口上）。
+  - { id: rule-yuta-arrival, characterRef: npc-yuta, age: 16 }
+  # 羂索：2017 年已经披着夏油的皮在布他的局。
+  - { id: rule-kenjaku-2017, characterRef: npc-kenjaku, age: 1000 }
+
+  # ── 2018 春 · 少年院（第 4 章）：本篇的一年生入学 ──────────────
+  - { id: rule-yuji-2018, characterRef: npc-yuji, age: 15 }
+  - { id: rule-megumi-2018, characterRef: npc-megumi, age: 15 }
+  - { id: rule-nobara-2018, characterRef: npc-nobara, age: 15 }
+  # 宿傩：虎杖吞下手指那一刻起就在他体内（此形态只在涩谷登场）。
+  - { id: rule-sukuna-2018, characterRef: npc-sukuna, age: 1000 }
+
+  # ── 2018 秋 · 涩谷（第 5 章）────────────────────────────
+  - { id: rule-jogo-2018, characterRef: npc-jogo, age: 300 }
+
+  # ── 2018 冬 · 死灭回游末（第 6 章）：宿傩借伏黑惠之身 ────────────
+  - { id: rule-sukuna-megumi, characterRef: npc-sukuna-megumi, age: 1000 }
+
+  # ── 新宿决战（第 7 章）：受肉真身 ─────────────────────────
+  - { id: rule-sukuna-incarnate, characterRef: npc-sukuna-incarnate, age: 1000 }
+
+# ══════════════════════════════════════════════════════════════════
+# 世界时间表（ADR-007 D1）
+# ══════════════════════════════════════════════════════════════════
+#
+# 世界自己往前走的那部分：**到点就发生，不占事件槽、不等玩家确认**。
+# 每轮 tail 求值；一事实只发生一次（`state.facts` 记 id）；不吃主轮 RNG。
+#
+# 什么时候用它，而不是写一个事件：
+# · 「世界本来就该如此」的事（人登场、关系成立、局势变动）—— 玩家没走到那条剧情
+#   分支，这些事也照样发生；
+# · 依赖玩家选择的事（见面、战斗、说服）仍然是事件，别塞进来。
+#
+# 顺序有意义：同一回合到期的按**书写顺序**执行。所以「先让人登场、再建立关系」
+# 靠排列表达 —— 关系效果的判活检查会读到场上有这个人。
+#
+# 时间点与章节门 `ev-chN-gate` 的 window 同源：门开了，这一章的人也该在。
+scheduledFacts:
+  # ── 2006 秋 · 怀玉（第 1 章，215 天）──────────────────────
+  - id: fact-toji-2006
+    note: 星浆体的委托落到甚尔手上，他这一年开始在东京活动
+    tidings: 东京的地下中介开始传一个名字：没有咒力，从不让目标活着回去。没人知道他叫什么。
+    when: [{ time: { gte: { value: 215, unit: day } } }]
+    effects:
+      - { type: spawnNpc, ruleId: rule-toji-2006 }
+
+  # ── 2007 · 五条悟的两次成长（ADR-010 D6）────────────────────
+  #
+  # 为什么写在时间表而不是事件：这跟玩家走没走到那条分支无关 —— 五条悟在 2007 年
+  # 会不会赫，是世界事实。写成事件会让「没遇到他的人」遇到一个永远只会苍的五条，
+  # 后面所有涉及他的战斗都会对不上原作。
+  #
+  # 「NPC 能力只能在运行时增长」这件事本身是 ADR-010 补的：`unlockSkill` 过去只写
+  # `state.player.skills`，想让 NPC 变强只能给他造第二张角色卡（宿傩那三张就是）。
+  - id: fact-gojo-red
+    note: 怀玉之后，他把反转用在了「苍」上 —— 赫
+    tidings: 五条悟把反转术式接在了「苍」的反面。他管那一发叫「赫」，说它太张扬，所以只在没人看见的时候练。
+    when: [{ time: { gte: { value: 518, unit: day } } }]
+    effects:
+      - { type: unlockSkill, skillId: sk-gojo-red, who: npc-gojo }
+
+  - id: fact-gojo-domain
+    note: 苦夏之后，他不再满足于「一人份的强」
+    tidings: 五条悟展开了领域。在场的人说，那里面没有边界，也没有「距离」这种东西。
+    when: [{ time: { gte: { value: 760, unit: day } } }]
+    effects:
+      - { type: unlockSkill, skillId: sk-domain-empty, who: npc-gojo }
+
+  # ── 2017 冬 · 百鬼夜行（第 3 章，4370 天）──────────────────
+  - id: fact-yuta-returns
+    note: 乙骨忧太从海外回国，正赶上百鬼夜行
+    when: [{ time: { gte: { value: 4370, unit: day } } }]
+    effects:
+      - { type: spawnNpc, ruleId: rule-yuta-arrival }
+
+  - id: fact-kenjaku-sets-up
+    note: 羂索披着夏油的皮，开始在东京布他的局
+    when: [{ time: { gte: { value: 4370, unit: day } } }]
+    effects:
+      - { type: spawnNpc, ruleId: rule-kenjaku-2017 }
+
+  # ── 2018 春 · 少年院（第 4 章，4538 天）：一年级入学 ──────────
+  - id: fact-yuji-enrolls
+    note: 虎杖悠仁吞下手指后被五条带进高专
+    when: [{ time: { gte: { value: 4538, unit: day } } }]
+    effects:
+      - { type: spawnNpc, ruleId: rule-yuji-2018 }
+
+  - id: fact-megumi-enrolls
+    note: 伏黑惠成为一年级生（此前他只是「禅院家的血脉」，与五条没有师承）
+    when: [{ time: { gte: { value: 4538, unit: day } } }]
+    effects:
+      - { type: spawnNpc, ruleId: rule-megumi-2018 }
+
+  - id: fact-nobara-enrolls
+    note: 钉崎野蔷薇从乡下上来，编入一年级
+    when: [{ time: { gte: { value: 4538, unit: day } } }]
+    effects:
+      - { type: spawnNpc, ruleId: rule-nobara-2018 }
+
+  - id: fact-sukuna-vessel
+    note: 宿傩寄宿在虎杖体内
+    when: [{ time: { gte: { value: 4538, unit: day } } }]
+    effects:
+      - { type: spawnNpc, ruleId: rule-sukuna-2018 }
+
+  # 师承是**这一年**才成立的（用户 2026-11-19 裁决：2006 年的五条卡上不该有惠）。
+  # 两端都写，才是同一件事实的两种视角（五条视惠为弟子 / 惠视五条为老师）。
+  - id: fact-gojo-takes-megumi
+    note: 一年级编成，五条把伏黑惠要到自己名下
+    tidings: 一年级编成那天，五条悟把伏黑惠要到了自己名下。没人问他为什么偏偏是这个。
+    when: [{ time: { gte: { value: 4538, unit: day } } }]
+    effects:
+      - { type: addRelationEdge, fromId: npc-gojo, toId: npc-megumi, kind: disciple, scope: public, value: 50 }
+      - { type: addRelationEdge, fromId: npc-megumi, toId: npc-gojo, kind: mentor, scope: public, value: 60 }
+
+  # ── 2018 秋 · 涩谷（第 5 章，4680 天）──────────────────────
+  - id: fact-jogo-moves
+    note: 漏瑚带着「把五条悟逼出来」的任务进城
+    when: [{ time: { gte: { value: 4680, unit: day } } }]
+    effects:
+      - { type: spawnNpc, ruleId: rule-jogo-2018 }
+
+  # ── 2018 冬 · 死灭回游末（第 6 章，4700 天）────────────────
+  - id: fact-sukuna-possesses-megumi
+    note: 宿傩借伏黑惠之身现身
+    when: [{ time: { gte: { value: 4700, unit: day } } }]
+    effects:
+      - { type: spawnNpc, ruleId: rule-sukuna-megumi }
+
+  # ── 新宿决战（第 7 章，4736 天）：受肉真身 ─────────────────
+  - id: fact-sukuna-incarnates
+    note: 宿傩以受肉之身降临新宿
+    when: [{ time: { gte: { value: 4736, unit: day } } }]
+    effects:
+      - { type: spawnNpc, ruleId: rule-sukuna-incarnate }

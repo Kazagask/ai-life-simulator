@@ -23,6 +23,7 @@ import {
   equipV2,
   evaluateLifeV2,
   finalizeEvaluationSummary,
+  normalizeAllocation,
   playerVisibleEntries,
   projectArchiveForPlayer,
   projectSnapshotV2,
@@ -30,6 +31,8 @@ import {
   unequipV2,
   captureGainBaseline,
   diffGains,
+  pushHistory,
+  presentQueuedEventV2,
   useItemV2,
   visibleFactRefs,
   type ConditionContext,
@@ -58,7 +61,7 @@ import { compareVersions, loadTemplates, readAssetEntries, type ReadyTemplateEnt
 import { registerServerExtensions } from "./extensions.js";
 import { dataDir, hydrate, loadPersistedWorlds, worldStore } from "./store.js";
 import { createLLMProvider, readLLMConfig, resolveProviderForRequest, type LLMProvider } from "./llm/provider.js";
-import { openCredentialEnvelope } from "./llm/credentialEnvelope.js";
+import { allowsPlaintextCredentials, openCredentialEnvelope } from "./llm/credentialEnvelope.js";
 import { userCredentials } from "./llm/userCredentials.js";
 import { probeLlmConnectivity } from "./llm/probe.js";
 import {
@@ -68,6 +71,7 @@ import {
   type NarrativeOutcome,
 } from "./narrative/generate.js";
 import { recordNarrative } from "./narrative/trace.js";
+import { openingPrologue, prologueFactsOf } from "./narrative/prologue.js";
 import { recordTurnNarrative } from "./narrative/turn.js";
 import { readNarrativeBlocks } from "./narrative/read.js";
 import { registerNarrativeStreamRoute } from "./narrative/stream.js";
@@ -498,7 +502,9 @@ const llmCredentialsSchema = z.object({
 });
 
 app.post("/api/llm-credentials", async (request, reply) => {
-  const parsed = llmCredentialsSchema.safeParse(openCredentialEnvelope(request.body));
+  // 局域网 HTTP 下浏览器没有 WebCrypto ⇒ 只对私有来源接受明文信封（`v: 0`）。
+  const allowPlaintext = allowsPlaintextCredentials(request);
+  const parsed = llmCredentialsSchema.safeParse(openCredentialEnvelope(request.body, { allowPlaintext }));
   if (!parsed.success) {
     return reply.code(400).send({ error: "invalid_credentials" });
   }
@@ -520,7 +526,8 @@ app.post("/api/llm-credentials", async (request, reply) => {
  * `detail` 已在 probe 内部脱敏截断，绝不回显 apiKey。
  */
 app.post("/api/llm-credentials/test", async (request, reply) => {
-  const parsed = llmCredentialsSchema.safeParse(openCredentialEnvelope(request.body));
+  const allowPlaintext = allowsPlaintextCredentials(request);
+  const parsed = llmCredentialsSchema.safeParse(openCredentialEnvelope(request.body, { allowPlaintext }));
   if (!parsed.success) {
     return reply.code(400).send({ error: "invalid_credentials" });
   }
@@ -531,7 +538,14 @@ app.post("/api/llm-credentials/test", async (request, reply) => {
  * 模板列表（R-TG-01 AC② / R-TG-14）：**两级结构**（先选模板、再选版本）。
  * 只读、无写入端点（R-TG-17）；不含 hidden / NPC 私有数据。
  */
-app.get("/api/templates", async () => ({ templates: registry.listTemplates() }));
+app.get("/api/templates", async () => ({
+  /*
+   * 隐藏模板（`meta.hidden: true`，2026-11-20）不上列表：测试田与半成品不该出现在
+   * 选模板界面。注册表仍然收录它 —— 建局（`POST /api/worlds`）按 id 照常可用，
+   * `inspect` 与体检也照常看得见。
+   */
+  templates: registry.listTemplates().filter((t) => t.hidden !== true),
+}));
 
 /** T-06 · 静态资源下发允许的扩展名（`.svg/.html` 等可脚本化格式一律拒绝）。 */
 const ASSET_CONTENT_TYPES: Record<string, string> = {
@@ -654,8 +668,19 @@ app.post("/api/openings", async (request, reply) => {
   const seed = parsed.data.seed ?? Math.floor(Math.random() * 0xffffffff);
   const core = createOpeningSession(entry.openingDag, seed);
   const id = `open-${randomUUID()}`;
+  // 第一个节点就是 allocate 且预算参数还没落定 ⇒ 模板顺序写反了。
+  // 这是模板缺陷，但返回 400 比 500 更好定位（会话不落库，前端能直接看到原因）。
+  let firstNode;
+  try {
+    firstNode = describeNode(entry.openingDag, core, { template: entry.template, ui: entry.ui });
+  } catch (error) {
+    return reply.code(400).send({
+      error: "opening_dag_invalid",
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
   openingSessions.set(id, { entry, core, playerName: parsed.data.playerName, seed: parsed.data.seed });
-  return reply.code(201).send({ sessionId: id, seed, node: describeNode(entry.openingDag, core) });
+  return reply.code(201).send({ sessionId: id, seed, node: firstNode });
 });
 
 app.post("/api/openings/:id/step", async (request, reply) => {
@@ -670,7 +695,7 @@ app.post("/api/openings/:id/step", async (request, reply) => {
     const outcome = resolveStep(dag, rec.core, parsed.data);
     rec.core = outcome.session;
     return {
-      node: describeNode(dag, rec.core),
+      node: describeNode(dag, rec.core, { template: rec.entry.template, ui: rec.entry.ui }),
       done: rec.core.done,
       ...(outcome.resolved !== undefined ? { resolved: outcome.resolved } : {}),
       results: rec.core.results,
@@ -694,6 +719,42 @@ app.post("/api/openings/:id/commit", async (request, reply) => {
     const state = commitOpening(dag, rec.core, rec.entry.template, randomUUID());
     // 会话里传的 playerName 作为兜底（参数表未声明 name 时）。
     if (rec.playerName && state.player.name === "无名氏") state.player.name = rec.playerName;
+
+    /**
+     * 开局序章（2026-11-19）：把「这一生拿到了什么」写成一段正文，再接第一幕。
+     * 顺序不可换 —— 序章是第 0 轮的叙事，必须排在第一个事件之前落进历史。
+     * LLM 只写装饰：失败 / 超时 / mock 一律回退模板拼的文案（见 narrative/prologue.ts）。
+     */
+    const choices = rec.core.results
+      .map((r) => {
+        const node = dag.nodes.find((n) => n.node === r.nodeId);
+        const option = node?.options?.find((o) => o.id === r.optionId);
+        return { step: node?.title ?? r.nodeId, choice: option?.text ?? "", mode: node?.mode };
+      })
+      // 只留**玩家拍板的那几步**：转盘落定的出身 / 术式会变成一长串清单，
+      // 那是「命数」，写进开场白只会读成角色卡（已经由 traits 与序章正文交代）。
+      .filter((c) => c.mode === "choose" && c.choice.length > 0)
+      .map(({ step, choice }) => ({ step, choice }));
+    const prologue = await openingPrologue(
+      prologueFactsOf(state, rec.entry.template, choices, rec.entry.lore),
+      createTimeAdapter(rec.entry.template).format(state.worldTime),
+      request.llmProvider,
+    );
+    logNarrativeDiagnostic(prologue.diagnostic);
+    pushHistory(state, rec.entry.template, {
+      id: "t0-prologue",
+      type: "milestone",
+      summary: prologue.text,
+      visibility: "public",
+    });
+
+    /**
+     * 第一幕：把 `ev-open-01`（`source: schedule` + `window.start = 0`）直接请上桌。
+     * 不推 `turnIndex`、不耗行动 —— 冷启动的槽是空的，只靠玩家下一次行动才 `nextTurn`，
+     * 序章与第一幕之间就会断一次。
+     */
+    presentQueuedEventV2(state, rec.entry.template, rec.entry.lookup);
+
     worldStore.createFromState(state, rec.entry);
     openingSessions.delete(id);
     const snapshot = await decorateSnapshot(projectWorld(state, rec.entry), state, rec.entry, "player", request.llmProvider);
@@ -701,6 +762,8 @@ app.post("/api/openings/:id/commit", async (request, reply) => {
       worldId: state.id,
       snapshot,
       gains: collectOpeningGains(dag, rec.core, rec.entry.template, rec.entry.ui),
+      prologue: prologue.text,
+      prologueSource: prologue.source,
     });
   } catch (error) {
     return reply.code(400).send({ error: "opening_commit_failed", detail: error instanceof Error ? error.message : String(error) });
@@ -1242,6 +1305,64 @@ app.get("/api/worlds/:id/narrative", async (request, reply) => {
  * 组装五类数据 → 置 archived=true → 走 worldStore.seal()（save() 的唯一例外通道）。
  * 幂等：重复调用返回同一份归档记录，不重复改写状态。
  */
+/**
+ * 世界内加点（ADR-019）：**轮外端点**，不推进回合、不触发事件。
+ *
+ * 校验用与开局同一个 `normalizeAllocation`（预算 / 单项上下限 / 非负整数），
+ * 提交即落基础属性并清掉请求 —— 世界里不保存「剩余点数」。
+ */
+const allocationSchema = z
+  .object({
+    allocationId: z.string().min(1),
+    points: z.record(z.string(), z.number()).default({}),
+  })
+  .strict();
+
+app.post("/api/worlds/:id/allocation", async (request, reply) => {
+  const { id } = request.params as { id: string };
+  const found = getWorld(id);
+  if (!found) return reply.code(404).send({ error: "world_not_found" });
+  const parsed = allocationSchema.safeParse(request.body);
+  if (!parsed.success) return reply.code(400).send({ error: "invalid_body", detail: parsed.error.flatten() });
+
+  const pending = found.world.pendingAllocation;
+  if (pending === undefined) return reply.code(409).send({ error: "no_pending_allocation" });
+  if (pending.id !== parsed.data.allocationId) {
+    // 带上请求里的 id 与当前请求的 id 才查得动：两笔加点不会同时存在，但玩家可能开着旧页面。
+    return reply
+      .code(409)
+      .send({ error: "allocation_mismatch", detail: `当前待办是 ${pending.id}` });
+  }
+
+  const checked = normalizeAllocation(parsed.data.points, {
+    budget: pending.budget,
+    targets: pending.targets,
+  });
+  if (!checked.ok) {
+    return reply.code(400).send({ error: `allocation_${checked.code}`, detail: checked.detail });
+  }
+
+  // 落点 = 基础属性（与开局同一口径，ADR-004 D5「叠加不覆盖」），上限按模板 caps 夹。
+  const caps = found.entry.template.attributes.caps;
+  for (const [attribute, amount] of Object.entries(checked.points)) {
+    if (amount <= 0) continue;
+    const current = found.world.player.attributes[attribute];
+    if (typeof current !== "number") continue;
+    const cap = caps?.[attribute];
+    found.world.player.attributes[attribute] = cap !== undefined ? Math.min(cap, current + amount) : current + amount;
+  }
+  delete found.world.pendingAllocation;
+  worldStore.save(found.world);
+  const snapshot = await decorateSnapshot(
+    projectWorld(found.world, found.entry),
+    found.world,
+    found.entry,
+    "player",
+    request.llmProvider,
+  );
+  return { worldId: id, snapshot, spent: checked.spent };
+});
+
 app.post("/api/worlds/:id/archive", async (request, reply) => {
   const { id } = request.params as { id: string };
   const found = getWorld(id);
@@ -1374,8 +1495,26 @@ app.setNotFoundHandler((request, reply) => {
   if (!resolved.startsWith(webDist)) {
     return reply.code(403).send({ error: "forbidden" });
   }
-  const target = existsSync(resolved) && statSync(resolved).isFile() ? resolved : path.join(webDist, "index.html");
+  const found = existsSync(resolved) && statSync(resolved).isFile();
+  /**
+   * 构建产物文件名自带内容哈希，换版本后旧文件就不存在了。
+   * 这里**必须 404**：回退成 index.html 会让浏览器把 HTML 当 JS 解析，
+   * 报一个与真实原因无关的语法错，而真正的原因是「手里那份旧页面在找旧文件」。
+   */
+  if (!found && urlPath.startsWith("/assets/")) {
+    return reply.code(404).send({ error: "asset_not_found" });
+  }
+  const target = found ? resolved : path.join(webDist, "index.html");
   const ext = path.extname(target).toLowerCase();
+  /**
+   * HTML 每次回源：手机浏览器会启发式缓存没有 Cache-Control 的页面，
+   * 结果界面改了、玩家还停在旧 bundle 上（2026-11-20 实际踩到）。
+   * `/assets/*` 是哈希文件名，可以放心长缓存。
+   */
+  reply.header(
+    "cache-control",
+    urlPath.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache, must-revalidate",
+  );
   reply.type(MIME[ext] ?? "application/octet-stream").send(readFileSync(target));
 });
 

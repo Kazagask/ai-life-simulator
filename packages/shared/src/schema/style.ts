@@ -20,9 +20,9 @@ import { z } from "zod";
  * 内核不出现 mythic/legendary 这类品级词——品级是模板侧的 `quality` 值，
  * 由模板自己映射到这里的预设 id。
  *
- * 稀有度色（10 档，从高到低）：rainbow（动态彩）/ rainbow-static（静态彩）/
+ * 稀有度色（14 档里 10 档用它，从高到低）：rainbow（动态彩）/ rainbow-static（静态彩）/
  * gold / orange / pink / purple / cyan（青）/ blue / white / gray；
- * 另有正负两档：green（增益）/ red（异常）。
+ * 另四档走下面的光谱，另有正负两档：green（增益）/ red（异常）。
  *
  * 注意：`gray` 一色两用（九品·粗劣与「中性」共用），是刻意的——模板只在需要
  * 「中性」语义时才会显式引用 `neutral` 标签。
@@ -40,6 +40,17 @@ export const STYLE_PRESET_IDS = [
   "green",
   "red",
   "gray",
+  /**
+   * 四档「光谱」（2026-11-19 用户裁决）：十四档里有四档要的是**一段渐变**，
+   * 不是一个色值（旷古·传说 / 绝世·史诗 / 稀世·珍宝 / 超凡·卓越）。
+   *
+   * 命名仍只描述视觉（ADR-002 D2 的红线）：`indigo` 是蓝紫、`magenta` 是品红、
+   * `ember` 是橙红、`aurum` 是金。品级词只在 `TAG_PRESET_IDS` 里出现。
+   */
+  "indigo",
+  "magenta",
+  "ember",
+  "aurum",
 ] as const;
 export const StylePresetIdSchema = z.enum(STYLE_PRESET_IDS);
 export type StylePresetId = z.infer<typeof StylePresetIdSchema>;
@@ -106,7 +117,7 @@ export function resolveColorToken(token: ColorToken): string {
  *
  * 为什么要单独一层：`rainbow` 是引擎的视觉变量名，玩家不该看到「RAINBOW」。
  * 玩家该看到的是「神话」这种**模板自己定的词**。所以标签 = `name` + 自带 `style`，
- * 补正 / 装备用 `tags: [id...]` 引用；同一个实体可以既挂品级标签又挂增益标签。
+ * 状态 / 装备用 `tags: [id...]` 引用；同一个实体可以既挂品级标签又挂增益标签。
  *
  * 边界：tag 只在 `ui.yaml` 里声明（展示域），不进语义指纹、不参与判定。
  */
@@ -139,18 +150,29 @@ export type ResolvedStyle = z.infer<typeof ResolvedStyleSchema>;
  * 这里给一套默认词表（名称 + 颜色），模板**一行不写**就能用；
  * 想改词（换叫法、换配色）就在自己的 `ui.tags` 里覆盖同名 id，其余继续继承预置。
  *
- * 命名与视觉的对应（品级由高到低）：
- *   mythic-unique 唯一·神话（动态彩）/ mythic 一品·神话（静态彩）/ legend 二品·传说（金）
- *   epic 三品·史诗（橙）/ treasure 四品·珍宝（粉）/ excellent 五品·卓越（紫）
+ * 品级阶梯 **14 档**（由高到低）：
+ *   mythic-unique 唯一·神话（动态彩）/ mythic 一品·神话（静态彩）
+ *   ancient 旷古·传说（金光谱）/ legend 二品·传说（金）
+ *   sublime 绝世·史诗（橙红光谱）/ epic 三品·史诗（橙）
+ *   precious 稀世·珍宝（品红光谱）/ treasure 四品·珍宝（粉）
+ *   superb 超凡·卓越（蓝紫光谱）/ excellent 五品·卓越（紫）
  *   rare 六品·稀有（青）/ fine 七品·精良（蓝）/ common 八品·寻常（白）/ poor 九品·粗劣（灰）
  *   abnormal 异常（红）/ buff 增益（绿）/ neutral 中性（灰）
+ *
+ * 四档带「光谱」的在阶梯里**紧挨着同色的那一档、排在它前面**：
+ * 用户裁决（2026-11-19）是「十四档平铺」——它是 style + 文本预设，
+ * 谁该用、什么时候用全看模板，内核不替它解释成「形容词」。
  */
 export const TAG_PRESET_IDS = [
   "mythic-unique",
   "mythic",
+  "ancient",
   "legend",
+  "sublime",
   "epic",
+  "precious",
   "treasure",
+  "superb",
   "excellent",
   "rare",
   "fine",
@@ -166,10 +188,22 @@ export type TagPresetId = (typeof TAG_PRESET_IDS)[number];
 export const DEFAULT_TAGS: Readonly<Record<string, TagDefinition>> = {
   "mythic-unique": { name: "唯一·神话", style: { preset: "rainbow", animation: "rainbow-flow" } },
   mythic: { name: "一品·神话", style: { preset: "rainbow-static" } },
+
+  /**
+   * 四档「光谱」（2026-11-19 用户裁决：十四档平铺）。
+   *
+   * 视觉是渐进光谱而非单色——「卓越」和「超凡·卓越」如果长得一样，
+   * 玩家永远不会注意到后者。名字里的「·」只是排版习惯，不是「品级 + 形容词」两段。
+   */
+  ancient: { name: "旷古·传说", style: { preset: "aurum" } },
   legend: { name: "二品·传说", style: { preset: "gold" } },
+  sublime: { name: "绝世·史诗", style: { preset: "ember" } },
   epic: { name: "三品·史诗", style: { preset: "orange" } },
+  precious: { name: "稀世·珍宝", style: { preset: "magenta" } },
   treasure: { name: "四品·珍宝", style: { preset: "pink" } },
+  superb: { name: "超凡·卓越", style: { preset: "indigo" } },
   excellent: { name: "五品·卓越", style: { preset: "purple" } },
+
   rare: { name: "六品·稀有", style: { preset: "cyan" } },
   fine: { name: "七品·精良", style: { preset: "blue" } },
   common: { name: "八品·寻常", style: { preset: "white" } },
@@ -194,17 +228,25 @@ export const TAG_TONES: Readonly<Record<string, Polarity>> = {
 };
 
 /**
- * 品级阶梯 id（从高到低）：`mythic-unique` … `poor`。
+ * 品级阶梯 id（从高到低，**14 档**）：`mythic-unique` … `poor`。
  *
  * 与 `DEFAULT_TAGS` 里的品级条目一一对应。实体写 `quality: <tier>` 时就**自动**得到
  * 对应的标签与配色（见 `tagIdsOf`）—— 不再需要在 `tags` 里重复写一遍同名 id。
+ *
+ * 四档光谱（`ancient` / `sublime` / `precious` / `superb`）**就是阶梯里的一档**，
+ * 不是「同档形容词」（用户 2026-11-19：十四档平铺）。内核不为它们附加任何语义——
+ * 它们只是 style + 文本预设，怎么用全看模板。
  */
 export const QUALITY_TIER_IDS = [
   "mythic-unique",
   "mythic",
+  "ancient",
   "legend",
+  "sublime",
   "epic",
+  "precious",
   "treasure",
+  "superb",
   "excellent",
   "rare",
   "fine",

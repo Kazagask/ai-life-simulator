@@ -185,8 +185,9 @@ place:
 - **扩展自有归位**：`extensions/family/{doc,spec,test}`（设计、实现规范、测试）；
   主包侧 `docs/EXTENSION-CAPABILITIES.md` 记录扩展用了主包哪些能力，供升级核对。
   `uiCapabilities` 声明扩展给 `ui.yaml` 的能力 id（`pedigree` / `clan`）。
-- **扩展 id 进语义指纹**（`extensions` 在 `world.yaml` 里，天然被指纹覆盖）；改扩展开关 ⇒ 该模板旧档拒载。
-- 「加扩展」= 加目录 + 模板声明 + 重启；「改扩展」= 重启 + 相关旧存档拒载。
+- **扩展配置进语义指纹**：`extensions` 的 id/config 在 `world.yaml` 里天然被覆盖，**runtime.version
+  也显式并入指纹**（`extension:<id>` → version）。改开关或改扩展版本 ⇒ 该模板旧档拒载。
+- 「加扩展」= 加目录 + 模板声明 + 重启；「改扩展」= 升 `version` + 重启 + 相关旧存档拒载。
 
 **为什么不做热加载**：`game-core` 的核心资产是「同 seed + 同输入 ⇒ 同结果」，整套回放测试
 （`test/unit/replay.test.ts`）建在它上面。规则能在运行时被替换 ⇒ 同一存档两次跑出不同结果 ⇒
@@ -219,7 +220,7 @@ place:
 未知样式 id / 未知标签 id 在**加载期拒载**（`style_ref_invalid` / `style_ref_invalid`），不静默回退。
 
 **标签（D2b / D2c）**：`rainbow` 是引擎的视觉变量名，**不出现在界面上**；玩家看到的是标签名。
-补正 / 物品用 `tags: [...]` 引用，顺序即优先级（品级写在前面 ⇒ 名字与品级同色）。技能不参与标签。
+状态 / 物品用 `tags: [...]` 引用，顺序即优先级（品级写在前面 ⇒ 名字与品级同色）。技能不参与标签。
 
 品级 / 增益 / 异常是**引擎预置**的，模板不用声明：
 
@@ -256,11 +257,11 @@ tags:
 
 **效果摘要**（`presentation/effects.ts`）：从定义派生 `{ text, kind, tone, ref? }`。
 `kind: "control"` 是固定效果（「战斗中无法行动」），前端加**下划线**；数值条目带 `+/-` 与
-增益绿 / 减益红 / 中性灰。动态补正只描述规则（`3 + 0.2×咒力`），**不算值**。
-底层效果**只写能力限制，不写回合数**——「几回合」是补正的 `duration` / `combat.battleRounds`。
+增益绿 / 减益红 / 中性灰。动态状态只描述规则（`3 + 0.2×咒力`），**不算值**。
+底层效果**只写能力限制，不写回合数**——「几回合」是状态的 `duration` / `combat.battleRounds`。
 
 **回合增量**（`presentation/gains.ts`）：`captureGainBaseline` + `diffGains` 差分玩家可见
-五类（属性 / 补正 / 技能 / 物品 / 装备）。五个写操作响应统一带 `gains`，**不落库**，
+五类（属性 / 状态 / 技能 / 物品 / 装备）。五个写操作响应统一带 `gains`，**不落库**，
 刷新即消失；历史由叙事区承担。
 
 **叙事分段**（`narrative/turn.ts`）：每回合最多一条叙事块写进同一 trace；转盘只在
@@ -272,6 +273,143 @@ tags:
 **契约**：`schema/style.ts`、`schema/effects.ts`、`view-model.ts` 的 `EffectSummaryVM` /
 `TurnGainVM` / `StatusVM.effects` 等；`rpg-ui` 的 `StyledName` / `EffectList` /
 `DetailSheet` / `TurnGainsCard` 是默认实现，自定义前端可复用同一份数据自己画。
+
+---
+
+### 1.8 属性类型与自定义资源（已落地，ADR-003）
+
+> 2026-11-19 施工完成。属性不再只有「整数」一种；资源不再只有 HP/MP。
+> 两者都仍是**纯声明**：模板写 yaml，引擎求值，投影解析，前端只消费视图。
+
+**属性值**统一为 `number | string`（`WorldStateV2.player.attributes` / NPC / 战斗单位同形），
+**类型由模板 `attributes.defs[id].kind` 决定**；没有 def 的属性一律 `number`（旧模板零迁移）。
+
+| kind | 存档值 | 展示 | 典型 |
+|---|---|---|---|
+| `number`（缺省） | number | 数字 | 咒力 / 智力 |
+| `enum` | 选项 id（string） | 选项 label + 样式 | 生得术式「无下限术式」、等级「特级」 |
+| `ladder` | number | 当前档 label + 本档进度条 | 武艺「熟手 20/50」 |
+| `composite` | **不存储** | 由 sources 派生的称号 + 样式 | 名誉：恶名 + 善名 → 恶贯满盈 / 亦正亦邪 |
+
+```yaml
+attributes:
+  order: [cursedEnergy, ..., grade, innateTechnique, infamy, virtue, fame]
+  defaults: { grade: grade-4, innateTechnique: none, infamy: 0, virtue: 0 }
+  caps: { infamy: 2, virtue: 2 }
+  labels: { grade: 等级, innateTechnique: 生得术式, infamy: 恶名, virtue: 善名, fame: 名誉 }
+  defs:
+    grade:
+      kind: enum
+      values:
+        - { id: grade-4, label: 四级, style: gray }
+        - { id: special, label: 特级, style: gold }
+    infamy:
+      kind: ladder
+      hidden: true                 # 参与规则、不进属性面板
+      tiers:                       # cumulative：at 是累计阈值，升档不归零
+        - { id: none, label: "—", at: 0 }
+        - { id: plus2, label: "＋＋", at: 2 }
+    fame:
+      kind: composite
+      sources: [infamy, virtue]    # 只接受数值属性
+      cases:                       # 声明顺序 = 优先序，首个全匹配生效
+        - when: { infamy: { gte: 2 }, virtue: { gte: 2 } }
+          label: 乱世枭雄
+          style: rainbow
+      fallback: { label: 默默无闻, style: gray }
+```
+
+- **ladder** 两种模式：`mode: cumulative`（缺省，累计阈值）与 `mode: reset`
+  （`at` 是本档升到下一档所需；升档扣减，档位落 `player.attributeTiers`）。
+- **composite** 只读：不可被效果写入、不可被条件引用；`hidden` 的轴只作为它的输入。
+- **效果**：`adjustAttribute`（仅数值属性）与 `setAttribute`（数值 / 枚举选项 id）。
+- **条件**：`{ attribute, eq/ne }` 接受字符串；`gte/lte/gt/lt` 只对数值属性；
+  `{ attribute, tier }` 只对 ladder（当前档 id）。两个求值入口共用
+  `game-core/v2/attribute-rules.ts`，不各写一份 switch。
+- **加载期 fail-fast**：defs 结构、enum 选项、ladder 档位单调、composite 来源/兜底、
+  数值面（`caps` / `perAttribute` / `attributeModifiers` / 公式 `scaleBy` / 命中判定 /
+  转盘权重 / 装备动态状态）只引用数值属性、样式引用合法。
+
+**人生页人物卡展示哪些属性**（`ui.yaml`，展示声明、不进指纹）：
+
+```yaml
+playerCard:
+  attributes: [grade, innateTechnique, fame, cursedEnergy, intellect, physique]
+```
+
+顺序即展示顺序：`number` / `enum` / `composite` **两列一格**（纯文字，**不做胶囊**，避免与状态芯片
+同形），`ladder` 独占一行（标签 + 档位 + 本档进度条 + `value/max`）。
+键必须是 `attributes.order` 里声明过的属性（加载期拒载）；缺省 = 全部可见属性。
+适配器把它算成 `PlayerVM.cardAttributes`，个人页仍用 `player.attributes`（全部）。
+
+**投影**：`V2Snapshot.player.attributeViews` / `npcs[].attributeViews` 是**已解析**的属性视图
+（顺序 = `order`、hidden 已剔除、enum/ladder/composite 的 label 与样式都已算好）。
+原始 `attributes` 记录保留（含 hidden）。前端只消费视图，不查模板。
+
+**自定义资源**（`world.yaml` 的 `resources`，hp/mp 之后追加任意 id）：
+
+```yaml
+resources:
+  hp: { base: 100, perLevel: 0 }
+  mp: { base: 50, perLevel: 0 }
+  beans: { label: 决意, base: 5, cap: 5, initial: 5 }   # 上限 5、开局满
+
+# ui.yaml（纯渲染，不进指纹）
+resources:
+  beans: { display: pips, dangerAt: 0 }
+```
+
+- 上限 = `base + perLevel × growthLevel + Σ perAttribute × 基础属性值`，受 `cap` 限制
+  （未写 perAttribute 的属性按 0 计）；`initial` 缺省 = 上限。
+- 自定义资源存 `player.resources`（不含 hp/mp），战斗镜像同形，结束回写。
+- **技能消耗**：`cost` 在 `mp` 之外可写任意已声明资源（如 `beans: 3`）；引擎逐项检查、
+  逐项扣除，不足拒绝（`not_enough_resource:<id>`）；战斗视图下发 `costs`。
+- **资源条**：只显示模板 `statusBar` 中 `source: resource` 的段（顺序即展示顺序）；
+  `display: bar | pips` 决定条形 / 刻度；`dangerAt` 是告警阈值比例（0 = 永不告警）。
+- **效果**：`adjustResource { resource, value }` 可写任意已声明资源（事件 / 选项 / 物品 / NPC 行动 / 战斗内用物品）。
+- **回复渠道**：`regen` 是 effect 之外**唯一**的被动回复通道——`regen.perTurn[key]` 与
+  `regen.actions.<actionType>[key]` 对**所有已声明资源**生效（含自定义，缺键 = 0，负值不写入）；
+  技能 `heal` 只作用于 hp，不参与自定义资源；战斗结束按镜像回写。
+- **战斗内每回合回复**（ADR-003 D12）：`world.yaml regen.combat`（玩家）与 `characters[].combatRegen`
+  （敌人 / 友军），任意已声明资源、缺键 = 0、非负，`roundEnd` 末尾结算并写战报。
+- **回复量可加权**：四处 regen 的值都可写 `{ base, perAttribute }`，按**基础属性**求值后四舍五入
+  （如 `beans: { base: 0, perAttribute: { body: 0.4 } }`）；系数只接受数值属性。
+
+**兼容**：属性值 union、`resources` 追加、`player.resources` 默认 `{}` 都是向后兼容的放宽，
+旧档可直载，**schemaVersion 保持 5**；模板语义变化由指纹承担。
+
+### 1.9 开局加点（已落地，ADR-004）
+
+> 2026-11-19 施工完成。开局 DAG 的 `allocate` 节点从「预留形状」变成可用链路：
+> 模板声明点数从哪来、能加到哪些属性，玩家在提交前自行分配，commit 时按增量落进玩家属性。
+
+```yaml
+params:
+  - { id: talentRoll, kind: number }          # 开局期标量，commit 不落世界字段
+  - id: talentPoints
+    kind: points
+    budgetFrom: talentRoll                    # 预算来源；也可直接写 budget: 5
+    targets:                                  # 白名单：只能列数值类属性
+      - { attribute: cursedEnergy, min: 0, max: 3, style: purple }
+      - { attribute: intellect, min: 0, max: 2 }
+
+nodes:
+  - { node: n12b-talent, mode: roll, options: [...] }     # roll 的 set 写 talentRoll
+  - { node: n12c-allocate, mode: allocate, param: talentPoints }
+```
+
+- **预算**：`budgetFrom` 指向一个 `kind: number` 参数（由前面的 roll/choose 落定）；
+  未声明则用字面 `budget`。没落定 ⇒ `opening_allocate_budget_unavailable`，**不回退 0**。
+- **白名单**：`targets[].attribute` 必须是已声明的 `number` / `ladder` 属性；
+  `enum` / `composite` 在**加载期**拒载（`opening_invalid: ...`），文本属性没有「加一点」的语义。
+- **校验**（运行期四条，任一不满足 400）：键 ⊆ targets、非负整数、落在 `[min,max]`、
+  合计**不超过**预算（允许放弃余额；未分完提交由前端二次确认）。错误码 `opening_allocation_*`，带属性名。
+- **目标上限可选**：`targets[].max` 不写即不设上限，可把整份预算加到同一项。
+- **落点**：commit 时 `attribute += value`（增量，不覆盖基础值），复用角色路径同样成立。
+- **可见性**：`describeNode` 下发 `budget` + `targets[{attribute,label,min,max,style}]`
+  （label 取模板覆盖 > `attributes.labels` > id；样式已解析）；每个非 0 项同时进「开局所得」。
+- **组件**：`packages/rpg-ui` 的 `PointsAllocator` 是唯一实现，开局使用；
+  **游戏内加点（升级/训练/奇遇）复用同一组件**，数据契约不变。
 
 ## 2. 核心术语与机制
 
@@ -351,6 +489,33 @@ tags:
   这是**模板侧独有**，LLM 的 `submitBranch` 不开放 `as`（其参与时角色已定，无需分派）。
 
 LLM 侧有一条同形的 DSL（`story.submitBranch`），见 §4.4；它**不含** `as` 角色分派字段。
+
+### 2.6 RNG 与回放确定性（2026-11-20）
+
+内核不含 `Math.random` / `Date.now`。随机源 `Rng` 仍是裸函数 `() => number`；
+`createRng(seed)` 返回 `RngStream`，额外带 `fork(label)`。fork 从「父流 seed + 当前游标 + label」
+派生**独立子流，且不推进父流游标**——同位置、同 label 重复 fork 得到同一序列。
+**fork label 是协议的一部分**：改名、改拼接顺序、用数组下标代替稳定 id，都等于换随机序列。
+
+| 流 | 负责 |
+|---|---|
+| 模拟主线 | 事件调度 / 开局转盘 / 结算判定（`deriveTurnSeed` / `deriveOpeningSeed`）；**战斗拆分未改动它** |
+| `battle.resolve` | 命中、闪避、状态/援军概率、逃跑 |
+| `battle.ai` | AI 选技能 |
+| `battle.target` | AI 选目标；再按 `ai.target:{round}:{instanceId}:{skillId}` 派生单次抽数。**不从 `battle.ai` 再分叉**，否则 AI 多抽一次就会挪动目标序列 |
+
+三条战斗流的根都在本回合新建、游标固定为 0；传裸 `Rng` 的旧调用点退化为三条流共用同一游标
+（legacy 兼容）。生产入口 `battleActionV2`、`simulateDuel` 与后台演练均显式 `createBattleRng`。
+`combat-ai.yaml` 的 `styles[].targetPolicy: lowest | random`（缺省 `lowest`）决定目标策略，
+`random` 从合法存活目标中等概率挑选。
+
+**回放成立的四个前提**：同一 `seed` + 同一输入序列 + 同一 `schemaVersion` + 同一模板语义指纹
+（语义指纹 = 14 个声明文件 + 模板声明的扩展 id/version；`ui.yaml` 只影响渲染，不进指纹）。
+扩展代码改了规则语义就必须升 `ExtensionRuntime.version`，否则旧档会在同一指纹下算出不同结果。
+LLM 正文只进 trace、不进权威状态，不参与回放一致性。
+
+**加新机制的规矩**：新随机决策只申请新的命名子流，label 必须带稳定上下文 id，不许往已有流里插抽数；
+确实要改老机制的序列时，按档切换（如 `rngMode: legacy | scoped`），不要原地改。
 
 ---
 

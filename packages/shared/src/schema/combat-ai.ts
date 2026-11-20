@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SkillTargetSchema } from "./skill.js";
 
 /**
  * 战斗 AI 分域 Schema（协议 V2.1 §20 / R-CA-01..06）。
@@ -57,7 +58,8 @@ export type ConditionalStrategy = z.infer<typeof ConditionalStrategySchema>;
 
 // ---------- 行动过滤参数 ----------
 
-const BattleTargetKindSchema = z.enum(["enemy", "self", "ally", "all_enemies", "all_allies"]);
+// 与技能目标词表同源：AI 能过滤的目标，必须正是引擎认识的目标。
+const BattleTargetKindSchema = SkillTargetSchema;
 
 /** 风格的候选集过滤参数（声明式；引擎按参数过滤，不按风格名分支）。 */
 export const ActionFilterSchema = z
@@ -87,6 +89,12 @@ export const CombatStyleProfileSchema = z
     scoreWeights: z.record(z.string(), z.number()),
     /** 条件化策略（数组内逐条评估，命中即加权） */
     conditions: z.array(ConditionalStrategySchema).default([]),
+    /**
+     * 目标选择策略（ADR-012 之后的扩展口）。
+     * - `lowest`：旧行为，治疗挑最惨的、中立攻击挑血最少的，敌方攻击仍打首位（玩家）；
+     * - `random`：从合法目标里等概率挑一个，走战斗 AI 的独立 RNG 子流。
+     */
+    targetPolicy: z.enum(["lowest", "random"]).default("lowest"),
   })
   .strict();
 

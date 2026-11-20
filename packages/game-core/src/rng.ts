@@ -1,18 +1,56 @@
 /**
  * 可注入的确定性随机源（mulberry32）。
- * 相同 seed 产生相同序列，保证同 seed 可复现。
+ *
+ * `Rng` 仍然是一个可直接调用的 `() => number`，旧代码逐字不改；
+ * 额外挂一个 `fork(label)`：从**当前状态 + label** 派生一条独立子流，
+ * **不推进父流游标**。这样新增一个随机决策不会把后面所有骰子挪位。
+ *
+ * 协议含义：fork label 是稳定标识，改名 = 换随机序列 = 存档兼容问题。
  */
 export type Rng = () => number;
 
-export function createRng(seed: number): Rng {
-  let a = seed >>> 0;
-  return () => {
+/** 带命名子流能力的 Rng；由 `createRng` 返回，可当普通 Rng 用。 */
+export interface RngStream extends Rng {
+  fork(label: string): RngStream;
+  readonly seed: number;
+  readonly cursor: number;
+}
+
+/** 由父流 seed + 当前游标 + 标签派生子流 seed（FNV-1a 风格）。 */
+function forkSeed(seed: number, cursor: number, label: string): number {
+  let h = (seed ^ 0x9e3779b9 ^ Math.imul(cursor + 1, 0x85ebca6b)) >>> 0;
+  for (let i = 0; i < label.length; i += 1) {
+    h = (Math.imul(h ^ label.charCodeAt(i), 0xc2b2ae35) ^ (h >>> 13)) >>> 0;
+  }
+  return h >>> 0;
+}
+
+export function createRng(seed: number): RngStream {
+  const initial = seed >>> 0;
+  let a = initial;
+  let cursor = 0;
+  const rng = (() => {
     a |= 0;
     a = (a + 0x6d2b79f5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    cursor += 1;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+  }) as RngStream;
+  Object.defineProperties(rng, {
+    seed: { value: initial },
+    cursor: { get: () => cursor },
+    fork: {
+      value: (label: string): RngStream => createRng(forkSeed(initial, cursor, label)),
+    },
+  });
+  return rng;
+}
+
+/** 给一条 Rng 派生命名子流；裸函数没有 fork 能力 ⇒ 退化为自身（legacy 兼容）。 */
+export function forkRng(rng: Rng, label: string): Rng {
+  const fork = (rng as Partial<RngStream>).fork;
+  return fork === undefined ? rng : fork(label);
 }
 
 /** 由世界 seed 与轮次派生出每轮独立的子 seed。 */

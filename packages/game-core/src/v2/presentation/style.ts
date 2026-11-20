@@ -1,11 +1,10 @@
 import {
+  TAG_TONES,
   DEFAULT_POLARITY_STYLES,
   DEFAULT_TAGS,
-  QUALITY_TIER_IDS,
   STYLE_PRESET_IDS,
   isQualityTier,
   TAG_PRESET_IDS,
-  TAG_TONES,
   resolveColorToken,
   type Polarity,
   type ResolvedStyle,
@@ -88,42 +87,13 @@ export function resolveStyle(
       if (spec !== undefined) return toResolved(spec);
     }
   }
-  // 正负零与品级**独立**：没写 quality 的补正也能靠 polarity 拿到绿 / 红 / 灰。
+  // 正负零与品级**独立**：没写 quality 的状态也能靠 polarity 拿到绿 / 红 / 灰。
   if (polarity !== undefined) {
     const mapped = ui?.polarityStyles?.[polarity] ?? DEFAULT_POLARITY_STYLES[polarity];
     const spec = styleSpecFor(mapped, ui);
     if (spec !== undefined) return toResolved(spec);
   }
   return undefined;
-}
-
-/**
- * 从实体标签里取语义（ADR-002 D2c）：只认 `buff` / `abnormal` / `neutral` 三个预置 tag。
- *
- * 顺序即优先级：同时挂 `[mythic, buff]` ⇒ 品类标签没 tone，取到 `buff`。
- */
-export function toneOfTags(tags: readonly string[] | undefined): Polarity | undefined {
-  for (const id of tags ?? []) {
-    const tone = TAG_TONES[id];
-    if (tone !== undefined) return tone;
-  }
-  return undefined;
-}
-
-/**
- * 战斗态样式：**只看语义**，不看品级。
- *
- * 为什么战斗要单独一套：品级代表身份（神话 / 传说），打起来玩家要先知道「这是增益还是减益」。
- * 非战斗仍是实体的身份色（`style`），战斗面板用 `battleStyle`（绿 / 红 / 灰）。
- * 没有语义标签的实体（纯天赋）没有 battleStyle ⇒ 战斗里继续用身份色。
- */
-export function resolveBattleStyle(
-  tags: readonly string[] | undefined,
-  ui: UiConfig | undefined,
-): ResolvedStyle | undefined {
-  const tone = toneOfTags(tags);
-  if (tone === undefined) return undefined;
-  return resolveStyle(undefined, undefined, ui, tone);
 }
 
 /**
@@ -142,7 +112,7 @@ export function tagIdsOf(def: { tags?: readonly string[]; quality?: string } | u
   return isQualityTier(def.quality) ? [def.quality] : [];
 }
 
-/** 只读实体（补正 / 物品 / 装备 / 技能）的样式来源字段。 */
+/** 只读实体（状态 / 物品 / 装备 / 技能）的样式来源字段。 */
 export interface StyledEntity {
   style?: string;
   quality?: string;
@@ -161,7 +131,21 @@ export function resolveEntityStyle(
   ui: UiConfig | undefined,
 ): ResolvedStyle | undefined {
   if (def === undefined) return undefined;
-  return resolveStyle(def.style, def.quality, ui, def.polarity, tagIdsOf(def));
+  /**
+   * 有 `polarity` 就不再让 tags 参与配色（2026-11-20 用户裁决）：
+   * 状态的正负是一等字段，标签只负责「它叫什么、什么品级」。
+   * 没有 polarity 的实体（物品 / 装备）仍走标签，行为不变。
+   */
+  /**
+   * 有 `polarity` 时，**语义标签被剔除**（2026-11-20 用户裁决）：
+   * `buff` / `abnormal` / `neutral` 不再参与配色，正负只由字段决定。
+   * 品级标签（`mythic-unique` 这类）保留 —— 它们是身份色（如六眼的流动彩虹），
+   * 与「战斗中绿/红/灰」是两套口径：后者由 UI 直接读 `polarity`，不经由此处。
+   */
+  const tags = def.polarity === undefined
+    ? tagIdsOf(def)
+    : tagIdsOf(def).filter((id) => TAG_TONES[id] === undefined);
+  return resolveStyle(def.style, def.quality, ui, def.polarity, tags);
 }
 
 /** 实体的展示标签（`quality` 为品级阶梯 id 时自动生成一条）。 */
@@ -212,7 +196,7 @@ export interface StyleIssue {
  * 加载期校验（R-STYLE-02 / R-STYLE-04）：**未知样式 id 一律拒载**，不静默回退。
  *
  * 覆盖三处引用：`ui.styles` 的键自身（不必校验）、`ui.qualityStyles` 的值、
- * 以及所有实体上的 `style` 字段（补正 / 技能 / 物品）。
+ * 以及所有实体上的 `style` 字段（状态 / 技能 / 物品）。
  * 静默回退的代价是「模板作者以为改了颜色，线上却没变」——比加载失败更难查。
  */
 export function validateStyleRefs(template: WorldTemplateV2, ui: UiConfig | undefined): StyleIssue[] {
@@ -250,6 +234,18 @@ export function validateStyleRefs(template: WorldTemplateV2, ui: UiConfig | unde
   template.statuses.forEach((s, i) => check(s.style, `statuses[${i}].style`));
   template.skills.forEach((s, i) => check(s.style, `skills[${i}].style`));
   template.items.forEach((s, i) => check(s.style, `items[${i}].style`));
+
+  // ADR-003：enum 选项 / ladder 档位 / composite 称号都能带样式，未知 id 同样拒载。
+  for (const [id, def] of Object.entries(template.attributes.defs ?? {})) {
+    if (def.kind === "enum") {
+      def.values.forEach((v, i) => check(v.style, `attributes.defs.${id}.values[${i}].style`));
+    } else if (def.kind === "ladder") {
+      def.tiers.forEach((t, i) => check(t.style, `attributes.defs.${id}.tiers[${i}].style`));
+    } else if (def.kind === "composite") {
+      def.cases.forEach((c, i) => check(c.style, `attributes.defs.${id}.cases[${i}].style`));
+      check(def.fallback.style, `attributes.defs.${id}.fallback.style`);
+    }
+  }
 
   // 标签引用（ADR-002 D2b）：未知 tag id 同样拒载——静默丢弃会让「我明明写了品级标签」变成查不出原因的空白。
   const checkTags = (ids: readonly string[] | undefined, path: string): void => {

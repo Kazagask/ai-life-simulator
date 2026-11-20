@@ -1,2 +1,85 @@
-# 本模板不做战斗：压力点全在血缘结构上，技能表为空。
-skills: []
+# ADR-003 的战斗测试夹具：瓦勒蒙本是一个不打架的家族剧，这里只为验证
+# 「自定义资源（决意）+ 技能消耗 + 阶梯成长（武艺）」三条链路，加一场可跳过的决斗。
+#
+# 资源：决意（beans）上限 5、开局满；`sk-duel-finisher` 消耗 3 ⇒ 一场只能放一次。
+# 伤害用 `scaled`（基值 + 体魄 × 系数），与既有战斗公式同一套，不引入新原语。
+
+skills:
+  - id: sk-duel-strike
+    kind: combat
+    name: 交击
+    description: 两柄剑在空处碰了一下，声音比预想的薄。
+    cost: { mp: 0 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: body, defender: body, baseChance: 0.75 }
+    damage:
+      - { preset: scaled, base: 8, scaleBy: body, multiplier: 2 }
+    cooldownTurns: 0
+    usableInBattle: true
+
+  - id: sk-duel-finisher
+    kind: combat
+    name: 决意一击
+    description: 攒够三枚决意，才敢把这一剑送出去。出剑之后，心里会空一块。
+    cost: { mp: 0, beans: 3 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: body, defender: body, baseChance: 0.8 }
+    damage:
+      - { preset: scaled, base: 24, scaleBy: body, multiplier: 3 }
+    cooldownTurns: 1
+    usableInBattle: true
+
+  - id: sk-duelist-cut
+    kind: combat
+    name: 外姓的剑
+    description: 他的手很稳。稳得像这宅子里的每一道门闩。
+    cost: { mp: 0 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: body, defender: body, baseChance: 0.7 }
+    damage:
+      - { preset: scaled, base: 6, scaleBy: body, multiplier: 1.5 }
+    cooldownTurns: 0
+    usableInBattle: true
+
+  # 见红：命中后给对方挂一条**战斗态**。它离场时会折算成「旧伤」——
+  # 这条链路是 ADR-018 的 toModifier，在本模板里由切磋与暗杀两幕分别验证
+  # （活着的对手会带着旧伤走，死了的不会）。
+  - id: sk-duel-cut-deep
+    kind: combat
+    name: 划开
+    description: 不是杀招。只是让对方知道，这一剑可以再往里半寸。
+    cost: { mp: 0 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: body, defender: body, baseChance: 0.85 }
+    damage:
+      - { preset: scaled, base: 4, scaleBy: body, multiplier: 1 }
+    applyStatus:
+      - { status: st-bloodied, duration: { rounds: 2 } }
+    cooldownTurns: 0
+    usableInBattle: true
+
+  - id: sk-godfrey-cut
+    kind: combat
+    name: 庶支的剑
+    description: 他出手很客气：先划破袖子，再等你退。
+    cost: { mp: 0 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: body, defender: body, baseChance: 0.65 }
+    damage:
+      - { preset: scaled, base: 5, scaleBy: body, multiplier: 1.2 }
+    cooldownTurns: 0
+    usableInBattle: true
+
+  - id: sk-assassin-cut
+    kind: combat
+    name: 无名的刀
+    description: 刀很薄，像是专门为缝隙打的。
+    cost: { mp: 0 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: body, defender: body, baseChance: 0.8 }
+    damage:
+      - { preset: scaled, base: 10, scaleBy: body, multiplier: 2 }
+    applyStatus:
+      - { status: st-bloodied, duration: { rounds: 1 } }
+    cooldownTurns: 0
+    usableInBattle: true

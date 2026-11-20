@@ -84,10 +84,10 @@ export interface KinshipReading {
   readonly hops: number;
   readonly gapped: boolean;
   /**
-   * 该读法的可见性 = **所经全部边的合成**（取最保守的一档）。
-   * 任何一条边 unknown / hidden ⇒ 整条读法不可见，调用方不得投影。
+   * 该读法的知情人范围 = **所经全部边的合成**（取最保守的一档，
+   * ADR-007 D3：任一段 `private` ⇒ 整条 `private`）。
    */
-  readonly visibility: string;
+  readonly scope: string;
   /**
    * true = 路径含配偶步/继亲/收养（非纯血亲）。
    */
@@ -98,7 +98,13 @@ export interface KinshipReading {
   readonly signature?: RelationSignature;
 }
 
-const VIS_RANK: Record<string, number> = { known: 3, inferred: 2, unknown: 1, hidden: 0 };
+/**
+ * 知情人范围的「最弱环」序（ADR-007 D3）：一条多跳读法只有**每一段都公开**才算公开。
+ *
+ * 旧表是 known 3 > inferred 2 > unknown 1 > hidden 0；现在换成 scope 三档，
+ * `inferred`（推断）不再是一档 —— 那是"玩家有多确信"，不是"多少人知道"。
+ */
+const SCOPE_RANK: Record<string, number> = { public: 2, limited: 1, private: 0 };
 
 /** 同跳数平手时，直系（没有同胞分叉）先于旁系。 */
 function collateralRank(r: KinshipReading): number {
@@ -138,10 +144,10 @@ const NEUTRAL_TERMS: ReadonlySet<string> = new Set([
 ]);
 
 /** 可见性合成：取路径上最保守的一档。 */
-function composeVisibility(pathVis: readonly string[]): string {
-  let min = "known";
+function composeScope(pathVis: readonly string[]): string {
+  let min = "public";
   for (const v of pathVis) {
-    if ((VIS_RANK[v] ?? 0) < (VIS_RANK[min] ?? 0)) min = v;
+    if ((SCOPE_RANK[v] ?? 0) < (SCOPE_RANK[min] ?? 0)) min = v;
   }
   return min;
 }
@@ -288,7 +294,7 @@ export function kinshipReadingsIn(
       }
 
       const nextPath = [...path, mv];
-      const nextVis = [...vis, mv.visibility ?? "known"];
+      const nextVis = [...vis, mv.scope ?? "public"];
       const nextGapped = gapped || mv.gapped === true;
 
       if (mv.to === to) {
@@ -301,7 +307,7 @@ export function kinshipReadingsIn(
             tokens: nextPath.map((m) => MOVE_TOKEN[m.kind]),
             hops: hops + 1,
             gapped: nextGapped,
-            visibility: composeVisibility(nextVis),
+            scope: composeScope(nextVis),
             affinal: false,
           });
           continue;
@@ -340,7 +346,7 @@ export function kinshipReadingsIn(
           tokens: nextPath.map((m) => MOVE_TOKEN[m.kind]),
           hops: hops + 1,
           gapped: nextGapped,
-          visibility: composeVisibility(nextVis),
+          scope: composeScope(nextVis),
           affinal: signature.affinal,
           ...(half !== undefined ? { half } : {}),
           signature,

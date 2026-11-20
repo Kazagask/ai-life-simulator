@@ -1,0 +1,327 @@
+# 归档：jjk-2006 旧第一章「星浆体」链（ev-sp-00 … ev-sp-06）
+# 原文自 3.0.0/events.yaml 移除，原样保存，仅供对照。
+# 取代者：ev-hv-01 … ev-hv-07（L1 怀玉七幕，见 design.md §L1 与 §8.5）。
+
+  - id: ev-sp-00
+    title: 留守
+    narrative: 他们走后的第二天，高专安静得不像话。第三天下午，你的手机震了一下——是五条发来的，只有四个字：「出事了。」
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sp0-go
+            text: 冲出去
+            effects:
+              - { type: setFlag, id: spLate, value: true }
+              - { type: adjustMood, value: -6 }
+            # 「没打」= 留守线上的你赶到时，五条已经躺在血里、甚尔已经越过防线：
+            # 你根本没有和他交手的机会，直接进悲剧线的台阶现场（ev-sp-04）。
+            # 这样第一章的战斗只属于「跟去」的那条线，胜负也才有意义。
+            nextEventId: ev-sp-04
+          - id: opt-sp0-wait
+            text: 守住学校——这里不能也空了
+            effects:
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustRelation, npcId: npc-yaga, value: 4 }
+            # 因果纪律：你不在薨星宫，就不能目击现场。这里走「事后才知道」的分支
+            # （ev-sp-00b），不跳到 ev-sp-05b 的现场细节里。
+            nextEventId: ev-sp-00b
+
+  # 留守线的收尾：全部信息都来自通报与事后转述，没有任何「你看着她死在台阶上」的细节。
+  - id: ev-sp-00b
+    title: 通报
+    narrative: 消息是分三次到的。第一次说「任务出了问题」，第二次说「五条重伤」，第三次只有一行编号和一句「星浆体未能完成同化」。没有人告诉你台阶上到底发生了什么，你也没有问。三天后，高专降了半旗。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sp0b-grave
+            text: 去薨星宫，在台阶下放一束花
+            effects:
+              - { type: setFlag, id: rikoDead, value: true }
+              # 生死只由同一处事实驱动：写 rikoDead 的同一组 effects 里同时落 lifecycle。
+              # 留守线拿到的只是一行通报，但她确实死了（被甚尔枪杀），cause 与 ev-sp-05b 一致。
+              - { type: setNpcLifecycle, npcId: npc-riko, state: inactive, reasonCode: 阵亡 }
+              - { type: setFlag, id: hasGrave, value: true }
+              - { type: applyStatus, status: grief, stacks: 1 }
+              - { type: adjustRelation, npcId: npc-nanami, value: 4 }
+              - { type: adjustMood, value: -14 }
+            nextEventId: ev-sp-06
+          - id: opt-sp0b-work
+            text: 留在学校，把这件事咽下去
+            effects:
+              - { type: setFlag, id: rikoDead, value: true }
+              - { type: setNpcLifecycle, npcId: npc-riko, state: inactive, reasonCode: 阵亡 }
+              - { type: setFlag, id: swallowedIt, value: true }
+              - { type: adjustAttribute, attribute: intellect, value: 3 }
+              - { type: adjustRelation, npcId: npc-yaga, value: 5 }
+              - { type: adjustMood, value: -16 }
+            nextEventId: ev-sp-06
+
+  - id: ev-sp-01
+    title: 队伍
+    narrative: 理子比照片上更小。她抱着一个帆布包，努力把下巴抬得很高。「我不需要人保护。」她说。五条在旁边笑得很大声。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sp1-body
+            text: 贴身跟着她。一步都不离开
+            effects:
+              - { type: setFlag, id: spRole, value: body }
+              - { type: setFlag, id: rikoBond, value: true }
+              - { type: adjustRelation, npcId: npc-riko, value: 10 }
+              - { type: adjustMood, value: 3 }
+            nextEventId: ev-sp-02
+          - id: opt-sp1-scout
+            text: 走在外圈。你想先看见要来的人
+            effects:
+              - { type: setFlag, id: spRole, value: scout }
+              - { type: adjustAttribute, attribute: agility, value: 1 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+            nextEventId: ev-sp-02
+          - id: opt-sp1-mole
+            text: 先查一件事：盘星教怎么知道路线的
+            effects:
+              - { type: setFlag, id: spRole, value: mole }
+              - { type: setFlag, id: moleHint, value: true }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustRelation, npcId: npc-geto, value: 3 }
+            nextEventId: ev-sp-02
+
+  - id: ev-sp-02
+    title: 薨星宫前夜
+    narrative: 同化定在明天中午。今晚是最后一夜。理子坐在台阶上，把帆布包抱在膝盖上，一动不动。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sp2-vigil
+            text: 通宵警戒
+            effects:
+              - { type: setFlag, id: spAware, value: true }
+              - { type: adjustMood, value: -5 }
+              - { type: applyStatus, status: exhausted, stacks: 1 }
+            nextEventId: ev-sp-03
+          - id: opt-sp2-talk
+            text: 陪她说说话
+            effects:
+              - { type: setFlag, id: rikoBond, value: true }
+              - { type: setFlag, id: rikoWish, value: true }
+              - { type: adjustRelation, npcId: npc-riko, value: 12 }
+              - { type: adjustMood, value: 5 }
+            nextEventId: ev-sp-03
+          - id: opt-sp2-sleep
+            text: 睡一觉。明天需要力气
+            effects:
+              - { type: adjustResource, resource: hp, value: 30 }
+              - { type: adjustResource, resource: mp, value: 20 }
+            nextEventId: ev-sp-03
+
+  - id: ev-sp-03
+    title: 术师杀手
+    narrative: 他进来的时候没有声音。没有咒力，没有预兆——只有一把刀从背后穿进五条的胸口。夏油喊了一声，你才意识到自己已经在发抖。
+    trigger:
+      source: chain
+    kind: combat
+    settle:
+      combat:
+        enemies:
+          - { ref: enemy-toji, levelScale: 1.15 }
+        allies:
+          - { ref: npc-geto, levelScale: 0.9 }
+        canFlee: false
+        onVictory:
+          effects:
+            - { type: setFlag, id: tojiBeaten, value: true }
+            - { type: setFlag, id: metToji, value: true }
+            - { type: adjustAttribute, attribute: reputation, value: 5 }
+            - { type: adjustMood, value: 4 }
+          # 因果纪律：第一章唯一的战斗，胜负必须改变后续——赢了由 ev-sp-04a 接，
+          # 你挡在台阶前、理子还有救；输了才走原来的悲剧线 ev-sp-04。
+          nextEventId: ev-sp-04a
+        onDefeat:
+          effects:
+            - { type: setFlag, id: metToji, value: true }
+            - { type: setFlag, id: tojiBeaten, value: false }
+            - { type: applyStatus, status: injured-sim, stacks: 1 }
+            - { type: adjustMood, value: -12 }
+          nextEventId: ev-sp-04
+
+  # 胜利线：甚尔没能越过你，因此「台阶上的一瞬间」由你决定。
+  - id: ev-sp-04a
+    title: 你把他挡住了
+    narrative: 他倒在地上的时候，脸上第一次有了表情——不是痛，是意外。你回过头，理子站在台阶上，白色的裙子被风吹起来，正看着你。她还在。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sp4a-shield
+            text: 挡在她身前
+            effects:
+              - { type: setFlag, id: savedRiko, value: true }
+              - { type: applyStatus, status: injured-sim, stacks: 1 }
+              - { type: adjustAttribute, attribute: reputation, value: 8 }
+              - { type: adjustRelation, npcId: npc-riko, value: 10 }
+              - { type: adjustMood, value: 6 }
+            nextEventId: ev-sp-05a
+          - id: opt-sp4a-chase
+            text: 先追上去，把甚尔彻底按住
+            effects:
+              - { type: setFlag, id: tojiCaptured, value: true }
+              - { type: adjustFlag, id: truthBits, value: 3 }
+              - { type: setFlag, id: metToji, value: true }
+              - { type: adjustAttribute, attribute: agility, value: 2 }
+              - { type: adjustMood, value: -4 }
+            # 代价：你去追人的那几分钟，盘星教的人从另一侧带走了她。
+            nextEventId: ev-sp-05b
+
+  - id: ev-sp-04
+    title: 台阶上的一瞬间
+    narrative: 甚尔已经越过防线。理子站在薨星宫的台阶上，白色的裙子被风吹起来。你只有一瞬间——真的只有一瞬间。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sp4-shield
+            text: 挡在她身前
+            visibleWhen:
+              - { flag: spAware, eq: true }
+              - { attribute: physique, gte: 8 }
+            effects:
+              - { type: setFlag, id: savedRiko, value: true }
+              - { type: applyStatus, status: injured-sim, stacks: 1 }
+              - { type: adjustAttribute, attribute: reputation, value: 8 }
+              - { type: adjustMood, value: -6 }
+            nextEventId: ev-sp-05a
+          - id: opt-sp4-push
+            text: 扑向甚尔，把他撞开
+            effects:
+              - { type: setFlag, id: spHurt, value: true }
+              - { type: applyStatus, status: injured-sim, stacks: 1 }
+              - { type: adjustAttribute, attribute: physique, value: 2 }
+              - { type: adjustMood, value: -14 }
+            nextEventId: ev-sp-05b
+          - id: opt-sp4-freeze
+            text: 动不了
+            effects:
+              - { type: setFlag, id: froze, value: true }
+              - { type: adjustMood, value: -18 }
+            nextEventId: ev-sp-05b
+
+  - id: ev-sp-05a
+    title: 她活着
+    narrative: 子弹打进了你的肩膀。理子在你身后，呼吸声大得像在喊。她活着。但天元还在薨星宫深处等——同化意味着「天内理子」这个人从此不存在。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sp5a-sacrifice
+            text: 送她去同化。这是她生下来的意义
+            effects:
+              - { type: setFlag, id: rikoSacrificed, value: true }
+              - { type: setFlag, id: savedRiko, value: false }
+              # 「天内理子」这个人从此不存在——不是被杀，是被同化；cause 用更准确的词，
+              # 与「阵亡」区分开（引擎不对 reasonCode 分支，只存下来给面板看）。
+              - { type: setNpcLifecycle, npcId: npc-riko, state: inactive, reasonCode: 被同化 }
+              - { type: adjustFlag, id: getoDoubt, value: 2 }
+              - { type: adjustMood, value: -14 }
+              - { type: log, text: 天内理子在同化中消失。 , visibility: public }
+            nextEventId: ev-sp-06
+          - id: opt-sp5a-escape
+            text: 带她走。让天元自己想办法
+            effects:
+              - { type: setFlag, id: rikoEscaped, value: true }
+              - { type: setFlag, id: tenjinEvolved, value: true }
+              # 与上一格对称：把「她仍活着」写成显式事实，避免以后有人在 ev-sp-05a 入口
+              # 统一落死亡时把「救下」这条误标成死。幂等（此处本来就 alive）。
+              - { type: setNpcLifecycle, npcId: npc-riko, state: alive }
+              - { type: adjustRelation, npcId: npc-riko, value: 20 }
+              - { type: adjustRelation, npcId: npc-geto, value: 8 }
+              - { type: adjustFlag, id: getoDoubt, value: -3 }
+              - { type: adjustAttribute, attribute: reputation, value: -6 }
+              - { type: adjustMood, value: 8 }
+              - { type: log, text: 你带走了星浆体。天元被迫独自进化。 , visibility: public }
+            nextEventId: ev-sp-06
+
+  - id: ev-sp-05b
+    title: 鼓掌
+    narrative: 她死在台阶上。一枪，很轻的一声。甚尔收起枪走了，像干完一件普通的活。薨星宫外，盘星教的信徒们开始鼓掌——他们在为「星浆体没有同化」欢呼。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sp5b-chase
+            text: 去追甚尔
+            effects:
+              - { type: setFlag, id: rikoDead, value: true }
+              # 她死在台阶上（被甚尔一枪）：与 rikoDead 同一组 effects，cause 统一用「阵亡」。
+              - { type: setNpcLifecycle, npcId: npc-riko, state: inactive, reasonCode: 阵亡 }
+              - { type: adjustAttribute, attribute: agility, value: 2 }
+              - { type: adjustMood, value: -10 }
+            nextEventId: ev-sp-06
+          - id: opt-sp5b-geto
+            text: 站到夏油旁边。他一句话都没说
+            effects:
+              - { type: setFlag, id: rikoDead, value: true }
+              - { type: setNpcLifecycle, npcId: npc-riko, state: inactive, reasonCode: 阵亡 }
+              - { type: adjustRelation, npcId: npc-geto, value: 8 }
+              - { type: adjustFlag, id: getoDoubt, value: 3 }
+              - { type: adjustMood, value: -12 }
+            nextEventId: ev-sp-06
+          - id: opt-sp5b-alone
+            text: 一个人走开
+            effects:
+              - { type: setFlag, id: rikoDead, value: true }
+              - { type: setNpcLifecycle, npcId: npc-riko, state: inactive, reasonCode: 阵亡 }
+              - { type: setFlag, id: hasGrave, value: true }
+              - { type: applyStatus, status: grief, stacks: 1 }
+              - { type: adjustMood, value: -16 }
+            nextEventId: ev-sp-06
+
+  - id: ev-sp-06
+    title: 那年夏天结束了
+    narrative: 五条活了下来——他说是「反转术式」，语气轻松得像在讲别人的事，然后他一个人去把甚尔解决了。夏油开始不吃饭。八月的最后一天，高专的蝉声忽然就停了。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-sp6-go
+            text: 把这件事收进心里
+            effects:
+              - { type: setFlag, id: spDone, value: true }
+              - { type: setFlag, id: ready2, value: true }
+              - { type: setFlag, id: chapter, value: 3 }
+              - { type: adjustMood, value: -4 }
+              - { type: advanceTo, value: { value: 518, unit: day } }
+              - { type: log, text: 2006 年夏 · 怀玉篇结束。 , visibility: public }
+          - id: opt-sp6-sit
+            text: 去找夏油，陪他把这个夏天坐完
+            effects:
+              - { type: setFlag, id: spDone, value: true }
+              - { type: setFlag, id: ready2, value: true }
+              - { type: setFlag, id: chapter, value: 3 }
+              - { type: adjustRelation, npcId: npc-geto, value: 7 }
+              - { type: adjustFlag, id: getoDoubt, value: -2 }
+              - { type: adjustMood, value: -1 }
+              - { type: advanceTo, value: { value: 518, unit: day } }
+              - { type: log, text: 2006 年夏 · 怀玉篇结束。 , visibility: public }
+

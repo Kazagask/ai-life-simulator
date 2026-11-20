@@ -1,4 +1,11 @@
-import type { Condition, DynamicModifierSpec, EquipmentInstance, StatusInstance } from "@life-sim/shared";
+import type {
+  Condition,
+  DynamicModifierSpec,
+  EquipmentInstance,
+  EquipmentModifier,
+  StatusInstance,
+} from "@life-sim/shared";
+import { isAttributeModifier } from "@life-sim/shared";
 import type { TemplateLookup } from "./lookup.js";
 
 /**
@@ -16,7 +23,66 @@ import type { TemplateLookup } from "./lookup.js";
  * - 无自由表达式求值器、无 eval / new Function、无世界观专名（R-EQ-03 / R-NFR-05）。
  */
 
-// ---------- 动态补正求值 ----------
+/**
+ * 装备的**战斗轴**合计（2026-11-20）。
+ *
+ * 与状态那套是两条来源、同一批乘区：状态跟着战斗走，装备跟着人在身上走。
+ * 调用方负责把两者相加（`multiplierOf` / `evadeOf` / 命中判定各一处），
+ * 这样「一把必中的刀」不需要在技能栏里凭空长出一个招式。
+ */
+export interface EquipmentCombat {
+  hitChance: number;
+  evade: number;
+  damageDealt: number;
+  damageTaken: number;
+  guaranteedHit: boolean;
+}
+
+export const EMPTY_EQUIPMENT_COMBAT: EquipmentCombat = {
+  hitChance: 0,
+  evade: 0,
+  damageDealt: 0,
+  damageTaken: 0,
+  guaranteedHit: false,
+};
+
+/**
+ * 汇总一堆装备实例的战斗轴词条。
+ *
+ * 条件求值与属性词条同一套：`condCtx` 缺省视为「无条件生效」（无状态调用方退化用）。
+ * `evade` 这里**只求和**，合成公式（`1-Π(1-x)`）留给调用方 —— 它要和状态闪避一起算。
+ */
+export function equipmentCombatOf(
+  equipment: readonly EquipmentInstance[] | undefined,
+  lookup: TemplateLookup,
+  condCtx?: ModifierConditionGate,
+): EquipmentCombat {
+  if (equipment === undefined || equipment.length === 0) return EMPTY_EQUIPMENT_COMBAT;
+  const out: EquipmentCombat = { ...EMPTY_EQUIPMENT_COMBAT };
+  for (const inst of equipment) {
+    const item = lookup.item(inst.itemId);
+    if (item === undefined || item.type !== "equipment") continue;
+    for (const mod of item.dynamicModifiers ?? []) {
+      if (isAttributeModifier(mod)) continue;
+      if (mod.conditions?.length && condCtx !== undefined) {
+        if (!mod.conditions.every((cond) => condCtx(cond))) continue;
+      }
+      out.hitChance += mod.combat.hitChance ?? 0;
+      out.evade += mod.combat.evade ?? 0;
+      out.damageDealt += mod.combat.damageDealt ?? 0;
+      out.damageTaken += mod.combat.damageTaken ?? 0;
+      if (mod.combat.guaranteedHit === true) out.guaranteedHit = true;
+    }
+  }
+  return out;
+}
+
+/** 一件装备的全部词条（属性 / 战斗轴原样给出，展示层自己翻译）。 */
+export function modifiersOf(item: { dynamicModifiers?: EquipmentModifier[] } | undefined): EquipmentModifier[] {
+  return item?.dynamicModifiers ?? [];
+}
+
+// ---------- 动态状态求值 ----------
 
 /** 条件求值入口：由调用方注入（引擎侧包装 checkCondition，避免本模块与引擎互相依赖）。 */
 export type ModifierConditionGate = (cond: Condition) => boolean;
@@ -31,7 +97,7 @@ export interface ModifierContext {
 }
 
 /**
- * 求值单个动态补正 spec，返回 `属性 id → 修正值`（条件不命中返回空对象）。
+ * 求值单个动态状态 spec，返回 `属性 id → 修正值`（条件不命中返回空对象）。
  * 数值语义与协议 §10 公式 preset 完全一致：
  * fixed = value；scaled = base + scaleBy × multiplier；stack-scaled = base + stacks(status) × perStack。
  */

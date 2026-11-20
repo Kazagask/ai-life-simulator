@@ -260,9 +260,11 @@ button {
 }
 
 .attr-name {
-  width: 56px;
+  /* 72px：容得下「心情 · 静」这类带档位的标签，避免折行（2026-11-19）。 */
+  width: 72px;
   color: var(--muted);
   flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .attr-value {
@@ -452,6 +454,35 @@ button {
 
 .action.flee:disabled {
   border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+
+/*
+ * 封印（ADR-015）：技能还在、但这一回合放不出来。原因就写在按钮第三行，
+ * 所以不能用 `.action:disabled` 的 0.55 透明度把字也压暗——那等于把原因藏起来。
+ */
+.action.is-sealed {
+  opacity: 1;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+}
+.action.is-sealed strong {
+  color: var(--muted);
+}
+.action .action-seal {
+  font-size: 11px;
+  color: color-mix(in srgb, var(--danger) 75%, var(--text));
+}
+/*
+ * 非法目标（2026-11-20）：**先选目标、再放技能**。选中的不是这一招的合法目标时，
+ * 按钮置灰并写出「不是合法目标」——和封印一样，原因必须可见（不能只靠 0.55 透明度）。
+ */
+.action.is-illegal {
+  opacity: 1;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+}
+.action.is-illegal strong {
+  color: var(--muted);
 }
 
 .battle-limit-hint {
@@ -685,6 +716,9 @@ button {
 .bar-fill.mood { background: linear-gradient(90deg, #4fd1c5, #a6f0c5); }
 .bar-fill.enemy-hp { background: linear-gradient(90deg, #ff5d5d, #ff9a5d); }
 .bar-fill.ally-hp { background: linear-gradient(90deg, #4fc3f7, #7c8cff); }
+/* ADR-003：自定义资源（能量豆等）与阶梯进度条 */
+.bar-fill.res { background: linear-gradient(90deg, #c9a227, #f0d78c); }
+.bar-fill.ladder { background: linear-gradient(90deg, #c9a227, #f0d78c); }
 
 .status-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .status-chip { border-color: var(--accent-2); color: var(--accent-2); font-size: 12px; }
@@ -1016,6 +1050,22 @@ button {
   background: var(--bg-card-2);
 }
 .ally.dead { opacity: 0.35; text-decoration: line-through; }
+/*
+ * 可选中的友军卡（ADR-015 D3）：`button.ally` 默认是浏览器按钮样式，这里补齐外观；
+ * `.targeting` 与敌人卡片用同一套高亮——**没有高亮就等于没有反馈**，
+ * 玩家点完之后看不出选中了谁，只会认为「选不了友军目标」（用户 2026-11-20 实测）。
+ */
+button.ally {
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+}
+button.ally.dead { cursor: default; }
+.ally.targeting {
+  border-color: var(--accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-card-2));
+}
 .enemy {
   display: flex; flex-direction: column; gap: 4px;
   padding: 10px 12px;
@@ -1066,6 +1116,23 @@ button {
 .tag-row { display: flex; gap: 6px; }
 
 .battle-self { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card-2); }
+/*
+ * 有友军单体技能时，这块就是「选自己」的落点（用户 2026-11-20：删掉「自己」友军卡）。
+ * **不做差异化展示**：它就是资源面板，只是可点 —— 不加虚线、不加提示文案。
+ */
+.battle-self__pick {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+/*
+ * 「选自己」也要有选中态（2026-11-20 用户反馈：点了看不出来）。
+ * 与 `.ally.targeting` 同一套强调色 —— 同一个「当前友军目标」在两个位置必须长得一样。
+ */
+.battle-self.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-card-2));
+}
 
 /* ---------- 个人页签：方格栏 / 详情区 / 子页签 / 面板摘要 ---------- */
 
@@ -1624,26 +1691,45 @@ details.llm-config .llm-saved {
   color: var(--muted);
 }
 
-.rel-vis-known {
-  color: var(--accent);
-  border-color: var(--accent);
+/* 知情人范围（ADR-007 D3）：只有非公开档才画这条 chip。
+   `仅当事人知道` 用虚边 —— 和「没有卡」同一套视觉语言：这段关系只在少数人之间成立。 */
+.rel-vis-limited {
+  color: var(--muted);
+  border-style: dashed;
 }
 
+.rel-vis-private {
+  color: var(--muted);
+  border-style: dashed;
+  opacity: 0.9;
+}
+
+/* 关系档位（2026-11-19）：不再是裸数值 —— 玩家要判断的是「这一档」，
+   原值仍在 title 里。弱化到一眼能扫，不与「确知/推断」抢注意力。 */
 .rel-value {
   margin-left: auto;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
-  font-variant-numeric: tabular-nums;
+  border-radius: 999px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
 }
 
-/* 关系是独立事实（B-2 解耦）：对方可能没有 NPC 卡（敌人 / 尚未登场）。
-   名字照给，但不假装有档案可点 —— 虚线边框表示"只在关系里存在"。 */
+/* 关系是独立事实（B-2 解耦）：对方可能没有 NPC 卡（尚未登场 / 未现身 / 不在名册）。
+   名字照给，但不假装有档案可点 —— 虚线边框表示"只在关系里存在"。
+   文案随原因变（2026-11-19）：说清"为什么点不开"，不再统一写「无档案」。 */
 .rel-nocard {
   font-size: 11px;
   border-radius: 999px;
   padding: 1px 7px;
   border: 1px dashed var(--border);
   color: var(--muted);
+}
+
+/* 「不在名册」（永不实例化的敌人）比「尚未登场」更冷：连虚线都淡一档。 */
+.rel-nocard[data-state="enemy"] {
+  opacity: 0.7;
 }
 
 /* 属性面板（ADR-0021 决策 3）：紧凑两列，顺序即模板 attributes.order。
@@ -1809,29 +1895,6 @@ details.llm-config .llm-saved {
   margin-bottom: 4px;
 }
 
-.alloc-grid {
-  display: grid;
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.alloc-grid label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 14px;
-}
-
-.alloc-grid input {
-  width: 88px;
-  padding: 8px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-card-2);
-  color: var(--text);
-}
-
 .opening-history {
   display: grid;
   gap: 8px;
@@ -1871,6 +1934,20 @@ details.llm-config .llm-saved {
   margin-top: 18px;
 }
 
+/* 开局序章（2026-11-19）：这是一段正文，不是面板 —— 行距与「故事」区同一副嗓子。 */
+.prologue-card {
+  display: grid;
+  gap: 8px;
+}
+
+.prologue-text {
+  margin: 0;
+  line-height: 1.75;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .wheel-sector.spinning {
     animation: none;
@@ -1878,3 +1955,143 @@ details.llm-config .llm-saved {
 }
 
 
+
+/* ── ADR-012：召唤单位 / 中立 / 专属资源条 ───────────────────────── */
+
+/* 普通单位（minion）一行三个：宽度是真实战斗单位的三分之一，高度自然缩 */
+.minion-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.enemy.minion,
+.ally.minion,
+.neutral.minion {
+  padding: 6px 7px;
+  gap: 2px;
+  font-size: 11.5px;
+  border-radius: 8px;
+}
+.enemy.minion strong,
+.ally.minion strong,
+.neutral.minion strong { font-size: 11.5px; }
+.minion .attr-value { font-size: 10.5px; }
+.minion .enemy-status { font-size: 10.5px; }
+
+/* 第三方：与敌我同构，只换配色（琥珀），语义上谁都能打它 */
+.neutral-list { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.neutral {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px dashed #d9a441;
+  background: var(--bg-card-2);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.neutral.dead { opacity: 0.35; text-decoration: line-through; cursor: default; }
+/* 中立与敌方共用一个目标框：选中态就用敌人的红边，别让人以为「选不中」（用户 2026-11-20）。 */
+.neutral.targeting { border-color: var(--danger); box-shadow: 0 0 10px rgba(255, 122, 122, 0.25); }
+.bar-fill.neutral-hp { background: linear-gradient(90deg, #d9a441, #f0cd7a); }
+
+/* 单位专属资源池（ADR-012 D9）：一行「名字 + 细条 + 数字」，只对声明过的单位出现 */
+.unit-res { display: flex; flex-direction: column; gap: 3px; }
+.unit-res-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.unit-res-name { font-size: 10.5px; color: var(--dim); white-space: nowrap; }
+.bar.bar-sm { height: 4px; }
+.bar-fill.res { background: linear-gradient(90deg, #7e57c2, #b39ddb); }
+
+/* ---------- 补正面板（ADR-018）：天赋 / 状态 / 补正总值 ---------- */
+.status-board { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.status-group { display: flex; flex-direction: column; gap: 4px; }
+.status-group__title { font-size: 11px; letter-spacing: 0.08em; color: var(--muted); }
+.status-chip__meta { margin-left: 6px; color: var(--muted); font-size: 11px; }
+.status-board .status-chips { margin-top: 0; }
+.ledger { display: flex; flex-direction: column; gap: 2px; }
+.ledger-row { border-top: 1px solid var(--border); padding: 4px 0; }
+.ledger-row__head { display: flex; justify-content: space-between; gap: 8px; cursor: pointer; font-size: 12px; color: var(--text); list-style: none; }
+.ledger-row__head::-webkit-details-marker { display: none; }
+.ledger-row__label { color: var(--muted); }
+.ledger-row__total { font-variant-numeric: tabular-nums; }
+.ledger-sources { margin: 4px 0 0; padding: 0 0 0 12px; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.ledger-sources li { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
+
+/* 天赋是身份（实线），状态与战斗态会掉（虚线）——滚动之后分组标题不在屏里也分得开 */
+.status-chip--modifier,
+.status-chip--battle { border-style: dashed; }
+
+/* 跳过回合是兜底出口，不是战术选择：虚线 + 弱化，别和技能抢注意力 */
+.battle-actions .action.pass { border-style: dashed; }
+.battle-actions .action.pass strong { font-weight: 600; color: var(--muted); }
+
+/* ---------- 关系图（个人页「关系」，2026-11-20） ---------- */
+
+.relgraph { display: flex; flex-direction: column; gap: 10px; }
+
+.relgraph-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.relgraph-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color .15s ease, opacity .15s ease;
+}
+.relgraph-chip.is-on { border-color: currentColor; }
+/* 关掉的类型在图上也不画：颜色一起淡下去，别让玩家以为线还在 */
+.relgraph-chip:not(.is-on) { opacity: .38; }
+.relgraph-chip__dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+.relgraph-chip__count { font-size: 11px; opacity: .7; font-variant-numeric: tabular-nums; }
+
+.relgraph-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card-2);
+  /* 圆心与节点都靠这个底色托住，避免线和名字糊在一起 */
+  background-image: radial-gradient(circle at 50% 50%, rgba(124, 140, 255, .06), transparent 62%);
+}
+
+.relgraph-edge { fill: none; stroke-width: 1.4; opacity: .8; }
+
+.relgraph-self circle { fill: var(--bg-card); stroke: var(--accent); stroke-width: 1.6; }
+.relgraph-self__text { fill: var(--text); font-size: 11px; letter-spacing: .04em; }
+
+.relgraph-node circle { fill: var(--bg-card); stroke: var(--border); stroke-width: 1.4; }
+.relgraph-node__name { fill: var(--text); font-size: 10.5px; }
+.relgraph-node__state { fill: var(--muted); font-size: 9px; }
+
+.relgraph-node.is-clickable { cursor: pointer; }
+.relgraph-node.is-clickable:hover circle,
+.relgraph-node.is-clickable:focus-visible circle { stroke: var(--accent); }
+.relgraph-node.is-clickable:focus-visible { outline: none; }
+
+/* 点不开的人：虚线圆 + 淡名字（「尚未登场」写在名字下面，不假装有档案） */
+.relgraph-node.is-blocked circle { stroke-dasharray: 3 3; opacity: .5; }
+.relgraph-node.is-blocked .relgraph-node__name { fill: var(--muted); }
+
+.relgraph-legend { margin: 0; font-size: 11px; line-height: 1.65; }
+/* 观察者视角（`observeActor`）：通栏细带，一直看得见，否则玩家以为关系凭空变了 */
+.viewer-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 4px;
+  padding: 6px 14px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--accent-2);
+  background: color-mix(in srgb, var(--accent-2) 10%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent-2) 28%, transparent);
+}
+.viewer-banner strong { color: var(--accent-2); font-weight: 600; }
+.rel-owner-note { margin: -2px 0 8px; font-size: 11px; }

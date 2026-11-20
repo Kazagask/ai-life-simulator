@@ -104,7 +104,7 @@ export function kinGraphFromEdges(edges: readonly RelationEdge[]): KinGraph {
       kind: e.kind as KinshipKind,
       from: e.from,
       to: e.to,
-      visibility: e.visibility,
+      scope: e.scope,
       gapped: e.gap === true,
     });
   }
@@ -213,10 +213,10 @@ export function kinGraphFromPointers(
 
   for (const p of people) {
     if (p.fatherId !== undefined && p.fatherId !== null) {
-      pushMove(moves, { kind: "father", from: p.id, to: p.fatherId, visibility: "known" });
+      pushMove(moves, { kind: "father", from: p.id, to: p.fatherId, scope: "public" });
     }
     if (p.motherId !== undefined && p.motherId !== null) {
-      pushMove(moves, { kind: "mother", from: p.id, to: p.motherId, visibility: "known" });
+      pushMove(moves, { kind: "mother", from: p.id, to: p.motherId, scope: "public" });
     }
   }
   // 父/母 → 子/女：用孩子性别定 kind；性别未知就不猜儿子/女儿，退一条不可命名的
@@ -225,14 +225,14 @@ export function kinGraphFromPointers(
     for (const kid of kids) {
       const sex = sexOf(kid);
       if (sex === null) {
-        pushMove(moves, { kind: "relative", from: parent, to: kid, visibility: "known" });
+        pushMove(moves, { kind: "relative", from: parent, to: kid, scope: "public" });
         continue;
       }
       pushMove(moves, {
         kind: sex === "male" ? "son" : "daughter",
         from: parent,
         to: kid,
-        visibility: "known",
+        scope: "public",
       });
     }
   }
@@ -244,7 +244,7 @@ export function kinGraphFromPointers(
         kind: sa === "male" ? "husband" : "wife",
         from: s.b,
         to: s.a,
-        visibility: "known",
+        scope: "public",
       });
     }
     if (sb !== null) {
@@ -252,7 +252,7 @@ export function kinGraphFromPointers(
         kind: sb === "male" ? "husband" : "wife",
         from: s.a,
         to: s.b,
-        visibility: "known",
+        scope: "public",
       });
     }
   }
@@ -264,7 +264,7 @@ export function kinGraphFromPointers(
         kind: parentSex === "male" ? "adoptive-father" : "adoptive-mother",
         from: a.child,
         to: a.parent,
-        visibility: "known",
+        scope: "public",
       });
     }
     if (childSex !== null) {
@@ -272,7 +272,7 @@ export function kinGraphFromPointers(
         kind: childSex === "male" ? "adoptive-son" : "adoptive-daughter",
         from: a.parent,
         to: a.child,
-        visibility: "known",
+        scope: "public",
       });
     }
   }

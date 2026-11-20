@@ -5,6 +5,7 @@
  */
 
 export * from "./common.js";
+export * from "./attribute.js";
 export * from "./character.js";
 export * from "./relation.js";
 export * from "./skill.js";
@@ -19,6 +20,7 @@ export * from "./ending.js";
 export * from "./evaluation.js";
 export * from "./event-instance.js";
 export * from "./opening.js";
+export * from "./allocation.js";
 export * from "./ui.js";
 export * from "./style.js";
 export * from "./effects.js";

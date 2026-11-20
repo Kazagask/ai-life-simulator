@@ -1,20 +1,20 @@
 statuses:
   - id: absorbed-curses
     name: 收集弹
-    duration:
-      turns: 5
+    kind: battle
     stacking: stack
+    polarity: neutral
     combat: {}
     visibility: known
   - id: inj
     name: 轻伤
-    duration:
-      turns: 2
-    stacking: refresh
+    kind: modifier
+    stacking: unique
+    polarity: negative
+    attributeModifiers:
+      agility: -2
     simulation:
-      attributeModifiers:
-        agility: -2
       moodDeltaPerTurn: -2
     cureConditions:
-      - restTurns: 2
+      - restDays: 2
     visibility: known

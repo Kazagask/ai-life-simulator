@@ -9,31 +9,44 @@
 statuses:
   - id: st-grievous
     name: 重伤
+    kind: modifier
+    attributeModifiers: { physique: -4, agility: -2 }
     description: 肋骨至少断了三根，反转术式只来得及把血止住。
-    duration: { untilCured: true }
     stacking: unique
-    simulation:
-      attributeModifiers: { physique: -4, agility: -2 }
+    polarity: negative
     visibility: known
 
   - id: st-overload
     name: 咒力过载
+    kind: modifier
+    attributeModifiers: { cursedEnergy: -6 }
     description: 回路烧得发烫。再往上压，先坏的会是你自己。
-    duration: { untilCured: true }
     stacking: unique
-    simulation:
-      attributeModifiers: { cursedEnergy: -6 }
+    polarity: negative
     combat:
       damageDealt: -0.08
     visibility: known
 
   - id: st-sealed
     name: 术式封锁
+    kind: modifier
     description: 一层黏在灵魂表面的「帐」。术式回路暂时哑火，只能靠肉身和道具撑过去。
-    duration: { untilCured: true }
     stacking: unique
+    polarity: negative
     combat:
       control: [cannot_use_skills]
     cureConditions:
       - { item: item-seal-charm }
+    visibility: known
+
+  # 战斗中的版本：这一场按不出术式；离场后折算成会一直挂着的术式封锁（ADR-018）。
+  - id: st-sealed-battle
+    name: 术式封锁
+    description: 一层黏在灵魂表面的「帐」。这一场按不出术式。
+    kind: battle
+    stacking: unique
+    polarity: negative
+    combat:
+      control: [cannot_use_skills]
+    toModifier: { id: st-sealed, timePerRound: { value: 1, unit: day } }
     visibility: known

@@ -1,0 +1,397 @@
+# JJK 世界模板 · items.yaml
+#
+# 2026-11-12 清理：删除旧 demo 遗留的「一级咒具 / 二级咒具 / 咒具·残刃 / 观察者护符」，
+# 也删掉了 initialEquipment（玩家一开局不该白拿一把游云）。
+# 玩家能拿到的装备只有两类来源：命数转盘的「咒具」维度，以及剧情里的战利品。
+items:
+  - id: item-first-aid
+    type: consumable
+    name: 急救包
+    description: 高专配发的基础医疗包。纱布、止血带、一颗止痛药。
+    stackable: true
+    usableInBattle: true
+    usableOutsideBattle: true
+    use:
+      - { type: adjustResource, resource: hp, value: 30 }
+
+  - id: item-antidote
+    type: consumable
+    name: 净化剂
+    description: 中和轻度咒毒的药剂。味道像生锈的水。
+    stackable: true
+    usableInBattle: true
+    usableOutsideBattle: true
+    use:
+      - { type: cureStatus, status: curse-poison }
+
+  - id: item-mp-candy
+    type: consumable
+    name: 咒力糖
+    description: 高专小卖部特产。嚼一颗，咒力回路会短暂地活跃起来。
+    stackable: true
+    usableInBattle: true
+    usableOutsideBattle: true
+    use:
+      - { type: adjustResource, resource: mp, value: 25 }
+
+  - id: item-smoke
+    type: consumable
+    name: 线香
+    description: 硝子分给你的安神线香。闻一会儿，心就静了。
+    stackable: true
+    usableInBattle: false
+    usableOutsideBattle: true
+    use:
+      - { type: adjustMood, value: 10 }
+
+  - id: item-talisman
+    type: material
+    name: 结界符纸
+    description: 布设简易结界用的消耗性符纸。夜蛾上课时发的。
+    stackable: true
+    usableInBattle: false
+    usableOutsideBattle: true
+    use:
+      - { type: adjustMood, value: 2 }
+
+  - id: item-riko-ribbon
+    type: key
+    name: 理子的发带
+    description: 一条普通的、带着樟脑香气的发带。有人把它塞进了你的口袋，没说是谁。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+
+  # ══════════════ 特级咒具（转盘 / 战利品） ══════════════
+
+  - id: eq-ten-spear
+    type: equipment
+    name: 咒具·天逆鉾
+    description: 特级咒具。贯穿一切的矛，能强制解除对手的术式。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: mythic
+    dynamicModifiers:
+      - label: 咒力回路
+        attribute: cursedEnergy
+        preset: scaled
+        params: { base: 4, scaleBy: cursedEnergy, multiplier: 0.2 }
+      # 「贯穿一切」不是命中率 +100%，而是**跳过命中骰与闪避门**（2026-11-20）：
+      # 以前这件事只能靠 `grantsSkill` 造一个带 `hit: guaranteed` 的招式，
+      # 结果是玩家技能栏里凭空多一招，而它本来是这把矛的特性。
+      - label: 贯穿
+        combat: { guaranteedHit: true }
+    # ADR-012 D7：持有时视为拥有 `sk-ten-spear`。它给的是**一个招式**（主动解除术式），
+    # 与上面那条常驻的「必中」是两件事，所以两者并存。
+    grantsSkill: sk-ten-spear
+
+  - id: eq-bancho
+    type: equipment
+    name: 咒具·万里锁
+    description: 特级咒具。一环套一环的长锁，只要有一端没人看着，它就能一直伸下去。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: accessory
+    category: cursed-tool
+    quality: legend
+    dynamicModifiers:
+      - label: 无端
+        attribute: agility
+        preset: scaled
+        params: { base: 4, scaleBy: agility, multiplier: 0.2 }
+      # 只要有一端没人看着，它就一直在伸 —— 挡的是「打不中」，不是「打不疼」。
+      - label: 环环相扣
+        combat: { evade: 0.12 }
+
+  - id: eq-shakujin
+    type: equipment
+    name: 咒具·释魂刀
+    description: 特级咒具。不去砍肉，只斩灵魂；看不见灵魂的人，握着它也只是握着一块冷铁。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: legend
+    dynamicModifiers:
+      - label: 咒力回路
+        attribute: cursedEnergy
+        preset: scaled
+        params: { base: 4, scaleBy: cursedEnergy, multiplier: 0.2 }
+      # 不砍肉、只斩灵魂：伤害乘区加算。它不是属性，改不到面板上的任何一格。
+      - label: 斩魂
+        combat: { damageDealt: 0.15 }
+
+  - id: eq-kurobuna
+    type: equipment
+    name: 咒具·黑绳
+    description: 特级相当的绳具。咒力绞进每一股麻线，缠上对手的术式；用一次，就烧短一截。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: accessory
+    category: cursed-tool
+    quality: legend
+    dynamicModifiers:
+      - attribute: agility
+        preset: scaled
+        params: { base: 3, scaleBy: agility, multiplier: 0.15 }
+
+  - id: eq-cursed-blade
+    type: equipment
+    name: 咒具·游云
+    description: 特级咒具。三节相连的黑棍，没有附加术式，全凭挥动它的力气说话。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: legend
+    dynamicModifiers:
+      - attribute: physique
+        preset: scaled
+        params: { base: 4, scaleBy: physique, multiplier: 0.2 }
+
+  # ══════════════ 特级相当（转盘 / 战利品） ══════════════
+
+  - id: eq-exorcist-blade
+    type: equipment
+    name: 咒具·退魔之剑
+    description: 特级相当。剑锋过处，咒灵连残秽都不剩。高专的仓库把它锁在最里面。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: legend
+    dynamicModifiers:
+      - attribute: cursedEnergy
+        preset: scaled
+        params: { base: 3, scaleBy: cursedEnergy, multiplier: 0.15 }
+
+  - id: eq-jinmukai
+    type: equipment
+    name: 咒具·神武解
+    description: 特级相当。刃上寄着落雷，举起来便有一道白光落下。如今在世上流传的那一把，是万临死前照着原物构筑的复制品。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: legend
+    dynamicModifiers:
+      - attribute: cursedEnergy
+        preset: scaled
+        params: { base: 3, scaleBy: cursedEnergy, multiplier: 0.15 }
+
+  # ══════════════ 等级未明的咒具 ══════════════
+
+  - id: eq-tozama
+    type: equipment
+    name: 咒具·屠坐魔
+    description: 宽刃短刀，刃口厚得能当撬棍。没有任何附加术式，斩断咒灵的肢体却意外地顺手。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: treasure
+    dynamicModifiers:
+      - attribute: physique
+        preset: scaled
+        params: { base: 2, scaleBy: physique, multiplier: 0.07 }
+
+  - id: eq-ryukotsu
+    type: equipment
+    name: 咒具·龙骨
+    description: 刀背开着几孔喷口。挥刀时，刀身吃下的冲击与咒力会从背后喷出，把这一刀再送快一次。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: epic
+    dynamicModifiers:
+      - attribute: cursedEnergy
+        preset: scaled
+        params: { base: 2, scaleBy: cursedEnergy, multiplier: 0.1 }
+
+  - id: eq-tekatachi
+    type: equipment
+    name: 咒具·手形剑
+    description: 一只能自己浮起来的手，五指皆可屈伸。握住剑柄时，它像在回握你。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: treasure
+    dynamicModifiers:
+      - attribute: agility
+        preset: scaled
+        params: { base: 2, scaleBy: agility, multiplier: 0.07 }
+
+  - id: eq-tachi
+    type: equipment
+    name: 咒具·太刀
+    description: 没有名号的普通太刀，刃身被咒力养得发亮。术师拿它，只为让咒力有个落点。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: excellent
+    dynamicModifiers:
+      - attribute: cursedEnergy
+        preset: scaled
+        params: { base: 1, scaleBy: cursedEnergy, multiplier: 0.05 }
+
+  - id: eq-blunt-knife
+    type: equipment
+    name: 咒具·钝刃短刀
+    description: 布条缠着木柄的钝刃短刀，刃口平得像一块铁尺。七海总把它别在腰后。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: treasure
+    dynamicModifiers:
+      - attribute: physique
+        preset: scaled
+        params: { base: 2, scaleBy: physique, multiplier: 0.07 }
+
+  - id: eq-hammer-nail
+    type: equipment
+    name: 咒具·锤与钉
+    description: 一把小锤，一袋长钉，稻草人藏在怀里。要伤到谁，得先拿到那人的一点什么。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: rare
+    dynamicModifiers:
+      - attribute: physique
+        preset: scaled
+        params: { base: 1, scaleBy: physique, multiplier: 0.03 }
+
+  - id: eq-long-spear
+    type: equipment
+    name: 咒具·长枪
+    description: 枪杆笔直，枪尖淬过咒力。真希用它时，整支枪像是她手臂多出来的一截。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: excellent
+    dynamicModifiers:
+      - attribute: agility
+        preset: scaled
+        params: { base: 1, scaleBy: agility, multiplier: 0.05 }
+
+  - id: eq-naginata
+    type: equipment
+    name: 咒具·薙刀
+    description: 长柄弯刃，横扫时能把一整排咒灵推开。刃口不反光，血也挂不住。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: excellent
+    dynamicModifiers:
+      - attribute: physique
+        preset: scaled
+        params: { base: 1, scaleBy: physique, multiplier: 0.05 }
+
+  - id: eq-colt-python
+    type: equipment
+    name: 咒具·左轮
+    description: 一把老式的六发左轮，弹巢里压着灌注咒力的子弹。真依扣下扳机时，后坐力会沿手腕一路震到肩膀。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: rare
+    dynamicModifiers:
+      - attribute: agility
+        preset: scaled
+        params: { base: 1, scaleBy: agility, multiplier: 0.03 }
+
+  - id: eq-electric-guitar
+    type: equipment
+    name: 咒具·电吉他
+    description: 琴身里灌满了咒力，拨弦便是一道看不见的波。乐岩寺弹它的时候，整座礼堂都在震。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: epic
+    dynamicModifiers:
+      - attribute: cursedEnergy
+        preset: scaled
+        params: { base: 2, scaleBy: cursedEnergy, multiplier: 0.1 }
+
+  - id: eq-axe
+    type: equipment
+    name: 咒具·斧
+    description: 一柄单手斧，刃背厚实，柄上缠着旧布。冥冥拎着它走进咒灵群时，很少需要挥第二下。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: excellent
+    dynamicModifiers:
+      - attribute: physique
+        preset: scaled
+        params: { base: 1, scaleBy: physique, multiplier: 0.05 }
+
+  - id: eq-quasi-blade
+    type: equipment
+    name: 咒具·准咒具
+    description: 一把长期浸泡在咒力里的普通刀，算不上真正的咒具，却比一般的铁器更懂术师的手。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+    slot: weapon
+    category: cursed-tool
+    quality: fine
+    dynamicModifiers:
+      - attribute: physique
+        preset: scaled
+        params: { base: 1, scaleBy: physique, multiplier: 0.02 }
+
+  # ══════════════ 咒物（不是咒具，不可装备） ══════════════
+
+  - id: eq-sukuna-finger
+    type: key
+    name: 咒物·宿傩的手指
+    description: 一截干枯的手指，指节上刻着黑色的纹。把它封进符纸里，纸也会慢慢变黑。
+    stackable: true
+    usableInBattle: false
+    usableOutsideBattle: false
+
+  - id: eq-jail-box
+    type: key
+    name: 咒物·狱门疆
+    description: 一块裹着无数眼睛与锁链的立方体。要封住谁，得先凑齐条件，再等上那一分钟。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false
+
+  - id: eq-nine-phases
+    type: key
+    name: 咒物·咒胎九相图
+    description: 九张卷起的图卷，墨色里裹着未出世的生命。展开它的人，等于替某些东西开了门。
+    stackable: false
+    usableInBattle: false
+    usableOutsideBattle: false

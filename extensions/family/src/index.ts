@@ -9,7 +9,7 @@ import type {
   RelationRowDraft,
   SnapshotDerivation,
 } from "@life-sim/game-core";
-import type { RelationEdge } from "@life-sim/shared";
+import type { RelationEdge, RelationScope } from "@life-sim/shared";
 import {
   clanConditions,
   clanEffectHandlers,
@@ -56,9 +56,8 @@ function visibleReadings(
   const key = `${READINGS_KEY}${target}`;
   const hit = ctx.memo.get(key);
   if (hit !== undefined) return hit as KinshipReading[];
-  const v = kinshipReadings(ctx.visibleEdges, ctx.viewerId, target, { maxHops }).filter(
-    (r) => r.visibility === "known" || r.visibility === "inferred",
-  );
+  // `visibleEdges` 已按观察者过滤过（ADR-007 D3：`relationVisibleTo`），这里不再二次筛。
+  const v = kinshipReadings(ctx.visibleEdges, ctx.viewerId, target, { maxHops });
   ctx.memo.set(key, v);
   return v;
 }
@@ -126,21 +125,45 @@ function extendRows(ctx: RelationCardContext): RelationRowDraft[] {
   const cfg = parseFamilyConfig(ctx.config);
   const rows: RelationRowDraft[] = [];
   for (const otherId of reachableKinshipNodeIds(ctx.visibleEdges, ctx.viewerId, cfg.maxHops)) {
-    if (ctx.factCounterpartIds.has(otherId)) continue;
     // ADR-0022 D-1 同口径：推得出来 ≠ 可以显示，未登场/隐藏端点照旧剔除。
     if (ctx.hiddenNodeIds.has(otherId)) continue;
     const readings = visibleReadings(ctx, otherId, cfg.maxHops);
     if (readings.length === 0) continue;
-    const primary = readings[0]!;
+    /**
+     * 判重看**读法**，不看「有没有事实边」（2026-11-20）。
+     *
+     * 娶了自己的外婆之后，事实行只有「妻子」；按旧规则这条亲缘行会被整条丢掉，
+     * 于是「外婆」这个读法凭空消失。这里取**第一条事实行还没说过的读法**当主称谓 ——
+     * 注意不能只看 `readings[0]`：有了 `wife` 边之后最短路径就是「老婆」，
+     * 拿它去比会判成重复，反而把「外婆」一起丢掉。
+     */
+    /**
+     * 已经是**具体血亲**事实的人不再推：绕路推出来的「表兄弟」对上一个「父亲」，
+     * 只是同一段血缘的变体，纯噪声。`relative`（远亲）不算具体血亲 —— 它本来就是
+     * 「说不清哪一档」的兜底，多跳读法在那上面才是新信息。
+     */
+    const kinds = ctx.factKinds?.get(otherId);
+    if (kinds !== undefined && [...kinds].some((kind) => SPECIFIC_KINSHIP.has(kind))) continue;
+    const known = ctx.factTerms?.get(otherId);
+    /*
+     * 只有**多跳**且事实行没说过的读法才单独立行：
+     * 一跳的另一种叫法（「哥哥」对「兄弟」、「同父异母的妹妹」对「妹妹」）是同一段关系的
+     * 用词变体，它们仍旧走 `kinshipTerms` 并列，不该长成第二行。
+     */
+    const primary = readings.find((reading) => reading.hops >= 2 && known?.has(reading.term) !== true);
+    if (primary === undefined) continue;
     // 多跳链（如 丈夫的妻子的儿子）会绕回本体，这类行必须丢弃，
     // 否则人物卡上会出现「某某 视 X 为自己」。
     if (primary.term === SELF_TITLE) continue;
-    const extra = pickExtras(readings, primary.term, cfg.showAllRoles);
+    // 附加读法里排除事实行已经说过的词：同一条亲缘不在两行里各列一遍。
+    const extra = pickExtras(readings, primary.term, cfg.showAllRoles).filter(
+      (term) => known?.has(term) !== true,
+    );
     rows.push({
       withId: otherId,
       kind: "relative",
-      // 可见性继承构成边（已知+已知=已知），不是「推断」。
-      visibility: primary.visibility === "inferred" ? "inferred" : "known",
+      // 知情人范围继承构成边（公开+公开=公开，任一段私密⇒整条私密），不是「推断」。
+      scope: primary.scope as RelationScope,
       fields: {
         kinshipTerm: primary.term,
         ...(extra.length > 0 ? { kinshipTerms: extra } : {}),
@@ -149,6 +172,21 @@ function extendRows(ctx: RelationCardContext): RelationRowDraft[] {
   }
   return rows;
 }
+
+/**
+ * 具体血亲（不含 `relative` 这把兜底伞，也不含婚姻）：已经有一条这样的事实边，
+ * 就不再用多跳路径给它推第二种叫法。
+ */
+const SPECIFIC_KINSHIP = new Set([
+  "father",
+  "mother",
+  "son",
+  "daughter",
+  "elder-brother",
+  "younger-brother",
+  "elder-sister",
+  "younger-sister",
+]);
 
 const relationDerivation: RelationDerivation = { decorate, extendRows };
 
@@ -246,10 +284,10 @@ function pointerGraphRowEdges(
         const younger = elder === a ? b : a;
         const youngerSex = younger === a ? sexA : sexB;
         const kind = youngerSex === "male" ? "younger-brother" : "younger-sister";
-        edges.push({ from: elder, to: younger, kind, source: SYNTHETIC_EDGE_SOURCE, visibility: "known" });
+        edges.push({ from: elder, to: younger, kind, source: SYNTHETIC_EDGE_SOURCE, scope: "public" });
         const elderSex = elder === a ? sexA : sexB;
         const kindBack = elderSex === "male" ? "elder-brother" : "elder-sister";
-        edges.push({ from: younger, to: elder, kind: kindBack, source: SYNTHETIC_EDGE_SOURCE, visibility: "known" });
+        edges.push({ from: younger, to: elder, kind: kindBack, source: SYNTHETIC_EDGE_SOURCE, scope: "public" });
       }
     }
   }
@@ -258,14 +296,14 @@ function pointerGraphRowEdges(
     for (const { child } of graph.childrenOf(id)) {
       const sex = graph.facts.sexes.get(child);
       if (sex === "male") {
-        edges.push({ from: id, to: child, kind: "son", source: SYNTHETIC_EDGE_SOURCE, visibility: "known" });
+        edges.push({ from: id, to: child, kind: "son", source: SYNTHETIC_EDGE_SOURCE, scope: "public" });
       } else if (sex === "female") {
         edges.push({
           from: id,
           to: child,
           kind: "daughter",
           source: SYNTHETIC_EDGE_SOURCE,
-          visibility: "known",
+          scope: "public",
         });
       }
     }
@@ -279,7 +317,7 @@ function pointerGraphRowEdges(
           to: id,
           kind: "husband",
           source: SYNTHETIC_EDGE_SOURCE,
-          visibility: "known",
+          scope: "public",
         });
       } else if (sex === "female") {
         edges.push({
@@ -287,7 +325,7 @@ function pointerGraphRowEdges(
           to: id,
           kind: "wife",
           source: SYNTHETIC_EDGE_SOURCE,
-          visibility: "known",
+          scope: "public",
         });
       }
     }

@@ -14,7 +14,7 @@ import { ResolvedStyleSchema, ResolvedTagSchema, type ResolvedStyle, type Resolv
  * `kind` 决定渲染：
  * - `control` ⇒ 固定效果（下划线，如「无法行动」）；
  * - `attr` / `combat` / `cost` / `formula` ⇒ 数值或公式条目（可带 +/- 与色彩）；
- * - `apply` / `remove` ⇒ 施加 / 移除补正（可点开补正详情）；
+ * - `apply` / `remove` ⇒ 施加 / 移除状态（可点开状态详情）；
  * - `note` ⇒ 说明性文字。
  */
 /** 被引用实体的详情快照（递归结构，见 `EffectSummary`）。 */
@@ -26,10 +26,21 @@ export interface EffectRefDetail {
   style?: ResolvedStyle;
   /** 被引用实体的标签（品级 / 增益减益）。 */
   tags?: ResolvedTag[];
+  /** 状态的正负（只有 `kind: "status"` 的引用有）：技能描述里的名字颜色读它。 */
+  polarity?: "positive" | "negative" | "neutral";
 }
 
 export interface EffectSummary {
+  /** 完整句子（无障碍 / 复制用）。有引用时 = `lead + refName + trail`。 */
   text: string;
+  /**
+   * 引用条目的三段式（2026-11-20）：UI **只给 `refName` 上样式**，
+   * 不再自己按 `refDetail.title` 在 `text` 里做字符串切分 —— 文案一改就退化。
+   * 无引用时三者缺省，`text` 就是整句。
+   */
+  lead?: string;
+  refName?: string;
+  trail?: string;
   kind: "attr" | "combat" | "control" | "apply" | "remove" | "cost" | "formula" | "note";
   tone?: "buff" | "debuff" | "neutral";
   note?: string;
@@ -41,6 +52,9 @@ export interface EffectSummary {
 export const EffectSummarySchema: z.ZodType<EffectSummary> = z
   .object({
     text: z.string(),
+    lead: z.string().optional(),
+    refName: z.string().optional(),
+    trail: z.string().optional(),
     kind: z.enum(["attr", "combat", "control", "apply", "remove", "cost", "formula", "note"]),
     tone: z.enum(["buff", "debuff", "neutral"]).optional(),
     note: z.string().optional(),
@@ -65,7 +79,7 @@ export const EffectSummarySchema: z.ZodType<EffectSummary> = z
  * `action` 与 `amount` 一起读：
  * - 属性：`up` / `down` + 净值；
  * - 物品：`gain` / `lose` + 数量；
- * - 补正：`gain` / `lose` + 最终层数 `stacks`；
+ * - 状态：`gain` / `lose` + 最终层数 `stacks`；
  * - 装备：`equip` / `unequip`；
  * - 技能：`gain`。
  */
@@ -73,8 +87,8 @@ export const TurnGainSchema = z
   .object({
     category: z.enum(["attribute", "status", "skill", "item", "equipment"]),
     /**
-     * `set` = 初始值（开局定的绝对属性，不是增减），展示为 `咒力 126` 且用中性色。
-     * 其余：属性 up/down、物品 gain/lose、补正 gain/lose、装备 equip/unequip、技能 gain。
+     * `set` = 初始值（开局定的绝对属性，不是增减），展示为 `力量 126` 且用中性色。
+     * 其余：属性 up/down、物品 gain/lose、状态 gain/lose、装备 equip/unequip、技能 gain。
      */
     action: z.enum(["gain", "lose", "up", "down", "set", "equip", "unequip"]),
     /** 属性 key / statusId / skillId / itemId / 装备 instanceId。 */
@@ -82,6 +96,11 @@ export const TurnGainSchema = z
     /** 展示名（已按模板标签解析）。 */
     name: z.string(),
     amount: z.number().optional(),
+    /**
+     * 文本属性的展示值（ADR-003）：enum 的选项 label / composite 的称号 / reset 阶梯的档位。
+     * 与 `amount` 互斥使用（数值属性用 amount，文本属性用 value）。
+     */
+    value: z.string().optional(),
     stacks: z.number().optional(),
     quality: z.string().optional(),
     style: ResolvedStyleSchema.optional(),

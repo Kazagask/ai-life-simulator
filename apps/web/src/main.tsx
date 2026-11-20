@@ -39,6 +39,7 @@ import type {
   WorldSummary,
 } from "./api";
 import { hasSubtabEntry, hasTabEntry, requiresMinimalForm, resolvePlacement } from "./ui-layout";
+import { isCredentialEncryptionAvailable } from "./llmCrypto";
 import { bootstrapAuth, signOutOfWorkBuddy, signInWithWorkBuddy, userDisplayName } from "./auth";
 import { cloud } from "./cloud";
 import {
@@ -60,6 +61,8 @@ import {
   HOST_UI_SLOTS,
   NpcCard,
   NpcDetails,
+  PointsAllocator,
+  RelationGraph,
   SkillList,
   StatsPanel,
   AiNarrativeTag,
@@ -117,7 +120,7 @@ function elapsedText(elapsed: { value: number; unit: string }): string {
 /**
  * 装备投影已落地（协议 §19 / ADR-0008）：V2Snapshot.player.equipment 为可选字段
  * （旧存档 / 未配置装备的模板缺省），元素类型直接从 shared 视图类型派生，
- * 前端不再本地重复声明字段。展示层只读展示字段，补正结果属内核现算状态，不接触。
+ * 前端不再本地重复声明字段。展示层只读展示字段，状态结果属内核现算状态，不接触。
  */
 
 // ---------- 组件 ----------
@@ -204,6 +207,17 @@ function App() {
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
   const [worlds, setWorlds] = useState<WorldSummary[]>([]);
   const [tab, setTab] = useState<Tab>("life");
+  /**
+   * 跨页签的「跳到某个人」请求（2026-11-20）：关系图在**个人页**，卡片在**世界页**。
+   *
+   * 用一个带自增序号的对象而不是裸 id：连着点同一个人两次也要重新滚动定位，
+   * 裸 id 相等时 `useEffect` 不会再跑。
+   */
+  const [npcJump, setNpcJump] = useState<{ id: string; seq: number } | null>(null);
+  const openNpc = useCallback((npcId: string) => {
+    setNpcJump((prev) => ({ id: npcId, seq: (prev?.seq ?? 0) + 1 }));
+    setTab("world");
+  }, []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -525,6 +539,32 @@ function App() {
     [worldId, wrap],
   );
 
+  /**
+   * 世界内加点（ADR-019）：走轮外端点，**不推进回合** —— 提交完只是属性变了，
+   * 世界时间、事件队列、转盘都不动。失败文案按服务端错误码翻人话。
+   */
+  const ALLOCATION_ERROR_TEXT: Record<string, string> = {
+    no_pending_allocation: "这笔加点已经提交过了",
+    allocation_mismatch: "待办的加点换了，请刷新后再分",
+    allocation_over_budget: "分超了预算",
+    allocation_above_max: "某一项超过了这次的上限",
+    allocation_below_min: "某一项没到这次的下限",
+    allocation_unknown_target: "有一项不在这笔加点的范围里",
+    allocation_invalid_value: "点数必须是非负整数",
+  };
+  const allocationErrorText = useCallback((e: unknown): string => {
+    const raw = e instanceof Error ? e.message : String(e);
+    const code = /请求失败：(\w+)/.exec(raw)?.[1];
+    return (code !== undefined ? ALLOCATION_ERROR_TEXT[code] : undefined) ?? raw;
+  }, []);
+  const submitAllocation = useCallback(
+    (allocationId: string, points: Record<string, number>) =>
+      worldId
+        ? wrap(() => api.submitAllocation(worldId, allocationId, points), allocationErrorText)
+        : undefined,
+    [worldId, wrap, allocationErrorText],
+  );
+
   const useItem = useCallback(
     (itemId: string) => (worldId ? wrap(() => api.useItem(worldId, itemId)) : undefined),
     [worldId, wrap],
@@ -690,7 +730,7 @@ function App() {
    * 展示层唯一输入：引擎快照 + trace 叙事 → ViewModel（`@life-sim/rpg-ui` 的适配器）。
    * 页面组件从此只吃 ViewModel 派生的数据，不再把 V2Snapshot 传进叙事 / 立绘组件。
    */
-  const view: ViewModel = toViewModel({ snapshot, content: narrative });
+  const view: ViewModel = toViewModel({ snapshot, content: narrative, ui: snapshot.ui });
 
   return (
     <div className="shell">
@@ -706,6 +746,17 @@ function App() {
         </div>
       </header>
 
+      {/*
+        观察者视角（`observeActor`）必须一直看得见：不占顶栏（顶栏在 390px 上已经被
+        「第 N 轮 / 改名 / 重开」占满，再塞一个名字会把按钮挤成竖排），改成一条通栏细带。
+        没有这一条，「借父亲的眼睛」在界面上等于什么都没发生。
+      */}
+      {snapshot.viewerId !== undefined && (
+        <div className="viewer-banner">
+          以 <strong>{snapshot.viewerName ?? snapshot.viewerId}</strong> 的目光看世界 ——
+          关系与可见性按他算，你自己的人和数值没变
+        </div>
+      )}
       {error && <div className="banner error" onClick={() => setError(null)}>{error}</div>}
       {authNotice && <div className="banner info" onClick={() => setAuthNotice(null)}>{authNotice}</div>}
 
@@ -731,7 +782,18 @@ function App() {
           />
         )}
         {tab === "personal" && (
-          <PersonalTab snapshot={snapshot} ui={snapshot.ui} view={view} busy={busy} summarySource={summarySource} onUseItem={useItem} onEquip={equip} onUnequip={unequip} />
+          <PersonalTab
+            snapshot={snapshot}
+            ui={snapshot.ui}
+            view={view}
+            busy={busy}
+            summarySource={summarySource}
+            onUseItem={useItem}
+            onEquip={equip}
+            onUnequip={unequip}
+            onOpenNpc={openNpc}
+            onSubmitAllocation={submitAllocation}
+          />
         )}
         {tab === "world" && (
           <WorldTab
@@ -739,6 +801,7 @@ function App() {
             ui={snapshot.ui}
             npcs={view.npcs}
             vm={view}
+            jump={npcJump}
             onSelectSelf={() => setTab("personal")}
           />
         )}
@@ -924,9 +987,9 @@ function detailOfEffect(snapshot: V2Snapshot, effect: EffectSummaryVM): DetailSh
 }
 
 /**
- * 按补正 id 找详情（玩家优先，其次 NPC）。
+ * 按状态 id 找详情（玩家优先，其次 NPC）。
  *
- * 浮层里「施加 力竭」这类引用可能指向 NPC 身上的补正，只查玩家会点不开。
+ * 浮层里「施加 力竭」这类引用可能指向 NPC 身上的状态，只查玩家会点不开。
  */
 function resolveStatusDetail(snapshot: V2Snapshot, statusId: string): DetailSheetData | null {
   const own = snapshot.player.statuses.find((s) => s.id === statusId);
@@ -1001,7 +1064,23 @@ function OpeningWizard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [allocation, setAllocation] = useState<Record<string, number>>({});
-  const [finalWorld, setFinalWorld] = useState<{ id: string; snapshot: WorldSnapshot } | null>(null);
+  /**
+   * 进入一个新的加点节点时清空已分配值（ADR-004）。
+   * 不清的话，模板若有第二个 allocate 节点，玩家会带着上一套分配进去，
+   * 而服务端按新节点的预算校验 ⇒ 直接「预算不匹配」，看起来像提交坏了。
+   */
+  const allocNodeRef = useRef<string | null>(null);
+  useEffect(() => {
+    const id = node?.nodeId ?? null;
+    if (id === allocNodeRef.current) return;
+    allocNodeRef.current = id;
+    if (node?.mode === "allocate") setAllocation({});
+  }, [node]);
+  const [finalWorld, setFinalWorld] = useState<{
+    id: string;
+    snapshot: WorldSnapshot;
+    prologue?: string;
+  } | null>(null);
   /**
    * 开局所得（ADR-002 D4 的开局版本）：服务端每步回传「到目前为止拿到了什么」，
    * 与 commit 后的最终面板同一份实现。用户 2026-11-18：原来那块只列「选了哪个选项」，
@@ -1050,7 +1129,11 @@ function OpeningWizard({
         setAllocation({});
         if (res.done) {
           const committed = await api.commitOpening(sessionId);
-          setFinalWorld({ id: committed.worldId, snapshot: committed.snapshot });
+          setFinalWorld({
+            id: committed.worldId,
+            snapshot: committed.snapshot,
+            ...(committed.prologue !== undefined ? { prologue: committed.prologue } : {}),
+          });
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -1155,6 +1238,12 @@ function OpeningWizard({
           <h1>{player.name}</h1>
           <p className="muted">{finalWorld.snapshot.formattedTime} · 世界已建立</p>
         </header>
+        {finalWorld.prologue !== undefined && finalWorld.prologue.length > 0 && (
+          <section className="card prologue-card">
+            <span className="tag">序章</span>
+            <p className="prologue-text">{finalWorld.prologue}</p>
+          </section>
+        )}
         <TurnGainsCard gains={gains} onSelect={(gain) => pushDetail(detailOfGain(gain))} />
         <section className="card final-panel">
           <span className="tag">开局所得</span>
@@ -1174,8 +1263,6 @@ function OpeningWizard({
   }
 
   const budget = node?.allocation?.budget ?? 0;
-  const allocated = Object.values(allocation).reduce((sum, v) => sum + v, 0);
-  const remaining = budget - allocated;
 
   return (
     <main className="shell setup">
@@ -1217,44 +1304,23 @@ function OpeningWizard({
             </div>
           )}
 
+          {/* 加点面板（ADR-004 D6）：组件在 rpg-ui，游戏内加点复用同一实现。 */}
           {node.mode === "allocate" && (
-            <div className="alloc-grid">
-              <p className="muted">剩余 {remaining} 点（合计须正好等于 {budget}）</p>
-              {(node.allocation?.targets ?? []).map((target) => {
-                const value = allocation[target.attribute] ?? 0;
-                return (
-                  <label key={target.attribute}>
-                    <span>{target.attribute}</span>
-                    <input
-                      type="number"
-                      min={target.min ?? 0}
-                      max={target.max}
-                      value={value}
-                      onChange={(e) =>
-                        setAllocation((prev) => ({
-                          ...prev,
-                          [target.attribute]: Number.parseInt(e.target.value, 10) || 0,
-                        }))
-                      }
-                    />
-                  </label>
-                );
-              })}
-              <button
-                className="primary"
-                disabled={busy || remaining !== 0}
-                onClick={() =>
-                  void advance(
-                    { kind: "allocate", allocation },
-                    "分配完成",
-                    node.title,
-                    node.text,
-                  )
-                }
-              >
-                确定分配
-              </button>
-            </div>
+            <PointsAllocator
+              budget={budget}
+              targets={node.allocation?.targets ?? []}
+              value={allocation}
+              onChange={setAllocation}
+              disabled={busy}
+              onConfirm={() =>
+                void advance(
+                  { kind: "allocate", allocation },
+                  "分配完成",
+                  node.title,
+                  node.text,
+                )
+              }
+            />
           )}
         </section>
       )}
@@ -1462,6 +1528,16 @@ function SetupScreen({
       await submitLlmCredentials(payload);
       setSaved(true);
       setHasSession(true);
+      /**
+       * 局域网 HTTP（拿不到 WebCrypto）会走明文信封。这件事必须说出来 ——
+       * 静默降级会让「已经加密了」变成一句假话，而用户有权知道钥匙经过了谁的线路。
+       */
+      if (!isCredentialEncryptionAvailable()) {
+        setSaveWarning(
+          (prev) =>
+            `${prev === null ? "" : `${prev}｜`}本机没有 HTTPS：凭证以明文提交，只应在你信任的局域网里使用`,
+        );
+      }
     } catch (e) {
       setSaved(false);
       setSaveError(
@@ -1514,7 +1590,10 @@ function SetupScreen({
       ) : (
         <section className="card">
           <span className="tag">
-            {version !== undefined ? `${version.startYear} · 世界模板` : "版本不可用"}
+            {/* 版本号常显：只有一个版本时不出选择器，但玩家仍要看得到自己在哪一版（3.0.0 起旧版已归档）。 */}
+            {version !== undefined
+              ? `${version.startYear} · 世界模板 · v${version.version}`
+              : "版本不可用"}
           </span>
           <h2>{version?.name ?? template.name}</h2>
           {version !== undefined ? (
@@ -1799,11 +1878,11 @@ function LifeTab({
   const ended = snapshot.status === "terminated" || snapshot.status === "archived";
 
   /**
-   * 详情浮层（ADR-002 / R-DETAIL-05）：补正 / 技能 / 物品 / 装备共用一套毛玻璃排版。
+   * 详情浮层（ADR-002 / R-DETAIL-05）：状态 / 技能 / 物品 / 装备共用一套毛玻璃排版。
    * 状态放在 LifeTab 本地：只有这一屏会打开它，提到 App 层反而要多传四个 prop。
    */
   /**
-   * 浮层栈（用户 2026-11-18：浮窗里的补正也要能点开，叠在最上层即可）。
+   * 浮层栈（用户 2026-11-18：浮窗里的状态也要能点开，叠在最上层即可）。
    * 数组末尾 = 最上层；关闭弹最上面那一层。
    */
   const [details, setDetails] = useState<DetailSheetData[]>([]);
@@ -2158,12 +2237,19 @@ function ActionPanel({
 
 // ---------- 个人 Tab（人物面板 / 背包分区 / 技能） ----------
 
-type PersonalSubTab = "character" | "bag" | "skills";
+type PersonalSubTab = "character" | "bag" | "skills" | "relations";
 
-const PERSONAL_SUBTABS: Array<{ key: PersonalSubTab; label: string }> = [
-  { key: "character", label: "角色" },
-  { key: "bag", label: "背包" },
-  { key: "skills", label: "技能" },
+/**
+ * 个人页子页签 = 宿主内建能力位（`ui.yaml` 可以把任意一个 `off` 掉）。
+ *
+ * `relations` 与世界的 `npcList` 上的 `relations` **不是一个能力**：前者是
+ * 「我的人际关系图」（`playerRelations`），后者是 NPC 卡上的关系行。
+ */
+const PERSONAL_SUBTABS: Array<{ key: PersonalSubTab; label: string; capability: string }> = [
+  { key: "character", label: "角色", capability: "character" },
+  { key: "bag", label: "背包", capability: "inventory" },
+  { key: "skills", label: "技能", capability: "skills" },
+  { key: "relations", label: "关系", capability: "playerRelations" },
 ];
 
 function PersonalTab({
@@ -2175,6 +2261,8 @@ function PersonalTab({
   onUseItem,
   onEquip,
   onUnequip,
+  onOpenNpc,
+  onSubmitAllocation,
 }: {
   snapshot: V2Snapshot;
   ui?: WorldSnapshot["ui"];
@@ -2185,6 +2273,10 @@ function PersonalTab({
   onUseItem: (itemId: string) => void;
   onEquip: (itemId: string) => void;
   onUnequip: (instanceId: string) => void;
+  /** 关系图上点节点 → 跳到「世界 · 人物」里那张卡。 */
+  onOpenNpc: (npcId: string) => void;
+  /** 世界内加点（ADR-019）：轮外提交，不推进回合。 */
+  onSubmitAllocation?: (allocationId: string, points: Record<string, number>) => Promise<void> | undefined;
 }) {
   // 子页签 / 背包分区 / 选中项都是纯展示状态，但**选中项跨组件协调**（选中格 → 详情区显示什么），
   // 还会和「刷新后选中失效」这类业务判断绑在一起，所以状态留在宿主：
@@ -2192,10 +2284,20 @@ function PersonalTab({
   const [sub, setSub] = useState<PersonalSubTab>("character");
   const [partition, setPartition] = useState<BagPartition>("equipment");
   const [selection, setSelection] = useState<PersonalSelection>(null);
-  /** 技能详情里点「施加 X」时打开的补正浮层（栈）。 */
+  /** 技能详情里点「施加 X」时打开的状态浮层（栈）。 */
   const [details, setDetails] = useState<DetailSheetData[]>([]);
 
   const player = view.player;
+  const pending = player.pendingAllocation;
+  /**
+   * 加点草稿（ADR-019）：**不落任何地方**，提交前只在内存里。
+   * 换了一笔请求就清空 —— 上一笔剩下的分配带进来会让「剩余 N 点」直接算错。
+   */
+  const [allocDraft, setAllocDraft] = useState<Record<string, number>>({});
+  useEffect(() => {
+    setAllocDraft({});
+  }, [pending?.id]);
+
   const slots = view.equipmentSlots ?? [];
   // 人生总结的平台补写仍归宿主（它要读快照状态 + 发请求），组件只接收结果。
   const platformSummary = usePlatformSummary(snapshot, summarySource);
@@ -2220,10 +2322,33 @@ function PersonalTab({
 
   return (
     <div className="stack">
+      {/*
+        世界内加点（ADR-019）：挂在个人页顶部，跟着三档子页签一起可见 ——
+        这是一件「等着你处理」的事，藏在某个子页签里等于没有提示。
+        校验与落点都在服务端（与开局同一个校验器），这里只负责收集点数。
+      */}
+      {pending !== undefined && (
+        <section className="card">
+          <div className="row">
+            <h3 className="panel-title">加点</h3>
+            <span className="muted equip-count">{pending.reason ?? "攒下的长进"}</span>
+          </div>
+          <PointsAllocator
+            key={pending.id}
+            budget={pending.budget}
+            targets={pending.targets}
+            value={allocDraft}
+            onChange={setAllocDraft}
+            onConfirm={() => {
+              void onSubmitAllocation?.(pending.id, allocDraft);
+            }}
+            confirmLabel="就这样"
+            disabled={busy}
+          />
+        </section>
+      )}
       <div className="subtabbar" role="tablist" aria-label="个人子页签">
-        {PERSONAL_SUBTABS.filter((entry) =>
-          hasSubtabEntry(ui, entry.key === "character" ? "character" : entry.key === "bag" ? "inventory" : "skills"),
-        ).map((entry) => (
+        {PERSONAL_SUBTABS.filter((entry) => hasSubtabEntry(ui, entry.capability)).map((entry) => (
           <button
             key={entry.key}
             role="tab"
@@ -2290,6 +2415,37 @@ function PersonalTab({
         </>
       )}
 
+      {sub === "relations" && (
+        <section className="card">
+          <div className="row">
+            <h3 className="panel-title">
+              {player.relationsOwner === undefined ? "关系" : `${player.relationsOwner.name}的关系`}
+            </h3>
+            <span className="muted equip-count">
+              {new Set(player.relations.filter((rel) => rel.direction !== "in").map((rel) => rel.withId)).size} 人
+            </span>
+          </div>
+          {/*
+            `observeActor` 生效时这里换的是**主语**，不是你的关系变了 —— 必须写出来，
+            否则玩家会以为自己的亲人才是眼前这些人。
+          */}
+          {player.relationsOwner !== undefined && (
+            <p className="muted rel-owner-note">
+              你借了他的眼睛：这张图是{player.relationsOwner.name}视谁为什么，不是你的。
+            </p>
+          )}
+          {/*
+            关系图只画**关系**，不画「他对你多少分」：亲疏在档位文案里（`valueLabel`），
+            再拿颜色编码一次会让两条不同含义的轴互相污染。
+          */}
+          <RelationGraph
+            selfName={player.relationsOwner?.name ?? player.name}
+            relations={player.relations}
+            onSelectActor={onOpenNpc}
+          />
+        </section>
+      )}
+
       {sub === "skills" && (
         <SkillList
           skills={player.skills}
@@ -2297,6 +2453,8 @@ function PersonalTab({
             const next = detailOfEffect(snapshot, effect);
             if (next !== null) setDetails((prev) => [...prev, next]);
           }}
+          // 召唤物的常驻状态（如魔虚罗的法轮）：与个人页芯片同一个去处 —— 叠一层状态浮层。
+          onOpenModifier={(status) => setDetails((prev) => [...prev, statusToDetail(status)])}
         />
       )}
 
@@ -2336,18 +2494,31 @@ function WorldTab({
   ui,
   npcs,
   vm,
+  jump,
   onSelectSelf,
 }: {
   snapshot: V2Snapshot;
   ui?: WorldSnapshot["ui"];
   npcs: NpcVM[];
   vm: ViewModel;
+  /** 外部请求「跳到某个人」（个人页关系图 → 这里那张卡）；带自增序号。 */
+  jump?: { id: string; seq: number } | null;
   onSelectSelf: () => void;
 }) {
   const [sub, setSub] = useState<WorldSubTab>("overview");
-  /** 从族谱跳过来时要定位的那张卡（null = 没有待定位目标）。 */
+  /** 从族谱 / 关系图跳过来时要定位的那张卡（null = 没有待定位目标）。 */
   const [focusNpcId, setFocusNpcId] = useState<string | null>(null);
-  /** 补正详情浮层（栈）：NPC 身上的补正也要能点开，浮层里的引用还能继续点。 */
+
+  /**
+   * 外部跳人：先切到人物子页签，再交给下面的滚动副作用。
+   * 依赖 `seq` 而不是 `id` —— 连着点同一个人两次也要重新滚一次。
+   */
+  useEffect(() => {
+    if (jump === null || jump === undefined) return;
+    setFocusNpcId(jump.id);
+    setSub("npc");
+  }, [jump?.seq]);
+  /** 状态详情浮层（栈）：NPC 身上的状态也要能点开，浮层里的引用还能继续点。 */
   const [details, setDetails] = useState<DetailSheetData[]>([]);
   const pushDetail = useCallback((next: DetailSheetData) => setDetails((prev) => [...prev, next]), []);
 
@@ -2447,7 +2618,7 @@ function WorldTab({
 
       {ActiveComponent !== undefined && <ActiveComponent vm={vm} host={host} />}
 
-      {/* NPC 身上的补正同样能点开（ADR-002 / R-DETAIL-05）：浮层状态留在本 Tab 内。 */}
+      {/* NPC 身上的状态同样能点开（ADR-002 / R-DETAIL-05）：浮层状态留在本 Tab 内。 */}
       <DetailSheet
         detail={details[details.length - 1] ?? null}
         onClose={() => setDetails((prev) => prev.slice(0, -1))}
@@ -2468,6 +2639,9 @@ const TYPE_LABEL: Record<string, { label: string; cls: string }> = {
   event: { label: "事", cls: "t-event" },
   battle: { label: "战", cls: "t-battle" },
   milestone: { label: "碑", cls: "t-milestone" },
+  // 世界自己发生的事（`world.scheduledFacts` 到点）：玩家不在场，但它发生了。
+  // 复用「碑」的样式——这条不是玩家做的一笔，视觉上也该和「你」分开。
+  world: { label: "世", cls: "t-milestone" },
 };
 
 function LogTab({ snapshot }: { snapshot: V2Snapshot }) {

@@ -30,6 +30,7 @@ export const BUILTIN_UI_CAPABILITIES = [
   "inventory",
   "skills",
   "relations",
+  "playerRelations",
   "evaluation",
   "ending",
 ] as const;
@@ -65,14 +66,50 @@ export const UiConfigSchema = z
      */
     polarityStyles: z.record(PolaritySchema, z.string().min(1)).optional(),
     /**
+     * 资源条的渲染形态（ADR-003 D10）：**只做展示**，不进语义指纹。
+     * 键必须是 world.yaml `resources` 里已声明的资源；缺省 `display: bar`、
+     * hp/mp 的 `dangerAt` 缺省 0.25，自定义资源缺省 0（永不告警）。
+     */
+    resources: z
+      .record(
+        z.string().min(1),
+        z
+          .object({
+            display: z.enum(["bar", "pips"]).optional(),
+            /** 告警阈值比例（0..1）：value/max ≤ dangerAt 时标红；0 = 永不告警。 */
+            dangerAt: z.number().min(0).max(1).optional(),
+          })
+          .strict(),
+      )
+      .optional(),
+    /**
+     * 人生页人物卡展示哪些属性（2026-11-19 用户裁决）。
+     *
+     * 只影响顶部那张常驻卡；个人页仍然展示全部（`player.attributeViews`）。
+     * 顺序即展示顺序：数值 / 枚举 / 复合排成三列，`ladder` 单独占一整行（带进度条）。
+     * 键必须是 `world.yaml attributes.order` 里声明过的属性；缺省 = 全部可见属性。
+     */
+    playerCard: z
+      .object({
+        attributes: z.array(z.string().min(1)).optional(),
+      })
+      .strict()
+      .optional(),
+    /**
      * 标签（ADR-002 D2b）：id → `{ name, style }`。
-     * 补正 / 装备用 `tags: [id...]` 引用；未知 id 在加载期拒载（不静默丢弃）。
+     * 状态 / 装备用 `tags: [id...]` 引用；未知 id 在加载期拒载（不静默丢弃）。
      */
     tags: z.record(z.string().min(1), TagDefinitionSchema).optional(),
   })
   .strict();
 
 export type UiConfig = z.infer<typeof UiConfigSchema>;
+
+/** 导出为常量，resource 与 UI 共用：hp/mp 未写 `dangerAt` 时的默认告警阈值。 */
+export const DEFAULT_RESOURCE_DANGER_RATIO = 0.25;
+
+/** 刻度 / 条形资源条展示的默认形态（自定义资源缺省也是 bar）。 */
+export const DEFAULT_RESOURCE_DISPLAY = "bar" as const;
 
 /**
  * 当前内建布局，作为 `ui.yaml` 缺省项的落位。
@@ -93,6 +130,8 @@ export const DEFAULT_UI_PLACEMENTS: Readonly<Record<string, UiPlacement>> = {
   inventory: "slot:personal",
   skills: "slot:personal",
   relations: "slot:npcList",
+  /** 玩家自己的关系图（个人页子页签）。与 `relations`（NPC 卡上的关系行）是两个面。 */
+  playerRelations: "slot:personal",
   evaluation: "slot:personal",
   ending: "slot:life",
 };

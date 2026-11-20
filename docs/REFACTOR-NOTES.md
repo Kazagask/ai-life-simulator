@@ -97,7 +97,9 @@
 - `turn.ts` 拆分（现 1518 行）
 - rpg-ui 补组件：CharacterSheet / EvaluationPanel / RelationGraph / BattleBoard
   （**`TaskDagView` 已砍** —— DAG 子系统不存在了）
-- **B-20**：玩家侧关系面板 + `playerTemplate.relations`
+- **B-20**：~~玩家侧关系面板 + `playerTemplate.relations`~~ —— **协议半截已做（2026-11-20，ADR-017）**：
+  `playerTemplate.relations` 上线（`from` 恒为 self），投影本来就会发 `direction: "out"`。
+  **UI 面板仍未做**，见 `docs/BACKLOG.md` §「仍需产品设计」。
 - **新测试从零设计**，两条硬要求：
   1. 单侧的 LLM 层**走 mock**；
   2. **mock 数据必须来自真实跑出来的一条 trace**（录制→回放），不允许手搓假 payload。

@@ -46,6 +46,9 @@ export type { NpcCardProps } from "./NpcCard.js";
 export { NpcDetails } from "./NpcDetails.js";
 export type { NpcDetailsProps } from "./NpcDetails.js";
 
+export { RelationGraph } from "./RelationGraph.js";
+export type { RelationGraphProps } from "./RelationGraph.js";
+
 export { RelationList } from "./RelationList.js";
 export type { RelationListProps } from "./RelationList.js";
 
@@ -67,6 +70,13 @@ export type {
 
 export { CharacterPanel, SlotTile } from "./CharacterPanel.js";
 export type { CharacterPanelProps, SlotTileProps } from "./CharacterPanel.js";
+export { AttributeGrid, AttributeValue, LadderList } from "./AttributeList.js";
+export { PointsAllocator } from "./PointsAllocator.js";
+export type { PointsAllocatorProps, PointsTargetVM } from "./PointsAllocator.js";
+export { StatusChip } from "./StatusChip.js";
+export type { StatusChipProps } from "./StatusChip.js";
+export { StatusBoard } from "./StatusBoard.js";
+export type { StatusBoardProps } from "./StatusBoard.js";
 export { StatsPanel } from "./StatsPanel.js";
 export type { StatsPanelProps } from "./StatsPanel.js";
 export { BagPanel } from "./BagPanel.js";
@@ -106,8 +116,8 @@ export { TagChips } from "./TagChips.js";
 export type { TagChipsProps } from "./TagChips.js";
 export { EffectList } from "./EffectList.js";
 export type { EffectListProps } from "./EffectList.js";
-export { DetailSheet, ModifierSheet, statusToDetail } from "./ModifierSheet.js";
-export type { DetailSheetProps, DetailSheetData, ModifierSheetProps } from "./ModifierSheet.js";
+export { DetailSheet, StatusSheet, statusToDetail } from "./StatusSheet.js";
+export type { DetailSheetProps, DetailSheetData, StatusSheetProps } from "./StatusSheet.js";
 export { TurnGainsCard } from "./TurnGainsCard.js";
 export type { TurnGainsCardProps } from "./TurnGainsCard.js";
 

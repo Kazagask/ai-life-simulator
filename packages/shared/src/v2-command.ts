@@ -24,7 +24,7 @@ export const BattleCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("flee") }),
   /**
    * 空过一回合（D-14）：**本回合不做任何事，但仍消耗一个战斗回合**
-   * （友军/敌人照常行动、`roundEnd` 照常推进、补正寿命与冷却照常递减）。
+   * （友军/敌人照常行动、`roundEnd` 照常推进、状态寿命与冷却照常递减）。
    * 不消耗 MP / 道具 / 技能冷却，也不触发逃跑判定。
    *
    * 存在的理由：`cannot_act`（眩晕）时引擎会忽略命令但**仍要求玩家提交一次命令**

@@ -21,7 +21,7 @@ function buildEdges(spec: Spec): RelationEdge[] {
   const edges: RelationEdge[] = [];
   for (const [from, rels] of Object.entries(spec)) {
     for (const [to, kind] of rels) {
-      edges.push({ from, to, kind, source: "template", visibility: "known", value: 0 });
+      edges.push({ from, to, kind, source: "template", scope: "public", value: 0 });
     }
   }
   return edges;

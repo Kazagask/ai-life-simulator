@@ -1,4 +1,4 @@
-import type { V2Npc, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
+import type { V2Npc, V2Player, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
 import { PLAYER_NODE_ID } from "./relations.js";
 
 /**
@@ -113,4 +113,96 @@ export function isAliveActor(state: WorldStateV2, id: string): boolean {
   const actor = actorOf(state, id);
   if (!actor) return true;
   return actor.isSelf ? true : actor.npc?.lifecycle.state === "alive";
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 可写演员（ADR-010 D2）
+// ══════════════════════════════════════════════════════════════════
+
+export interface WritableActor {
+  /** 可直接改写的人（字段同构，调用方不必分情况）。 */
+  actor: V2Player | V2Npc;
+  isSelf: boolean;
+}
+
+/**
+ * 效果的作用对象解析 —— **能力流转的唯一入口**。
+ *
+ * - `who` 缺省或等于 `selfIdOf(state)` ⇒ `state.player`；
+ * - 否则在 `state.npcs` 里找，**要求 `lifecycle.state === "alive"`**；
+ * - 找不到 / 已离场 ⇒ `null`（调用方静默跳过：不造人、不改别人、不抛错）。
+ *
+ * 为什么"已离场"要拦：给一具尸体发物品会让 `inventory` 成为无主数据，
+ * 而复活逻辑（ADR-0020）不负责搬回这些东西。宁可这次不给，也不留悬空资产。
+ */
+export function writableActorOf(state: WorldStateV2, who?: string): WritableActor | null {
+  const selfId = selfIdOf(state);
+  const id = who ?? selfId;
+  if (id === selfId) return { actor: state.player, isSelf: true };
+  const npc = state.npcs.find((n) => n.id === id);
+  if (npc === undefined) return null;
+  if (npc.lifecycle.state !== "alive") return null;
+  return { actor: npc, isSelf: false };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 演员搬运（ADR-010 D1）
+// ══════════════════════════════════════════════════════════════════
+
+/** 可被搬运的两种结构。字段集互为子集（D1），所以按名拷贝总是安全的。 */
+export type TransferableActor = V2Player | V2Npc;
+
+/**
+ * 字段分组。**这是「切换角色 / 夺舍 / 共生 / 继承」四个场景共用的唯一词汇表**：
+ *
+ * - `body`：身体侧 —— 六维、血蓝、身上的状态、背包与装备。夺舍时**留原地**。
+ * - `mind`：意识侧 —— 会什么、知道什么、长到几级。夺舍时**跟着走**。
+ * - `identity`：他是谁。切换角色时跟着走；继承时只搬血缘指针。
+ * - `standing`：在场上是什么处境（生死、可见性、对 self 的好感）。
+ *
+ * **`age` 故意不在此列**：NPC 的 `age` 是起始快照（ADR-0021），玩家的 `age` 是当前年龄，
+ * 同名不同义。搬运后一律按 `birthTime + worldTime` 现算，绝不做字段拷贝。
+ */
+export const ACTOR_FIELD_GROUPS = {
+  body: [
+    "attributes",
+    "attributeTiers",
+    "hp",
+    "mp",
+    "mood",
+    "statuses",
+    "skillCooldowns",
+    "resources",
+    "equipment",
+    "inventory",
+  ],
+  mind: ["skills", "growthLevel", "knowledge", "secrets", "goals", "traits", "personality"],
+  identity: ["name", "gender", "birthTime", "fatherId", "motherId"],
+  standing: ["lifecycle", "visibility", "isEnemy", "relationship", "lastActedAtTurn"],
+} as const satisfies Record<string, ReadonlyArray<keyof V2Player | keyof V2Npc>>;
+
+export type ActorFieldGroup = keyof typeof ACTOR_FIELD_GROUPS;
+
+/**
+ * 按分组把 `source` 的字段写到 `target` 上（原地改写 target）。
+ *
+ * **语义是「覆盖」，不是「合并」**：`source` 没有的字段在 `target` 上会被删掉（置 undefined），
+ * 否则切回去时会留下上一个人的残影——那正是「两份真相」的来源。
+ *
+ * `id` 永不被搬运：它是关系图节点、是 self 的名字，由调用方决定。
+ */
+export function transplantActor(
+  source: TransferableActor,
+  target: TransferableActor,
+  groups: readonly ActorFieldGroup[],
+): void {
+  const from = source as unknown as Record<string, unknown>;
+  const to = target as unknown as Record<string, unknown>;
+  for (const group of groups) {
+    for (const field of ACTOR_FIELD_GROUPS[group] as readonly string[]) {
+      const value = from[field];
+      if (value === undefined) delete to[field];
+      else to[field] = structuredClone(value);
+    }
+  }
 }

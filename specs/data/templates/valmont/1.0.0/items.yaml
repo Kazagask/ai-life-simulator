@@ -1,2 +1,25 @@
-# 无物品：这个剧本的资源是名分，不是物件。
-items: []
+# 物品：两件测试用消耗品。
+# - 淬体药：**战斗内加点**（adjustAttribute 在战斗里以前是静默无效的）；
+# - 金创药：清掉「旧伤」，验证世界域 cureStatus 的作用域（碰不到天赋）。
+items:
+  - id: item-tonic
+    type: consumable
+    name: 淬体药
+    description: 苦的。喝下去手会稳一点，之后会抖。
+    stackable: true
+    # 战斗内**不改属性**（2026-11-20 用户裁决：战斗里调属性会牵动伤害/命中/血量上限一大串结算）。
+    # 它的效果是 `adjustAttribute`，不在战斗道具白名单里 ⇒ 这件东西只能在战斗外喝。
+    usableInBattle: false
+    usableOutsideBattle: true
+    use:
+      - { type: adjustAttribute, attribute: body, value: 1 }
+
+  - id: item-salve
+    type: consumable
+    name: 金创药
+    description: 油纸包着，闻起来像松脂。抹上去，旧伤会淡一点。
+    stackable: true
+    usableInBattle: true
+    usableOutsideBattle: true
+    use:
+      - { type: cureStatus, status: st-wound }

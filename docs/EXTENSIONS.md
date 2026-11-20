@@ -30,7 +30,7 @@ export interface RelationRowContext {
   viewerId: string;                    // 这张卡是谁的（npc id / player id）
   edge: RelationEdge;                  // 这一行自己那条边——不是整张图的最短路
   outgoing: boolean;                   // 边是否从 viewer 出发
-  visibleEdges: readonly RelationEdge[]; // 全部 known/inferred 边（与内核同一份口径）
+  visibleEdges: readonly RelationEdge[]; // 全部对 self 可见的边（与内核同一份口径）
   config: unknown;                     // 模板给本扩展的配置，扩展自己校验
   /** 内核为**这一张卡**新建的空 Map，`decorate` 与 `extendRows` 共用同一个。
    *  多跳路径枚举的记忆化放这里——不要放模块级缓存（会跨卡串味）。 */
@@ -58,7 +58,7 @@ export interface RelationDerivation {
 export interface RelationRowDraft {
   withId: string;
   kind?: string;                       // 缺省 "relative"
-  visibility?: "known" | "inferred";   // 缺省 "known"
+  scope?: "public" | "limited" | "private";  // 缺省 "public"；多跳须合成构成边
   fields?: Record<string, string | number | boolean | string[]>;
 }
 
@@ -69,12 +69,13 @@ export function resetExtensionRuntimes(): void;   // 仅供测试
 
 ### 内核必须守住的 5 条
 
-1. **不改事实**：`decorate` 返回的键若与内核字段同名（`withId` / `kind` / `visibility` /
+1. **不改事实**：`decorate` 返回的键若与内核字段同名（`withId` / `kind` / `scope` /
    `direction` / `counterpartVisible` / `withName` / `value`）⇒ **抛错**，不静默忽略。
    扩展只能**加列**，不能**改列**。
 2. **不能起名字**：推导行的 `withName` / `counterpartVisible` 一律由内核从 actor 目录解析，
    扩展拿不到这个能力——否则隐藏角色可以被扩展"说出来"。
-3. **不能越过可见性**：推导行的 `withId` 若落在 `factCounterpartIds` 或 `hiddenNodeIds` 里 ⇒ 内核丢弃。
+3. **不能越过可见性**：推导行的 `withId` 若落在 `factCounterpartIds` 或 `hiddenNodeIds` 里 ⇒ 内核丢弃；
+   `scope` 只能继承构成边、按最保守一档合成（ADR-007 D3），不许自己写成 `public`。
    扩展只负责"谁跟谁有关系"，**能不能显示由内核说了算**。
 4. **未声明即不跑**：模板没在 `extensions:` 里写这个 id，`projectSnapshotV2` **一次都不调用**它。
    ⇒ 卸载全部扩展时，投影与今天**逐字段一致**（零回归门槛）。
@@ -114,8 +115,9 @@ extensions:
   `version` / `requiresCore`。加载期三向核对，不符 ⇒ `core_version_mismatch` /
   `extension_version_mismatch`（软码，只废这一个版本）。区间格式见
   `packages/shared/src/version.ts` 的 `satisfiesVersion()`。不写 `requires` 的老模板零回归。
-- **语义指纹**：`extensions` 整段（含 `config`）进指纹 —— 因为它在 `world.yaml` 里、整文件参与哈希。
-  `config` 确实会改投影内容（如 `maxHops`），所以"整段进"是对的，不用再区分。
+- **语义指纹**：`extensions` 整段（含 `config`）进指纹 —— 因为它在 `world.yaml` 里、整文件参与哈希；
+  **runtime.version 也显式并入**（`extension:<id>` → version，2026-11-20）。`config` 和扩展代码
+  都会改投影内容，所以扩展改了规则语义必须升 `version`，否则旧档会在同一指纹下算出不同结果。
 - 模板不声明 ⇒ 扩展不生效，哪怕包就装在那儿。
 
 ---
@@ -194,6 +196,12 @@ extensions/family/
   扩展效果结算通道，不静默跳过）。
 - `rules.yaml` 的开放形 op **不进**加载期扫描：它本来就走注册表 + 运行期诊断，再立一套判据
   就是两个法官。
+- **装备数值没有扩展接缝**（2026-11-20 记）：`effectiveAttributesOfActor` / `equipmentCombatOf`
+  只读物品定义与实例上的字段，扩展改不到 —— 「附魔 / 增幅 / 镶嵌」这类养成现阶段只能借
+  **隐藏状态**当载体（见 `BACKLOG.md` B-23）。真要做「装备详情逐条署名 + 按实例区分」，
+  得先开一条 `equipmentModifiersOf(instance)` 之类的钩子。
+- **追加槽只有一个**：`world.subview`。个人页（`personal`）还没有扩展槽，铁匠铺这类
+  挂在个人页的视图需要先加 `personal.subview`（槽名由宿主定义，不是扩展自造）。
 
 ---
 

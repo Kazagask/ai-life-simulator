@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>十四档品级 · 预览</title>
+<!--
+  说明：这里**不复制**样式，直接引用 rpg-ui 的真样式表。
+  标记结构与 `packages/rpg-ui/src/TagChips.tsx` 完全一致：
+    <span class="ls-tag ls-box ls-box--{preset}"><span class="ls-styled ls-style--{preset}">名字</span></span>
+  所以页面里看到的就是游戏里看到的。
+
+  两个坑（都踩过）：
+  1. 三个类名一个都不能少。少写 `ls-box` 会丢 `position: relative`，而
+     `.ls-box--rainbow::before` 之类的渐变描边是 `position:absolute; inset:0`，
+     失去定位父级后改为相对 body 定位 —— 屏幕上只剩一道贯穿整页的巨大弧线，
+     看上去就像「CSS 根本没生效」（2026-11-19 实测）。
+  2. 引用走相对路径，只在直接打开本文件（file://）时成立；
+     WorkBuddy 预览面板把 html 搬进沙盒路径，取不到仓库里的 css。
+     要看真实效果请用浏览器打开本文件，或看同目录的 rarity-tags.png。
+-->
+<link rel="stylesheet" href="../../packages/rpg-ui/src/styles.css">
+<style>
+  body {
+    margin: 0;
+    padding: 32px 24px;
+    background: var(--ls-bg, #191a20);
+    color: #e9edf5;
+    font-family: "Microsoft YaHei", system-ui, sans-serif;
+  }
+  h2 { font-size: 14px; font-weight: 600; letter-spacing: .08em; color: #8f9bb3; margin: 0 0 12px; }
+  section { margin-bottom: 28px; }
+  .ls-tagchips { gap: 10px; }
+  .ls-tag { padding: 4px 14px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<section>
+  <h2>十四档阶梯（由高到低，四档光谱夹在同色系前面）</h2>
+  <div class="ls-tagchips">
+    <span class="ls-tag ls-box ls-box--rainbow"><span class="ls-styled ls-style--rainbow">唯一·神话</span></span>
+    <span class="ls-tag ls-box ls-box--rainbow-static"><span class="ls-styled ls-style--rainbow-static">一品·神话</span></span>
+    <span class="ls-tag ls-box ls-box--aurum"><span class="ls-styled ls-style--aurum">旷古·传说</span></span>
+    <span class="ls-tag ls-box ls-box--gold"><span class="ls-styled ls-style--gold">二品·传说</span></span>
+    <span class="ls-tag ls-box ls-box--ember"><span class="ls-styled ls-style--ember">绝世·史诗</span></span>
+    <span class="ls-tag ls-box ls-box--orange"><span class="ls-styled ls-style--orange">三品·史诗</span></span>
+    <span class="ls-tag ls-box ls-box--magenta"><span class="ls-styled ls-style--magenta">稀世·珍宝</span></span>
+    <span class="ls-tag ls-box ls-box--pink"><span class="ls-styled ls-style--pink">四品·珍宝</span></span>
+    <span class="ls-tag ls-box ls-box--indigo"><span class="ls-styled ls-style--indigo">超凡·卓越</span></span>
+    <span class="ls-tag ls-box ls-box--purple"><span class="ls-styled ls-style--purple">五品·卓越</span></span>
+    <span class="ls-tag ls-box ls-box--cyan"><span class="ls-styled ls-style--cyan">六品·稀有</span></span>
+    <span class="ls-tag ls-box ls-box--blue"><span class="ls-styled ls-style--blue">七品·精良</span></span>
+    <span class="ls-tag ls-box ls-box--white"><span class="ls-styled ls-style--white">八品·寻常</span></span>
+    <span class="ls-tag ls-box ls-box--gray"><span class="ls-styled ls-style--gray">九品·粗劣</span></span>
+  </div>
+</section>
+
+<section>
+  <h2>语义标签（不属于阶梯）</h2>
+  <div class="ls-tagchips">
+    <span class="ls-tag ls-box ls-box--red"><span class="ls-styled ls-style--red">异常</span></span>
+    <span class="ls-tag ls-box ls-box--green"><span class="ls-styled ls-style--green">增益</span></span>
+    <span class="ls-tag ls-box ls-box--gray"><span class="ls-styled ls-style--gray">中性</span></span>
+  </div>
+</section>
+
+<section>
+  <h2>相邻两档对照：多出的那一档只是同色系里的渐变</h2>
+  <div class="ls-tagchips">
+    <span class="ls-tag ls-box ls-box--purple"><span class="ls-styled ls-style--purple">五品·卓越</span></span>
+    <span class="ls-tag ls-box ls-box--indigo"><span class="ls-styled ls-style--indigo">超凡·卓越</span></span>
+  </div>
+  <div class="ls-tagchips">
+    <span class="ls-tag ls-box ls-box--gold"><span class="ls-styled ls-style--gold">二品·传说</span></span>
+    <span class="ls-tag ls-box ls-box--aurum"><span class="ls-styled ls-style--aurum">旷古·传说</span></span>
+  </div>
+</section>
+
+</body>
+</html>

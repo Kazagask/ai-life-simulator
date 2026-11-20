@@ -40,6 +40,7 @@ import {
   isKinshipKind,
   registeredUiCapabilities,
   resolveExtensionRuntimes,
+  validateOpeningDag,
   validateStyleRefs,
   type TemplateLookup,
   type TurnPipelineConfig,
@@ -57,8 +58,9 @@ import { installedExtensionIds } from "./extensions.js";
  *   不参与指纹、不参与校验、不拒载（R-TG-15 / H-1）。`assets/manifest.yaml` 是唯一带 `/`
  *   的嵌套白名单条目，由 `scanVersion` 在顶层循环后按相对路径定向补读（T-06）。
  * - **分层指纹**（实时计算、不落盘）：
- *   `semanticFingerprint` 只算 14 个文件（13 yaml + lore.md）（文件名 + `"\0"` + 内容，不含路径）⇒
- *   决定可载性；**第 15 个 `ui.yaml` 进白名单但不进指纹**（纯渲染声明，改页签不废存档）；
+ *   `semanticFingerprint` = 14 个文件（13 yaml + lore.md）（文件名 + `"\0"` + 内容，不含路径）
+ *   + 模板声明的扩展 id/version 对 ⇒ 决定可载性；**第 15 个 `ui.yaml` 进白名单但不进指纹**
+ *   （纯渲染声明，改页签不废存档）；
  *   游离 yaml 不参与（有意偏离旧 `endsWith(".yaml")` 实现）；
  *   `assetFingerprint` 只算 `assets/**`（相对路径 + `"\0"` + 内容），空集取确定常量，
  *   仅用于诊断，**不参与任何拒载判定**（H-2 / C-3）。
@@ -526,6 +528,11 @@ export type TemplateVersionSummary =
 export interface TemplateSummary {
   id: string;
   name: string;
+  /**
+   * 隐藏模板（world.yaml `meta.hidden`）：`GET /api/templates` 不列它。
+   * 注册表**照常**把它算进来 —— `inspect` 与体检要看得见测试田。
+   */
+  hidden?: boolean;
   /** 前端默认选中的版本：唯一可载版本 ⇒ 它本身；多版本 ⇒ 补 0 后全序最高的可载版本。 */
   startVersion?: string;
   versions: TemplateVersionSummary[];
@@ -1433,13 +1440,58 @@ function scanVersion(
         `style_ref_invalid: ${styleIssues.map((i) => `${i.path}: ${i.message}`).join("; ")}`,
       );
     }
+    // ADR-004：加点节点引用的属性 / 预算参数是跨文件的，zod 看不到，必须在拿到
+    // template + ui 之后交叉校验（与样式引用同一层、同一失败通道）。
+    if (openingDag !== undefined) {
+      const openingIssues = validateOpeningDag(openingDag, template, ui);
+      if (openingIssues.length > 0) {
+        throw new Error(
+          `opening_invalid: ${openingIssues.map((i) => `${i.path}: ${i.message}`).join("; ")}`,
+        );
+      }
+    }
+    // ADR-003 D10：ui.yaml 的资源展示配置只能引用 world.yaml 已声明的资源。
+    if (ui?.resources !== undefined) {
+      const unknownResources = Object.keys(ui.resources).filter(
+        (key) => template.resources[key] === undefined,
+      );
+      if (unknownResources.length > 0) {
+        throw new Error(`ui.yaml: 未知资源：${unknownResources.join(", ")}（需先在 world.yaml resources 声明）`);
+      }
+    }
+    // 人生页人物卡的属性清单（2026-11-19）：只能引用已声明属性，写错就拒载 ——
+    // 静默跳过会让模板作者以为「这张卡应该显示等级」，线上却少一行。
+    if (ui?.playerCard?.attributes !== undefined) {
+      const unknownAttrs = ui.playerCard.attributes.filter(
+        (key) => !template.attributes.order.includes(key),
+      );
+      if (unknownAttrs.length > 0) {
+        throw new Error(
+          `ui.yaml: playerCard 引用了未声明的属性：${unknownAttrs.join(", ")}（需先在 world.yaml attributes.order 声明）`,
+        );
+      }
+    }
     // `ui.yaml` 进白名单但不进指纹：展示声明变更不废旧档（SPEC §1.5）。
     // 这里显式过滤，防止白名单数组后续调整时误把它算进语义指纹。
+    //
+    // 扩展版本也进指纹：模板里的 `extensions:` 只写 id + config，同样的 yaml 配上
+    // 改过规则的扩展代码仍会算出不同结果 ⇒ 旧档必须拒载。`version` 缺省按 "*"，
+    // 但扩展包改了行为就必须升版本，这是扩展作者的责任（见 SPEC §1.6 / §2.6）。
+    const extensionPairs = resolveExtensionRuntimes(template)
+      .slice()
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map((resolved) => ({
+        name: `extension:${resolved.id}`,
+        content: resolved.runtime.version ?? "*",
+      }));
     const semanticFingerprint = hashPairs(
-      [...declarative]
-        .filter((file) => file !== "ui.yaml")
-        .sort()
-        .map((file) => ({ name: file, content: readFileSync(path.join(versionDir, file), "utf8") })),
+      [
+        ...[...declarative]
+          .filter((file) => file !== "ui.yaml")
+          .sort()
+          .map((file) => ({ name: file, content: readFileSync(path.join(versionDir, file), "utf8") })),
+        ...extensionPairs,
+      ],
     );
     const entry: ReadyTemplateEntry = {
       ref,
@@ -1802,6 +1854,8 @@ function createRegistry(dir: string, result: ScanResult, logger: TemplateScanLog
       return {
         id,
         name: nameOfStart,
+        // 隐藏模板：注册表照常收录（inspect / 体检要看得见），列表端点自己过滤。
+        ...(start?.status === "ready" && start.template.meta.hidden === true ? { hidden: true } : {}),
         ...(start !== undefined ? { startVersion: start.ref.version } : {}),
         versions,
       };

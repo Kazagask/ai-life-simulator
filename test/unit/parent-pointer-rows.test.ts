@@ -24,7 +24,7 @@ import { familyExtension } from "@life-sim/ext-family";
  * 2. 父/母卡上有「儿子」行 —— 指针图只有 子女→父母 方向，反向边必须补，
  *    否则人物卡（只渲染出边）看不到子女；
  * 3. 婚配表（`state.extensions.family.spouses`）也能变成「妻子 / 丈夫」行；
- * 4. 同一对父子既有声明边又有合成边 ⇒ **只出一条**，且**声明边赢**（用它自己的 `visibility` 验出来）；
+ * 4. 同一对父子既有声明边又有合成边 ⇒ **只出一条**，且**声明边赢**（用它自己的 `scope` 验出来）；
  * 5. 边模式 / 未声明扩展 ⇒ 一条贡献边都没有（零回归）。
  */
 
@@ -155,17 +155,18 @@ describe("指针模式：把亲属边加回投影，人物卡照旧出行", () =
 });
 
 describe("合并规则：声明边赢、不重复出两行", () => {
-  it("声明边 + 指针合成边撞同一对父子 ⇒ 只出一行，且保留声明边的 visibility", () => {
+  it("声明边 + 指针合成边撞同一对父子 ⇒ 只出一行，且保留声明边的 scope", () => {
     registerExtensionRuntime(familyExtension);
     const template = pointerFamilyTemplate();
     const state = makeWorld(template);
-    // 声明边故意标 inferred（合成边是 known）：谁赢可以**从行上看出来**。
+    // 声明边故意标 limited（合成边是 public）：谁赢可以**从行上看出来**。
     state.relations.push({
       from: "npc-child",
       to: "npc-father",
       kind: "father",
       source: "template",
-      visibility: "inferred",
+      scope: "limited",
+      knownBy: ["player"],
     });
 
     const snapshot = projectSnapshotV2(state, template, createLookup(template));
@@ -173,7 +174,7 @@ describe("合并规则：声明边赢、不重复出两行", () => {
       (r) => r.withId === "npc-father" && r.direction === "out",
     );
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ kind: "father", visibility: "inferred", kinshipTerm: "爸爸" });
+    expect(rows[0]).toMatchObject({ kind: "father", scope: "limited", kinshipTerm: "爸爸" });
     // 同一对父子在**整张卡**上也只该有一条 father 边（反向的「儿子」行是另一条事实，不算重复）。
     expect(
       card(snapshot, "npc-child").relations.filter((r) => r.withId === "npc-father" && r.kind === "father"),

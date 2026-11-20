@@ -153,7 +153,7 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
   },
   "world.self": {
     name: "world.self",
-    description: "查你自己：属性、生命/咒力/心情、状态、技能、背包与装备。",
+    description: "查你自己：属性、资源、心情、状态、技能、背包与装备。",
     parameters: schemaOf({}, []),
   },
   /**

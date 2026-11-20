@@ -140,8 +140,8 @@ describe("亲缘系数 · 推导现状固定", () => {
     let e: WorldStateV2["relations"] = [];
     for (const [child, p] of Object.entries(TANGLED)) {
       if (!p) continue;
-      e = addEdge(e, { from: child, to: p[0], kind: "father", source: "effect", visibility: "known" });
-      e = addEdge(e, { from: child, to: p[1], kind: "mother", source: "effect", visibility: "known" });
+      e = addEdge(e, { from: child, to: p[0], kind: "father", source: "effect", scope: "public" });
+      e = addEdge(e, { from: child, to: p[1], kind: "mother", source: "effect", scope: "public" });
     }
     return e;
   }

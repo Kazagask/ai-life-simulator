@@ -114,9 +114,14 @@ describe("ui.yaml 形状 B：schema + 加载 + 指纹", () => {
     process.env.TEMPLATES_DIR = path.resolve("specs/data/templates");
     try {
       // family 扩展由测试 bootstrap 注册与否取决于导入顺序；这里只断言 schema 层能解析。
-      for (const id of ["jjk-2006", "jjk-shinjuku", "valmont"]) {
+      // jjk-2006 的现行版本是 3.0.0（1.0.0 / 2.0.0 已随 ADR-009 归档）
+      for (const [id, version] of [
+        ["jjk-2006", "3.0.0"],
+        ["jjk-shinjuku", "1.0.0"],
+        ["valmont", "1.0.0"],
+      ] as const) {
         const raw = readFileSync(
-          path.resolve(`specs/data/templates/${id}/1.0.0/ui.yaml`),
+          path.resolve(`specs/data/templates/${id}/${version}/ui.yaml`),
           "utf8",
         );
         expect(() => UiConfigSchema.parse(parse(raw))).not.toThrow();

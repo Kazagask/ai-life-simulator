@@ -1,4 +1,5 @@
 import type {
+  AttributeValue,
   BattleCommand,
   CallLogEntry,
   ChooseOptionCommand,
@@ -16,6 +17,7 @@ import type {
   LoreEntry,
   LoreRule,
   Perspective,
+  RelationEdge,
   Rules,
   SlotEventView,
   TimeAmount,
@@ -26,7 +28,7 @@ import type {
   WorldStateV2,
   WorldTemplateV2,
 } from "@life-sim/shared";
-import { PLAYER_ID } from "@life-sim/shared";
+import { PLAYER_ID, relationScopeOf } from "@life-sim/shared";
 import {
   assignSlot,
   assignPendingInvocation,
@@ -44,7 +46,7 @@ import { collectExtensionConditions, resolveExtensionRuntimes } from "./extensio
 import { createRng, deriveTurnSeed, pickWeighted, type Rng } from "../rng.js";
 import type { RunnerContext } from "./runner-context.js";
 import { evaluateLifeV2 } from "./life-evaluation.js";
-import { amountToMinutes, birthTimeFromAge, createTimeAdapter, minutesToAmount } from "./time.js";
+import { amountToMinutes, birthTimeFromAge, createTimeAdapter, minutesToAmount, UNIT_MINUTES } from "./time.js";
 import {
   applyEffectsV2,
   checkAllConditions,
@@ -53,11 +55,13 @@ import {
   maxHp,
   maxMp,
   playerEffectiveAttributes,
+  pruneExpiredStatuses,
   type ConditionContext,
   type EffectContextV2,
 } from "./engine.js";
-import { createBattle, finishBattle, performBattleAction, resolveCombatRefs } from "./battle.js";
-import { PLAYER_NODE_ID } from "./relations.js";
+import { createBattle, createBattleRng, finishBattle, performBattleAction, resolveCombatRefs } from "./battle.js";
+import { adjustResourceValue, initPlayerResources, resolveRegenAmount } from "./resources.js";
+import { PLAYER_NODE_ID, addEdge, normalizeRelationEndpoint } from "./relations.js";
 import { nextInstanceId } from "./equipment.js";
 import { runNpcActionsV2 } from "./npc.js";
 import type { TemplateLookup } from "./lookup.js";
@@ -109,7 +113,7 @@ const MAX_NEXT_TURN_SPINS = 32;
 export type SelfSelectionV2 =
   | { kind?: "default" }
   | { kind: "reuse"; characterId: string }
-  | { kind: "new"; id: string; name: string; gender: string; age: number; attributes: Record<string, number>; skills?: string[] };
+  | { kind: "new"; id: string; name: string; gender: string; age: number; attributes: Record<string, AttributeValue>; skills?: string[] };
 
 export function createWorldV2(
   input: { templateId: string; playerName?: string; seed?: number; self?: SelfSelectionV2 },
@@ -120,6 +124,8 @@ export function createWorldV2(
   // 保持公开签名兼容：不传 ctx 时沿用原有默认；传入时用注入 rng 派生确定性 seed。
   const seed = input.seed ?? (ctx ? Math.floor(ctx.rng() * 0xffffffff) : Math.floor(Math.random() * 0xffffffff));
   const pt = template.playerTemplate;
+  /** 物品表：给 NPC 实例化装备时取槽位（ADR-010 D3）。 */
+  const itemById = new Map(template.items.map((it) => [it.id, it]));
   /**
    * self 的唯一 id（R-SELF-01）：`player.id`、关系边端点、`state.selfId` 全用它。
    * 默认 "player"（旧档逐字段不变）；reuse 指向模板角色 id；new 用调用方给的 id。
@@ -129,9 +135,9 @@ export function createWorldV2(
   let baselineName: string | undefined;
   let baselineGender: string | undefined;
   let baselineAge: number | undefined;
-  let baselineAttributes: Record<string, number> | undefined;
+  let baselineAttributes: Record<string, AttributeValue> | undefined;
   let baselineSkills: string[] | undefined;
-  /** 复用角色自带的补正（如五条悟的「六眼」）：不带上就不是「扮演这个人」。 */
+  /** 复用角色自带的状态（如某角色天生自带的特质）：不带上就不是「扮演这个人」。 */
   let baselineStatuses: string[] | undefined;
   let reusedCharacterId: string | undefined;
   if (selection?.kind === "reuse") {
@@ -183,9 +189,11 @@ export function createWorldV2(
     hp: 0,
     mp: 0,
     mood,
-    statuses: (baselineStatuses ?? []).map((id) => ({ statusId: id, stacks: 1, appliedTurn: 0 })),
+    statuses: (baselineStatuses ?? []).map((id) => ({ statusId: id, stacks: 1, appliedTurn: 0, appliedAt: 0 })),
     skillCooldowns: {},
     inventory: {} as Record<string, number>,
+    /** 自定义资源（ADR-003 D8）：建世界期由 `initPlayerResources` 按模板初始化。 */
+    resources: {} as Record<string, number>,
     skills: [...(baselineSkills ?? pt?.skills ?? [])],
     growthLevel: 0,
     equipment: initialEquipment,
@@ -210,6 +218,24 @@ export function createWorldV2(
     spawnedWorldTime: 0,
   }));
   const spawnRuleByCharacter = new Map(spawnRuleInstances.map((r) => [r.characterRef, r.ruleId]));
+  /**
+   * 指向 self 的声明边若带强度 ⇒ **折叠进 `npc.relationship` 标量**（ADR-017 D1）。
+   *
+   * 只在「复用某个角色当自己」（`as: npc-gojo`）时才会出现：模板写的
+   * `{ to: npc-gojo, kind: disciple, value: 80 }`（夜蛾视五条为弟子）在「你就是五条」这一局
+   * 里就是「夜蛾视**你**为弟子，强度 80」。以前这条 value 留在边上，而卡片 chip 读的是
+   * `npc-yaga.relationship`（8）—— 同一件事两个数。
+   *
+   * 覆盖顺序 = 声明顺序（后者胜），与 `resolveParamMap` 同口径。
+   */
+  const foldedToSelf = new Map<string, number>();
+  for (const c of template.characters) {
+    for (const r of c.relations ?? []) {
+      if (r.value !== undefined && normalizeRelationEndpoint(r.to, selfId) === selfId) {
+        foldedToSelf.set(c.id, r.value);
+      }
+    }
+  }
   const state: WorldStateV2 = {
     id: worldId,
     templateId: template.meta.id,
@@ -224,7 +250,7 @@ export function createWorldV2(
     // 不上 NPC 卡。跨敌我的关系边因此不能靠实例解析，改由关系投影单独处理。
     npcs: template.characters
       // R-SELF-01：被扮演的角色**不另建 NPC 实例**——它与玩家是同一个实体，
-      // 再建一份就会出现"两个五条悟"（属性各写各的、投影打架）。关系边不受影响。
+      // 再建一份就会出现"两个同一个人"（属性各写各的、投影打架）。关系边不受影响。
       .filter((c) => !c.isEnemy && c.id !== reusedCharacterId)
       .map((c) => ({
         id: c.id,
@@ -239,10 +265,21 @@ export function createWorldV2(
         hp: 1,
         mp: 1,
         mood: c.mood.value,
-        statuses: (c.statuses ?? []).map((id) => ({ statusId: id, stacks: 1, appliedTurn: 0 })),
+        statuses: (c.statuses ?? []).map((id) => ({ statusId: id, stacks: 1, appliedTurn: 0, appliedAt: 0 })),
         skillCooldowns: {},
         inventory: {},
         skills: [...(c.skills ?? [])],
+        // ADR-010 D3：模板声明的装备转成实例（ownerId = 角色自身，槽位取物品声明）。
+        ...(c.equipment?.length
+          ? {
+              equipment: c.equipment.map((itemId, idx) => ({
+                instanceId: `${c.id}#eq${idx + 1}`,
+                itemId,
+                ownerId: c.id,
+                slot: itemById.get(itemId)?.slot ?? "weapon",
+              })),
+            }
+          : {}),
         relationship: c.relationship,
         personality: c.public.personality ?? "",
         knownGoals: [...(c.public.knownGoals ?? [])],
@@ -271,31 +308,73 @@ export function createWorldV2(
     // ADR-0022：规则实例队列 + 空的出生事实（append-only，只由 spawnNpc 追加）
     spawnRules: spawnRuleInstances,
     spawnLog: [],
+    // ADR-007 D1：时间表的执行记录（世界创建时为空，之后由 turn tail 追加）。
+    facts: [],
     // R2.6 / ADR-0014：初始关系边由 characters[].relations 声明（from=该角色）。
-    // visibility 缺省 unknown（R-OP-05 默认不认识）；npc.relationship 标量保留独立
-    // 兼容字段，不自动生成 known 边。
+    // 知情人范围由 `scope` 声明（ADR-007 D3；旧模板的 `visibility` 折算成 scope）。
+    // npc.relationship 标量保留为独立兼容字段，不自动生成关系边。
     //
     // A 期：模板侧写的是 `to: player`（`PLAYER_ID`），落库时统一换成 `selfId` ——
     // 关系图的端点从此只有一个真源，将来 `selfId` 指向实例时图数据不需要迁移。
-    relations: template.characters
-      .flatMap((c) =>
-        (c.relations ?? []).map((r) => ({
-          from: c.id,
-          to: r.to === PLAYER_ID ? selfId : r.to,
-          kind: r.kind,
-          source: "template" as const,
-          visibility: r.visibility ?? ("unknown" as const),
-          ...(r.value !== undefined ? { value: r.value } : {}),
-          ...(r.gap !== undefined ? { gap: r.gap } : {}),
-        })),
-      )
+    relations: [
+      ...template.characters.flatMap((c) =>
+        (c.relations ?? []).map((r) => {
+          const to = normalizeRelationEndpoint(r.to, selfId);
+          return {
+            from: c.id,
+            to,
+            kind: r.kind,
+            source: "template" as const,
+            scope: r.scope ?? relationScopeOf(r),
+            ...(r.knownBy !== undefined ? { knownBy: [...r.knownBy] } : {}),
+            /**
+             * ADR-017 D1：**指向 self 的边不带强度**。
+             *
+             * 「某人视你为 X」的强度只有一个家 —— `npc.relationship` 标量。
+             * 边再带一份 `value` 就必然分叉（事件改一个、另一个原地不动）。
+             * 模板本来的写法就是 `{ to: player, kind: disciple }` 不写 value
+             * （见 `characters.yaml` 头部注释）；这里把「写错了也照单全收」这条路堵掉，
+             * 加载期另有一条 error 拦在 `schema/world.ts`。
+             */
+            ...(r.value !== undefined && to !== selfId ? { value: r.value } : {}),
+            ...(r.gap !== undefined ? { gap: r.gap } : {}),
+          };
+        }),
+      ),
+      /**
+       * ADR-017 D2：玩家自己这边的关系边（`playerTemplate.relations`，from 恒为 self）。
+       *
+       * 没有这一组时，关系图上只有「他们视你如何」，没有「你视他们为何」——
+       * 而后者恰恰是玩家侧关系面板（B-20）要显示的那一半。
+       */
+      ...(pt?.relations ?? []).map((r) => ({
+        from: selfId,
+        to: normalizeRelationEndpoint(r.to, selfId),
+        kind: r.kind,
+        source: "template" as const,
+        scope: r.scope ?? relationScopeOf(r),
+        ...(r.knownBy !== undefined ? { knownBy: [...r.knownBy] } : {}),
+        ...(r.gap !== undefined ? { gap: r.gap } : {}),
+      })),
+    ]
       /**
        * 复用模板角色当自己（`as: npc-gojo`）时，该角色声明的 `to: player` 会被替换成
        * 自己的 id ⇒ 自环。schema 明确禁止自环（「关系边不允许自环」），写进去就是一份
        * **载不回来的存档**（GET 直接 `world_state_invalid`）。这里丢掉这条边：
-       * 「五条悟把玩家当弟子」在玩家就是五条悟时本来也没有语义。
+       * 「某角色把玩家当弟子」在玩家就是这个角色时本来也没有语义。
        */
-      .filter((edge) => edge.from !== edge.to),
+      .filter((edge) => edge.from !== edge.to)
+      /**
+       * **同一条边只能有一条**（2026-11-19 修）：模板通常写两笔 ——
+       * 「夜蛾视五条为弟子（value 80）」＋「夜蛾视**你**为弟子（无 value）」。
+       * 玩家扮演五条时，后者的 `to: player` 归一成 `npc-gojo`，于是同一个
+       * `(from,to,kind)` 上出现两条边：一条带强度、一条不带。投影取第一条，
+       * 但存档里躺着两条互相矛盾的同一事实。
+       *
+       * 归一用 `addEdge`（图里唯一去重口径，按 `(from,to,kind)` 合并）：
+       * 后来的边只覆盖它自己写了的字段，`value` 不会因为「玩家那一笔没写」而丢。
+       */
+      .reduce<RelationEdge[]>((acc, edge) => addEdge(acc, edge), []),
     flags: {},
     firedEvents: {},
     // R2.5 实例层 / 事实层：全部由 createWorldV2 显式初始化，存档 strict 校验逐字段要求存在。
@@ -318,10 +397,33 @@ export function createWorldV2(
   };
   state.player.hp = maxHp(state.player, template);
   state.player.mp = maxMp(state.player, template);
+  // ADR-003 D8：自定义资源按模板 initial（缺省 = 上限）初始化；hp/mp 不进 resources 映射。
+  initPlayerResources(state.player, template);
+  /**
+   * ADR-012 D9：以某角色开局时，把他的**专属池**一起带过来（夏油开局就有「咒灵数量 3/5」）。
+   * 只认 `reuse` —— `new` 是空白人物，没有「他本来就有」的东西。
+   */
+  if (selection?.kind === "reuse") {
+    const reused = template.characters.find((c) => c.id === selection.characterId);
+    if (reused?.resources !== undefined && Object.keys(reused.resources).length > 0) {
+      state.player.resources = state.player.resources ?? {};
+      const maxes: Record<string, number> = {};
+      for (const [key, pool] of Object.entries(reused.resources)) {
+        maxes[key] = Math.max(0, Math.round(pool.max));
+        state.player.resources[key] = Math.max(0, Math.min(maxes[key], Math.round(pool.value)));
+      }
+      state.player.resourceMax = maxes;
+    }
+  }
   // NPC 模拟域占位资源 = 完整公式上限（模拟域暂无资源结算，仅保证正数）
   for (const npc of state.npcs) {
     npc.hp = computeMax(template.resources.hp, 0, npc.attributes, 1);
     npc.mp = computeMax(template.resources.mp, 0, npc.attributes, 0);
+  }
+  // ADR-017 D1：声明边折叠过来的「他视你多重」写进标量（唯一真源）。
+  for (const [npcId, value] of foldedToSelf) {
+    const npc = state.npcs.find((n) => n.id === npcId);
+    if (npc !== undefined) npc.relationship = value;
   }
   for (const item of pt?.items ?? []) {
     state.player.inventory[item.itemId] = (state.player.inventory[item.itemId] ?? 0) + item.count;
@@ -821,23 +923,42 @@ function enqueueGeneratedCertain(
 }
 
 /**
- * 刷新规则自动求值（S4）：每轮 tail 遍历 `status === "pending"` 且规则声明了 `when`
- * 的实例，条件全满足即走**现有** `spawnNpc` 路径（幂等、写 spawnLog、规则转 spawned）。
+ * 世界时间表求值（ADR-007 D1）：每轮 tail 扫一遍 `scheduledFacts`，
+ * 条件成立且没执行过 ⇒ 执行效果并记一条 `state.facts`。
  *
- * 零回归：**无 `when` 的规则永不自动**（jjk-2006 的 `rule-yuta-arrival` 依赖这条，
- * 只能由显式 `spawnNpc` / 事件 `npcs` 拉起）。条件求值用独立派生流（`scanStream`），
- * 每条规则各自一条流，互不串扰、也不扰动主轮 RNG。
+ * 为什么放在 tail：此刻本轮的结算（战斗 / 选项 / 自由行动）都已落地，
+ * 世界时间也已经推进到新值 —— 「到点发生」的判断与玩家这一轮做了什么无关。
+ *
+ * 三条硬约束：
+ * · **一事实一次**：`state.facts` 里有这个 id 就跳过（append-only，不看轮次差值）。
+ * · **不吃主轮 RNG**：条件与效果各用独立派生流（`scanStream`），给同一 seed 加一条
+ *   时间表不会改变既有对局的随机序列。
+ * · **顺序即声明顺序**：同一回合到期的多条事实按 `scheduledFacts` 的书写顺序执行，
+ *   所以「先让人登场、再建立关系」这种依赖靠排列表达，不靠隐式排序。
  */
-function evaluateSpawnRules(state: WorldStateV2, lookup: TemplateLookup): void {
-  const defs = new Map((lookup.template.npcSpawnRules ?? []).map((r) => [r.id, r]));
-  for (const inst of state.spawnRules) {
-    if (inst.status !== "pending") continue;
-    const def = defs.get(inst.ruleId);
-    if (def?.when === undefined || def.when.length === 0) continue;
-    if (!checkAllConditions(def.when, { state, lookup, rng: scanStream(state) })) continue;
-    applyEffectsV2({ state, lookup, rng: scanStream(state) }, [
-      { type: "spawnNpc", ruleId: inst.ruleId },
-    ]);
+function runScheduledFacts(state: WorldStateV2, lookup: TemplateLookup): void {
+  const defs = lookup.template.scheduledFacts;
+  if (defs === undefined || defs.length === 0) return;
+  const fired = new Set(state.facts.map((f) => f.factId));
+  for (const fact of defs) {
+    if (fired.has(fact.id)) continue;
+    if (!checkAllConditions(fact.when, { state, lookup, rng: scanStream(state) })) continue;
+    applyEffectsV2({ state, lookup, rng: scanStream(state) }, fact.effects);
+    state.facts.push({ factId: fact.id, turnIndex: state.turnIndex, worldTime: state.worldTime });
+    fired.add(fact.id);
+    /**
+     * 上了「世事」栏（2026-11-19）：事实不经过玩家，所以它拿不到「本轮收获」——
+     * 但玩家该知道世界动了。`tidings` 是作者写的**玩家可见**那句话（`note` 仍是作者注），
+     * 写进编年史就是「远方传来的事」，不需要为此写一个只为了上屏的事件。
+     */
+    if (fact.tidings !== undefined) {
+      pushHistory(state, lookup.template, {
+        id: `fact-${fact.id}-t${state.turnIndex}`,
+        type: "world",
+        summary: fact.tidings,
+        visibility: "public",
+      });
+    }
   }
 }
 
@@ -851,8 +972,8 @@ function postSettleJudgements(
   enqueueChainStarts(state, lookup, npcResult.startedChains);
   enqueueGeneratedCertain(state, lookup, rng);
   resolvePoolV2(state, template, lookup, rng);
-  // S4：刷新规则自动求值（每轮 tail 一次；无 `when` 的规则不自动）。
-  evaluateSpawnRules(state, lookup);
+  // ADR-007 D1：世界自己的时间表（NPC 登场也在其中，见 world.yaml scheduledFacts）。
+  runScheduledFacts(state, lookup);
 }
 
 /**
@@ -959,6 +1080,25 @@ function nextTurn(
   }
 }
 
+/**
+ * 冷启动的「第一幕」呈现：把已到期且前提成立的排队事件写进 `slot` 并呈现。
+ *
+ * **不推进 `turnIndex`、不消耗行动、不加世界时间**（与 `nextTurn` 槽空分支同一条路径）。
+ * 存在理由：`commitOpening` 之后是冷启动（`slot === null`），若只靠玩家下一次行动才
+ * `nextTurn`，「开局文本 → 第一幕事件」就会断开——玩家得先点一次「修炼」才看得见序章。
+ * 只呈现，不结算：`normal` 停下等选择、`random` 停下等转盘确认、`combat` 建战斗会话。
+ */
+export function presentQueuedEventV2(
+  state: WorldStateV2,
+  template: WorldTemplateV2,
+  lookup: TemplateLookup,
+): TriggerResult {
+  const result: TriggerResult = { triggered: [], wheelResult: null };
+  if (state.slot !== null || state.termination !== null) return result;
+  nextTurn(state, template, lookup, scanStream(state), result);
+  return result;
+}
+
 /** 投影 + 评价：评价是唯一事实来源（T4-04），每次投影按当前状态重算。 */
 function projectWithConfig(
   state: WorldStateV2,
@@ -1026,7 +1166,7 @@ export interface TurnPipelineConfig {
  *
  * ① **知识授予**（F4 / T-02）：按 `rules.yaml` 的 `knowledgeGrants[]` / `inferenceRules[]`
  *    给在场观察者授 `known` / `inferred`。这段**不依赖 gateway** —— 授权是模板数据
- *    驱动的确定性事实，与「这轮有没有 LLM 可调」无关；不接网关的模板（如 jjk-2006）
+ *    驱动的确定性事实，与「这轮有没有 LLM 可调」无关；不接网关的模板
  *    同样应当按规则授知识。写入经 `assignKnowledgeGrants`（权威写入集中在 engine-api）。
  *
  * ② **LLM 触发**（阶段 B / T-05a）：产出 `LlmInvocation` 交 `LlmGateway`，**不 await LLM**
@@ -1110,7 +1250,7 @@ function runSettlementHooks(
   // 结算 tail 顺序：**知识授予 → 触发器求值**。
   assignKnowledgeGrants(
     state,
-    computeKnowledgeGrants(state, pipeline.rules, registry, state.turnIndex),
+    computeKnowledgeGrants(state, pipeline.rules, registry, state.turnIndex, lookup.template),
   );
   /**
    * **轮内动作不唤起 agent**（2026-11-16 用户实测）：
@@ -1139,6 +1279,7 @@ function runSettlementHooks(
       seed: state.seed,
       turnIndex: state.turnIndex,
       resolvedEventIds,
+      template: lookup.template,
       ...(pipeline.budget !== undefined ? { budget: pipeline.budget } : {}),
       ...(pipeline.perspective !== undefined ? { perspective: pipeline.perspective } : {}),
       ...(pipeline.targetPerspective !== undefined
@@ -1351,12 +1492,19 @@ export function advanceTurnV2(
   resolveHooksV2(state, template, lookup, rng, command.action.type);
 
   // ---- 5. 模拟域结算（只在自由行动轮执行） ----
+  /**
+   * 回复按**全部已声明资源**遍历（ADR-003 D8）：hp/mp 与自定义资源同一条路径，
+   * 缺省键 = 0。这样「每回合回 1 个能量豆」不需要改引擎。
+   */
   const bonus = template.regen.actions?.[command.action.type];
-  const hpRegen = template.regen.perTurn.hp + (bonus?.hp ?? 0);
-  const mpRegen = template.regen.perTurn.mp + (bonus?.mp ?? 0);
-  state.player.hp = Math.min(maxHp(state.player, template), state.player.hp + hpRegen);
-  state.player.mp = Math.min(maxMp(state.player, template), state.player.mp + mpRegen);
-  tickSimulationStatuses(state, lookup, command.action.type === "rest");
+  for (const key of Object.keys(template.resources)) {
+    // ADR-003 D12：回复量可以是常数，也可以是「基础值 + 属性加权」。
+    const regen =
+      resolveRegenAmount(template.regen.perTurn[key], state.player.attributes) +
+      resolveRegenAmount(bonus?.[key], state.player.attributes);
+    if (regen > 0) adjustResourceValue(state.player, template, key, regen);
+  }
+  tickSimulationStatuses(state, lookup, command.action.type === "rest", amountToMinutes(elapsed));
   state.player.mood = Math.max(template.mood.min, Math.min(template.mood.max, state.player.mood));
 
   // ---- 6. 其他判定：NPC 自主行动 → pool（pool 只入队；槽已被占时天然跳过） ----
@@ -1385,7 +1533,25 @@ export function advanceTurnV2(
   };
 }
 
-function tickSimulationStatuses(state: WorldStateV2, lookup: TemplateLookup, isRest: boolean): void {
+/**
+ * 模拟域每**行动轮**结算（ADR-009 D3）。
+ *
+ * 这里做的两件事都确实是「每做一个决定结算一次」，与时间流逝无关：
+ * `moodDeltaPerTurn`（心情的自然漂移）与 `restDays`（休息**行为**的累计）。
+ *
+ * 到期**不在这里数**：`expiresAt` 是绝对时刻，由 `pruneExpiredStatuses` 在时间变化处剪掉。
+ * 旧实现把「还剩几轮」存在实例上每轮 -1，于是状态只在自由行动里缩水，事件 `advanceTo`
+ * 跨了几年它都原地不动——那个数字当时数的其实是「玩家点了几次」，不是时间。
+ */
+function tickSimulationStatuses(
+  state: WorldStateV2,
+  lookup: TemplateLookup,
+  isRest: boolean,
+  /** 本轮行动消耗的世界时间（分钟）：`restDays` 按它累计，而不是按「休息了几次」 */
+  elapsedMinutes: number,
+): void {
+  // 先剪掉「行动这段时间里已经到期」的：否则一条刚过期的状态还会多扣一次心情。
+  pruneExpiredStatuses(state);
   const remaining: typeof state.player.statuses = [];
   for (const inst of state.player.statuses) {
     const def = lookup.status(inst.statusId);
@@ -1394,16 +1560,10 @@ function tickSimulationStatuses(state: WorldStateV2, lookup: TemplateLookup, isR
     if (sim?.moodDeltaPerTurn) {
       state.player.mood += sim.moodDeltaPerTurn * inst.stacks;
     }
-    // restTurns 治疗
-    const restCure = def.cureConditions?.find((c) => "restTurns" in c);
-    if (restCure && "restTurns" in restCure) {
-      inst.restProgress = (inst.restProgress ?? 0) + (isRest ? 1 : 0);
-      if (inst.restProgress >= restCure.restTurns) continue; // 痊愈
-    }
-    // duration.turns 每模拟轮递减（turnsLeft 为实例副本，模板不可变）
-    if ("turns" in def.duration) {
-      inst.turnsLeft = (inst.turnsLeft ?? def.duration.turns) - 1;
-      if (inst.turnsLeft <= 0) continue; // 自然消退
+    const restCure = def.cureConditions?.find((c) => "restDays" in c);
+    if (restCure && "restDays" in restCure) {
+      inst.restProgress = (inst.restProgress ?? 0) + (isRest ? elapsedMinutes : 0);
+      if (inst.restProgress >= restCure.restDays * UNIT_MINUTES.day) continue; // 痊愈
     }
     remaining.push(inst);
   }
@@ -1485,6 +1645,17 @@ export function chooseOptionV2(
   postSettleJudgements(state, template, lookup, rng);
   nextTurn(state, template, lookup, rng, result);
 
+  /**
+   * 终止边界（2026-11-19 补齐）：选项是**唯一靠 `effects` 写结局旗标的结算入口**。
+   * 这里漏一次 `applyEndingBoundary`，玩家就会看到「结局条件已经成立，却还要再多点一轮才结束」
+   * ——因为下一次 `advanceTurnV2` 才在时间推进边界判终止。
+   * 与战斗 / 自由行动 / 转盘确认同口径：判据仍是落盘旗标，不读 HP 数值（R-EN-07 / P9）。
+   */
+  applyEndingBoundary(state, lookup, rng, pipeline, {
+    atBoundary: true,
+    boundary: "afterEventSettle",
+  });
+
   const snapshot = revalidateThenProject(state, template, lookup, pipeline, result, true);
   return {
     state,
@@ -1515,7 +1686,8 @@ export function battleActionV2(
   if (!battle || battle.over) throw new Error("battle_not_active");
   const rng = createRng(deriveTurnSeed(state.seed + 13, state.turnIndex * 100 + battle.round));
 
-  performBattleAction(state, command, lookup, rng);
+  // 战斗判定与战斗 AI 各走独立子流；模拟主线 rng 本身不再被战斗消费。
+  performBattleAction(state, command, lookup, createBattleRng(rng));
 
   const result: TriggerResult = {
     triggered: [],
@@ -1532,7 +1704,7 @@ export function battleActionV2(
       const settle = event.settle.combat;
       const outcomeDef =
         outcome === "victory" ? settle.onVictory : outcome === "defeat" ? settle.onDefeat : settle.onFlee;
-      // 先回写战斗镜像（补正转换/资源），再结算结果效果，避免镜像覆写结果补正
+      // 先回写战斗镜像（状态转换/资源），再结算结果效果，避免镜像覆写结果状态
       finishBattle(state, lookup);
       // 战斗结束立即清会话：它是槽的内部过程，清得比任何触发都早 ⇒ 不会误伤后继 combat 事件
       state.battle = null;

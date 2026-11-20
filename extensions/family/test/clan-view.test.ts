@@ -80,7 +80,7 @@ function edge(
   kind: RelationEdge["kind"],
   extra: Partial<RelationEdge> = {},
 ): RelationEdge {
-  return { from, to, kind, source: "template", visibility: "known", ...extra };
+  return { from, to, kind, source: "template", scope: "public", ...extra };
 }
 
 function ctx(opts: {

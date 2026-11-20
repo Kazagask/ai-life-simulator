@@ -138,10 +138,10 @@ export function kinGraphToRelationEdges(graph: KinGraph): RelationEdge[] {
 
   for (const id of ids) {
     for (const father of graph.facts.fathers.get(id) ?? []) {
-      edges.push({ from: id, to: father, kind: "father", source: "template", visibility: "known" });
+      edges.push({ from: id, to: father, kind: "father", source: "template", scope: "public" });
     }
     for (const mother of graph.facts.mothers.get(id) ?? []) {
-      edges.push({ from: id, to: mother, kind: "mother", source: "template", visibility: "known" });
+      edges.push({ from: id, to: mother, kind: "mother", source: "template", scope: "public" });
     }
   }
 
@@ -156,7 +156,7 @@ export function kinGraphToRelationEdges(graph: KinGraph): RelationEdge[] {
         to: partner,
         kind: partnerSex === "male" ? "husband" : "wife",
         source: "template",
-        visibility: "known",
+        scope: "public",
       });
     }
   }

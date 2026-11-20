@@ -164,6 +164,7 @@ characters:
       description: 庶出的那一支。他的栏位比嫡支低半行，但他自己从不提这件事——提了就等于承认自己在意。
     mood: { value: 45 }
     attributes: { body: 6, mind: 6, will: 6 }
+    skills: [sk-godfrey-cut]
     public:
       personality: 记得每一页的边角对齐过几次。他信「齐」这件事。
       knownGoals: [让庶支的名字进正册]
@@ -255,6 +256,7 @@ characters:
       description: 他是两条坍缩线的交点。册子上他的祖先栏能一直往上数到两个人，数到头只有两个人。
     mood: { value: 22 }
     attributes: { body: 5, mind: 6, will: 5 }
+    skills: [sk-duel-strike]
     public:
       personality: 话少。他数过自己有多少个祖先，数出来的数让他一夜没睡。
       knownGoals: [让罗兰离开这座宅子]
@@ -285,15 +287,127 @@ characters:
       knowledge: ["fact:pure-line"]
       goals: [find-outsider]
       traits: [willful]
+    # 陪测：修正类状态在 NPC 卡上要画虚线框（2026-11-20）。旧伤是 modifier，不是天赋。
+    # 放在布兰奇身上而不是戈弗雷：后者是切磋/暗杀的对手，挂状态会改战斗基线。
+    statuses: [st-wound]
     relationship: 35
     # ⑧ 隔代婚的另一侧：父/母是祖辈的两个人，自己又在 spouses 表里嫁给祖父。
     fatherId: npc-aldric
     motherId: npc-cecily
 
+  # ADR-003 战斗测试：外姓骑士。`isEnemy: true` ⇒ 不实例化、不上人物卡，
+  # 只被 `evt:duel` 的 `settle.combat.enemies[].ref` 直接引用。
+  - id: npc-duelist
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 外姓骑士
+      age: 30
+      gender: male
+      description: 他的剑鞘上没有任何家徽。他说他不介意名字写在册子的哪一栏，只要写上去。
+    mood: { value: 50 }
+    attributes: { body: 5, mind: 4, will: 4 }
+    skills: [sk-duelist-cut]
+    public:
+      personality: 说话前先看一眼门是否关严。
+      knownGoals: [在册子上留下自己的名字]
+    private:
+      secrets: []
+      knowledge: []
+      goals: []
+      traits: [patient]
+    relationship: 0
+
+
+  # ── 测试用新角色：由 `npcSpawnRules` 造出来，验「NPC 生成事件」与「族表入册」 ──
+  - id: npc-wife
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 伊莎贝尔
+      age: 19
+      gender: female
+      description: 塞西莉那边的表亲，从小被教着怎么把一句难听的话说得像问候。
+    mood: { value: 45 }
+    attributes: { body: 4, mind: 6, will: 5 }
+    public:
+      personality: 她数得清每一笔嫁妆，也算得清每一笔人情。
+      knownGoals: [把自己的名字写进正册]
+    private:
+      secrets: []
+      knowledge: []
+      goals: []
+      traits: [careful]
+    relationship: 20
+
+  - id: npc-heir
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 小罗兰
+      age: 0
+      gender: male
+      description: 刚会站。抓周那天抓了册子的书脊，没有抓笔。
+    mood: { value: 60 }
+    attributes: { body: 2, mind: 2, will: 3 }
+    public:
+      personality: 还看不出来。屋里所有人都说他像父亲。
+      knownGoals: []
+    private:
+      secrets: []
+      knowledge: []
+      goals: []
+      traits: []
+    relationship: 30
+
+  - id: npc-bastard
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 无名
+      age: 7
+      gender: male
+      description: 侧院的孩子。没有人当着他的面说他是谁的儿子，也没有人当着他的面说不是。
+    mood: { value: 25 }
+    attributes: { body: 4, mind: 5, will: 6 }
+    public:
+      personality: 他学东西很快，尤其是别人不想让他学的那些。
+      knownGoals: [知道自己该写在哪一栏]
+    private:
+      secrets: []
+      knowledge: []
+      goals: []
+      traits: [watchful]
+    relationship: 0
+
+  # 暗杀幕的对手：不实例化，只被 settle.combat.enemies 引用。
+  - id: npc-assassin
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 无名刀客
+      age: 35
+      gender: male
+      description: 蒙着脸，刀鞘上没有家徽。他说他只认定金，不认名字。
+    mood: { value: 50 }
+    attributes: { body: 6, mind: 5, will: 5 }
+    skills: [sk-assassin-cut]
+    public:
+      personality: 不废话。进门先看退路。
+      knownGoals: []
+    private:
+      secrets: []
+      knowledge: []
+      goals: []
+      traits: [patient]
+    relationship: 0
+
 playerTemplate:
   identity: { gender: male, age: 20 }
   mood: 35
   attributes: { body: 5, mind: 7, will: 6 }
+  # ADR-003：决斗技能（一件消耗决意，一件不消耗）。
+  skills: [sk-duel-strike, sk-duel-finisher, sk-duel-cut-deep]
   # ⑨ 汇合：玩家（罗兰）是雷纳德 × 布兰奇的孩子。玩家也走指针，不走边。
   fatherId: npc-reynard
   motherId: npc-blanche

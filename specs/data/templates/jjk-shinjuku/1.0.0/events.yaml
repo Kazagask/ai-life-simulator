@@ -78,7 +78,7 @@ events:
               weightBy: { agility: 0.01 }
               effects:
                 - { type: setFlag, id: openerWheel, value: 下风 }
-                - { type: applyStatus, status: st-grievous, stacks: 1 }
+                - { type: applyStatus, status: st-grievous, stacks: 1, duration: { value: 7, unit: day } }
                 - { type: adjustMood, value: -4 }
               nextEventId: evt:gojo-duel
 
@@ -101,7 +101,7 @@ events:
           nextEventId: evt:gojo-domain
         onDefeat:
           effects:
-            - { type: applyStatus, status: st-grievous, stacks: 1 }
+            - { type: applyStatus, status: st-grievous, stacks: 1, duration: { value: 7, unit: day } }
             - { type: adjustMood, value: -8 }
           nextEventId: evt:gojo-domain
         onFlee:
@@ -131,7 +131,7 @@ events:
             effects:
               - { type: setFlag, id: domainClashLost, value: true }
               - { type: setFlag, id: domainDone, value: true }
-              - { type: applyStatus, status: st-overload, stacks: 1 }
+              - { type: applyStatus, status: st-overload, stacks: 1, duration: { value: 10, unit: day } }
               - { type: adjustMood, value: -6 }
             nextEventId: evt:gojo-fork
 
@@ -347,7 +347,7 @@ events:
             text: 硬闯那层「帐」，趁它还薄
             effects:
               - { type: setFlag, id: sealed, value: true }
-              - { type: applyStatus, status: st-sealed, stacks: 1 }
+              - { type: applyStatus, status: st-sealed, stacks: 1, duration: { value: 10, unit: day } }
               - { type: adjustMood, value: -3 }
             nextEventId: evt:yuji-kenjaku-fight
           - id: opt-detour
@@ -382,7 +382,7 @@ events:
           nextEventId: evt:yuji-relay
         onDefeat:
           effects:
-            - { type: applyStatus, status: st-grievous, stacks: 1 }
+            - { type: applyStatus, status: st-grievous, stacks: 1, duration: { value: 7, unit: day } }
             - { type: adjustMood, value: -6 }
           nextEventId: evt:yuji-relay
         onFlee:
@@ -470,7 +470,7 @@ events:
           nextEventId: evt:yuji-megumi
         onDefeat:
           effects:
-            - { type: applyStatus, status: st-grievous, stacks: 1 }
+            - { type: applyStatus, status: st-grievous, stacks: 1, duration: { value: 7, unit: day } }
             - { type: setFlag, id: kugisakiReady, value: true }
             - { type: adjustMood, value: -6 }
           nextEventId: evt:yuji-megumi

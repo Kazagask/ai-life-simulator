@@ -31,7 +31,7 @@
 - 权威：`AGENTS.md` + `specs/SPEC.md` + `docs/REFACTOR-NOTES.md`。上一轮
   `specs/iteration-2026-11-18-random-opening/` 已收口（T0–T6 全部完成）。
 - 协议级改动（样式词汇、效果摘要、回合增量、叙事分段）按 G2 **先写 ADR**：
-  见 `docs/ADR-002-表现层协议.md`（状态：提议）。
+  见 `docs/adr/60-表现层与仪器.md`（状态：提议）。
 - **schemaVersion 保持 5**：本轮只加「可选投影字段 + 展示域声明」，不改 `WorldStateV2`
   的必填结构；旧档可直载（模板指纹变化照旧由模板版本承担）。
 

@@ -28,6 +28,9 @@ meta:
   description: 四代人把自己的血收成一根线。册子上每一页都对得上，正因为对得上，才没有人敢翻下去。
   startYear: 1320
   engineProtocol: v2
+  # 隐藏模板（2026-11-20）：这张剧本是**能力试验田**，不该出现在选模板界面。
+  # 注册表照常收录（inspect / 体检看得见），按 id 建局也照常可用（curl / 脚本）。
+  hidden: true
   # 亲缘称谓已迁出 meta：它是 `family` 扩展的能力，声明在下面的顶层 `extensions:`。
   # 不声明那个扩展，内核不再计算任何称谓（推导逻辑已从 game-core 搬到 extensions/family）。
 
@@ -114,15 +117,28 @@ mood:
 
 statusBar:
   - { id: vitals, label: 状态, source: resource, key: hp }
+  # ADR-003：自定义资源；刻度展示在 ui.yaml.resources.beans。
+  - { id: resolve, label: 决意, source: resource, key: beans }
 
 attributes:
-  order: [body, mind, will]
-  defaults: { body: 4, mind: 6, will: 5 }
-  labels: { body: 体魄, mind: 心智, will: 意志 }
+  order: [body, mind, will, prowess]
+  defaults: { body: 4, mind: 6, will: 5, prowess: 10 }
+  labels: { body: 体魄, mind: 心智, will: 意志, prowess: 武艺 }
+  # ADR-003：武艺是阶梯属性（cumulative）。决斗胜利 +40，能看到档位与进度。
+  defs:
+    prowess:
+      kind: ladder
+      tiers:
+        - { id: novice, label: 生手, at: 0 }
+        - { id: trained, label: 熟手, at: 30 }
+        - { id: adept, label: 好手, at: 80 }
+        - { id: master, label: 名手, at: 150 }
 
 resources:
   hp: { base: 100, perLevel: 0 }
   mp: { base: 50, perLevel: 0 }
+  # 能量豆机制的测试资源：上限 5、开局满、技能消耗 3。
+  beans: { label: 决意, base: 5, cap: 5, initial: 5 }
 
 regen:
   perTurn: { hp: 0, mp: 0 }
@@ -141,6 +157,17 @@ actions:
     duration: { value: 1, unit: day }
     effects:
       - { type: adjustFlag, id: columnsCounted, value: 1 }
+  # 观察者切换（ADR-010 D4）：只换「以谁的眼睛看」，不换人。
+  - id: act-observe-reynard
+    label: 借父亲的眼睛
+    description: 你退到门边，让他先看。同一页上，他的字迹比你的重。
+    effects:
+      - { type: observeActor, actorId: npc-reynard }
+  - id: act-observe-self
+    label: 收回目光
+    description: 你把视线收回来。册子还是那一页，但字是你自己的。
+    effects:
+      - { type: observeActor, actorId: null }
   - id: act-walk
     label: 走到侧院
     description: 侧院的门框比正厅矮一掌。你每次过去都要低头，低头的时候会看见门框上刻的四道痕。
@@ -161,5 +188,75 @@ npcActions:
     trigger: { probability: 0.4, cooldownTurns: 3 }
     utility: { base: 1, traitAffinity: [quiet] }
 
-# 本模板不刷新 NPC：十二个人全部在册，从第一页起就在。
-npcSpawnRules: []
+# NPC 刷新规则（ADR-0022）：配置层只声明「将来会有这个人」，
+# 真正上场由事件的 `spawnNpc(ruleId)` 或世界时间表触发 —— 登场时点不写在这里。
+# 三个测试角色：妻子（联姻）、嫡子（生育）、私生子（认领）。
+npcSpawnRules:
+  - { id: sp-wife, characterRef: npc-wife }
+  - { id: sp-heir, characterRef: npc-heir, age: 0 }
+  - { id: sp-bastard, characterRef: npc-bastard }
+
+# 世界自己的时间表（ADR-007 D1）：到点把下一幕排进队列，不占事件槽、不等玩家。
+# 这条链是**测试链**：议亲 → 生子 → 私生 → 切磋 → 传艺，五幕各验一条链路。
+scheduledFacts:
+  - id: fact-scribble
+    note: 第一日收尾，你在册子背面练了几行字（测试：grantAllocation 挂请求 + 个人页面板 + 轮外提交）
+    tidings: 册子背面还剩几行空白。你拿笔比了比。
+    when: [{ time: { gte: { value: 1, unit: day } } }]
+    effects:
+      - type: grantAllocation
+        id: alloc-scribble
+        budget: 2
+        reason: 册子背面还剩几行空白
+        targets:
+          - { attribute: body, max: 2, label: 体魄 }
+          - { attribute: mind, max: 2, label: 心智 }
+          - { attribute: will, max: 2, label: 意志 }
+
+  - id: fact-match
+    note: 第三日，侧院开始议亲（测试：spawnNpc + joinClan via marriage）
+    tidings: 侧院的门槛这几天擦得格外勤。有人要来了。
+    when: [{ time: { gte: { value: 3, unit: day } } }]
+    effects:
+      - { type: enqueueEvent, eventId: "evt:match", delay: { value: 1, unit: hour } }
+
+  - id: fact-birth
+    note: 婚后第九日得子（测试：joinClan via birth + 父边）
+    tidings: 正厅的灯亮了一夜。第二天早上，册子上多了一行。
+    when:
+      - { time: { gte: { value: 12, unit: day } } }
+      - { op: flagSet, args: { flag: married, value: true } }
+    effects:
+      - { type: enqueueEvent, eventId: "evt:birth", delay: { value: 1, unit: hour } }
+
+  - id: fact-bastard
+    note: 第十八日，侧院的孩子被抱出来（测试：joinClan via adoption + 门第下跌）
+    when:
+      - { time: { gte: { value: 18, unit: day } } }
+      - { op: flagSet, args: { flag: married, value: true } }
+    effects:
+      - { type: enqueueEvent, eventId: "evt:bastard", delay: { value: 1, unit: hour } }
+
+  - id: fact-spar
+    note: 第二十六日，戈弗雷递剑（测试：victory 条件 survive_rounds + 敌方战斗态转修正 + NPC 回写）
+    when:
+      - { time: { gte: { value: 26, unit: day } } }
+      - { op: flagSet, args: { flag: bastardBorn, value: true } }
+    effects:
+      - { type: enqueueEvent, eventId: "evt:spar", delay: { value: 1, unit: hour } }
+
+  - id: fact-assassin
+    note: 第三十三日，有人夜里进门（测试：unit_down 胜负条件 + 必战）
+    when:
+      - { time: { gte: { value: 33, unit: day } } }
+      - { op: flagSet, args: { flag: bastardBorn, value: true } }
+    effects:
+      - { type: enqueueEvent, eventId: "evt:assassinate", delay: { value: 1, unit: hour } }
+
+  - id: fact-legacy
+    note: 第四十日，父亲把本事交给侧院的孩子（测试：inheritActor + setClanHead）
+    when:
+      - { time: { gte: { value: 40, unit: day } } }
+      - { op: flagSet, args: { flag: bastardBorn, value: true } }
+    effects:
+      - { type: enqueueEvent, eventId: "evt:legacy", delay: { value: 1, unit: hour } }

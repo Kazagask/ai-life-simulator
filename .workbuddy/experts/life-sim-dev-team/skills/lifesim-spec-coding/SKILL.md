@@ -18,7 +18,7 @@ description: Spec Coding method for the AI Life Simulator repository. Use when t
 2. `AGENTS.md` — 工程规范（§0 工作方式 / §1 架构边界 / §4 交付 / §5 禁止事项）
 3. `specs/iteration-*/README.md` — 范围、冲突对齐、交给 Agent 的读法
 4. `specs/iteration-*/requirements.md` → `design.md` → `tasks.md`
-5. `docs/DECISIONS.md`（ADR）、`docs/OPEN_QUESTIONS.md`（待决项）
+5. `docs/adr/README.md`（ADR 索引：编号 → 模块，模块 → 不变量）、`docs/OPEN_QUESTIONS.md`（待决项）
 6. `tasks/reports/*.md`（已有差距报告 / 验收证据）
 
 面板与规格冲突时以 `specs/` 为准，并提醒更新 `PROJECT.md`。

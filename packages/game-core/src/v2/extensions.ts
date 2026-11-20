@@ -1,4 +1,10 @@
-import type { NpcLifecycleState, RelationEdge, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
+import type {
+  NpcLifecycleState,
+  RelationEdge,
+  RelationScope,
+  WorldStateV2,
+  WorldTemplateV2,
+} from "@life-sim/shared";
 import { setExtensionStateSliceValidators, type ExtensionStateSliceValidator } from "@life-sim/shared";
 import type { ZodTypeAny } from "zod";
 import type { ConditionEvalFn } from "./condition-evaluator.js";
@@ -123,7 +129,7 @@ export interface RelationRowContext {
   readonly edge: RelationEdge;
   /** 边是否从 viewer 出发 */
   readonly outgoing: boolean;
-  /** 全部 known/inferred 边（与内核同一份口径） */
+  /** 全部对当前 self 可见的边（与内核同一份口径：`relationVisibleTo`） */
   readonly visibleEdges: readonly RelationEdge[];
   /** 模板给本扩展的配置，扩展自己校验 */
   readonly config: unknown;
@@ -138,8 +144,24 @@ export interface RelationRowContext {
 export interface RelationCardContext {
   readonly viewerId: string;
   readonly visibleEdges: readonly RelationEdge[];
-  /** 已有事实行覆盖到的对手，补行要跳过 */
+  /** 已有事实行覆盖到的对手（粗粒度；需要按读法判重时用 `factTerms`）。 */
   readonly factCounterpartIds: ReadonlySet<string>;
+  /**
+   * 事实行已经说过的**称谓**（2026-11-20）：`withId → Set<kinshipTerm>`。
+   *
+   * 只按「有没有事实边」判重会把不同读法一起吞掉 —— 娶了外婆之后
+   * 「她是妻子」与「她是外婆」是两件事，前者不该让后者消失。
+   * 扩展用它在**同一段亲缘的另一种读法**上补行，完全重复的则跳过。
+   */
+  readonly factTerms?: ReadonlyMap<string, ReadonlySet<string>>;
+  /**
+   * 事实行已经说过的 **kind**：`withId → Set<kind>`（2026-11-20）。
+   *
+   * 用来判断「这个人已经是我的血亲事实了吗」：已经是父亲/母亲/子女的，绕路推出来的
+   * 「表兄弟」只是同一段血缘的变体（噪声）；而只有婚姻事实的人（娶了外婆），
+   * 多跳血缘读法才是**新信息**，该单独成行。
+   */
+  readonly factKinds?: ReadonlyMap<string, ReadonlySet<string>>;
   /** 内核判定不可上屏的节点 */
   readonly hiddenNodeIds: ReadonlySet<string>;
   readonly config: unknown;
@@ -159,8 +181,13 @@ export interface RelationRowDraft {
   readonly withId: string;
   /** 缺省 `"relative"` */
   readonly kind?: string;
-  /** 缺省 `"known"` */
-  readonly visibility?: "known" | "inferred";
+  /**
+   * 知情人范围（ADR-007 D3）：缺省 `"public"`。
+   *
+   * 多跳推导行必须**合成**构成边的范围（任一段 private ⇒ 整条 private），
+   * 不许在这里写死 `public` —— 否则一段私情会被推导成"大家都知道"。
+   */
+  readonly scope?: RelationScope;
   readonly fields?: RelationFields;
 }
 
@@ -240,7 +267,7 @@ export interface RelationEdgeSourceContext {
 export interface SnapshotDerivationContext {
   /** 玩家节点 id —— 用 `selfIdOf(state)` 来的值，**不许**字面量 `"player"`。 */
   readonly selfId: string;
-  /** 全部 known/inferred 边（与内核投影同一份口径，不是另一份过滤）。 */
+  /** 全部对当前 self 可见的边（与内核投影同一份口径，不是另一份过滤）。 */
   readonly visibleEdges: readonly RelationEdge[];
   /** 内核判定不可上屏的节点。扩展**不许**越过它（越界的段由内核在装配处拒绝）。 */
   readonly hiddenNodeIds: ReadonlySet<string>;
@@ -297,17 +324,18 @@ export function assertOwnSegmentKeys(
 /**
  * 内核字段：扩展**只能加列，不能改列**。
  *
- * 名单即 `docs/EXTENSIONS.md` §2 保证 1 的名单：`withId` / `kind` / `visibility` /
- * `direction` / `counterpartVisible` / `withName` / `value`。
+ * 名单即 `docs/EXTENSIONS.md` §2 保证 1 的名单：`withId` / `kind` / `scope` /
+ * `direction` / `counterpartVisible` / `counterpartState` / `withName` / `value`。
  * `withName` / `counterpartVisible` 在名单里不是巧合 —— 命名与上屏判定归内核，
  * 否则隐藏角色可以被扩展「说出来」（保证 2）。
  */
 const RESERVED_ROW_FIELDS: ReadonlySet<string> = new Set([
   "withId",
   "kind",
-  "visibility",
+  "scope",
   "direction",
   "counterpartVisible",
+  "counterpartState",
   "withName",
   "value",
 ]);

@@ -14,7 +14,6 @@
       openingDone: true
   npcSetup:
     relations: []
-    visibility: {}
   eventPools: []
   objectives:
     flags: {}
@@ -45,7 +44,6 @@
       openingDone: true
   npcSetup:
     relations: []
-    visibility: {}
   eventPools: []
   objectives:
     flags: {}

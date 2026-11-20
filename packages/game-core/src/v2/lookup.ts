@@ -88,12 +88,18 @@ export class TemplateLookup {
    * 引擎日志与投影一律经此取名，避免把具体世界的资源叫法写进通用引擎。
    */
   resourceLabel(key: string): string {
-    return this.template.statusBar.find((s) => s.source === "resource" && s.key === key)?.label ?? key;
+    return (
+      this.template.statusBar.find((s) => s.source === "resource" && s.key === key)?.label ??
+      this.template.resources[key]?.label ??
+      key
+    );
   }
 
   /** 心情显示名：statusBar 中 source=mood 的 label；缺省回退 "mood"。 */
   moodLabel(): string {
-    return this.template.statusBar.find((s) => s.source === "mood")?.label ?? "mood";
+    // 模板没声明 mood 段时的兜底：给玩家看的是中文通用词，不是机器字段名
+    // （`mood · 静` 这种显示是 bug，见 2026-11-19 用户截图）。
+    return this.template.statusBar.find((s) => s.source === "mood")?.label ?? "心情";
   }
 
   /** 单个属性显示名：attributes.labels[id]；缺省回退属性 id。 */

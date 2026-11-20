@@ -20,7 +20,7 @@ roll / choose / allocate 的 branch DAG，在 `commit` 前不实例化世界；�
 - 权威：`AGENTS.md` + `specs/SPEC.md` + `docs/REFACTOR-NOTES.md`。旧 `specs/iteration-*` /
   `docs/DECISIONS.md` / `PROJECT.md` 已整体归档到 `archive/2026-11-16-pre-rewrite/`，
   **不构成约束**，本目录是新体系的第一轮，不重建旧目录结构。
-- 协议级改动（self 存储切换 + 开局会话）按 G2 **先写 ADR**：见 `docs/ADR-001-前实例化开局.md`。
+- 协议级改动（self 存储切换 + 开局会话）按 G2 **先写 ADR**：见 `docs/adr/10-开局与角色.md`。
 - **状态：2026-11-18 全部实施完成**（T0–T6）。四件套、ADR、内核/服务端/前端、jjk-2006/2.0.0
   模板与天内理子短线均已落地；`pnpm test` 全绿（45 文件 / 275 例），typecheck 与 web build 通过。
 

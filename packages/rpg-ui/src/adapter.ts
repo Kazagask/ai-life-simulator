@@ -5,13 +5,16 @@ import type {
   EvaluationVM,
   MediaVM,
   NpcVM,
+  NpcRelationVM,
   PlayerVM,
   StatusVM,
+  UiConfig,
   V2Snapshot,
   ViewModel,
   WheelResultView,
   WheelVM,
 } from "@life-sim/shared";
+import { DEFAULT_RESOURCE_DANGER_RATIO } from "@life-sim/shared";
 import { isVisualSlot } from "./slots.js";
 
 /**
@@ -32,6 +35,11 @@ export interface ToViewModelInput {
   content?: ContentBlockVM[];
   /** 显式覆盖媒体列表；缺省用 `snapshot.media`。 */
   media?: MediaVM[];
+  /**
+   * 模板展示声明（`ui.yaml`）：目前只用于决定**人生页人物卡**展示哪些属性。
+   * 不传 ⇒ 卡片展示全部可见属性（与旧行为一致）。
+   */
+  ui?: UiConfig;
 }
 
 /**
@@ -46,6 +54,25 @@ export function toWheelVM(wheel: WheelResultView): WheelVM {
   };
 }
 
+/** 资源视图 → 前端契约（ADR-003 D10）：只把 max 归一为 ≥1，其余原样搬运。 */
+function toResourceVM(r: V2Snapshot["player"]["resources"][number]): {
+  key: string;
+  label: string;
+  value: number;
+  max: number;
+  display: "bar" | "pips";
+  dangerAt: number;
+} {
+  return {
+    key: r.key,
+    label: r.label,
+    value: r.value,
+    max: Math.max(1, r.max),
+    display: r.display,
+    dangerAt: r.dangerAt,
+  };
+}
+
 /** 战斗镜像 → 展示模型（`id` 取引擎实例 id，只作 React key / 目标标识）。 */
 export function toBattleVM(battle: NonNullable<V2Snapshot["battle"]>): BattleVM {
   const statuses = (
@@ -54,7 +81,8 @@ export function toBattleVM(battle: NonNullable<V2Snapshot["battle"]>): BattleVM 
       name: string;
       stacks: number;
       style?: StatusVM["style"];
-      battleStyle?: StatusVM["battleStyle"];
+      polarity: StatusVM["polarity"];
+      kind: StatusVM["kind"];
       tags?: StatusVM["tags"];
       quality?: string;
       effects?: StatusVM["effects"];
@@ -69,77 +97,94 @@ export function toBattleVM(battle: NonNullable<V2Snapshot["battle"]>): BattleVM 
       ...(s.description !== undefined ? { description: s.description } : {}),
       ...(s.quality !== undefined ? { quality: s.quality } : {}),
       ...(s.style !== undefined ? { style: s.style } : {}),
-      ...(s.battleStyle !== undefined ? { battleStyle: s.battleStyle } : {}),
+      polarity: s.polarity,
+      kind: s.kind,
       ...(s.tags !== undefined ? { tags: s.tags } : {}),
       ...(s.effects !== undefined ? { effects: s.effects } : {}),
       ...(s.durationLabel !== undefined ? { durationLabel: s.durationLabel } : {}),
     }));
+  /**
+   * 战斗单位 → 展示模型（敌 / 友 / 中立共用）。
+   * `tier` 决定版式（ADR-012 D2）：`minion` 小框，`hero` 整行；缺省按 hero。
+   */
+  const toCombatantVM = (u: typeof battle.enemies[number]) => ({
+    id: u.instanceId,
+    name: u.name,
+    ...(u.side !== undefined ? { side: u.side } : {}),
+    hp: u.hp,
+    maxHp: u.maxHp,
+    alive: u.alive,
+    statuses: statuses(u.statuses),
+    resources: (u.resources ?? []).map(toResourceVM),
+    ...(u.tier !== undefined ? { tier: u.tier } : {}),
+    ...(u.summonedBy !== undefined ? { summonedBy: u.summonedBy } : {}),
+    ...(u.summonRef !== undefined ? { summonRef: u.summonRef } : {}),
+    ...(u.deathReason !== undefined ? { deathReason: u.deathReason } : {}),
+    ...(u.summonerName !== undefined ? { summonerName: u.summonerName } : {}),
+  });
+
   return {
     round: battle.round,
     over: battle.over,
     player: {
+      id: battle.player.id,
       hp: battle.player.hp,
       maxHp: battle.player.maxHp,
       mp: battle.player.mp,
       maxMp: battle.player.maxMp,
-      // 控制判定的结论与「为什么」都由投影层下发，展示层不自己查补正表（D-08 / D-12 / D-13）。
+      // 战斗内资源条（含自定义资源，ADR-003 D10）；投影已按 statusBar 顺序给好。
+      resources: battle.player.resources.map(toResourceVM),
+      // 控制判定的结论与「为什么」都由投影层下发，展示层不自己查状态表（D-08 / D-12 / D-13）。
       statuses: statuses(battle.player.statuses),
       skills: battle.player.skills.map((s) => ({
         id: s.id,
         name: s.name,
-        costMp: s.costMp,
+        costs: s.costs.map((c) => ({ resource: c.resource, label: c.label, amount: c.amount })),
         cooldownLeft: s.cooldownLeft,
+        // ADR-012 D6 补：目标类型决定前端把哪边的卡片当可选目标。
+        target: s.target,
+        // 合法目标由引擎算好（含阵营归属与 DSL 谓词），前端只做 includes。
+        ...(s.legalTargets !== undefined ? { legalTargets: s.legalTargets } : {}),
+        ...(s.legalTargetNote !== undefined ? { legalTargetNote: s.legalTargetNote } : {}),
+        // ADR-015：用不了的技能不藏起来，把原因一起搬过去（文案由内核按模板取名）。
+        ...(s.seal !== undefined ? { seal: { code: s.seal.code, text: s.seal.text } } : {}),
       })),
       items: battle.player.items.map((i) => ({ itemId: i.itemId, name: i.name, count: i.count })),
       canAct: battle.player.canAct,
       canUseItems: battle.player.canUseItems,
       canFlee: battle.player.canFlee,
     },
-    enemies: battle.enemies.map((e) => ({
-      id: e.instanceId,
-      name: e.name,
-      hp: e.hp,
-      maxHp: e.maxHp,
-      alive: e.alive,
-      statuses: statuses(e.statuses),
-    })),
-    allies: battle.allies.map((a) => ({
-      id: a.instanceId,
-      name: a.name,
-      hp: a.hp,
-      maxHp: a.maxHp,
-      alive: a.alive,
-      statuses: statuses(a.statuses),
-    })),
+    enemies: battle.enemies.map(toCombatantVM),
+    allies: battle.allies.map(toCombatantVM),
+    // ADR-012 D5：第三方。旧快照没有这一段时投影给空数组。
+    neutrals: (battle.neutrals ?? []).map(toCombatantVM),
+    fallen: (battle.fallen ?? []).map(toCombatantVM),
     log: [...battle.log],
   };
 }
 
 /**
- * 资源告警阈值：剩余比例 ≤ 25% 视为危险。
- *
- * 阈值判定属于**投影口径**（和引擎面板同一处算，展示层不该各写一遍），
- * 所以只在适配器里算一次，`StatusBars` 只认 `tone` 上色。
+ * 资源告警默认阈值（兼容导出）：hp/mp 未在 `ui.yaml.resources` 写 `dangerAt` 时用它。
+ * 实际判定已由投影下发 `dangerAt`，适配器只比较数值。
  */
-export const DANGER_RATIO = 0.25;
-
-function toneOf(value: number, max: number): "normal" | "danger" {
-  return value / Math.max(1, max) <= DANGER_RATIO ? "danger" : "normal";
-}
+export const DANGER_RATIO = DEFAULT_RESOURCE_DANGER_RATIO;
 
 /**
- * 资源条派生：值取玩家当前 hp/mp，**标签取模板 `labels.resources`**（缺省才回退 "HP"/"MP"）。
- * `max` 归一为 ≥1，避免除零；不派生心情条（模板的心情是 0-100 的软量，不属于资源）。
+ * 资源条派生（ADR-003 D10）：**顺序与显隐全部来自投影**（`player.resources`，
+ * 由模板 `statusBar` 的 resource 段决定），这里只做告警色的阈值判定。
+ *
+ * 为什么不再硬编码 hp/mp：自定义资源（能量豆）也要上 HUD，且它们「花光了」是常态，
+ * 不该按 hp 的红线告警——`dangerAt = 0` 的资源永不告警。
  */
 function deriveStatusBar(snapshot: V2Snapshot): ViewModel["statusBar"] {
-  const labels = snapshot.labels.resources;
-  const p = snapshot.player;
-  const hpMax = Math.max(1, p.maxHp);
-  const mpMax = Math.max(1, p.maxMp);
-  return [
-    { key: "hp", label: labels.hp ?? "HP", value: p.hp, max: hpMax, tone: toneOf(p.hp, hpMax) },
-    { key: "mp", label: labels.mp ?? "MP", value: p.mp, max: mpMax, tone: toneOf(p.mp, mpMax) },
-  ];
+  return snapshot.player.resources.map((r) => ({
+    key: r.key,
+    label: r.label,
+    value: r.value,
+    max: Math.max(1, r.max),
+    tone: r.dangerAt > 0 && r.value / Math.max(1, r.max) <= r.dangerAt ? "danger" : "normal",
+    display: r.display,
+  }));
 }
 
 /** 可执行动作：只搬运展示字段，丢掉时长等规则字段（展示层不需要）。 */
@@ -199,11 +244,58 @@ const RELATION_KIND_LABEL: Record<string, string> = {
   rival: "对手",
   enemy: "敌手",
   colleague: "同僚",
+  lover: "恋人",
 };
 
-const RELATION_VISIBILITY_LABEL: Record<string, string> = {
-  known: "确知",
-  inferred: "推断",
+/**
+ * 关系可见性词表（2026-11-19 补全）。
+ *
+ * 内核有**四档**，这里必须四档都有名字：`unknown` / `hidden` 目前由投影挡掉
+ * （不认识的关系不上屏、hidden 的来源不泄露），但词表缺项时的兜底是 `?? rel.visibility`
+ * —— 屏幕上会直接冒出英文 `unknown`。词表是展示层唯一的翻译点，不能赌"这档永远不来"。
+ *
+ * · `known`    确知：明确知道这层关系
+ * · `inferred` 推断：从别处推出来的（"我听说他有个儿子"）
+ * · `unknown`  未知：只知道有这么个人，关系本身不明
+ * · `hidden`   未明：连"有这么一段关系"都不该让你知道，只是占位
+ */
+/**
+ * 知情人范围文案（ADR-007 D3）。三档，缺项时回退英文 id（不静默吞掉新值）。
+ *
+ * 旧口径是「确知 / 推断 / 未知 / 未明」——那是"玩家有多确信"，
+ * 把玩家写进了事实本身；现在描述的是事实本身有多少人知道。
+ */
+const RELATION_SCOPE_LABEL: Record<string, string> = {
+  public: "公开",
+  limited: "部分人知道",
+  private: "仅当事人知道",
+};
+
+/**
+ * 关系档位（value -100..100 → 一句人话）。
+ *
+ * 为什么不直接显示数值：`+32` 在人物卡上没有参照系，读起来像一条可以刷的属性；
+ * 而玩家真正要判断的是"这个人跟我是哪一档"。数值仍随行下发（`valueLabel` 的
+ * `title` / 无障碍文案用它），只是不再当主视觉。
+ *
+ * 分档刻意宽：`±20` 以内都算「平常」，否则一次事件 ±5 就会天天改称呼。
+ */
+function relationValueLabel(value: number): string {
+  if (value >= 60) return "深厚";
+  if (value >= 20) return "亲近";
+  if (value > -20) return "平常";
+  if (value > -60) return "疏远";
+  return "敌视";
+}
+
+/**
+ * 没有档案的原因词（2026-11-19）。原文案是统一一句「无档案」——那是在说「系统没有
+ * 这个人的资料」，但真实情况往往是「这个人还没出场」「他在但你看不见」「他不是人」。
+ */
+const COUNTERPART_STATE_LABEL: Record<string, string> = {
+  unspawned: "尚未登场",
+  hidden: "未现身",
+  enemy: "不在名册",
 };
 
 /**
@@ -260,8 +352,46 @@ function lifecycleText(state: string, reasonCode?: string): string {
  *    而且「A 视 B 为远亲 ≠ B 视 A 为远亲」的不对称语义会打架（2026-11-16 用户裁决）；
  *  - `withName` 在这里解析成显示名（玩家 → 「你」），组件不再需要名字表。
  */
+/**
+ * 关系行 → 前端契约（NPC 卡与玩家关系图**共用同一份**）。
+ *
+ * 只换字段名与把内核词表翻成人话（`kindLabel` / `scopeLabel` / `valueLabel`），
+ * 不重算任何语义。`direction` 原样透传：NPC 卡在调用处滤掉入边，
+ * 玩家关系图两个方向都要（箭头方向不同）。
+ */
+function toRelationVM(
+  rel: V2Snapshot["player"]["relations"][number],
+  nameOf: (id: string) => string,
+): NpcRelationVM {
+  return {
+    withId: rel.withId,
+    withName: rel.withName ?? nameOf(rel.withId),
+    kind: rel.kind,
+    kindLabel: relationKindLabel(rel),
+    // 类型名按 `kind` 取，不跟着行称谓走（推导行会把它换成人话里的「爷爷」）。
+    typeLabel: RELATION_KIND_LABEL[rel.kind] ?? rel.kind,
+    direction: rel.direction,
+    scope: rel.scope,
+    scopeLabel: RELATION_SCOPE_LABEL[rel.scope] ?? rel.scope,
+    // 数值保留（tooltip / 排序），但主视觉换成档位话术。
+    ...(rel.value !== undefined
+      ? { value: rel.value, valueLabel: relationValueLabel(rel.value) }
+      : {}),
+    ...(rel.kinshipTerm !== undefined ? { kinshipTerm: rel.kinshipTerm } : {}),
+    ...(rel.kinshipTerms !== undefined ? { kinshipTerms: [...rel.kinshipTerms] } : {}),
+    ...(rel.counterpartVisible !== undefined ? { counterpartVisible: rel.counterpartVisible } : {}),
+    // 「没有卡」的理由：投影只给状态，词表在这里（换语言改一处）。
+    ...(rel.counterpartState !== undefined
+      ? {
+          counterpartState: rel.counterpartState,
+          counterpartStateLabel:
+            COUNTERPART_STATE_LABEL[rel.counterpartState] ?? rel.counterpartState,
+        }
+      : {}),
+  };
+}
+
 function toNpcVM(snapshot: V2Snapshot, npc: V2Snapshot["npcs"][number]): NpcVM {
-  const attrLabels = snapshot.labels.attributes;
   const nameOf = (id: string): string => {
     if (id === "player") return "你";
     const hit = snapshot.npcs.find((n) => n.id === id);
@@ -274,6 +404,7 @@ function toNpcVM(snapshot: V2Snapshot, npc: V2Snapshot["npcs"][number]): NpcVM {
     genderLabel: npc.genderLabel,
     lifeStageLabel: npc.lifeStageLabel,
     relationship: npc.relationship,
+    relationshipLabel: relationValueLabel(npc.relationship),
     personality: npc.personality,
     knownGoals: [...npc.knownGoals],
     statuses: npc.statuses.map((s) => ({
@@ -283,48 +414,83 @@ function toNpcVM(snapshot: V2Snapshot, npc: V2Snapshot["npcs"][number]): NpcVM {
       ...(s.description !== undefined ? { description: s.description } : {}),
       ...(s.quality !== undefined ? { quality: s.quality } : {}),
       ...(s.style !== undefined ? { style: s.style } : {}),
-      ...(s.battleStyle !== undefined ? { battleStyle: s.battleStyle } : {}),
+      polarity: s.polarity,
+      kind: s.kind,
       ...(s.tags !== undefined ? { tags: s.tags } : {}),
       ...(s.effects !== undefined ? { effects: s.effects } : {}),
       ...(s.durationLabel !== undefined ? { durationLabel: s.durationLabel } : {}),
     })),
-    attributes: Object.entries(npc.attributes)
-      // 顺序即模板 attributes.order：投影已按 order 构造，这里不重排、不过滤（0 是有效值）。
-      .map(([key, value]) => ({ key, label: attrLabels[key] ?? key, value: Number(value) })),
+    attributes: npc.attributeViews.map(toAttributeVM),
     alive: npc.lifecycle.state === "alive",
     lifeState: npc.lifecycle.state,
     lifeText: lifecycleText(npc.lifecycle.state, npc.lifecycle.reasonCode),
-    relations: npc.relations
-      .filter((rel) => rel.direction === "out")
-      .map((rel) => {
-        return {
-        withId: rel.withId,
-        withName: rel.withName ?? nameOf(rel.withId),
-        kind: rel.kind,
-        kindLabel: relationKindLabel(rel),
-        visibility: rel.visibility,
-        visibilityLabel: RELATION_VISIBILITY_LABEL[rel.visibility] ?? rel.visibility,
-        ...(rel.value !== undefined ? { value: rel.value } : {}),
-        ...(rel.kinshipTerm !== undefined ? { kinshipTerm: rel.kinshipTerm } : {}),
-        ...(rel.kinshipTerms !== undefined ? { kinshipTerms: [...rel.kinshipTerms] } : {}),
-        ...(rel.counterpartVisible !== undefined ? { counterpartVisible: rel.counterpartVisible } : {}),
-        };
-      }),
+    // 只给 out 边（2026-11-16 用户裁决）：双向渲染等于把同一句话写两遍。
+    relations: npc.relations.filter((rel) => rel.direction === "out").map((rel) => toRelationVM(rel, nameOf)),
   };
 }
 
 /**
- * 玩家卡投影：属性条的顺序与「哪些属性不算属性」都是**投影口径**，在这里一次算清，
- * 不然每个自定义前端都要各自抄一遍 `labels.attributes` 的排序和 `proficiency*` 过滤。
+ * 属性视图 → 前端契约（ADR-003）：只换字段名（`id` → `key`），不重算任何展示语义。
+ * enum / composite 的样式、ladder 的档位与进度都已在投影期解析好。
  */
-function toPlayerVM(snapshot: V2Snapshot): PlayerVM {
-  const p = snapshot.player;
-  const labels = snapshot.labels;
-  const order = Object.keys(labels.attributes);
-  const rank = (key: string): number => {
-    const idx = order.indexOf(key);
-    return idx === -1 ? Number.MAX_SAFE_INTEGER : idx;
+function toAttributeVM(
+  v: V2Snapshot["player"]["attributeViews"][number],
+): PlayerVM["attributes"][number] {
+  return {
+    key: v.id,
+    label: v.label,
+    kind: v.kind,
+    ...(v.value !== undefined ? { value: v.value } : {}),
+    display: v.display,
+    ...(v.style !== undefined ? { style: v.style } : {}),
+    ...(v.progress !== undefined ? { progress: v.progress } : {}),
+    ...(v.tier !== undefined ? { tier: v.tier } : {}),
+    ...(v.sources !== undefined
+      ? {
+          sources: v.sources.map((s) => ({
+            key: s.id,
+            label: s.label,
+            display: s.display,
+            ...(s.style !== undefined ? { style: s.style } : {}),
+          })),
+        }
+      : {}),
   };
+}
+
+/**
+ * 玩家卡投影：属性视图由投影给好（顺序 / hidden 过滤 / 样式 / 档位），适配器只换字段名。
+ * 自定义前端不必再抄 `labels.attributes` 的排序和 `proficiency*` 过滤。
+ */
+/**
+ * 人物卡属性子集（2026-11-19）：按 `ui.playerCard.attributes` 过滤 + 排序。
+ *
+ * 为什么在适配器做：`ui.yaml` 是模板展示声明，自定义前端不该各自再读一遍；
+ * 而且"卡片展示哪些"与"个人页展示全部"是两条口径，必须在同一处一次算清。
+ * 未声明的键**静默跳过**（加载期已校验是否合法，运行期只防旧 ui 残留）。
+ */
+function cardAttributesOf(
+  all: PlayerVM["attributes"],
+  ui: UiConfig | undefined,
+): PlayerVM["attributes"] {
+  const keys = ui?.playerCard?.attributes;
+  if (keys === undefined) return all;
+  const byKey = new Map(all.map((attr) => [attr.key, attr]));
+  return keys.flatMap((key) => {
+    const attr = byKey.get(key);
+    return attr === undefined ? [] : [attr];
+  });
+}
+
+function toPlayerVM(snapshot: V2Snapshot, ui?: UiConfig): PlayerVM {
+  const p = snapshot.player;
+  const nameOf = (id: string): string => {
+    if (id === "player") return "你";
+    const hit = snapshot.npcs.find((n) => n.id === id);
+    return hit?.name ?? id;
+  };
+  const labels = snapshot.labels;
+  const attributes = p.attributeViews.map(toAttributeVM);
   return {
     id: p.id,
     name: p.name,
@@ -342,11 +508,9 @@ function toPlayerVM(snapshot: V2Snapshot): PlayerVM {
       mp: labels.resources.mp ?? "mp",
       mood: labels.mood,
     },
-    attributes: Object.entries(p.attributes)
-      // 熟练度（`proficiency*`）是派生键，不算面板上的属性条（与既有视觉一致）。
-      .filter(([key]) => !key.startsWith("proficiency"))
-      .sort(([a], [b]) => rank(a) - rank(b))
-      .map(([key, value]) => ({ key, label: labels.attributes[key] ?? key, value: Number(value) })),
+    attributes,
+    cardAttributes: cardAttributesOf(attributes, ui),
+    resources: p.resources.map(toResourceVM),
     statuses: p.statuses.map((s) => ({
       id: s.id,
       name: s.name,
@@ -354,10 +518,47 @@ function toPlayerVM(snapshot: V2Snapshot): PlayerVM {
       ...(s.description !== undefined ? { description: s.description } : {}),
       ...(s.quality !== undefined ? { quality: s.quality } : {}),
       ...(s.style !== undefined ? { style: s.style } : {}),
-      ...(s.battleStyle !== undefined ? { battleStyle: s.battleStyle } : {}),
+      polarity: s.polarity,
+      kind: s.kind,
       ...(s.tags !== undefined ? { tags: s.tags } : {}),
       ...(s.effects !== undefined ? { effects: s.effects } : {}),
       ...(s.durationLabel !== undefined ? { durationLabel: s.durationLabel } : {}),
+    })),
+    // ADR-018 D8：状态合计。逐字段重建是第二张皮 —— 漏映射就会在界面上消失。
+    /**
+     * 玩家关系（2026-11-20）：**两个方向都映射**（`direction` 区分），
+     * 关系图靠它画箭头；NPC 卡那边仍在调用处滤出边。
+     */
+    relations: (p.relations ?? []).map((rel) => toRelationVM(rel, nameOf)),
+    /**
+     * 待完成的加点（ADR-019）：`label` / `style` 已在投影里解析过，
+     * 这里只换字段名 —— 不在前端再查一次模板。
+     */
+    ...(snapshot.pendingAllocation !== undefined
+      ? {
+          pendingAllocation: {
+            id: snapshot.pendingAllocation.id,
+            budget: snapshot.pendingAllocation.budget,
+            ...(snapshot.pendingAllocation.reason !== undefined
+              ? { reason: snapshot.pendingAllocation.reason }
+              : {}),
+            targets: snapshot.pendingAllocation.targets.map((t) => ({
+              attribute: t.attribute,
+              label: t.label,
+              ...(t.min !== undefined ? { min: t.min } : {}),
+              ...(t.max !== undefined ? { max: t.max } : {}),
+              ...(t.style !== undefined ? { style: t.style } : {}),
+            })),
+          },
+        }
+      : {}),
+    ...(p.relationsOwner !== undefined ? { relationsOwner: { ...p.relationsOwner } } : {}),
+    statusTotals: (p.statusTotals ?? []).map((c) => ({
+      id: c.id,
+      label: c.label,
+      format: c.format,
+      total: c.total,
+      sources: c.sources.map((sm) => ({ ...sm })),
     })),
     // 模板没给阶段文案时投影会回退成 id（「adulthood」）；这里把这种情况抹成空串，
     // 展示层据此不渲染 —— 内部 id 不该出现在界面上（RPA ui-2-personal.png）。
@@ -373,6 +574,7 @@ function toPlayerVM(snapshot: V2Snapshot): PlayerVM {
       ...(e.name !== undefined ? { name: e.name } : {}),
       ...(e.description !== undefined ? { description: e.description } : {}),
       ...(e.category !== undefined ? { category: e.category } : {}),
+      ...(e.categoryLabel !== undefined ? { categoryLabel: e.categoryLabel } : {}),
       ...(e.quality !== undefined ? { quality: e.quality } : {}),
       ...(e.style !== undefined ? { style: e.style } : {}),
       ...(e.tags !== undefined ? { tags: e.tags } : {}),
@@ -389,6 +591,7 @@ function toPlayerVM(snapshot: V2Snapshot): PlayerVM {
       ...(i.slot !== undefined ? { slot: i.slot } : {}),
       ...(i.slotLabel !== undefined ? { slotLabel: i.slotLabel } : {}),
       ...(i.category !== undefined ? { category: i.category } : {}),
+      ...(i.categoryLabel !== undefined ? { categoryLabel: i.categoryLabel } : {}),
       ...(i.quality !== undefined ? { quality: i.quality } : {}),
       ...(i.style !== undefined ? { style: i.style } : {}),
       ...(i.tags !== undefined ? { tags: i.tags } : {}),
@@ -402,6 +605,11 @@ function toPlayerVM(snapshot: V2Snapshot): PlayerVM {
       ...(sk.quality !== undefined ? { quality: sk.quality } : {}),
       ...(sk.style !== undefined ? { style: sk.style } : {}),
       ...(sk.effects !== undefined ? { effects: sk.effects } : {}),
+      // 召唤类技能：个人技能页描述里的加粗文字点开这个浮窗（必须原样透传，
+      // 少这一行后端算得再对，界面上也不会出现入口）。
+      ...(sk.summon !== undefined ? { summon: sk.summon } : {}),
+      // ADR-015：技能页也要看到「这一招现在用不了」及原因（虹龙被献祭后那一栏）。
+      ...(sk.seal !== undefined ? { seal: { code: sk.seal.code, text: sk.seal.text } } : {}),
     })),
   };
 }
@@ -429,10 +637,10 @@ function toEvaluationVM(snapshot: V2Snapshot): EvaluationVM {
   };
 }
 
-export function toViewModel({ snapshot, content, media }: ToViewModelInput): ViewModel {
+export function toViewModel({ snapshot, content, media, ui }: ToViewModelInput): ViewModel {
   const slot = snapshot.slotEvent;
   return {
-    player: toPlayerVM(snapshot),
+    player: toPlayerVM(snapshot, ui),
     npcs: snapshot.npcs.map((n) => toNpcVM(snapshot, n)),
     slot:
       slot === null

@@ -111,7 +111,7 @@ function build(spec: Record<string, Array<[string, KinshipKind]>>): RelationEdge
   const out: RelationEdge[] = [];
   for (const [from, rels] of Object.entries(spec)) {
     for (const [to, kind] of rels) {
-      out.push({ from, to, kind, source: "template", visibility: "known", value: 0 });
+      out.push({ from, to, kind, source: "template", scope: "public", value: 0 });
     }
   }
   return out;

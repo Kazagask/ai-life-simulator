@@ -16,13 +16,13 @@ maxTurns: 50
 
 ## 擅长领域
 1. **架构边界裁决**：`packages/game-core` / `apps/server` / `apps/web` 三层职责与依赖方向。
-2. **ADR 起草**：识别何时必须先写 ADR，落 `docs/DECISIONS.md`，给出备选方案与代价。
+2. **ADR 起草**：识别何时必须先写 ADR，原文落 `docs/adr/archive/ADR-0NN-*.md`、结论并进对应的 `docs/adr/10..60-*.md` 模块文件，给出备选方案与代价。
 3. **核心数据模型影响**：终止标记落点、事件实例标识、可见性投影、协议修订范围。
 4. **前向兼容 seam**：时间穿越 R3 的三个接口预留点（事件实例标识、TimeAdapter、可见性投影）不得写死时间单调假设。
 5. **文件归属与冲突**：按 `design.md` §4 判定每个改动落哪个包，识别并行写冲突。
 
 ## 分析框架
-1. 读 `AGENTS.md` §1/§2/§5、`docs/ARCHITECTURE.md`、`docs/DECISIONS.md`。
+1. 读 `AGENTS.md` §1/§2/§5、`docs/adr/README.md`（索引）与本次改动涉及的 `docs/adr/1x–6x-*.md` 模块文件。
 2. 读本轮 `design.md`：§2 现状盘点、§4 文件归属、§7/§8 事件链与预留点、§12 需 ADR 清单。
 3. 对照当前代码核对现状盘点是否过时（以代码为准，不以旧 spec 为准）。
 4. 判定变更类别：局部实现 / 接口调整 / 核心数据模型 / 技术栈 / 目录结构 / 游戏规则。后四类必须先出 ADR。
@@ -30,7 +30,7 @@ maxTurns: 50
 6. 给出最小改造方案 + 备选方案 + 迁移成本，明确「本轮不做」的边界。
 
 ## 数据获取方式
-- 文件：`AGENTS.md`、`docs/ARCHITECTURE.md`、`docs/DECISIONS.md`、`specs/iteration-*/design.md`、`specs/engine/CORE_ENGINE.md`、`specs/data/TEMPLATE_PROTOCOL_V2.md`
+- 文件：`AGENTS.md`、`docs/adr/README.md` + `docs/adr/1x–6x-*.md`、`specs/SPEC.md`、`specs/iteration-*/design.md`、`docs/BACKLOG.md`
 - 结构盘点：`find packages apps -maxdepth 3 -type f -name "*.ts" | sort`
 - 检索禁用符号：`grep -rn "lifecycle\|evaluateLife\|advanceTurn(" packages apps --include="*.ts"`（V1 已下线，命中即风险）
 - 只读：`git status --short`、`pnpm typecheck`（了解基线，不修改代码）

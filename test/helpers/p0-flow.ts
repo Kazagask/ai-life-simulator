@@ -24,7 +24,13 @@ export async function createP0(
   });
 }
 
-/** 开局 → 转盘 → 战斗（两击）→ 选择 → 再推一回合触发 afterSettle 终局。 */
+/**
+ * 开局 → 转盘 → 战斗（两击）→ 选择 → 结局。
+ *
+ * 2026-11-19 起选项结算自己也走终止边界（`chooseOptionV2` 末尾的 `applyEndingBoundary`），
+ * 所以结局通常**在选项那一响应里**就落地了。仍留一次兜底推轮，供只靠时间推进才成立的
+ * 终止条件（`afterTimeAdvance`）使用 —— 已经不是「必须多点一次」的老行为。
+ */
 export async function playP0ToEnding(
   baseUrl: string,
   worldId: string,
@@ -48,9 +54,10 @@ export async function playP0ToEnding(
       skillId: "sk-strike",
     });
   }
-  await api<{ snapshot: Snapshot }>(baseUrl, "POST", `/api/worlds/${worldId}/events/choose`, {
+  const chosen = await api<{ snapshot: Snapshot }>(baseUrl, "POST", `/api/worlds/${worldId}/events/choose`, {
     optionId: finalOptionId,
   });
+  if (chosen.snapshot.ending) return chosen.snapshot;
   const end = await api<{ snapshot: Snapshot }>(baseUrl, "POST", `/api/worlds/${worldId}/turns`, {
     action: { type: "rest", description: "" },
     mode: "single",

@@ -39,6 +39,15 @@ events:
               # 这两条各自自动追加一条史（member_joined / head_changed），不另写 clanHistory。
               - { type: joinClan, actorId: npc-reynard, clanId: valmont, via: birth, role: 嫡长, reason: "开册重抄：雷纳德承父栏，名续正册" }
               - { type: setClanHead, clanId: valmont, actorId: npc-reynard }
+              # 2026-11-20 修复：以前只有雷纳德入册，于是宗族面板的「在世成员」是 1，
+              # 可这屋里站着七个活人 —— 宗族数据一直是对的，是模板从没把别人写进去。
+              # 在世者逐个入册（via birth：都是这一支生下来的），死者不入（他们已 inactive）。
+              - { type: joinClan, actorId: npc-godfrey, clanId: valmont, via: birth, reason: "开册重抄：庶支长房补入侧册" }
+              - { type: joinClan, actorId: npc-rosa, clanId: valmont, via: marriage, reason: "开册重抄：外姓随夫入籍" }
+              - { type: joinClan, actorId: npc-hugh, clanId: valmont, via: birth, reason: "开册重抄：三房承嗣" }
+              - { type: joinClan, actorId: npc-cecily, clanId: valmont, via: marriage, reason: "开册重抄：嫁入" }
+              - { type: joinClan, actorId: npc-blanche, clanId: valmont, via: birth, reason: "开册重抄：嫡女在册" }
+              - { type: joinClan, actorId: player, clanId: valmont, via: birth, role: 嫡孙, reason: "开册重抄：罗兰名下留着一行空白" }
             nextEventId: "evt:sibling"
 
   - id: "evt:sibling"
@@ -180,6 +189,40 @@ events:
               - { type: setFlag, id: metRoland, value: true }
               - { type: adjustMood, value: -10 }
             nextEventId: "evt:choice"
+          # ADR-003 战斗测试的可选支线：不选也不影响主线与结局（existing regression 走首项）。
+          - id: opt-merge-duel
+            text: 门外有人在等。先出去看看
+            effects:
+              - { type: setFlag, id: metRoland, value: true }
+              - { type: adjustMood, value: -6 }
+            nextEventId: "evt:duel"
+
+  # ADR-003 战斗测试事件：验证自定义资源（决意）刻度、技能消耗与阶梯成长（武艺）。
+  # 决斗本身不改变家族结构 —— 它只是门外发生的一件小事，册子照旧要填。
+  - id: "evt:duel"
+    title: 门外的人
+    narrative: 门外站着一个没有家徽的人。他把剑从鞘里抽出一半，又推回去，说：我只想看看这一页上有没有我的位置。罗兰把空页压在桌上，没有回答。
+    kind: combat
+    trigger: { source: chain }
+    settle:
+      combat:
+        enemies:
+          - { ref: npc-duelist }
+        canFlee: false
+        # ADR-012 D4 的显式胜负条件（此前全模板只有缺省两条 if）：
+        # 赢 = 场上再没有敌人；输 = 你倒下。写出来是为了让这两条从此有引用。
+        victory: [{ kind: all_enemies }]
+        defeat: [{ kind: player_down }]
+        onVictory:
+          effects:
+            # 武艺 10 → 50：跨过「熟手」档（at 30），进度条显示 20/50。
+            - { type: adjustAttribute, attribute: prowess, value: 40 }
+            - { type: adjustMood, value: 10 }
+          nextEventId: "evt:choice"
+        onDefeat:
+          effects:
+            - { type: adjustMood, value: -15 }
+          nextEventId: "evt:choice"
 
   - id: "evt:choice"
     title: 你的那一行
@@ -192,10 +235,13 @@ events:
           - id: opt-in-line
             text: 写塞西莉。她是母亲的母亲，也是祖父的女儿
             effects:
-              - { type: addRelationEdge, fromId: player, toId: npc-cecily, kind: wife, visibility: known, value: 30 }
-              # 缺口留痕：亲属枚举里没有 `grandmother`，祖孙只能用 `relative` + gap 兜。
-              # 这不是写法偷懒 —— 是关系 kind 枚举缺一档，见配套的陪测记录。
-              - { type: addRelationEdge, fromId: player, toId: npc-cecily, kind: relative, gap: true, visibility: known, value: 20 }
+              # 婚姻是**双向**的：少写一条，塞西莉的卡上就看不到「她视你为丈夫」（2026-11-20 实测）。
+              - { type: addRelationEdge, fromId: player, toId: npc-cecily, kind: wife, scope: public, value: 30 }
+              - { type: addRelationEdge, fromId: npc-cecily, toId: player, kind: husband, scope: public, value: 30 }
+              # 族谱的配偶行读 `spouses`（婚姻没有指针形态），只有边不会画出来。
+              - { type: addSpouse, a: player, b: npc-cecily }
+              # 这里**不再补 `relative` 边**：祖孙那个读法由族谱多跳推出来（外婆 / 大姑 / 大姨）。
+              # 手写一条 `relative` 反而会按「同类型」把推导行判成重复，外婆边就没了。
               - { type: adjustFlag, id: purityLevel, value: 1 }
               - { type: setFlag, id: path, value: 1 }
             nextEventId: "evt:close"
@@ -225,3 +271,172 @@ events:
             text: 把手从封面上拿开
             effects:
               - { type: setFlag, id: bookClosed, value: true }
+
+  # ══════════ 测试链（ADR-018 / ADR-0022 / ADR-010 D7） ══════════
+  #
+  # 五幕由 `world.yaml` 的 `scheduledFacts` 到点排入，不占主线槽位。
+  # 每一幕只验一条链路，写在 options 的注释里，读事件即可对照。
+
+  - id: "evt:match"
+    title: 侧院来了人
+    narrative: 她进门先看册子，再看人。看册子的时间比看人长。她把陪嫁的单子放在桌角，没有压在册子上——她说，压着不好翻。
+    kind: normal
+    trigger: { source: chain }
+    settle:
+      normal:
+        options:
+          - id: opt-marry
+            text: 娶。把名字写进配偶栏
+            effects:
+              # 测试：npcSpawnRules + spawnNpc（配置声明 → 世界中造出实例）
+              - { type: spawnNpc, ruleId: sp-wife }
+              # 测试：运行时关系边（配偶）。指针模式下 `spouses` 表是建局快照，
+              # 运行时联姻只能落到关系边上 —— 族谱的配偶行不会跟着变，这是已知缺口。
+              - { type: addRelationEdge, fromId: player, toId: npc-wife, kind: wife, visibility: known, value: 25 }
+              # 2026-11-20：配偶行不再只认建局快照 —— 这条效果直接写权威配偶表，
+              # 族谱下一帧就有这一对（以前只落关系边，族谱看不到）。
+              - { type: addSpouse, a: player, b: npc-wife }
+              # 测试：宗族入册（via marriage）+ 门第
+              - { type: joinClan, actorId: npc-wife, clanId: valmont, via: marriage, reason: "联姻：伊莎贝尔入正册" }
+              - { type: adjustClanPrestige, clanId: valmont, value: 4 }
+              - { type: setFlag, id: married, value: true }
+            nextEventId: "evt:close"
+          - id: opt-decline
+            text: 不娶。让她原路回去
+            effects:
+              - { type: setFlag, id: married, value: false }
+              - { type: adjustMood, value: -5 }
+            nextEventId: "evt:close"
+
+  - id: "evt:birth"
+    title: 灯亮了一夜
+    narrative: 天快亮的时候，屋里有人把水端出来，泼在阶下。水是红的。没有人说话，只有册子被翻开的声音——翻到最新一页，压平。
+    kind: normal
+    trigger: { source: chain }
+    settle:
+      normal:
+        options:
+          - id: opt-name-heir
+            text: 给他一个名字
+            effects:
+              # 测试：生育 = 造人 + 双向亲缘边 + 入族（via birth）
+              - { type: spawnNpc, ruleId: sp-heir }
+              # 边语义：**`to` 是 `from` 的 kind**（与 characters.yaml 同一口径）。
+              # 「谁是谁的父」必须从**孩子那一侧**写：`heir → player father` 读作「玩家是他的父亲」。
+              # 2026-11-20 修正：这里原来写的是 `player → heir father`，读出来是「小罗兰是罗兰的父亲」。
+              # 两个方向都要写一句话（图谱只画出边，父与子各是一条事实，不自动互推）：
+              - { type: addRelationEdge, fromId: npc-heir, toId: player, kind: father, scope: public }
+              - { type: addRelationEdge, fromId: player, toId: npc-heir, kind: son, scope: public, value: 40 }
+              - { type: addRelationEdge, fromId: npc-heir, toId: npc-wife, kind: mother, scope: public }
+              - { type: addRelationEdge, fromId: npc-wife, toId: npc-heir, kind: son, scope: public, value: 40 }
+              - { type: joinClan, actorId: npc-heir, clanId: valmont, via: birth, reason: "嫡子落册：父栏母栏俱全" }
+              - { type: adjustClanPrestige, clanId: valmont, value: 6 }
+              - { type: setFlag, id: heirBorn, value: true }
+            nextEventId: "evt:close"
+
+  - id: "evt:bastard"
+    title: 侧院的孩子
+    narrative: 孩子被领到正厅，站在门槛外，不进也不退。他的鞋是干净的——有人提前擦过。册子摊开着，没有人把笔递过去。
+    kind: normal
+    trigger: { source: chain }
+    settle:
+      normal:
+        options:
+          - id: opt-disown
+            text: 不认。让他回侧院
+            effects:
+              - { type: setFlag, id: bastardBorn, value: false }
+              - { type: adjustMood, value: -10 }
+            nextEventId: "evt:close"
+          - id: opt-acknowledge
+            text: 认下。写进侧册
+            effects:
+              # 测试：认领 = 造人 + 父边（private：这层关系不外传）+ 入族（via adoption）
+              - { type: spawnNpc, ruleId: sp-bastard }
+              # 同一条约定：从孩子那一侧写「玩家是他父亲」，再从玩家这侧写「他是我儿子」。
+              # 认领是私事，两个方向都 `private`（只有当事人知道）。
+              - { type: addRelationEdge, fromId: npc-bastard, toId: player, kind: father, scope: private }
+              - { type: addRelationEdge, fromId: player, toId: npc-bastard, kind: son, scope: private }
+              - { type: joinClan, actorId: npc-bastard, clanId: valmont, via: adoption, reason: "认领：侧院的孩子写进侧册" }
+              - { type: clanHistory, clanId: valmont, kind: custom, text: "侧册添了一行，墨比正册浅一度；写的人没有署名。", refs: [npc-bastard] }
+              - { type: adjustClanPrestige, clanId: valmont, value: -8 }
+              - { type: setFlag, id: bastardBorn, value: true }
+            nextEventId: "evt:close"
+
+  - id: "evt:spar"
+    title: 递剑
+    narrative: 戈弗雷把两柄练习剑都拿了出来，剑尖朝下，插在土里。他说：不算输赢，只算谁先喘。侧院的门开着，风把册页吹起来又落下去。
+    kind: combat
+    trigger: { source: chain }
+    settle:
+      combat:
+        enemies:
+          - { ref: npc-godfrey }
+        canFlee: false
+        # 测试：非「全灭」胜负 —— 撑过两回合就算赢；输仍是你倒下。
+        # 这一场刻意**不打死人**：对手活着离场，他的「见红」才会折算成「旧伤」
+        # 并被 NPC 回写留在身上（ADR-018 D4/D7，过去没有任何模板引用过）。
+        victory: [{ kind: survive_rounds, rounds: 2 }]
+        defeat: [{ kind: player_down }]
+        onVictory:
+          effects:
+            - { type: adjustMood, value: 6 }
+            - { type: adjustClanPrestige, clanId: valmont, value: 2 }
+            # 世界内加点（ADR-019）：切磋之后长本事。**不直接改属性** ——
+            # 挂一条 3 点的请求，玩家在个人页自己分（分完走轮外端点落基础属性）。
+            - type: grantAllocation
+              id: alloc-spar
+              budget: 3
+              reason: 戈弗雷递过剑之后，你的手稳了些
+              targets:
+                - { attribute: body, max: 3, label: 体魄 }
+                - { attribute: mind, max: 3, label: 心智 }
+                - { attribute: will, max: 3, label: 意志 }
+            - { type: setFlag, id: trainedAfterSpar, value: true }
+          nextEventId: "evt:close"
+        onDefeat:
+          effects:
+            - { type: adjustMood, value: -8 }
+          nextEventId: "evt:close"
+
+  - id: "evt:assassinate"
+    title: 门闩响了一下
+    narrative: 刀先到，人才到。你侧身的时候，袖口被划开；对方退了一步，看清屋里的灯，又往前一步——他不在意被看见。
+    kind: combat
+    trigger: { source: chain }
+    settle:
+      combat:
+        enemies:
+          - { ref: npc-assassin }
+        canFlee: false
+        # 测试：`unit_down` 判据 + 必败/必战（不能逃）。
+        victory: [{ kind: unit_down, ref: npc-assassin }]
+        defeat: [{ kind: player_down }]
+        onVictory:
+          effects:
+            - { type: adjustMood, value: -12 }
+            - { type: clanHistory, clanId: valmont, kind: custom, text: "夜里进了人，走的时候少了一把刀。" }
+          nextEventId: "evt:close"
+        onDefeat:
+          effects:
+            - { type: adjustMood, value: -20 }
+          nextEventId: "evt:close"
+
+  - id: "evt:legacy"
+    title: 传艺
+    narrative: 父亲把剑交到侧院孩子的手里，没有交到自己儿子手里。他说：名字我已经给过你了，本事再给一次，就两清了。
+    kind: normal
+    trigger: { source: chain }
+    settle:
+      normal:
+        options:
+          - id: opt-inherit-mind
+            text: 让他接下这身本事
+            effects:
+              # 测试：`inheritActor` —— ADR-010 D7 的「切换角色（夺舍/继承）」首次有模板入口。
+              # 只搬 `mind`（技能 / 知识 / 性格 / 目标）：名字与血缘不动，年龄不搬（现算）；
+              # 若四组全搬就是夺舍，`standing` 会把生死与敌友一起带走，别乱用。
+              - { type: inheritActor, from: npc-reynard, to: npc-bastard, groups: [mind] }
+              - { type: clanHistory, clanId: valmont, kind: custom, text: "剑换了手。册子上没有这一笔，因为没有人愿意写。", refs: [npc-reynard, npc-bastard] }
+              - { type: setFlag, id: legacyPassed, value: true }
+            nextEventId: "evt:close"

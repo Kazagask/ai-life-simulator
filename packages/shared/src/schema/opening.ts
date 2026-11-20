@@ -75,10 +75,27 @@ export const OpeningRelationSchema = z
 export const OpeningNpcSetupSchema = z
   .object({
     relations: z.array(OpeningRelationSchema).optional(),
-    /** 信息权限分级：npcId -> 可见性档位 */
+    /**
+     * @deprecated 已移除（ADR-017 D3）。
+     *
+     * 「玩家对某人的知情程度」在 V2 由三件真事实表达：`npc.visibility`（人物列表里有没有他）、
+     * 关系边 `scope`（这条关系几个人知道）、`secrets`（永不投影）。旧字段写的是
+     * `flags[infoVisibility:<id>]` —— 没有任何读者，只有写者。
+     *
+     * 保留在类型里是为了给**旧模板**一句能读懂的错误，而不是一句 "Unrecognized key"。
+     */
     visibility: z.record(z.string(), z.enum(["known", "inferred", "unknown", "hidden"])).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((v, ctx) => {
+    if (v.visibility === undefined) return;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["visibility"],
+      message:
+        "npcSetup.visibility 已废弃（ADR-017 D3）：知情程度改用 characters[].visibility / 关系边 scope / secrets 表达",
+    });
+  });
 
 /** 未来/条件事件去向：引用 events.yaml 中既有 source: schedule 定义。 */
 export const OpeningScheduledEventSchema = z
@@ -180,6 +197,12 @@ export const OpeningParamKindSchema = z.enum([
   "flag",
   "time",
   "points",
+  /**
+   * ADR-004：开局期标量。只活在参数表里，commit **不落任何世界字段**。
+   * 存在的理由是承载「点数预算」「一次性加成的数值」这类量，
+   * 避免模板为了存一个数去污染 flags / attributes。
+   */
+  "number",
   "extensions",
 ]);
 export type OpeningParamKind = z.infer<typeof OpeningParamKindSchema>;
@@ -205,6 +228,12 @@ export const OpeningParamDeclSchema = z
     max: z.number().optional(),
     /** 点数分配规格（kind=points）：预算 + 各属性上下界。 */
     budget: z.number().int().positive().optional(),
+    /**
+     * ADR-004 D2：预算来源参数 id（kind 必须是 `number`）。
+     * 有它 ⇒ 预算 = 该参数在本会话的落定值（可由 roll 决定「抽到几点」）；
+     * 没有 ⇒ 用字面 `budget`。引擎只解析、不猜。
+     */
+    budgetFrom: z.string().min(1).optional(),
     targets: z
       .array(
         z
@@ -212,18 +241,68 @@ export const OpeningParamDeclSchema = z
             attribute: z.string().min(1),
             min: z.number().optional(),
             max: z.number().optional(),
+            /** 展示名覆盖（缺省取 world.yaml 的 attributes.labels）。 */
+            label: z.string().min(1).optional(),
+            /** 属性名着色（样式 id，加载期由 validateOpeningDag 校验）。 */
+            style: z.string().min(1).optional(),
           })
           .strict(),
       )
       .optional(),
     ui: OpeningParamUiSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((decl, ctx) => {
+    if (decl.kind !== "points") {
+      if (decl.budgetFrom !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["budgetFrom"],
+          message: "budgetFrom 只对 kind=points 有意义",
+        });
+      }
+      return;
+    }
+    if (decl.budget === undefined && decl.budgetFrom === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["budget"],
+        message: "points 参数必须声明 budget 或 budgetFrom（ADR-004 D2）",
+      });
+    }
+    if (decl.budgetFrom !== undefined && decl.budgetFrom === decl.id) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["budgetFrom"],
+        message: "budgetFrom 不能指向自身",
+      });
+    }
+    if ((decl.targets ?? []).length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targets"],
+        message: "points 参数必须声明至少一个 target",
+      });
+    }
+    decl.targets?.forEach((t, i) => {
+      if (t.min !== undefined && t.min < 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["targets", i, "min"], message: "min 不得为负" });
+      }
+      if (t.min !== undefined && t.max !== undefined && t.min > t.max) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["targets", i, "max"], message: "min 不得大于 max" });
+      }
+    });
+  });
 
 /** 一步"抽到/选到就 set 哪些参数"。set 的键必须是本模板声明过的 param id。 */
 export const OpeningBranchSetSchema = z.record(z.string().min(1), z.unknown());
 
-/** 转盘权重：v1 只静态 weight（D-4 裁决：不支持 weightBy）。 */
+/**
+ * 转盘权重：静态 `weight` + 按**本会话已落定开局参数**调制的 `weightByParam`（ADR-001 D7）。
+ *
+ * ADR-001 D-4 反对的是读**世界属性**（开局期未实例化，状态面板算不出来），不反对读
+ * param map 里已经 roll 定的值；因此 `weightBy` 继续拒载，`weightByParam` 放行。
+ */
 export const OpeningBranchOptionSchema = z
   .object({
     id: z.string().min(1),
@@ -231,6 +310,15 @@ export const OpeningBranchOptionSchema = z
     weight: z.number().nonnegative().optional(),
     /** 加载期拒载任何 weightBy —— 开局期未实例化，世界属性加权复用不了。 */
     weightBy: z.unknown().optional(),
+    /**
+     * 按开局参数调制权重（ADR-001 D7）：
+     * - 数值参数 ⇒ 系数（`final += 参数值 × 系数`）；
+     * - 枚举参数 ⇒ 查表（`final += 表[落定值] ?? 0`）。
+     * 与事件侧 `WheelSegmentSchema.weightBy` 同一套算法，取值源换成 param map。
+     */
+    weightByParam: z
+      .record(z.string().min(1), z.union([z.number(), z.record(z.string(), z.number())]))
+      .optional(),
     set: OpeningBranchSetSchema,
     goto: z.string().min(1).optional(),
   })
@@ -249,7 +337,24 @@ export const OpeningBranchNodeSchema = z
     options: z.array(OpeningBranchOptionSchema).optional(),
     goto: z.string().min(1).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((node, ctx) => {
+    // ADR-004：allocate 没有 param 就无从知道「加哪一套点」，必须加载期拒载。
+    if (node.mode === "allocate" && node.param === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["param"],
+        message: "allocate 节点必须声明 param（points 参数 id）",
+      });
+    }
+    if (node.mode !== "allocate" && node.param !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["param"],
+        message: "param 只对 allocate 节点有意义",
+      });
+    }
+  });
 
 /** 前实例化开局声明（新 opening.yaml 的顶层形状，可选分域）。 */
 export const OpeningBranchDagSchema = z
@@ -344,6 +449,7 @@ export type OpeningTemplate = z.infer<typeof OpeningTemplateSchema>;
 export type OpeningBranchDag = z.infer<typeof OpeningBranchDagSchema>;
 export type OpeningBranchNode = z.infer<typeof OpeningBranchNodeSchema>;
 export type OpeningBranchOption = z.infer<typeof OpeningBranchOptionSchema>;
+export type OpeningParamDecl = z.infer<typeof OpeningParamDeclSchema>;
 export type OpeningSession = z.infer<typeof OpeningSessionSchema>;
 export type OpeningStepResult = z.infer<typeof OpeningStepResultSchema>;
 export type OpeningRun = z.infer<typeof OpeningRunSchema>;

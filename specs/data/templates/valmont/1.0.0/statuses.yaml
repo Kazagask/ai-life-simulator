@@ -1,2 +1,26 @@
-# 无补正：避免补正过滤干扰关系投影的观察面。
-statuses: []
+# 状态（ADR-018）三档的最小样本，专门给「敌方战斗态转修正」与 NPC 回写做验证。
+#
+# - 见红（battle）：只在战斗里存在；离场时按「待了几回合 × 1 天」折算成旧伤。
+# - 旧伤（modifier）：世界时间、可叠、不可驱散；战斗结束后由 NPC 回写留在身上。
+statuses:
+  - id: st-bloodied
+    name: 见红
+    kind: battle
+    stacking: stack
+    polarity: negative
+    description: 袖子内侧湿了一块。不深，但一直在渗。
+    combat:
+      damageTaken: 0.1
+    toModifier: { id: st-wound, timePerRound: { value: 1, unit: day } }
+    visibility: known
+
+  - id: st-wound
+    name: 旧伤
+    kind: modifier
+    stacking: stack
+    polarity: negative
+    description: 缝过一次。阴天会替你记住这件事。
+    attributeModifiers: { body: -1 }
+    simulation:
+      moodDeltaPerTurn: -1
+    visibility: known

@@ -34,7 +34,7 @@ describe("族谱：未声明即不跑", () => {
       to: other.id,
       kind: "father",
       source: "template",
-      visibility: "known",
+      scope: "public",
     });
 
     const template = { ...entry.template, extensions: { family: true } };

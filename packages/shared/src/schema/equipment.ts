@@ -4,12 +4,12 @@ import { ConditionSchema } from "./common.js";
 /**
  * 装备分域 Schema（协议 V2.1 §19 / R-EQ-01..06）。
  *
- * 统一动态补正（用户决策 ③）：词条不是固化数值，而是每次结算时由
+ * 统一动态状态（用户决策 ③）：词条不是固化数值，而是每次结算时由
  * evaluateDynamicModifier(spec, ctx) 按当前状态求值；不提供
  * modifierMode: static|dynamic 二选一，不接受自由表达式（ADR-0001/0002）。
  *
  * 定义与实例分离：EquipmentInstance 只存本局状态（owner/slot/stacks/durability），
- * 不存任何补正结果字段（R-EQ-02 / P8）。
+ * 不存任何状态结果字段（R-EQ-02 / P8）。
  */
 
 // ---------- 槽位 ----------
@@ -37,10 +37,10 @@ export const EquipmentSlotSchema = z
 
 export type EquipmentSlot = z.infer<typeof EquipmentSlotSchema>;
 
-// ---------- 动态补正 spec ----------
+// ---------- 动态状态 spec ----------
 
 /**
- * 动态补正 spec：preset 只取协议 §10 既有白名单（fixed / scaled / stack-scaled），
+ * 动态状态 spec：preset 只取协议 §10 既有白名单（fixed / scaled / stack-scaled），
  * params 按 preset 形状 strict 校验。固定值即「无条件、无层数」的退化 preset，
  * 与其余 preset 走同一求值管线。
  *
@@ -49,6 +49,13 @@ export type EquipmentSlot = z.infer<typeof EquipmentSlotSchema>;
  * 协议 §19 未显式列出该字段，此处为实现期补全（记入提交说明，规格文字待对齐）。
  */
 const DynamicModifierBase = {
+  /**
+   * 词条显示名（「锋利」「压手」「缠」）。
+   *
+   * 没有它的时候，一件咒具在面板上只会写「咒力 +4」，玩家分不清那是刀锋利还是
+   * 术式回路宽 —— 名字是词条的身份，数值只是这一件东西上的一次取值。
+   */
+  label: z.string().min(1).optional(),
   /** 作用的属性 id */
   attribute: z.string().min(1),
   /** 生效条件（数组内 AND）；求值于每次属性结算，条件不命中则该词条当次不生效 */
@@ -83,26 +90,90 @@ export const DynamicModifierSpecSchema = z.discriminatedUnion("preset", [
 
 export type DynamicModifierSpec = z.infer<typeof DynamicModifierSpecSchema>;
 
-/** 动态补正条件中禁止出现的条件种类（含自由求值/递归风险的守门，报错信息含字段路径）。 */
+/**
+ * **战斗轴词条**（2026-11-20）：装备在身时直接改战斗结算，而不是改属性。
+ *
+ * 为什么需要它：属性词条改不到命中/闪避/增伤这些东西 —— 它们不是属性，而是结算时的
+ * 乘区与门槛。以前想给一件刀加「必中」，只能在 `grantsSkill` 里造一条带
+ * `hit: guaranteed` 的技能；那样的代价是玩家技能栏里凭空多一个招式，
+ * 而这件事本质上是「这把刀的特性」。
+ *
+ * 数值都是**加算进现有乘区**（与状态同一口径，两处合并后才夹/取整）：
+ * - `hitChance`  加进命中率，最终仍夹在 `[0.05, 0.95]`；
+ * - `evade`      与状态闪避同一条公式（`1-Π(1-x)`）；
+ * - `damageDealt` / `damageTaken` 加进对应乘区；
+ * - `guaranteedHit` 跳过命中骰**与**闪避门（真正的「必中」，不是把命中率加到 1）。
+ */
+export const EquipmentCombatSchema = z
+  .object({
+    hitChance: z.number().optional(),
+    evade: z.number().min(0).max(1).optional(),
+    damageDealt: z.number().optional(),
+    damageTaken: z.number().optional(),
+    guaranteedHit: z.boolean().optional(),
+  })
+  .strict();
+
+export const CombatModifierSchema = z
+  .object({
+    label: z.string().min(1).optional(),
+    combat: EquipmentCombatSchema,
+    conditions: z.array(ConditionSchema).optional(),
+  })
+  .strict();
+
+/**
+ * 一条装备词条：**属性** 或 **战斗轴**，二者其一。
+ *
+ * 一件装备可以有多条（`dynamicModifiers`）：老实现只允许一条属性词条，
+ * 于是「释魂刀 +咒力」和「斩灵魂」只能二选一，或者靠授予技能打补丁。
+ */
+export const EquipmentModifierSchema = z.union([DynamicModifierSpecSchema, CombatModifierSchema]);
+export type EquipmentModifier = z.infer<typeof EquipmentModifierSchema>;
+
+/** 词条是不是属性那一支（战斗轴那一支没有 `attribute`）。 */
+export function isAttributeModifier(mod: EquipmentModifier): mod is DynamicModifierSpec {
+  return "attribute" in mod;
+}
+
+/** 动态状态条件中禁止出现的条件种类（含自由求值/递归风险的守门，报错信息含字段路径）。 */
 const FORBIDDEN_CONDITION_KINDS: Record<string, string> = {
-  random: "装备动态补正条件不支持 random：属性求值管线不消费 RNG（R-NFR-01 同 seed 回放），请改用确定性条件",
-  attribute: "装备动态补正条件不支持 attribute：条件求值发生在属性累加链内部，按属性条件判断会递归求值；如需属性门槛请在调用侧判断",
+  random: "装备动态状态条件不支持 random：属性求值管线不消费 RNG（R-NFR-01 同 seed 回放），请改用确定性条件",
+  attribute: "装备动态状态条件不支持 attribute：条件求值发生在属性累加链内部，按属性条件判断会递归求值；如需属性门槛请在调用侧判断",
 };
 
 /**
- * 校验动态补正 spec 的跨字段引用（在 world.ts 顶层 superRefine 中调用，
+ * 校验动态状态 spec 的跨字段引用（在 world.ts 顶层 superRefine 中调用，
  * 报错路径由调用方提供，本函数只负责产出诊断信息；返回 null 表示通过）。
  */
 export function checkDynamicModifierSpec(
-  spec: DynamicModifierSpec,
-  ref: { attributeIds: Set<string>; statusIds: Set<string> },
+  spec: EquipmentModifier,
+  ref: { attributeIds: Set<string>; numericAttributeIds?: Set<string>; statusIds: Set<string> },
 ): string | null {
+  if (!isAttributeModifier(spec)) {
+    // 战斗轴词条：只校验条件（数值本身没有跨表引用 —— 命中/闪避/增伤都是本地乘区）。
+    for (const cond of spec.conditions ?? []) {
+      for (const kind of Object.keys(FORBIDDEN_CONDITION_KINDS)) {
+        if (kind in cond) return FORBIDDEN_CONDITION_KINDS[kind];
+      }
+      const attr = (cond as { attribute?: string }).attribute;
+      if (attr && !ref.attributeIds.has(attr)) return `未知属性：${attr}`;
+      const st = (cond as { status?: string }).status;
+      if (st && !ref.statusIds.has(st)) return `未知状态：${st}`;
+    }
+    return null;
+  }
+  const numeric = ref.numericAttributeIds ?? ref.attributeIds;
   if (!ref.attributeIds.has(spec.attribute)) return `未知属性：${spec.attribute}`;
+  if (!numeric.has(spec.attribute)) return `动态状态只接受数值属性：${spec.attribute}`;
   if (spec.preset === "scaled" && !ref.attributeIds.has(spec.params.scaleBy)) {
     return `未知属性：${spec.params.scaleBy}`;
   }
+  if (spec.preset === "scaled" && !numeric.has(spec.params.scaleBy)) {
+    return `动态状态只接受数值属性：${spec.params.scaleBy}`;
+  }
   if (spec.preset === "stack-scaled" && !ref.statusIds.has(spec.params.status)) {
-    return `未知补正：${spec.params.status}`;
+    return `未知状态：${spec.params.status}`;
   }
   for (const cond of spec.conditions ?? []) {
     for (const kind of Object.keys(FORBIDDEN_CONDITION_KINDS)) {
@@ -111,7 +182,7 @@ export function checkDynamicModifierSpec(
     const attr = (cond as { attribute?: string }).attribute;
     if (attr && !ref.attributeIds.has(attr)) return `未知属性：${attr}`;
     const st = (cond as { status?: string }).status;
-    if (st && !ref.statusIds.has(st)) return `未知补正：${st}`;
+    if (st && !ref.statusIds.has(st)) return `未知状态：${st}`;
   }
   return null;
 }
@@ -123,7 +194,16 @@ export const EquipmentDefinitionFields = {
   slot: z.string().min(1).optional(),
   category: z.string().min(1).optional(),
   quality: z.string().min(1).optional(),
-  dynamicModifier: DynamicModifierSpecSchema.optional(),
+  /** 词条列表（属性 / 战斗轴可混排）；一件装备可以有多条。 */
+  dynamicModifiers: z.array(EquipmentModifierSchema).min(1).optional(),
+  /**
+   * 持有即视为拥有该技能（ADR-012 D7）。
+   *
+   * 存在的理由：有些东西的能力是**行为**而不是数值 —— 「强制解除术式」在引擎里唯一
+   * 能表达的形态就是「这一击必中」（`hit: guaranteed`）。`dynamicModifier` 只能加属性，
+   * 加不出一个招式来。技能集 = `角色 skills ∪ 装备授予`，战斗判定与投影同源。
+   */
+  grantsSkill: z.string().min(1).optional(),
 };
 
 // ---------- 运行时实例 ----------
@@ -134,7 +214,7 @@ export const EquipmentInstanceSchema = z
     itemId: z.string().min(1),
     ownerId: z.string().min(1),
     slot: z.string().min(1),
-    /** 本局层数状态（R-EQ-02）；机械含义由模板/后续迭代定义，补正值不由它固化 */
+    /** 本局层数状态（R-EQ-02）；机械含义由模板/后续迭代定义，状态值不由它固化 */
     stacks: z.number().int().positive().optional(),
     /** 本局耐久状态（R-EQ-02） */
     durability: z.number().nonnegative().optional(),
@@ -155,6 +235,11 @@ export const EquipmentConfigSchema = z
      * 且装备的 `quality` 必须是「阶梯 id 或白名单里的词」之一。
      */
     qualities: z.array(z.string().min(1)).optional(),
+    /**
+     * 类别显示名（2026-11-20）：`category` 是**判定用**的词（槽位的 `allowedCategories`
+     * 按它匹配），玩家不该看到 `cursed-tool` 这种 id。缺省时展示层回退 id。
+     */
+    categories: z.array(z.object({ id: z.string().min(1), label: z.string().min(1) }).strict()).optional(),
     slots: z.array(EquipmentSlotSchema).optional(),
     initialEquipment: z
       .array(z.object({ itemId: z.string().min(1) }).strict())

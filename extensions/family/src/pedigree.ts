@@ -5,7 +5,7 @@ import { parseFamilyConfig } from "./config.js";
 /**
  * 族谱：**纯派生视图**（`extensions/family/doc/CLAN-DESIGN.md` 第一部分）。
  *
- * 只吃 `state.relations`（经内核收敛成 known/inferred 的 `visibleEdges`）与 actor 目录，
+ * 只吃 `state.relations`（经内核收敛成「对 self 可见」的 `visibleEdges`）与 actor 目录，
  * **不读任何宗族数据**、不写 state、不看随机数与时间 —— 同输入必然同输出。
  *
  * 四条决定（§1.2）：

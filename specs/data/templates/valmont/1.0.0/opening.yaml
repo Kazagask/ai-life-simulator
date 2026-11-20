@@ -9,6 +9,10 @@
   characterSetup:
     flags:
       openingPath: valmont
+    effects:
+      # 战斗测试道具：淬体药（战斗内加点）、金创药（清旧伤）。
+      - { type: grantItem, itemId: item-tonic, count: 2 }
+      - { type: grantItem, itemId: item-salve, count: 1 }
   worldSetup:
     flags:
       openingDone: true

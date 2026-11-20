@@ -25,7 +25,7 @@ export interface Corpus {
 }
 
 function edge(from: string, to: string, kind: KinshipKind): RelationEdge {
-  return { from, to, kind, source: "template", visibility: "known", value: 0 };
+  return { from, to, kind, source: "template", scope: "public", value: 0 };
 }
 
 // ---------------- 语料 1：valmont ----------------
@@ -34,7 +34,7 @@ interface CharacterDoc {
   characters: {
     id: string;
     identity: { name: string };
-    relations?: { to: string; kind: string; visibility?: string }[];
+    relations?: { to: string; kind: string; scope?: string; visibility?: string }[];
   }[];
 }
 
@@ -52,7 +52,9 @@ function valmontGraph(): Corpus {
         to: rel.to,
         kind: rel.kind as KinshipKind,
         source: "template",
-        visibility: (rel.visibility as RelationEdge["visibility"] | undefined) ?? "known",
+        // 旧模板可能还写 visibility（known/unknown）；新模板写 scope。
+        scope: (rel.scope ??
+          (rel.visibility === "unknown" || rel.visibility === "hidden" ? "private" : "public")) as RelationEdge["scope"],
         value: 0,
       });
     }

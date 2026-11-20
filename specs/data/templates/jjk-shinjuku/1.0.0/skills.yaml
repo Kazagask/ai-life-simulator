@@ -127,7 +127,7 @@ skills:
     target: enemy
     hitCheck: { preset: opposed, attacker: cursedEnergy, defender: cursedEnergy, baseChance: 0.8 }
     applyStatus:
-      - { status: st-sealed, chance: 0.9 }
+      - { status: st-sealed-battle, chance: 0.9, duration: { rounds: 3 } }
     cooldownTurns: 2
     usableInBattle: true
 

@@ -4,6 +4,7 @@ import type {
   ContentBlockVM,
   EndingView,
   HistoryEntryV2,
+  ResolvedStyle,
   SlotEventView,
   TimeAmount,
   TurnGain,
@@ -234,7 +235,14 @@ export interface OpeningNodeView {
   allocation?: {
     param: string;
     budget: number;
-    targets: Array<{ attribute: string; min?: number; max?: number }>;
+    /** label/style 由服务端投影解析好（ADR-004 D6），前端不查模板。 */
+    targets: Array<{
+      attribute: string;
+      label: string;
+      min?: number;
+      max?: number;
+      style?: ResolvedStyle;
+    }>;
   };
 }
 
@@ -485,12 +493,21 @@ export const api = {
       body: JSON.stringify(step),
     });
   },
-  /** 开局完成才一次建世界；返回快照供最终面板展示。 */
+  /**
+   * 开局完成才一次建世界；返回快照供最终面板展示。
+   *
+   * `prologue`（2026-11-19）：按开局档案写的开场白。服务端已把它同时写进历史第一条，
+   * 这里只用于「开局结果页」当场显示——进入世界后故事区的第一条就是它。
+   * `prologueSource === "template"` 表示模型没参与（没配 key / 超时 / 输出不合规）。
+   */
   commitOpening(sessionId: string) {
-    return request<{ worldId: string; snapshot: WorldSnapshot; gains?: TurnGain[] }>(
-      `/api/openings/${sessionId}/commit`,
-      { method: "POST" },
-    );
+    return request<{
+      worldId: string;
+      snapshot: WorldSnapshot;
+      gains?: TurnGain[];
+      prologue?: string;
+      prologueSource?: "llm" | "template";
+    }>(`/api/openings/${sessionId}/commit`, { method: "POST" });
   },
   /** 开局后改名：只写权威 self 实体，不推进时间。 */
   renameWorld(id: string, name: string) {
@@ -526,6 +543,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify(command),
     });
+  },
+  /**
+   * 世界内加点（ADR-019）：**轮外**提交，不推进回合。
+   * `allocationId` 原样带回，防止旧页面把点数提交到另一笔请求上。
+   */
+  submitAllocation(id: string, allocationId: string, points: Record<string, number>) {
+    return request<{ worldId: string; snapshot: WorldSnapshot; spent: number }>(
+      `/api/worlds/${id}/allocation`,
+      { method: "POST", body: JSON.stringify({ allocationId, points }) },
+    );
   },
   useItem(id: string, itemId: string) {
     return request<InteractionResponse>(`/api/worlds/${id}/items/use`, {

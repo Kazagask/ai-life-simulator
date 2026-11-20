@@ -1,9 +1,16 @@
 import type {
+  AttributeValue,
+  BattleEnemy,
+  BattleEnemyView,
   BattleView,
   EndingTemplate,
   EndingView,
   EvaluationRecord,
   RelationEdge,
+  ResourceView,
+  Skill,
+  StatusEffect,
+  StatusInstance,
   TerminationRecord,
   V2Npc,
   StatusView,
@@ -13,14 +20,22 @@ import type {
   WorldStateV2,
   WorldTemplateV2,
 } from "@life-sim/shared";
+import {
+  DEFAULT_RESOURCE_DANGER_RATIO,
+  DEFAULT_RESOURCE_DISPLAY,
+  relationScopeOf,
+  relationVisibleTo,
+} from "@life-sim/shared";
 import { moodBand, maxHp, maxMp } from "./engine.js";
+import { resourceMax, resourceValue } from "./resources.js";
+import { resolveAttributeViews } from "./presentation/attributes.js";
 import { birthTimeFromAge, createTimeAdapter } from "./time.js";
 import type { TemplateLookup } from "./lookup.js";
 import { slotEventView } from "./turn.js";
-import { controlOf } from "./battle.js";
+import { controlOf, effectiveCostOf, legalTargetsForPlayer, playerSkills, summonLimitOfTier } from "./battle.js";
+import { battleSealOf, skillSealOf } from "./seal.js";
 import { projectVisibleRelations } from "./relations.js";
 import {
-  resolveBattleStyle,
   resolveEntityStyle,
   resolveEntityTags,
   resolveStyle,
@@ -31,8 +46,9 @@ import {
   itemEffectSummaries,
   skillEffectSummaries,
   statusEffectSummaries,
-  durationLabel as statusDurationLabel,
+  remainingLabel as statusDurationRemaining,
 } from "./presentation/effects.js";
+import { statusTotalsOf } from "./presentation/ledger.js";
 import {
   assertNoReservedRowFields,
   assertOwnSegmentKeys,
@@ -54,8 +70,65 @@ type MutableRelationRow = RelationRow & Record<string, unknown>;
 
 /**
  * V2 投影：hidden 信息不外泄；
- * 补正仅 visibility=known 可见；敌人 combatHints 与 secrets 永不出现。
+ * 状态仅 visibility=known 可见；敌人 combatHints 与 secrets 永不出现。
  */
+/** 召唤类技能：技能参数 + 召唤物面板，一起给；非召唤技能返回 undefined。 */
+function summonOf(def: Skill | undefined, lookup: TemplateLookup, ui: UiConfig | undefined) {
+  if (def === undefined || def.kind !== "combat") return undefined;
+  const summon = def.summon;
+  if (summon === undefined) return undefined;
+  const character = lookup.character(summon.ref);
+  const tier = summon.tier ?? "minion";
+  return {
+    /** 技能参数：一次几只、这批多强（与下面的面板同属一个 `summon`，不能只给一半）。 */
+    count: summon.count ?? 1,
+    ...(summon.levelScale !== undefined ? { levelScale: summon.levelScale } : {}),
+    /**
+     * `unit` 只描述**召唤物本身**（它是谁、带什么技能与状态）。
+     * 参数与面板同层但分开命名，避免「强度是单位的属性」这种误读。
+     */
+    unit: {
+      ref: summon.ref,
+      name: character?.identity.name ?? summon.ref,
+      tier,
+      ...(character?.identity.description !== undefined
+        ? { description: character.identity.description }
+        : {}),
+      /**
+       * 召唤物的技能逐个带上**效果摘要**（ADR-002 D3：摘要由定义派生，唯一出口
+       * `skillEffectSummaries`）。只给名字的话，玩家在浮窗里看不到它到底会干什么；
+       * 而自己拼一份描述就会长出第二套口径。
+       */
+      skills: (character?.skills ?? []).map((id) => {
+        const skill = lookup.skill(id);
+        const style = resolveStyle(skill?.style, skill?.quality, ui, undefined, tagIdsOf(skill));
+        const effects = skill === undefined ? [] : skillEffectSummaries(skill, lookup, ui);
+        return {
+          id,
+          name: skill?.name ?? id,
+          ...(skill?.description !== undefined && skill.description !== ""
+            ? { description: skill.description }
+            : {}),
+          ...(style !== undefined ? { style } : {}),
+          ...(effects.length > 0 ? { effects } : {}),
+        };
+      }),
+      /**
+       * 召唤物身上**常驻的状态**（`characters[].statuses`，如魔虚罗的法轮）。
+       *
+       * 这些是被动，不是技能：只列技能会让玩家以为它每回合回 25 点血是「白给的」。
+       * 走 `toStatusView` 的同一套投影 —— 名字 / 样式 / 效果摘要 / 时长口径与
+       * 个人页、战斗面板逐字一致，前端拿到的就是可点的状态条目。
+       */
+      statuses: (character?.statuses ?? [])
+        .map((statusId) => lookup.status(statusId))
+        // hidden 状态连**存在**都不该被看见（展示层红线）。
+        .filter((def): def is StatusEffect => def !== undefined && def.visibility === "known")
+        .map((def) => statusViewOfDefinition(def, lookup, ui)),
+    },
+  };
+}
+
 export function projectSnapshotV2(
   state: WorldStateV2,
   template: WorldTemplateV2,
@@ -69,6 +142,13 @@ export function projectSnapshotV2(
    * 缺省 ⇒ 不解析样式（等价「模板没写样式」），自定义前端不传也不会坏。
    */
   ui?: UiConfig,
+  /**
+   * 观察者视角（ADR-010 D4）。缺省 = self。
+   *
+   * 只影响**关系可见性**（`relationVisibleTo`）与快照上的 `viewerId`；
+   * `self` 段仍是「你控制的那个人」。观察 ≠ 接管。
+   */
+  viewerIdArg?: string,
 ): V2Snapshot {
   const player = state.player;
   const genderLabel = lookup.genderLabel(player.gender);
@@ -78,7 +158,7 @@ export function projectSnapshotV2(
     state.archived === true ? "archived" : state.termination !== null ? "terminated" : "running";
   const ended = status !== "running";
 
-  // R2.6 / ADR-0014：只投影 known / inferred 边。
+  // R2.6 / ADR-0014 + ADR-007 D2：只投影**对这个 self 可见**的边（`relationVisibleTo`）。
   //
   // ADR-0022 补记 D-1：判据是「确知未对玩家可见」，不是「不在上屏列表」——
   // inactive 必须保留边与称谓（决策 1 反例 2：逝去的祖父依旧是祖父）。
@@ -103,6 +183,21 @@ export function projectSnapshotV2(
     ...state.npcs.filter((n) => n.visibility === "hidden").map((n) => n.id),
   ]);
   /**
+   * 上面三条规则各自的**理由**（2026-11-19）：关系行要知道"没有卡"是因为
+   * 还没登场 / 不上面板 / 根本不是人，而不是笼统一句「无档案」。
+   *
+   * 优先级与集合构造顺序一致：unspawned > enemy > hidden —— 还没出场的人，
+   * 更该说「尚未登场」而不是「有这个人但你看不见」。
+   */
+  const hiddenReason = new Map<string, "unspawned" | "hidden" | "enemy">();
+  for (const c of template.characters) if (c.isEnemy) hiddenReason.set(c.id, "enemy");
+  for (const n of state.npcs) {
+    if (n.visibility === "hidden") hiddenReason.set(n.id, "hidden");
+  }
+  for (const n of state.npcs) {
+    if (n.lifecycle.state === "unspawned") hiddenReason.set(n.id, "unspawned");
+  }
+  /**
    * 模板声明了哪些扩展（`docs/EXTENSIONS.md` §3）。**未声明即不跑** ——
    * 这里返回空数组时，下面一次都不会调用扩展，投影与「零扩展」逐字段一致。
    *
@@ -111,22 +206,33 @@ export function projectSnapshotV2(
   const extensionRuntimes = resolveExtensionRuntimes(template);
   const selfId = selfIdOf(state);
   /**
+   * 观察者三级：调用方显式传的 > `state.viewerId`（模板用 `observeActor` 写的）> self。
+   * 写了但人不在（离场 / 被删）⇒ 回落到 self，不让一次观察把整张快照看空。
+   */
+  const requestedViewer = viewerIdArg ?? state.viewerId;
+  const viewerId =
+    requestedViewer !== undefined &&
+    (requestedViewer === selfId || state.npcs.some((n) => n.id === requestedViewer))
+      ? requestedViewer
+      : selfId;
+  /**
    * 演员目录（含玩家）：关系边贡献与快照段派生**共用这一份**，年龄 / 阶段不会两处各算一遍。
    */
   const actors = buildSnapshotActors(state, hiddenNodeIds, adapter, lookup);
   /**
-   * **唯一的关系边集合**：声明边（known / inferred）+ 扩展贡献的合成边
+   * **唯一的关系边集合**：声明边 + 扩展贡献的合成边
    * （`extensions/family/doc/FAMILY-GRAPH.md` §7.1：指针模式下把指针合成的边加回来）。
    *
-   * 声明边先按**边自身的可见性**收敛（known / inferred），与「有没有 NPC 卡」无关。
+   * 声明边先按**边自己的知情人范围**（`scope`，ADR-007 D2）收敛，与「有没有 NPC 卡」无关。
    *
    * 为什么解耦（2026-11-16 用户裁决 B-2）：关系是**独立事实** ——
-   * 你可能完全不认识伏黑甚尔（没有他的 NPC 卡），但你知道"惠有个父亲"。
+   * 你可能完全不认识某个人（没有他的 NPC 卡），但你知道「某人有个父亲」。
    * 旧实现要求两端都在可见子图里，于是指向敌人/未登场者的边被整条带走，
    * 这类关系永远显示不出来。解耦后关系能否上屏只由**边自己**说了算：
-   * 模板写 `visibility: known` 就是"玩家知道这条关系"，引擎不再二次猜测。
+   * `scope: public` 就是"谁都能知道这条关系"，引擎不再二次猜测。
    *
-   * 想让某条关系等对方登场后才可见：把它声明成 `unknown`，进场时用效果翻成 known。
+   * 想让某条关系只有当事人知道：写 `scope: private`（缺省）；
+   * 想让「一部分人知道」：`scope: limited` + `knownBy`。
    * 端点有没有卡由 `counterpartVisible` 表达，名字由 `withName` 直接给全 ——
    * 前端因此不需要在"没有卡"的情况下反查人名。
    *
@@ -140,16 +246,23 @@ export function projectSnapshotV2(
    * （「卡片上写了这行、称谓却算不出来」正是这样来的）。
    */
   const observableRelations = mergeContributedRelationEdges(
-    projectVisibleRelations(state.relations),
+    projectVisibleRelations(state.relations, viewerId),
     extensionRuntimes,
-    { selfId, actors, hiddenNodeIds },
+    { selfId: viewerId, actors, hiddenNodeIds },
     state.extensions,
   );
   /** 关系行里的人名解析：实例 → 模板（敌人没有实例但有名字）→ 玩家。 */
   const actorDirectory = buildActorDirectory(state, template);
 
+  /** 类别 id → 显示名（模板 `equipment.categories`）；缺省回退 id。 */
+  const categoryLabelOf = (id: string | undefined): string | undefined => {
+    if (id === undefined) return undefined;
+    return template.equipment?.categories?.find((c) => c.id === id)?.label ?? id;
+  };
+
+
   const statuses = player.statuses
-    .map((inst) => toStatusView(inst, lookup, ui))
+    .map((inst) => toStatusView(inst, lookup, ui, state.worldTime))
     .filter((s): s is StatusView => s !== null);
 
   const skills = player.skills.map((id) => {
@@ -157,14 +270,22 @@ export function projectSnapshotV2(
     // 技能不参与正负零（用户 2026-11-18 裁决）：只有品级 / 自身 style。
     const style = resolveStyle(def?.style, def?.quality, ui, undefined, tagIdsOf(def));
     const effects = def === undefined ? [] : skillEffectSummaries(def, lookup, ui);
+    /**
+     * ADR-015：技能页里**照常列出**用不了的技能，只挂一个封印说明原因。
+     * 这里只放「持久」判据（现在只有英雄召唤永久失去）；「这一回合够不够钱」属于战斗面板。
+     */
+    const seal = skillSealOf(state, id, lookup);
+    const summon = summonOf(def, lookup, ui);
     return {
       id,
       name: def?.name ?? id,
       description: def?.description ?? "",
       kind: def?.kind ?? "general",
+      ...(summon !== undefined ? { summon } : {}),
       ...(def?.quality !== undefined ? { quality: def.quality } : {}),
       ...(style !== undefined ? { style } : {}),
       ...(effects.length > 0 ? { effects } : {}),
+      ...(seal !== undefined ? { seal } : {}),
     };
   });
 
@@ -179,11 +300,14 @@ export function projectSnapshotV2(
         count,
         usableOutsideBattle: def?.usableOutsideBattle ?? false,
         usableInBattle: def?.usableInBattle ?? false,
-        // 展示字段（T5-02 / R-EQ-09）：不含任何补正结果——补正只进 effectiveAttributes（P8）
+        // 展示字段（T5-02 / R-EQ-09）：不含任何状态结果——状态只进 effectiveAttributes（P8）
         type: def?.type ?? "key",
         slot: def?.slot,
         slotLabel: template.equipment?.slots?.find((s) => s.id === def?.slot)?.label,
         category: def?.category,
+        ...(categoryLabelOf(def?.category) !== undefined
+          ? { categoryLabel: categoryLabelOf(def?.category) }
+          : {}),
         quality: def?.quality,
         ...(() => {
           if (def === undefined) return {};
@@ -210,6 +334,11 @@ export function projectSnapshotV2(
   const snapshot: V2Snapshot = {
     worldId: state.id,
     templateId: state.templateId,
+    /**
+     * 观察者只在**不是自己**时下发（缺省即「你在看你自己」）。
+     * 前端用它在顶栏标「你在看谁」；关系行已经按同一个 viewerId 收敛过。
+     */
+    ...(viewerId !== selfId ? { viewerId, viewerName: actorName(actorDirectory, viewerId) } : {}),
     worldName: template.meta.name,
     turnIndex: state.turnIndex,
     worldTime: state.worldTime,
@@ -235,7 +364,10 @@ export function projectSnapshotV2(
      */
     ...(typeof state.flags.chapter === "number" ? { storyChapter: state.flags.chapter } : {}),
     labels: {
-      resources: { hp: lookup.resourceLabel("hp"), mp: lookup.resourceLabel("mp") },
+      // 全部已声明资源的显示名（hp/mp 与自定义资源同口径；statusBar 的 label 优先）。
+      resources: Object.fromEntries(
+        Object.keys(template.resources).map((key) => [key, lookup.resourceLabel(key)]),
+      ),
       attributes: lookup.attributeLabels(),
       mood: lookup.moodLabel(),
     },
@@ -252,10 +384,38 @@ export function projectSnapshotV2(
       mood: player.mood,
       moodBandLabel: moodBand(player.mood, template).label,
       attributes: { ...player.attributes },
+      // ADR-003：属性面板视图（排序 / hidden 过滤 / 样式 / 档位 / 进度）在投影期一次算好。
+      attributeViews: resolveAttributeViews(player.attributes, template, ui, player.attributeTiers),
+      // ADR-003 D10：资源条顺序与显隐由 statusBar 决定；自定义资源同形。
+      resources: resourceViews(state, lookup, ui),
       statuses,
+      // ADR-018 D8：状态合计（含装备/心情残差），面板与详情共用一份，前端不再自己求和。
+      statusTotals: statusTotalsOf(state, lookup, player),
+      /**
+       * 关系（2026-11-20）：**当前观察者**的出边与入边，与 NPC 卡同一份
+       * `buildRelationRows`、同一份 `observableRelations`。
+       *
+       * 主语是 `viewerId` 而不是 `player.id`：`observeActor` 把镜头交给别人之后，
+       * 「我的人际关系」这一屏本来就该换成他的 —— 否则那个效果在界面上等于没发生
+       * （用户 2026-11-20：「借父亲的眼睛 我在前端没发现有任何用」）。
+       * 谁的关系由 `relationsOwner` 标出来，展示层据此写「以 XX 的目光」。
+       *
+       * 两个方向都下发，由消费方决定画不画：NPC 卡滤出边，关系图也只画出边。
+       */
+      relations: buildRelationRows(
+        viewerId,
+        observableRelations,
+        hiddenNodeIds,
+        hiddenReason,
+        extensionRuntimes,
+        actorDirectory,
+      ),
+      ...(viewerId !== selfId
+        ? { relationsOwner: { id: viewerId, name: actorName(actorDirectory, viewerId) } }
+        : {}),
       skills,
       inventory,
-      // 装备实例：只下发展示字段；补正结果不入投影（R-EQ-04 / P8）
+      // 装备实例：只下发展示字段；状态结果不入投影（R-EQ-04 / P8）
       equipment: (player.equipment ?? []).map((inst) => {
         const def = lookup.item(inst.itemId);
         return {
@@ -268,6 +428,9 @@ export function projectSnapshotV2(
           slotLabel: template.equipment?.slots?.find((s) => s.id === inst.slot)?.label ?? inst.slot,
           description: def?.description ?? "",
           category: def?.category,
+          ...(categoryLabelOf(def?.category) !== undefined
+            ? { categoryLabel: categoryLabelOf(def?.category) }
+            : {}),
           quality: def?.quality,
           ...(() => {
             if (def === undefined) return {};
@@ -298,7 +461,7 @@ export function projectSnapshotV2(
       .filter((npc) => !hiddenNodeIds.has(npc.id))
       .map((npc) => {
       // ADR-0019：NPC 面板需要「状态 / 生命周期」两块。口径与玩家一致——
-      // 补正只透 visibility=known（hidden/unknown 不外泄），阶段由年龄按模板阶段表推导。
+      // 状态只透 visibility=known（hidden/unknown 不外泄），阶段由年龄按模板阶段表推导。
       //
       // ADR-0021 决策 4.1：年龄**投影期现算**（`ageAt(birthTime, worldTime)`，年差口径=
       // 跨年界即 +1），不回写 `state.npcs[].age`（那是起始年龄快照）。旧档缺 birthTime
@@ -319,9 +482,10 @@ export function projectSnapshotV2(
         relationship: npc.relationship,
         knownGoals: [...npc.knownGoals],
         attributes: projectNpcAttributes(npc.attributes, template),
+        attributeViews: resolveAttributeViews(npc.attributes, template, ui, npc.attributeTiers),
         // 与玩家卡同一份投影（ADR-002 D3）：NPC 面板上的「六眼」也要是同一身彩虹。
         statuses: npc.statuses
-          .map((inst) => toStatusView(inst, lookup, ui))
+          .map((inst) => toStatusView(inst, lookup, ui, state.worldTime))
           .filter((s): s is StatusView => s !== null),
         lifeStage: shown.stage,
         lifeStageLabel: shown.lifeStageLabel,
@@ -334,12 +498,13 @@ export function projectSnapshotV2(
           sinceWorldTime: npc.lifecycle.sinceWorldTime,
         },
         // 行来源与扩展推导用的边集是同一份 `observableRelations`（B-2 解耦后 =
-        // 全部 known/inferred 边，不再按节点可见性剔除）——不得再引入第二份过滤口径，
+        // 全部对 self 可见的边，不再按节点可见性剔除）——不得再引入第二份过滤口径，
         // 否则「卡片上写了这条关系、称谓却算不出来」这类自相矛盾会重新出现。
         relations: buildRelationRows(
           npc.id,
           observableRelations,
           hiddenNodeIds,
+          hiddenReason,
           extensionRuntimes,
           actorDirectory,
         ),
@@ -349,6 +514,31 @@ export function projectSnapshotV2(
     // **唯一真源**：过渡字段 `pendingEvent` / `activeChains` 已在前端切换（`c693814`）后删除，
     // 现存消费方一律读本字段；顺带消除 ADR §12-5 记的"投影重复求值"（旧实现为
     // `pendingEvent` 再调一次 `slotEventView`，同一场景算两遍）。
+    /**
+     * 待完成的加点（ADR-019）：只下发**请求**，属性等玩家提交后再变。
+     * 目标里的 `label` / `style` 由适配器按玩家属性视图补齐（那里已解析过一遍）。
+     */
+    ...(state.pendingAllocation !== undefined
+      ? {
+          pendingAllocation: {
+            id: state.pendingAllocation.id,
+            budget: state.pendingAllocation.budget,
+            ...(state.pendingAllocation.reason !== undefined
+              ? { reason: state.pendingAllocation.reason }
+              : {}),
+            // 展示名与样式在投影期一次算好（与开局 `describeNode` 同一口径）。
+            targets: state.pendingAllocation.targets.map((t) => ({
+              attribute: t.attribute,
+              label: t.label ?? lookup.attributeLabel(t.attribute),
+              ...(t.min !== undefined ? { min: t.min } : {}),
+              ...(t.max !== undefined ? { max: t.max } : {}),
+              ...(t.style !== undefined ? { style: resolveStyle(t.style, undefined, ui) } : {}),
+            })),
+            sinceTurn: state.pendingAllocation.sinceTurn,
+            sinceWorldTime: state.pendingAllocation.sinceWorldTime,
+          },
+        }
+      : {}),
     slotEvent: ended ? null : slotEventView(state, lookup),
     battle,
     lastWheel: state.lastWheel,
@@ -526,7 +716,8 @@ function mergeContributedRelationEdges(
     }
 
     for (const edge of contributed) {
-      if (edge.visibility !== "known" && edge.visibility !== "inferred") continue;
+      // 扩展贡献的边同样按观察者判定（ADR-007 D3）：扩展不许"替玩家知道"。
+      if (!relationVisibleTo(edge, base.selfId)) continue;
       if (edge.from === edge.to) continue;
       const key = relationEdgeKey(edge);
       if (seen.has(key)) continue;
@@ -588,12 +779,27 @@ function applySnapshotDerivations(
 }
 
 /**
+ * 「这个人为什么没有卡」（2026-11-19）。返回 `undefined` = 有卡。
+ *
+ * 只回答 KV 里那条规则命中了谁 —— 判定本身仍在 `hiddenNodeIds`（唯一真源），
+ * 本函数不新增任何上屏规则，只把已有的三条规则翻译成一句能给玩家看的话。
+ */
+function counterpartStateOf(
+  hiddenNodeIds: ReadonlySet<string>,
+  hiddenReason: ReadonlyMap<string, "unspawned" | "hidden" | "enemy">,
+  id: string,
+): "unspawned" | "hidden" | "enemy" | undefined {
+  if (!hiddenNodeIds.has(id)) return undefined;
+  return hiddenReason.get(id) ?? "unspawned";
+}
+
+/**
  * 一张卡的关系行：**内核填事实，扩展加解释**（`docs/EXTENSIONS.md` §2）。
  *
  * 内核负责且只负责：
  * · 事实行（`known` / `inferred` 边）与它们的 `withName` / `counterpartVisible` / `direction`；
  * · 每卡一个 `memo`，逐行 `decorate`、每卡一次 `extendRows`（顺序 = 模板声明顺序）；
- * · 五条保证里内核能守的三条：字段同名冲突抛错、推导行的可行性与命名由内核说了算、
+ * · 这套契约里内核能守的三条：字段同名冲突抛错、推导行的可行性与命名由内核说了算、
  *   未声明不跑（由调用方传进来的 `extensions` 为空表达）。
  *
  * 扩展**拿不到**命名与上屏判定：`withName` / `counterpartVisible` 一律从 actor 目录与
@@ -603,6 +809,7 @@ function buildRelationRows(
   viewerId: string,
   visibleEdges: readonly RelationEdge[],
   hiddenNodeIds: ReadonlySet<string>,
+  hiddenReason: ReadonlyMap<string, "unspawned" | "hidden" | "enemy">,
   extensions: readonly ResolvedExtension[],
   directory: ReturnType<typeof buildActorDirectory>,
 ): RelationRow[] {
@@ -621,10 +828,11 @@ function buildRelationRows(
     const outgoing = edge.from === viewerId;
     const withId = outgoing ? edge.to : edge.from;
     factCounterpartIds.add(withId);
+    const noCardReason = counterpartStateOf(hiddenNodeIds, hiddenReason, withId);
     const row: MutableRelationRow = {
       withId,
       kind: edge.kind,
-      visibility: edge.visibility,
+      scope: relationScopeOf(edge),
       direction: outgoing ? "out" : "in",
       /**
        * 对方有没有 NPC 卡。`false` = 这条边指向一个未登场 / 不展示的角色
@@ -632,6 +840,8 @@ function buildRelationRows(
        * 前端据此显示「名字 + 未登场」，而不是假装有卡或干脆不显示这条边。
        */
       counterpartVisible: !hiddenNodeIds.has(withId),
+      /** 没卡的理由：关系行据此写「尚未登场 / 未现身 / 不在名册」，不再一句「无档案」 */
+      ...(noCardReason !== undefined ? { counterpartState: noCardReason } : {}),
       /** 对方名字（隐藏/未登场/敌人都有；前端不再需要在无卡时反查） */
       withName: actorName(directory, withId),
       ...(edge.value !== undefined ? { value: edge.value } : {}),
@@ -654,7 +864,37 @@ function buildRelationRows(
    * 所以可见性由扩展按构成边合成（`visibility` 已在草稿里给出），
    * 但「能不能上屏」仍由内核判定（见下方两条 continue）。
    */
-  const covered = new Set(factCounterpartIds);
+  /**
+   * 判重按**读法**而不是「有没有边」（2026-11-20）。
+   *
+   * `covered` 以前是「这个人已经有事实行 ⇒ 推导行一律不要」。那条规则在
+   * 「娶了自己的外婆」这种局面下会吃掉真实信息：事实行只说「妻子」，
+   * 而多跳推出来的「外婆」被当成重复整条丢弃 —— 玩家看到的是「外婆边消失了」。
+   *
+   * 现在两个键各管一段：`withId::kind` 挡同类型的重复，`withId::称谓` 挡同读法的重复，
+   * 读法不同的推导行照常出现（同一段亲缘的另一种叫法本来就该并排站着）。
+   */
+  const coveredKeys = new Set<string>();
+  const coveredTerms = new Set<string>();
+  for (const row of rows) {
+    coveredKeys.add(`${row.withId}::${row.kind}`);
+    if (typeof row.kinshipTerm === "string" && row.kinshipTerm !== "") {
+      coveredTerms.add(`${row.withId}::${row.kinshipTerm}`);
+    }
+  }
+  /** 扩展要的「事实行说过哪些称谓 / 类型」，按人聚合。 */
+  const factTerms = new Map<string, Set<string>>();
+  const factKinds = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const kinds = factKinds.get(row.withId) ?? new Set<string>();
+    kinds.add(row.kind);
+    factKinds.set(row.withId, kinds);
+    if (typeof row.kinshipTerm !== "string" || row.kinshipTerm === "") continue;
+    const set = factTerms.get(row.withId) ?? new Set<string>();
+    set.add(row.kinshipTerm);
+    factTerms.set(row.withId, set);
+  }
+
   for (const ext of extensions) {
     const extendRows = ext.runtime.relationDerivation?.extendRows;
     if (extendRows === undefined) continue;
@@ -662,14 +902,23 @@ function buildRelationRows(
       viewerId,
       visibleEdges,
       factCounterpartIds,
+      factTerms,
+      factKinds,
       hiddenNodeIds,
       config: ext.config,
       memo,
     });
     for (const draft of drafts) {
-      // 保证 3：推得出来 ≠ 可以显示。已有事实行覆盖的对手不再补行；隐藏节点一律丢弃。
-      if (covered.has(draft.withId)) continue;
+      // 保证 3：推得出来 ≠ 可以显示。隐藏节点一律丢弃；重复按 kind / 称谓逐条判。
       if (hiddenNodeIds.has(draft.withId)) continue;
+      if (coveredKeys.has(`${draft.withId}::${draft.kind ?? "relative"}`)) continue;
+      if (
+        typeof draft.fields?.kinshipTerm === "string" &&
+        draft.fields.kinshipTerm !== "" &&
+        coveredTerms.has(`${draft.withId}::${draft.fields.kinshipTerm}`)
+      ) {
+        continue;
+      }
       const fields = draft.fields ?? {};
       assertNoReservedRowFields(ext.id, fields);
       /**
@@ -680,19 +929,24 @@ function buildRelationRows(
        * 都随 `V2Snapshot` 一次性下发，引擎的条件与效果永远看不到它们。因此
        * 「他是我亲戚」不会污染「他是我的父亲」这类事实判定 —— 不需要在求值侧另加判断。
        */
+      const draftNoCardReason = counterpartStateOf(hiddenNodeIds, hiddenReason, draft.withId);
       const row: MutableRelationRow = {
         withId: draft.withId,
         kind: draft.kind ?? "relative",
-        visibility: draft.visibility ?? "known",
+        scope: draft.scope ?? "public",
         direction: "out",
         counterpartVisible: !hiddenNodeIds.has(draft.withId),
+        ...(draftNoCardReason !== undefined ? { counterpartState: draftNoCardReason } : {}),
         withName: actorName(directory, draft.withId),
         derived: true,
       };
       Object.assign(row, fields);
       rows.push(row);
-      // 同一张卡上同一个人只留一行：后一个扩展不许给已有推导行的人再补一行。
-      covered.add(draft.withId);
+      // 同一个「人 + 类型」只留一行：后一个扩展不许把同一段话再说一遍。
+      coveredKeys.add(`${row.withId}::${row.kind}`);
+      if (typeof row.kinshipTerm === "string" && row.kinshipTerm !== "") {
+        coveredTerms.add(`${row.withId}::${row.kinshipTerm}`);
+      }
     }
   }
 
@@ -700,20 +954,102 @@ function buildRelationRows(
 }
 
 /**
- * NPC 属性下发（ADR-0021 决策 3）：
+ * 资源条视图（ADR-003 D10）。
+ *
+ * 顺序与可见性 = `statusBar` 的 `source: resource` 段（模板声明什么就显示什么）；
+ * 一个 resource 段都没写时回退 hp/mp（旧模板的默认 HUD）。
+ * 战斗进行中取战斗镜像（消耗实时可见），结束后镜像已回写，与权威态一致。
+ */
+function resourceViews(
+  state: WorldStateV2,
+  lookup: TemplateLookup,
+  ui: UiConfig | undefined,
+): ResourceView[] {
+  const template = lookup.template;
+  const inBattle = state.battle !== null && !state.battle.over;
+  const valueOf = (key: string): number => {
+    if (!inBattle) return resourceValue(state.player, key);
+    const mirror = state.battle!.player;
+    if (key === "hp") return mirror.hp;
+    if (key === "mp") return mirror.mp;
+    return mirror.resources[key] ?? 0;
+  };
+  const viewOf = (key: string, label: string): ResourceView | undefined => {
+    const def = template.resources[key];
+    if (def === undefined) return undefined;
+    const display = ui?.resources?.[key]?.display ?? DEFAULT_RESOURCE_DISPLAY;
+    const fallbackDanger = key === "hp" || key === "mp" ? DEFAULT_RESOURCE_DANGER_RATIO : 0;
+    const dangerAt = ui?.resources?.[key]?.dangerAt ?? fallbackDanger;
+    return {
+      key,
+      label,
+      value: valueOf(key),
+      max: resourceMax(state.player, template, key),
+      display,
+      dangerAt,
+    };
+  };
+
+  const out: ResourceView[] = [];
+  const seen = new Set<string>();
+  for (const section of template.statusBar) {
+    if (section.source !== "resource" || section.key === undefined) continue;
+    if (seen.has(section.key)) continue;
+    const view = viewOf(section.key, section.label);
+    if (view === undefined) continue;
+    seen.add(section.key);
+    out.push(view);
+  }
+  if (out.length === 0) {
+    for (const key of ["hp", "mp"] as const) {
+      const view = viewOf(key, lookup.resourceLabel(key));
+      if (view !== undefined) out.push(view);
+    }
+  }
+  /**
+   * ADR-012 D9 补：**专属池**也要上屏，否则「咒灵数量」这条经济完全不可见
+   * （它不在 `template.resources` 里，上面那两圈都扫不到）。
+   * 上限取玩家身上那一份（`resourceMax`），标签取声明它的角色所写的 `label`。
+   */
+  for (const key of Object.keys(state.player.resourceMax ?? {})) {
+    if (seen.has(key) || template.resources[key] !== undefined) continue;
+    const value = inBattle ? (state.battle!.player.resources[key] ?? 0) : resourceValue(state.player, key);
+    out.push({
+      key,
+      label: exclusiveLabel(template, key),
+      value,
+      max: state.player.resourceMax![key],
+      display: ui?.resources?.[key]?.display ?? DEFAULT_RESOURCE_DISPLAY,
+      dangerAt: ui?.resources?.[key]?.dangerAt ?? 0,
+    });
+  }
+  return out;
+}
+
+/** 专属池的显示名：取第一个声明它的角色所写的 `label`，没写就用键名（不编造）。 */
+function exclusiveLabel(template: { characters: readonly { resources?: Record<string, { label?: string }> }[] }, key: string): string {
+  for (const c of template.characters) {
+    const label = c.resources?.[key]?.label;
+    if (label !== undefined) return label;
+  }
+  return key;
+}
+
+/**
+ * NPC 属性下发（ADR-0021 决策 3 / ADR-003）：
  * - 键集 = `template.attributes.order`（顺序无关地相等），order 外的键**一律不透**
  *   ——否则玩家侧的 `proficiency*` 之类内部/派生键会变成新的 API 面；
  * - 值 = 实例层的模板 base 原值（`turn.ts` 建实例时从 `characters[].attributes` 拷入）；
  *   order 内但 NPC 未声明的键给 0，与玩家面板取值口径一致；
  * - order 为空 ⇒ `{}`（不是缺省 undefined，前端直接遍历）。
- * 这里**不做** effective 派生：补正过滤后算出的数与战斗实算必不一致，
+ * 这里**不做** effective 派生：状态过滤后算出的数与战斗实算必不一致，
  * 不过滤则成 hidden 侧信道（ADR-0019 红线），二者不可兼得。
  */
 function projectNpcAttributes(
-  attributes: Record<string, number>,
+  attributes: Record<string, AttributeValue>,
   template: WorldTemplateV2,
-): Record<string, number> {
-  const out: Record<string, number> = {};
+): Record<string, AttributeValue> {
+  const out: Record<string, AttributeValue> = {};
   for (const key of template.attributes.order) out[key] = attributes[key] ?? 0;
   return out;
 }
@@ -774,32 +1110,80 @@ function buildEndingView(
 }
 
 /**
- * 补正投影（ADR-002 D3）：玩家卡、战斗面板共用同一份。
- * `hidden` 补正不进投影（既有红线：hidden 侧信道）。
+ * 状态投影（ADR-002 D3）：玩家卡、战斗面板共用同一份。
+ * `hidden` 状态不进投影（既有红线：hidden 侧信道）。
  */
-function toStatusView(
-  inst: { statusId: string; stacks: number },
+function statusViewOf(
+  def: StatusEffect,
+  stacks: number,
   lookup: TemplateLookup,
   ui: UiConfig | undefined,
-): StatusView | null {
-  const def = lookup.status(inst.statusId);
-  if (def === undefined || def.visibility !== "known") return null;
+  /** 只有**实例**能给时长；定义视图不传，于是输出里就没有 `durationLabel`。 */
+  durationLabel?: string,
+): StatusView {
   const style = resolveEntityStyle(def, ui);
   const tags = resolveEntityTags(def, ui);
-  const battleStyle = resolveBattleStyle(def.tags, ui);
   const effects = statusEffectSummaries(def, lookup, ui);
   return {
     id: def.id,
     name: def.name,
-    stacks: inst.stacks,
+    stacks,
+    /**
+     * 正负是**一等字段**（2026-11-20）：战斗面板与技能描述的配色都由它决定，
+     * 不再下发 `battleStyle` —— 后端不再为「战斗中长什么样」做一份解析。
+     */
+    polarity: def.polarity,
+    kind: def.kind,
     ...(def.description !== undefined ? { description: def.description } : {}),
     ...(def.quality !== undefined ? { quality: def.quality } : {}),
     ...(style !== undefined ? { style } : {}),
-    ...(battleStyle !== undefined ? { battleStyle } : {}),
     ...(tags.length > 0 ? { tags } : {}),
     ...(effects.length > 0 ? { effects } : {}),
-    durationLabel: statusDurationLabel(def),
+    ...(durationLabel !== undefined ? { durationLabel } : {}),
   };
+}
+
+/**
+ * 状态的**定义视图**（2026-11-20）：挂载在角色 / 召唤物身上的被动用它。
+ *
+ * 定义没有时长（ADR-009 D1），也不存在 `appliedAt / appliedTurn` 这些实例字段 ——
+ * 以前为了复用实例投影，代码里会伪造一个「本轮刚挂上」的实例再显示「直到被移除」，
+ * 那是**假事实**。定义视图从定义出发，天然没有时长。
+ */
+function statusViewOfDefinition(def: StatusEffect, lookup: TemplateLookup, ui: UiConfig | undefined): StatusView {
+  return statusViewOf(def, 1, lookup, ui);
+}
+
+function toStatusView(
+  inst: StatusInstance,
+  lookup: TemplateLookup,
+  ui: UiConfig | undefined,
+  /** 当前世界时间（分钟）：状态「还剩多久」由实例的绝对到期点算出（ADR-009）。 */
+  worldTime: number,
+  /**
+   * 这条状态是在**战斗面板**上展示的吗（ADR-015 D2）。
+   *
+   * 战斗中 `worldTime` 不动，所以按世界时间算出来的「还剩 2 天」在一场战斗里既不会变、
+   * 也不会因为打完而变少 —— 沿用同一个口径会让玩家以为「打一场消耗两天」。
+   * 战斗面板改说「整场战斗有效（战后还剩 X）」，把两件事分开说清。
+   */
+  inBattle = false,
+): StatusView | null {
+  const def = lookup.status(inst.statusId);
+  if (def === undefined || def.visibility !== "known") return null;
+  /**
+   * 天赋**不下发时长**（ADR-018 D1）：它没有时钟，面板与详情都不该出现「持续」。
+   * 这不是展示层过滤 —— 下发了就总会有人把它渲染出来，然后「六眼 直到被移除」
+   * 就成了玩家要猜的一句话。
+   */
+  const label =
+    def.kind === "talent"
+      ? undefined
+      : // 战斗态省略时长 = 撑到战斗结束；写「直到被移除」会让玩家以为它出了战斗还在。
+        def.kind === "battle" && inst.roundsLeft === undefined
+        ? "整场战斗"
+        : statusDurationRemaining(inst, worldTime, { inBattle });
+  return statusViewOf(def, inst.stacks, lookup, ui, label);
 }
 
 function battleView(
@@ -810,87 +1194,175 @@ function battleView(
 ): BattleView {
   const battle = state.battle!;
   /**
-   * 战斗面板的补正列表：**只留带 `combat` 字段的**（用户 2026-11-19）。
+   * 战斗面板的状态列表：**三类全上**（2026-11-20 用户裁决）。
    *
-   * 「六眼」「天与咒缚」这类纯模拟域补正（只有 `simulation`）在战斗里没有任何行为语义，
-   * 打在面板上只会把真正要看的控制 / 增伤挤掉。判据用定义本身（`lookup.status(id).combat`），
-   * 不看名字、也不看 `battleStyle` —— 后者只决定配色，不决定「是否与战斗有关」。
+   * 以前只留带 `combat` 字段的，理由是「纯模拟面状态在战斗里没有行为语义」。
+   * ADR-018 之后这条前提没了：`attributeModifiers` 提到定义层，一件只有属性状态的
+   * 「重伤」会实打实压低战斗里的敏捷与体术 —— 再从面板上过滤掉，就是"数字变了但没有原因"。
    *
-   * 非战斗视图（个人页 / NPC 卡）不受影响：那边仍然展示全部补正。
+   * 排序按紧迫度：战斗状态（这一场会掉）→ 修正（战后还挂着）→ 天赋（身份）。
+   * 这条排序同时是展示层的分组依据，所以放在投影里做一次，前端不再各排各的。
    */
-  const statusViews = (instances: Array<{ statusId: string; stacks: number }>) =>
+  const kindRank = (kind: StatusView["kind"]): number => (kind === "battle" ? 0 : kind === "modifier" ? 1 : 2);
+  const statusViews = (instances: StatusInstance[]) =>
     instances
-      .filter((inst) => lookup.status(inst.statusId)?.combat !== undefined)
-      .map((inst) => toStatusView(inst, lookup, ui))
+      .map((inst) => toStatusView(inst, lookup, ui, state.worldTime, true))
       .filter((s): s is StatusView => s !== null);
 
+  /**
+   * 镜像优先、世界补齐：正常战斗里镜像就是全量副本，这里「补齐」是给
+   * 手工构造 / 旧档（镜像为空但世界有状态）兜底 —— 少了它，面板会突然一条都没有。
+   */
   const battleStatuses = statusViews(battle.player.statuses);
-  const worldStatuses = statusViews(state.player.statuses);
   const allStatuses = [...battleStatuses];
-  for (const s of worldStatuses) {
+  for (const s of statusViews(state.player.statuses)) {
     if (!allStatuses.some((x) => x.id === s.id)) allStatuses.push(s);
   }
+  allStatuses.sort((a, b) => kindRank(a.kind) - kindRank(b.kind));
+
+  /**
+   * 战斗单位 → 展示模型（敌 / 友 / 中立共用）。
+   * `tier` 决定前端版式（ADR-012 D2）：小框还是整行，由模板声明，不由前端猜名字。
+   */
+  /** 召唤者名字：玩家不在参战数组里，要单独认；NPC 按战斗实例 id 找。 */
+  const summonerNameOf = (unit: BattleEnemy): string | undefined => {
+    if (unit.summonedBy === undefined) return undefined;
+    if (unit.summonedBy === selfIdOf(state)) return state.player.name;
+    const owner = [...battle.enemies, ...battle.allies, ...(battle.neutrals ?? [])].find(
+      (u) => u.instanceId === unit.summonedBy,
+    );
+    return owner?.name ?? state.npcs.find((n) => n.id === unit.summonedBy)?.name;
+  };
+  const combatantView = (unit: BattleEnemy): BattleEnemyView => ({
+    instanceId: unit.instanceId,
+    name: unit.name,
+    // 已退场名册是混合列表：阵营必须跟着走，否则敌方献祭的单位会画成友军蓝框。
+    ...(unit.side !== undefined ? { side: unit.side } : {}),
+    hp: Math.max(0, unit.hp),
+    maxHp: unit.maxHp,
+    alive: unit.alive,
+    statuses: statusViews(unit.statuses),
+    // ADR-012 D9：专属资源池（只有声明过的角色才有条目）。
+    resources: Object.entries(unit.resources ?? {}).map(([key, value]) => ({
+      key,
+      label: lookup.resourceLabel(key),
+      value,
+      max: unit.resourceMax?.[key] ?? value,
+      display: "bar" as const,
+      dangerAt: 0,
+    })),
+    ...(unit.tier !== undefined ? { tier: unit.tier } : {}),
+    ...(unit.summonedBy !== undefined ? { summonedBy: unit.summonedBy } : {}),
+    ...(unit.summonRef !== undefined ? { summonRef: unit.summonRef } : {}),
+    ...(unit.deathReason !== undefined ? { deathReason: unit.deathReason } : {}),
+    ...(summonerNameOf(unit) !== undefined ? { summonerName: summonerNameOf(unit) } : {}),
+  });
 
   return {
     eventId: battle.eventId,
     round: battle.round,
     over: battle.over,
     player: {
+      /**
+       * 玩家在战斗里的单位 id（= `state.player.id`）。
+       *
+       * 「选自己」需要一个**真实**的目标 id：`null` 只表示「还没选」，
+       * 两者混用会让「点了自己」和「没点」在契约上分不开（用户 2026-11-20）。
+       */
+      id: selfIdOf(state),
       hp: battle.player.hp,
       maxHp: maxHp(state.player, template),
       mp: battle.player.mp,
       maxMp: maxMp(state.player, template),
+      // ADR-003 D10：战斗内资源条（hp/mp + 自定义资源），值取战斗镜像。
+      resources: resourceViews(state, lookup, ui),
       statuses: allStatuses,
-      skills: state.player.skills
+      skills: playerSkills(state, lookup)
         .map((id) => lookup.skill(id))
         .filter((s) => s?.kind === "combat")
+        /**
+         * ADR-015（用户 2026-11-20 裁决，取代 ADR-013 D3 的「从面板上拿掉」）：
+         * 用不了的技能**仍然列出来**，挂 `seal` 说明原因。
+         *
+         * 「藏起来」比「灰着」更糟：玩家无法区分「我没学过」和「我学过但用不了」，
+         * 只能怀疑是自己点错了。判据一律问 `battleSealOf`（内部就是 `canUseSkill`，
+         * 与引擎拒绝同源），这里不自己数消耗、不自己数上限。
+         */
         .map((s) => {
           const combat = s as Extract<NonNullable<typeof s>, { kind: "combat" }>;
+          /**
+           * ADR-012 D8：价格走**修正后**的值（六眼 -90%）。
+           * 面板写 18 而实际扣 2，玩家会以为技能坏了；反之写 2 扣 18 更糟。
+           */
+          const cost = effectiveCostOf(state, battle, selfIdOf(state), combat.id, lookup);
+          const resolved = Object.keys(cost).length > 0 ? cost : combat.cost;
+          const seal = battleSealOf(state, battle, selfIdOf(state), combat.id, lookup);
+          /**
+           * 合法目标（2026-11-20）：只对**需要点选**的目标类型下发（`enemy` / `ally`）。
+           * 判据与引擎同一份（`legalTargetsForPlayer` → `legalTargetIdsOf`），
+           * UI 只做 `includes`，不重算规则 —— 否则新增谓词时前端要跟着抄一遍协议。
+           */
+          const legalTargets =
+            combat.target === "enemy" || combat.target === "ally"
+              ? legalTargetsForPlayer(battle, state, combat)
+              : undefined;
           return {
             id: combat.id,
             name: combat.name,
             description: combat.description ?? "",
-            costMp: combat.cost.mp,
+            costs: Object.entries(resolved)
+              .filter(([, amount]) => amount > 0)
+              .map(([resource, amount]) => ({
+                resource,
+                label: lookup.resourceLabel(resource),
+                amount,
+              })),
             cooldownLeft: battle.player.skillCooldowns[combat.id] ?? 0,
+            target: combat.target,
+            ...(legalTargets !== undefined ? { legalTargets } : {}),
+            ...(combat.legalTarget?.disableReason !== undefined
+              ? { legalTargetNote: combat.legalTarget.disableReason }
+              : {}),
+            ...(seal !== undefined ? { seal } : {}),
           };
         }),
       items: Object.entries(state.player.inventory)
         .filter(([itemId, count]) => count > 0 && lookup.item(itemId)?.usableInBattle)
         .map(([itemId, count]) => ({ itemId, name: lookup.item(itemId)?.name ?? itemId, count })),
       /**
-       * D-12：逃跑可用性 = settle 声明**与**未被 cannot_flee 补正压制（与引擎判定同源）。
+       * D-12：逃跑可用性 = settle 声明**与**未被 cannot_flee 状态压制（与引擎判定同源）。
        * 引擎侧顺序是 `!settle.canFlee ⇒ flee_not_allowed`、`controlOf(...cannot_flee) ⇒ cannot_flee`，
        * 两者都通过才真能逃 ⇒ 投影取 AND，判定函数复用 battle.ts 的 controlOf。
        */
       canFlee: (battle.settle.canFlee ?? false) && !controlOf(battle.player.statuses, "cannot_flee", lookup),
       /**
-       * D-08：与引擎同一判定（battle.ts 的 controlOf），输入取**战斗镜像**的补正列表
+       * D-08：与引擎同一判定（battle.ts 的 controlOf），输入取**战斗镜像**的状态列表
        * —— 这正是 performBattleAction 检查 `pc.statuses` 的来源，二者不会漂移。
        */
       canUseItems: !controlOf(battle.player.statuses, "cannot_use_items", lookup),
       /**
        * D-13：与引擎同一分支同源 —— performBattleAction 的第一步就是
        * `controlOf(pc.statuses, "cannot_act")`，为真时**不抛错**、只记日志并跳过玩家动作，
-       * 回合照常推进（眩晕的应有语义，引擎不改）。输入同样取战斗镜像补正列表。
+       * 回合照常推进（眩晕的应有语义，引擎不改）。输入同样取战斗镜像状态列表。
        */
       canAct: !controlOf(battle.player.statuses, "cannot_act", lookup),
     },
-    enemies: battle.enemies.map((e) => ({
-      instanceId: e.instanceId,
-      name: e.name,
-      hp: Math.max(0, e.hp),
-      maxHp: e.maxHp,
-      alive: e.alive,
-      statuses: statusViews(e.statuses),
-    })),
-    allies: battle.allies.map((a) => ({
-      instanceId: a.instanceId,
-      name: a.name,
-      hp: Math.max(0, a.hp),
-      maxHp: a.maxHp,
-      alive: a.alive,
-      statuses: statusViews(a.statuses),
-    })),
+    enemies: battle.enemies.map(combatantView),
+    allies: battle.allies.map(combatantView),
+    /** ADR-012 D5：第三方。旧前端可忽略（契约给了 `default([])`）。 */
+    // 旧现场（测试夹具 / 旧档直读）可能没有这个字段：按空数组处理，不在这里崩。
+    neutrals: (battle.neutrals ?? []).map(combatantView),
+    /**
+     * 已退场名册只列**英雄档**（2026-11-20 用户裁决）。
+     *
+     * 杂兵是兵力：夏油一场献祭三只，名册就多三张 108/108 的卡片，
+     * 把「谁真的没了」这唯一有用的信息淹掉。杂兵的去向战报里已经有一行
+     * 「XX 被献祭了」，不需要在面板上再立碑。
+     *
+     * 英雄档保留：玉犬 / 魔虚罗这类是本局不可再召的损失，玩家需要知道**为什么**没了
+     * （被献祭 / 召唤者倒下 / 生命耗尽）。
+     */
+    fallen: (battle.fallen ?? []).filter((u) => u.tier === "hero").map(combatantView),
     log: battle.log.slice(-30),
   };
 }

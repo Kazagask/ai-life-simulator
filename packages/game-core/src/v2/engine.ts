@@ -1,9 +1,13 @@
 import type {
+  AttributeValue,
   Condition,
   Effect,
   EquipmentInstance,
   Formula,
   OpenCondition,
+  RelationScope,
+  RelationVisibility,
+  SimulationDuration,
   StatusInstance,
   TaskCondition,
   V2Npc,
@@ -18,9 +22,11 @@ import type { TemplateLookup } from "./lookup.js";
 // 调度器与效果执行器互为依赖（scheduler 读 checkAllConditions、engine 写入队），
 // 但双方只在函数体内互相调用、无顶层求值，ESM 函数声明提升可保证初始化期安全。
 import { enqueueCandidate, hasFired } from "./scheduler.js";
-import { EffectSchema, PLAYER_ID } from "@life-sim/shared";
-import { addEdge, freezeOnDeath } from "./relations.js";
-import { isAliveActor, selfIdOf } from "./actors.js";
+import { applyLadderGain, evaluateAttributeCondition, ladderResetFromAbsolute } from "./attribute-rules.js";
+import { adjustResourceValue, computeMax } from "./resources.js";
+import { EffectSchema, PLAYER_ID, isAttributeModifier, numericAttr } from "@life-sim/shared";
+import { addEdge, freezeOnDeath, normalizeRelationEndpoint } from "./relations.js";
+import { isAliveActor, selfIdOf, transplantActor, writableActorOf, type TransferableActor } from "./actors.js";
 import { resolveExtensionEffect, collectExtensionConditions } from "./extensions.js";
 import {
   createConditionRegistry,
@@ -31,22 +37,10 @@ import {
 // ---------- 资源公式（规格 4.4：上限 = base + perLevel × growthLevel + Σ perAttribute[attr] × 基础属性值） ----------
 
 /**
- * 资源上限统一计算。属性贡献使用**基础属性**（不含补正/心情档位修正）：
- * 上限若随临时状态波动，回血 clamp 与扣除语义都会漂移。
- * 玩家传 growthLevel，敌人传 0（敌人成长体现在 levelScale）。
+ * 资源上限统一计算（实现已迁至 `resources.ts`，那里同时服务自定义资源）。
+ * 这里 re-export 保持既有调用点（战斗 / 测试）不变。
  */
-export function computeMax(
-  def: { base: number; perLevel?: number; perAttribute?: Record<string, number> },
-  growthLevel: number,
-  baseAttrs: Record<string, number>,
-  floor: number,
-): number {
-  let value = def.base + (def.perLevel ?? 0) * growthLevel;
-  for (const [attr, coef] of Object.entries(def.perAttribute ?? {})) {
-    value += coef * (baseAttrs[attr] ?? 0);
-  }
-  return Math.max(floor, Math.round(value));
-}
+export { computeMax } from "./resources.js";
 
 export function maxHp(player: V2Player, template: WorldTemplateV2): number {
   return computeMax(template.resources.hp, player.growthLevel, player.attributes, 1);
@@ -62,14 +56,14 @@ export function moodBand(mood: number, template: WorldTemplateV2) {
   return template.mood.bands.find((b) => mood >= b.min && mood <= b.max) ?? template.mood.bands[0];
 }
 
-// ---------- 有效属性：基础值 + 补正 simulation 面 + 装备动态补正 + 心情档位修正，再套 caps ----------
+// ---------- 有效属性：基础值 + 状态 simulation 面 + 装备动态状态 + 心情档位修正，再套 caps ----------
 
-/** 属性求值链中条件求值用的确定性空 RNG（装备动态补正条件已在加载期禁用 random）。 */
+/** 属性求值链中条件求值用的确定性空 RNG（装备动态状态条件已在加载期禁用 random）。 */
 export const zeroRng: Rng = () => 0;
 
 /**
  * 有效属性求值链（协议 §19，顺序固定）：
- * 基础值 → 状态补正 × 层数 → 装备动态补正 → 心情档位 → caps。
+ * 基础值 → 状态 × 层数 → 装备动态状态 → 心情档位 → caps。
  *
  * 第 5/6 参可选（保持既有 4 参调用兼容）：
  * - equipment：本局装备实例；每件装备的 dynamicModifier 按当前累加状态现算（R-EQ-04）。
@@ -77,16 +71,29 @@ export const zeroRng: Rng = () => 0;
  *   求值 attribute 条件，避免递归）。未提供时带条件的词条当次不生效。
  */
 export function effectiveAttributes(
-  attrs: Record<string, number>,
+  attrs: Record<string, AttributeValue>,
   statuses: StatusInstance[],
   mood: number,
   lookup: TemplateLookup,
   equipment?: EquipmentInstance[],
   condGate?: ModifierConditionGate,
 ): Record<string, number> {
-  const eff: Record<string, number> = { ...attrs };
+  /**
+   * ADR-003：文本属性不参与数值运算 —— 先把数值键拷出来，之后所有状态只落在它们上面。
+   * 加载期已保证 `attributeModifiers` 不会指向文本属性；这里只是最后一道防线。
+   */
+  const eff: Record<string, number> = {};
+  for (const [key, value] of Object.entries(attrs)) {
+    if (typeof value === "number") eff[key] = value;
+  }
   for (const inst of statuses) {
-    const modifiers = lookup.status(inst.statusId)?.simulation?.attributeModifiers;
+    /**
+     * ADR-018 D2：属性状态在**定义层**，不再住在 `simulation` 面里。
+     *
+     * 它本来就是模拟与战斗共用的（这条函数同时服务自由行动与 `buildUnit`），
+     * 挂在 simulation 面里只让「战斗态不能改属性」和「面板与结算不一致」同时成立。
+     */
+    const modifiers = lookup.status(inst.statusId)?.attributeModifiers;
     if (!modifiers) continue;
     for (const [key, delta] of Object.entries(modifiers)) {
       eff[key] = (eff[key] ?? 0) + delta * inst.stacks;
@@ -95,11 +102,14 @@ export function effectiveAttributes(
   if (equipment?.length) {
     for (const inst of equipment) {
       const item = lookup.item(inst.itemId);
-      const spec = item?.type === "equipment" ? item.dynamicModifier : undefined;
-      if (!spec) continue;
-      const deltas = evaluateDynamicModifier(spec, { effAttrs: eff, statuses, condCtx: condGate });
-      for (const [key, delta] of Object.entries(deltas)) {
-        eff[key] = (eff[key] ?? 0) + delta;
+      if (item?.type !== "equipment") continue;
+      // 2026-11-20：一件装备可以有多条词条；战斗轴那一支不进属性链（战斗侧自己算）。
+      for (const spec of item.dynamicModifiers ?? []) {
+        if (!isAttributeModifier(spec)) continue;
+        const deltas = evaluateDynamicModifier(spec, { effAttrs: eff, statuses, condCtx: condGate });
+        for (const [key, delta] of Object.entries(deltas)) {
+          eff[key] = (eff[key] ?? 0) + delta;
+        }
       }
     }
   }
@@ -112,24 +122,98 @@ export function effectiveAttributes(
       if (eff[key] !== undefined) eff[key] = Math.min(eff[key], cap);
     }
   }
+  /**
+   * 数值属性没有负值（ADR-011 D2）。
+   *
+   * 状态可以写 `-8`（天与咒缚「出生时被拿走全部咒力」就是这么写的），但「有效属性 -8」
+   * 会真的一路算进命中骰与伤害公式，读起来像加法写错了。属性是量，量到 0 为止 ——
+   * 「没有」和「欠着」在规则上是同一件事。
+   */
+  for (const key of Object.keys(eff)) {
+    const value = eff[key]!;
+    if (value < 0) eff[key] = 0;
+  }
   return eff;
 }
 
-export function playerEffectiveAttributes(state: WorldStateV2, lookup: TemplateLookup): Record<string, number> {
-  const equipment = state.player.equipment ?? [];
+/** 有效属性求值所需的最小信息（玩家 / NPC / 未实例化的敌人卡都满足）。 */
+export interface EffectiveAttributeSource {
+  attributes: Record<string, AttributeValue>;
+  statuses: StatusInstance[];
+  mood: number;
+  equipment?: EquipmentInstance[];
+}
+
+/**
+ * 按固定链路算一个**任意演员**的有效属性（ADR-010 D3）。
+ *
+ * 存在的理由：NPC 的状态与装备以前在战斗构建时被整个跳过（`buildUnits` 直接读模板
+ * `attributes` × levelScale），于是「穿了咒具的甚尔」和「裸的甚尔」数值一样。
+ * 玩家与 NPC 现在走同一函数，不给 NPC 写第二套。
+ */
+export function effectiveAttributesOfActor(
+  state: WorldStateV2,
+  lookup: TemplateLookup,
+  src: EffectiveAttributeSource,
+): Record<string, number> {
+  const equipment = src.equipment ?? [];
   if (equipment.length === 0) {
-    return effectiveAttributes(state.player.attributes, state.player.statuses, state.player.mood, lookup);
+    return effectiveAttributes(src.attributes, src.statuses, src.mood, lookup);
   }
   // attribute 条件的求值基准 = 不含装备的基础有效属性（避免条件→属性→装备→条件递归）
-  const baseEff = effectiveAttributes(state.player.attributes, state.player.statuses, state.player.mood, lookup);
+  const baseEff = effectiveAttributes(src.attributes, src.statuses, src.mood, lookup);
   const condGate: ModifierConditionGate = (cond) =>
     checkCondition(cond, { state, lookup, rng: zeroRng, effAttrsOverride: baseEff });
-  return effectiveAttributes(state.player.attributes, state.player.statuses, state.player.mood, lookup, equipment, condGate);
+  return effectiveAttributes(src.attributes, src.statuses, src.mood, lookup, equipment, condGate);
+}
+
+export function playerEffectiveAttributes(state: WorldStateV2, lookup: TemplateLookup): Record<string, number> {
+  return effectiveAttributesOfActor(state, lookup, state.player);
 }
 
 function clampAttr(template: WorldTemplateV2, key: string, value: number): number {
   const cap = template.attributes.caps?.[key];
   return cap !== undefined ? Math.min(value, cap) : value;
+}
+
+/**
+ * 绝对赋值（ADR-003）：`setAttribute` 效果与开局 commit 共用。
+ *
+ * - enum：必须是已声明选项 id（否则抛 `unknown_attribute_value`）；
+ * - composite：只读派生（抛 `attribute_readonly`）；
+ * - number / ladder：按 caps 夹取；reset 阶梯从首档起逐档扣减并写 `attributeTiers`。
+ */
+export function assignAttributeValue(
+  state: WorldStateV2,
+  template: WorldTemplateV2,
+  attribute: string,
+  value: number | string,
+): void {
+  const def = template.attributes.defs?.[attribute];
+  if (def?.kind === "enum") {
+    if (typeof value !== "string" || !def.values.some((v) => v.id === value)) {
+      throw new Error(`unknown_attribute_value: ${attribute}=${String(value)}`);
+    }
+    state.player.attributes[attribute] = value;
+    return;
+  }
+  if (def?.kind === "composite") {
+    throw new Error(`attribute_readonly: ${attribute}（composite 是派生属性）`);
+  }
+  if (typeof value !== "number") {
+    throw new Error(`attribute_not_numeric: ${attribute}（收到字符串值）`);
+  }
+  const clamped = clampAttr(template, attribute, value);
+  if (def?.kind === "ladder" && def.mode === "reset") {
+    const applied = ladderResetFromAbsolute(def, clamped);
+    state.player.attributes[attribute] = applied.value;
+    state.player.attributeTiers = {
+      ...(state.player.attributeTiers ?? {}),
+      [attribute]: applied.tierId,
+    };
+    return;
+  }
+  state.player.attributes[attribute] = clamped;
 }
 
 // ---------- 公式求值 ----------
@@ -142,6 +226,7 @@ export function rollFormula(
   formulas: Formula[],
   effAttrs: Record<string, number>,
   casterStatuses: StatusInstance[],
+  casterResources?: Record<string, number>,
 ): number {
   let total = 0;
   for (const f of formulas) {
@@ -157,57 +242,111 @@ export function rollFormula(
         total += f.base + stacks * f.perStack;
         break;
       }
+      case "resource-scaled": {
+        // ADR-012 D10：读**消耗前**的池子；没有这张表（旧调用点）按 0 处理。
+        total += f.base + (casterResources?.[f.resource] ?? 0) * f.perPoint;
+        break;
+      }
     }
   }
   return total;
 }
 
-// ---------- 补正施加（模拟域；战斗域由 battle.ts 处理） ----------
+// ---------- 状态施加（模拟域；战斗域由 battle.ts 处理） ----------
 
 /**
- * 施加补正（模拟域）。
+ * 施加状态（模拟域）。
  *
- * `duration` 是**施加点**的持续时间，写了就覆盖补正定义里的默认值：
- * 「同一件事持续多久」取决于这次是谁、用什么方式打上来的，不是补正类型的固有属性。
+ * 时长是**这次施加**的属性（ADR-009 D1/D2），状态定义上不再有任何时长。
+ * `{ value, unit }` 换算成**绝对到期点** `expiresAt`（`worldTime` 分钟），到期判定是纯比较——
+ * 所以事件 `advanceTo 4752 day` 之后它自己就过期了，不需要任何地方补 tick。
+ *
+ * `duration` 省略 = 永久（挂载 / 天赋）。只有 `kind: talent` 与挂载会这么调用：
+ * 天赋没有时钟，挂载的状态是身份而不是「一次施加」（D5）。
+ */
+export function applyStatusTo(
+  state: WorldStateV2,
+  actor: V2Player | V2Npc,
+  statusId: string,
+  stacks: number,
+  lookup: TemplateLookup,
+  duration?: SimulationDuration,
+): void {
+  const def = lookup.status(statusId);
+  if (!def) return;
+  const now = state.worldTime;
+  const expiresAt = duration === undefined ? undefined : now + amountToMinutes(duration);
+  const existing = actor.statuses.find((s) => s.statusId === statusId);
+  if (existing) {
+    /**
+     * 时长（ADR-011 D1 + D2）：**时钟的形态听这一次，数值只往后推**。
+     *
+     * 状态的时长是「这一次施加」的属性，不是状态类型的属性；实例上却只有一个
+     * `expiresAt`。两条约束同时成立：
+     *
+     * ① 形态：这一次带时长 ⇒ 有时钟；这一次不带（挂载 / 天赋）⇒ 没有。
+     * ② 数值：同种时钟**只增不减**。剩 5 天的丧失不该被一句轻话缩成 3 天——
+     *    这和层数是两件事，`stack` 加层的同时也不许把钟往回拨。
+     *
+     * 已经永久（挂载）的实例**不会被一次有期施加降级**：身份不是「一次施加」。
+     * 旧 `stacking: refresh` 退役后，本条与层数规则合成唯一的再施加语义。
+     */
+    const permanent = existing.expiresAt === undefined;
+    existing.appliedTurn = state.turnIndex;
+    existing.appliedAt = now;
+    if (expiresAt === undefined) delete existing.expiresAt;
+    else if (!permanent) existing.expiresAt = Math.max(existing.expiresAt ?? 0, expiresAt);
+    if (def.stacking === "stack") existing.stacks += stacks;
+    else existing.stacks = Math.max(1, existing.stacks);
+  } else {
+    actor.statuses.push({
+      statusId,
+      stacks: Math.max(1, stacks),
+      appliedTurn: state.turnIndex,
+      appliedAt: now,
+      ...(expiresAt === undefined ? {} : { expiresAt }),
+    });
+  }
+}
+
+/**
+ * 只作用于 self 的薄包装（历史调用点：开局创建链、战斗施加入口）。
+ * 新代码请用 `applyStatusTo` + `who`。
  */
 export function applyStatusToPlayer(
   state: WorldStateV2,
   statusId: string,
   stacks: number,
   lookup: TemplateLookup,
-  duration?: { turns: number } | { untilCured: true },
+  duration?: SimulationDuration,
 ): void {
-  const def = lookup.status(statusId);
-  if (!def) return;
-  const existing = state.player.statuses.find((s) => s.statusId === statusId);
-  const effective = duration ?? def.duration;
-  const turnsLeft = effective !== undefined && "turns" in effective ? effective.turns : undefined;
-  if (existing) {
-    switch (def.stacking) {
-      case "refresh":
-        existing.appliedTurn = state.turnIndex;
-        existing.stacks = Math.max(1, stacks);
-        if (turnsLeft !== undefined) existing.turnsLeft = turnsLeft;
-        break;
-      case "stack":
-        existing.stacks += stacks;
-        break;
-      case "unique":
-        existing.stacks = Math.max(1, existing.stacks);
-        break;
-    }
-  } else {
-    state.player.statuses.push({
-      statusId,
-      stacks: Math.max(1, stacks),
-      appliedTurn: state.turnIndex,
-      turnsLeft,
-    });
+  applyStatusTo(state, state.player, statusId, stacks, lookup, duration);
+}
+
+/**
+ * 剪掉已到期的模拟域状态（ADR-009 D2）。
+ *
+ * 调用点覆盖所有改变 `worldTime` 的位置：自由行动的时间步、`advanceBy` / `advanceTo` 效果、轮尾。
+ * 「到期」是绝对时刻比较，不是递减计数 ⇒ 漏调一次不会让状态永远活着，只会晚一轮消失。
+ */
+export function pruneExpiredStatuses(state: WorldStateV2): void {
+  const now = state.worldTime;
+  // ADR-010 D2：NPC 现在也能被施加模拟域状态（下毒、治伤），所以剪枝要覆盖全部演员。
+  for (const actor of [state.player, ...state.npcs]) {
+    const statuses = actor.statuses;
+    if (statuses.length === 0) continue;
+    const kept = statuses.filter((inst) => inst.expiresAt === undefined || now < inst.expiresAt);
+    if (kept.length !== statuses.length) actor.statuses = kept;
   }
 }
 
+export function cureStatusFrom(state: WorldStateV2, actor: V2Player | V2Npc, statusId: string): void {
+  actor.statuses = actor.statuses.filter((s) => s.statusId !== statusId);
+}
+
+/** 只作用于 self 的薄包装（历史调用点）。 */
 export function cureStatusFromPlayer(state: WorldStateV2, statusId: string): void {
-  state.player.statuses = state.player.statuses.filter((s) => s.statusId !== statusId);
+  cureStatusFrom(state, state.player, statusId);
 }
 
 // ---------- 条件求值（数组内 AND） ----------
@@ -237,8 +376,19 @@ export function checkCondition(cond: Condition, ctx: ConditionContext): boolean 
     return npc !== undefined && npc.lifecycle.state === cond.npcState.state;
   }
   if ("attribute" in cond) {
+    /**
+     * ADR-003：与触发器求值共用 `evaluateAttributeCondition`（kind / enum 选项 /
+     * 阶梯 tier 只实现一次）。引擎侧用**有效值**（叠状态/装备），触发器侧用原始值，
+     * 这是两处既有的口径差异，不由本函数抹平。
+     */
     const eff = ctx.effAttrsOverride ?? playerEffectiveAttributes(state, lookup);
-    return compareNumber(eff[cond.attribute] ?? 0, cond);
+    return evaluateAttributeCondition(
+      cond,
+      state.player.attributes,
+      eff,
+      lookup.template,
+      state.player.attributeTiers,
+    );
   }
   if ("status" in cond) {
     const inst = state.player.statuses.find((s) => s.statusId === cond.status);
@@ -254,14 +404,18 @@ export function checkCondition(cond: Condition, ctx: ConditionContext): boolean 
     return true;
   }
   if ("relation" in cond) {
-    // R2.6 / ADR-0014：声明 kind 时改读**关系边**值（from = relation，to 缺省玩家）；
-    // 未声明 kind 时保持旧语义（NPC→玩家 标量 relationship），向后兼容。
+    // R2.6 / ADR-0014：声明 kind 时读**关系边**，未声明 kind 时读标量，向后兼容。
+    //
+    // ADR-017 D1：两种写法**读的是同一个数**。端点是 self（「他视你如何」）时强度只住在
+    // `npc.relationship` 标量里，所以带 kind 的条件也去读标量 —— 否则「卡片上写着好感 62、
+    // 条件按边判 0」这种错位会一直存在（模板把 value 写在边上时才暴露）。
     if (cond.kind !== undefined) {
-      const to = cond.to ?? PLAYER_ID;
-      const edge = state.relations.find(
-        (e) => e.from === cond.relation && e.to === to && e.kind === cond.kind,
-      );
-      const value = edge?.value ?? 0;
+      // 缺省「玩家」= 当前 self（扮演模板角色时不是字面量 `"player"`，见 normalizeRelationEndpoint）。
+      const to = normalizeRelationEndpoint(cond.to ?? PLAYER_ID, selfIdOf(state));
+      const value =
+        to === selfIdOf(state)
+          ? (state.npcs.find((n) => n.id === cond.relation)?.relationship ?? 0)
+          : (state.relations.find((e) => e.from === cond.relation && e.to === to && e.kind === cond.kind)?.value ?? 0);
       if (cond.gte !== undefined && value < cond.gte) return false;
       if (cond.lte !== undefined && value > cond.lte) return false;
       return true;
@@ -385,6 +539,35 @@ export interface EffectContextV2 {
 }
 
 /**
+ * 关系效果写下的知情人范围（ADR-007 D3）。
+ *
+ * 三档优先：显式 `scope` > 旧 `visibility` 折算 > 缺省 `private`。
+ * 缺省取 private 而不是 public：运行期「刚建立」的关系不该被当成众所周知，
+ * 要公开就明写 `scope: public`（模板里所有初始关系都明写了）。
+ *
+ * `limited` 没有名单 ⇒ 降级成 `private`（2026-11-19）：`RelationEdgeSchema` 明确拒绝
+ * 「limited 却没有 knownBy」，照原样写进去就是一份**载不回来的存档**。降级方向取
+ * 最严的那一档（没人看见），既不会凭空泄露，也不会让这一局打不开；
+ * 作者该看到的是加载期的报错，不是运行期的静默。
+ */
+function scopeOfEffect(effect: {
+  scope?: RelationScope;
+  visibility?: RelationVisibility;
+  knownBy?: readonly string[];
+}): RelationScope {
+  if (effect.scope !== undefined) {
+    if (effect.scope === "limited" && (effect.knownBy === undefined || effect.knownBy.length === 0)) {
+      return "private";
+    }
+    return effect.scope;
+  }
+  if (effect.visibility !== undefined) {
+    return effect.visibility === "known" || effect.visibility === "inferred" ? "public" : "private";
+  }
+  return "private";
+}
+
+/**
  * 关系写入的判活辅助（ADR-0020）。实现在 `actors.ts`（演员表访问层）：
  * 玩家/实例的区分收敛到 `selfIdOf` + `actorOf` 一处，这里只保留调用点。
  * 语义见 `isAliveActor` 注释：只拦「**确知**非在世」，找不到的 id 按可写处理。
@@ -419,21 +602,116 @@ export function applyEffectsV2(
         delete state.flags[effect.id];
         break;
       case "adjustAttribute": {
-        const current = state.player.attributes[effect.attribute] ?? 0;
-        state.player.attributes[effect.attribute] = clampAttr(lookup.template, effect.attribute, current + effect.value);
+        /**
+         * ADR-003：数值属性才可增减。文本 / 复合属性在加载期已拒载，
+         * 这里再抛一次（运行期动态接值也必须可诊断，不能静默把字符串当 0）。
+         */
+        const def = lookup.template.attributes.defs?.[effect.attribute];
+        if (def?.kind === "enum" || def?.kind === "composite") {
+          throw new Error(`attribute_not_numeric: ${effect.attribute}（${def.kind}）`);
+        }
+        const actor = writableActorOf(state, effect.who)?.actor;
+        if (actor === undefined) break;
+        const current = numericAttr(actor.attributes[effect.attribute]);
+        if (def?.kind === "ladder" && def.mode === "reset") {
+          const advanced = applyLadderGain(def, current, effect.value, actor.attributeTiers?.[effect.attribute]);
+          actor.attributes[effect.attribute] = advanced.value;
+          if (advanced.tierId !== undefined) {
+            actor.attributeTiers = {
+              ...(actor.attributeTiers ?? {}),
+              [effect.attribute]: advanced.tierId,
+            };
+          }
+          break;
+        }
+        actor.attributes[effect.attribute] = clampAttr(
+          lookup.template,
+          effect.attribute,
+          current + effect.value,
+        );
+        break;
+      }
+      case "setAttribute": {
+        assignAttributeValue(state, lookup.template, effect.attribute, effect.value);
         break;
       }
       case "adjustResource": {
-        if (effect.resource === "hp") {
-          state.player.hp = clamp(state.player.hp + effect.value, 1, maxHp(state.player, lookup.template));
-        } else {
-          state.player.mp = clamp(state.player.mp + effect.value, 0, maxMp(state.player, lookup.template));
+        // hp/mp 与自定义资源共用一套夹取（ADR-003 D8）；未知 key 不写（加载期已拒载）。
+        const actor = writableActorOf(state, effect.who)?.actor;
+        if (actor === undefined) break;
+        adjustResourceValue(actor, lookup.template, effect.resource, effect.value);
+        break;
+      }
+      case "adjustMood": {
+        const actor = writableActorOf(state, effect.who)?.actor;
+        if (actor === undefined) break;
+        actor.mood = clamp(actor.mood + effect.value, lookup.template.mood.min, lookup.template.mood.max);
+        break;
+      }
+      case "grantAllocation": {
+        /**
+         * 世界内加点（ADR-019）：只**挂请求**，不改属性。
+         *
+         * 属性由玩家在面板里选完、走轮外端点一次写入 —— 直接 `adjustAttribute`
+         * 等于替玩家做了选择，而且会绕过「这次分几点」的边界。
+         */
+        if (state.pendingAllocation !== undefined) {
+          /**
+           * 同 id ⇒ 幂等跳过（日常事件泡在池子里会反复给同一笔，比如每次切磋都给
+           * `alloc-spar`）；不同 id ⇒ 直接抛，那是作者写错了两笔并存的局面，
+           * 而「点确定」只能提交一笔。
+           */
+          if (state.pendingAllocation.id === effect.id) break;
+          throw new Error(
+            `grantAllocation 与未完成的加点冲突：${state.pendingAllocation.id}（同一时刻只能挂一条）`,
+          );
+        }
+        state.pendingAllocation = {
+          id: effect.id,
+          budget: effect.budget,
+          targets: effect.targets.map((t) => ({ ...t })),
+          ...(effect.reason !== undefined ? { reason: effect.reason } : {}),
+          sinceTurn: state.turnIndex,
+          sinceWorldTime: state.worldTime,
+        };
+        break;
+      }
+      case "observeActor": {
+        /**
+         * 观察者切换（ADR-010 D4）：只改「以谁的眼睛看」，不换人。
+         *
+         * 以前 `viewerId` 只是 `projectWorld` 的第 7 个参数 —— 模板没有任何办法把
+         * 镜头交给别人。现在写成 state 上的一格：行动 / 事件 / 时间表都能下发，
+         * 下一帧投影自然按它判关系可见性。
+         */
+        if (effect.actorId === null) {
+          delete state.viewerId;
+          break;
+        }
+        const viewer = effect.actorId === "__self__" ? selfIdOf(state) : effect.actorId;
+        if (viewer === selfIdOf(state) || state.npcs.some((n) => n.id === viewer)) {
+          state.viewerId = viewer;
         }
         break;
       }
-      case "adjustMood":
-        state.player.mood = clamp(state.player.mood + effect.value, lookup.template.mood.min, lookup.template.mood.max);
+      case "inheritActor": {
+        /**
+         * 继承 / 夺舍（ADR-010 D7）：`transplantActor` 的唯一模板入口。
+         *
+         * 源可以是死者（继承本来就发生在人死之后），所以这里不走 `writableActorOf`
+         * ——那个入口会以「非 alive」为由拒掉。目标必须活着：往死者身上搬字段没有意义。
+         * 引用错误由加载期抓（`checkEffectRefs`），运行期找不到实例就静默跳过。
+         */
+        const source = effect.from === PLAYER_ID ? state.player : state.npcs.find((n) => n.id === effect.from);
+        const target = effect.to === PLAYER_ID ? state.player : state.npcs.find((n) => n.id === effect.to);
+        if (source !== undefined && target !== undefined && source !== target) {
+          const targetAlive = effect.to === PLAYER_ID || (target.lifecycle?.state ?? "alive") === "alive";
+          if (targetAlive) {
+            transplantActor(source as unknown as TransferableActor, target as unknown as TransferableActor, effect.groups);
+          }
+        }
         break;
+      }
       case "setIdentity": {
         // 开局创建链用：性别 / 起始年龄由玩家在事件里定下。
         // 年龄必须同时写回 playerAgeAtStart，否则下一次按公历推进时会被旧基准覆盖。
@@ -468,46 +746,96 @@ export function applyEffectsV2(
         if (effect.toId === undefined || effect.kind === undefined) {
           throw new Error("adjustRelation 关系边形态必须同时声明 toId 与 kind");
         }
-        const fromId = effect.fromId === "__self__" ? ctx.selfNpcId : effect.fromId;
+        const selfId = selfIdOf(state);
+        const fromId =
+          effect.fromId === "__self__"
+            ? ctx.selfNpcId
+            : effect.fromId === undefined
+              ? undefined
+              : normalizeRelationEndpoint(effect.fromId, selfId);
         if (fromId === undefined) {
           throw new Error("adjustRelation 关系边形态的 fromId 无法解析（__self__ 时须有当前 NPC）");
         }
+        const toId = normalizeRelationEndpoint(effect.toId, selfId);
+        if (fromId === toId) break; // 归一成自环：同 addRelationEdge，丢弃不写
         // ADR-0020：任一端非在世即冻结该边的写入（新建与增量都挡）
-        if (!isAliveNode(state, fromId) || !isAliveNode(state, effect.toId)) break;
+        if (!isAliveNode(state, fromId) || !isAliveNode(state, toId)) break;
         const existing = state.relations.find(
-          (e) => e.from === fromId && e.to === effect.toId && e.kind === effect.kind,
+          (e) => e.from === fromId && e.to === toId && e.kind === effect.kind,
         );
+        // 死亡冻结的边不再被改动（T-B2 单向棘轮）
+        if (existing?.frozen === true) break;
+        /**
+         * ADR-017 D1：**端点是 self 时，强度落在标量里**（`npc.relationship`），不进边的 `value`。
+         *
+         * 否则同一条「夏油视你为朋友」会有两个数字：卡片 chip 读标量，带 `kind` 的条件读边 ——
+         * 事件改一个、另一个原地不动，玩家看到的面板与判定用的事实就此各说各话。
+         * kind 仍然建边（那是**事实**：他是你的朋友），只是不带强度。
+         * 冻结判据与下面那条共用（`existing.frozen`），所以「逝者的关系不再变」对两种形态同时成立。
+         */
+        if (toId === selfId) {
+          const npc = state.npcs.find((n) => n.id === fromId);
+          if (npc !== undefined) {
+            npc.relationship = clamp(npc.relationship + effect.value, -100, 100);
+          }
+          if (!existing) {
+            state.relations.push({
+              from: fromId,
+              to: toId,
+              kind: effect.kind,
+              source: "effect",
+              scope: scopeOfEffect(effect),
+              ...(effect.knownBy !== undefined ? { knownBy: [...effect.knownBy] } : {}),
+            });
+          }
+          break;
+        }
         if (!existing) {
-          // 新建边默认 unknown：不得把「运行时刚建立」误当成双方已知（R-OP-05）
+          // 新建边默认 private（ADR-007 D3）：当事人自己知道，外人不知道。
+          // 旧 `visibility` 写法仍认：known/inferred → public，其余 → private。
           state.relations.push({
             from: fromId,
-            to: effect.toId,
+            to: toId,
             kind: effect.kind,
             source: "effect",
-            visibility: effect.visibility ?? "unknown",
+            scope: scopeOfEffect(effect),
+            ...(effect.knownBy !== undefined ? { knownBy: [...effect.knownBy] } : {}),
             value: clamp(effect.value, -100, 100),
           });
           break;
         }
-        // 死亡冻结的边不再被改动（T-B2 单向棘轮）
-        if (existing.frozen === true) break;
         existing.value = clamp((existing.value ?? 0) + effect.value, -100, 100);
         break;
       }
       case "addRelationEdge": {
-        const fromId = effect.fromId === "__self__" ? ctx.selfNpcId : effect.fromId;
+        const selfId = selfIdOf(state);
+        const fromId = effect.fromId === "__self__" ? ctx.selfNpcId : normalizeRelationEndpoint(effect.fromId, selfId);
         if (fromId === undefined) {
           throw new Error("addRelationEdge 的 fromId 无法解析（__self__ 时须有当前 NPC）");
         }
+        // 端点归一后可能撞成自环（`fromId` 与 `toId` 都写 `player`）——schema 禁止自环，
+        // 写进去就是一份载不回来的存档。同 turn.ts 的声明边处理：丢掉，不写。
+        const toId = normalizeRelationEndpoint(effect.toId, selfId);
+        if (fromId === toId) break;
         // ADR-0020：任一端非在世不得新建关系边
-        if (!isAliveNode(state, fromId) || !isAliveNode(state, effect.toId)) break;
+        if (!isAliveNode(state, fromId) || !isAliveNode(state, toId)) break;
+        /**
+         * ADR-017 D1：指向 self 的强度只住在标量里（与 `adjustRelation` 同一口径）。
+         * `addRelationEdge` 的 `value` 是**绝对赋值**，所以这里直接覆盖标量，而不是叠上去。
+         */
+        const strengthToScalar = toId === selfId;
+        if (strengthToScalar && effect.value !== undefined) {
+          const npc = state.npcs.find((n) => n.id === fromId);
+          if (npc !== undefined) npc.relationship = clamp(effect.value, -100, 100);
+        }
         state.relations = addEdge(state.relations, {
           from: fromId,
-          to: effect.toId,
+          to: toId,
           kind: effect.kind,
           source: "effect",
-          visibility: effect.visibility ?? "unknown",
-          ...(effect.value !== undefined ? { value: effect.value } : {}),
+          scope: scopeOfEffect(effect),
+          ...(effect.knownBy !== undefined ? { knownBy: [...effect.knownBy] } : {}),
+          ...(effect.value !== undefined && !strengthToScalar ? { value: effect.value } : {}),
           ...(effect.gap !== undefined ? { gap: effect.gap } : {}),
         });
         break;
@@ -589,39 +917,75 @@ export function applyEffectsV2(
         if (effect.state !== "alive") state.relations = freezeOnDeath(state.relations, npcId);
         break;
       }
-      case "grantItem":
-        state.player.inventory[effect.itemId] = (state.player.inventory[effect.itemId] ?? 0) + effect.count;
-        break;
-      case "removeItem": {
-        const left = (state.player.inventory[effect.itemId] ?? 0) - effect.count;
-        if (left > 0) state.player.inventory[effect.itemId] = left;
-        else delete state.player.inventory[effect.itemId];
+      case "setNpcVisibility": {
+        // 与生命周期正交：只改玩家人物列表的上屏门，不改死活、不冻关系。
+        const npcId = effect.npcId === "__self__" ? ctx.selfNpcId : effect.npcId;
+        if (npcId === undefined) {
+          throw new Error("setNpcVisibility 的 npcId 无法解析（__self__ 时须有当前 NPC）");
+        }
+        const npc = state.npcs.find((n) => n.id === npcId);
+        if (!npc) throw new Error(`setNpcVisibility 指向未知 NPC：${npcId}`);
+        npc.visibility = effect.visibility;
         break;
       }
-      case "applyStatus":
-        applyStatusToPlayer(state, effect.status, effect.stacks ?? 1, lookup, effect.duration);
+      case "grantItem": {
+        const actor = writableActorOf(state, effect.who)?.actor;
+        if (actor === undefined) break;
+        actor.inventory[effect.itemId] = (actor.inventory[effect.itemId] ?? 0) + effect.count;
         break;
-      case "cureStatus":
-        cureStatusFromPlayer(state, effect.status);
+      }
+      case "removeItem": {
+        const actor = writableActorOf(state, effect.who)?.actor;
+        if (actor === undefined) break;
+        const left = (actor.inventory[effect.itemId] ?? 0) - effect.count;
+        if (left > 0) actor.inventory[effect.itemId] = left;
+        else delete actor.inventory[effect.itemId];
         break;
-      case "unlockSkill":
-        if (!state.player.skills.includes(effect.skillId)) state.player.skills.push(effect.skillId);
+      }
+      case "applyStatus": {
+        const actor = writableActorOf(state, effect.who)?.actor;
+        if (actor === undefined) break;
+        applyStatusTo(state, actor, effect.status, effect.stacks ?? 1, lookup, effect.duration);
         break;
+      }
+      case "cureStatus": {
+        const actor = writableActorOf(state, effect.who)?.actor;
+        if (actor === undefined) break;
+        cureStatusFrom(state, actor, effect.status);
+        break;
+      }
+      case "unlockSkill": {
+        const actor = writableActorOf(state, effect.who)?.actor;
+        if (actor === undefined) break;
+        if (!actor.skills.includes(effect.skillId)) actor.skills.push(effect.skillId);
+        break;
+      }
       case "adjustProficiency": {
-        const key = `proficiency:${effect.skillId}`;
+        const target = writableActorOf(state, effect.who);
+        if (target === null) break;
+        // 旧档/旧模板的 key 不变；给了别人时才按演员分槽，避免两人的熟练度串在一起。
+        const key = target.isSelf
+          ? `proficiency:${effect.skillId}`
+          : `proficiency:${target.actor.id}:${effect.skillId}`;
         const current = state.flags[key];
         state.flags[key] = (typeof current === "number" ? current : 0) + effect.value;
         break;
       }
-      case "adjustGrowth":
-        state.player.growthLevel += effect.value;
+      case "adjustGrowth": {
+        const actor = writableActorOf(state, effect.who)?.actor;
+        if (actor === undefined) break;
+        // NPC 之前没有成长等级（ADR-010 D1 补齐），缺省按 0 起算。
+        actor.growthLevel = (actor.growthLevel ?? 0) + effect.value;
         break;
+      }
       case "advanceTo": {
         // R2.6（ADR-0013）：目标量经历法适配器换算（基准 0 = 相对世界起始，绝不倒退）。
         const cal = createTimeAdapter(lookup.template);
         state.worldTime = Math.max(state.worldTime, cal.toMinutes(effect.value, 0));
         state.player.age = state.playerAgeAtStart + cal.elapsedYears(state.worldTime);
         ctx.timeAdvanced = true;
+        // 时间一跳，挂着的东西可能已经过期（ADR-009 D2）：就地剪掉，后续效果不必再猜。
+        pruneExpiredStatuses(state);
         break;
       }
       case "advanceBy": {
@@ -630,6 +994,7 @@ export function applyEffectsV2(
         state.worldTime += cal.toMinutes(effect.value, state.worldTime);
         state.player.age = state.playerAgeAtStart + cal.elapsedYears(state.worldTime);
         ctx.timeAdvanced = true;
+        pruneExpiredStatuses(state);
         break;
       }
       case "startChain": {

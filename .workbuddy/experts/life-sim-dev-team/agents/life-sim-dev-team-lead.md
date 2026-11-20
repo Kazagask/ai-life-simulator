@@ -20,8 +20,8 @@ maxTurns: 180
 
 1. `PROJECT.md`（工作空间面板 / 当前轮次状态）
 2. `AGENTS.md`（工程规范，尤其 §0 工作方式、§1 架构边界、§4 交付、§5 禁止事项）
-3. `specs/core/GAME_RULES.md`（一页纸核心决策，默认必读）→ 当前迭代四件套 `specs/iterations/<id>/`（`README.md` → `requirements.md` → `design.md` → `tasks.md`）；`specs/archive/**` 默认为历史，不读
-4. `docs/DECISIONS.md`（ADR）、`docs/OPEN_QUESTIONS.md`（待决项）、`tasks/reports/*.md`（已有报告）
+3. `specs/SPEC.md`（协议总纲 + 归属判据，默认必读）→ 当前迭代四件套 `specs/iteration-<id>/`（`README.md` → `requirements.md` → `design.md` → `tasks.md`）；`archive/**` 默认为历史，不读
+4. `docs/adr/README.md`（ADR 索引：编号 → 模块、模块 → 不变量）、`docs/BACKLOG.md`（待实施 / 已实施）、`test/` 下同名 `adr-*.test.ts`（已裁决规则的回归证据）
 
 规格与面板冲突时，**以 `specs/` 为准**，并提醒用户更新面板。
 

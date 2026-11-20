@@ -234,7 +234,7 @@ CSS 落在 `packages/rpg-ui/src/styles.css`（`.ls-style--rainbow` …），
 
 ## 8. 需 ADR 清单（G2）
 
-`docs/ADR-002-表现层协议.md` 需裁决 6 条：
+`docs/adr/60-表现层与仪器.md` 需裁决 6 条：
 
 1. 表现层新增字段全部**只读投影**，不进 `WorldStateV2`、不进语义指纹、不参与判定。
 2. 样式词汇受控（枚举 + 颜色 token），禁止任意 CSS；解析在引擎投影期。

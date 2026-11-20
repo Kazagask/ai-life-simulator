@@ -1,11 +1,12 @@
 import type { NpcVM, StatusVM } from "@life-sim/shared";
+import { AttributeGrid, LadderList } from "./AttributeList.js";
 import { RelationList } from "./RelationList.js";
-import { StyledName, styleBoxClassName, styleBoxInline } from "./StyledName.js";
+import { StatusChip } from "./StatusChip.js";
 
 export interface NpcDetailsProps {
   /** NPC 卡投影（关系已只留出边、属性已带标签、生命周期文案已翻译）。 */
   npc: NpcVM;
-  /** 点开补正详情（ADR-002 / R-DETAIL-05）：NPC 身上的补正同样能点。 */
+  /** 点开状态详情（ADR-002 / R-DETAIL-05）：NPC 身上的状态同样能点。 */
   onSelectStatus?: (status: StatusVM) => void;
 }
 
@@ -35,31 +36,14 @@ export function NpcDetails({ npc, onSelectStatus }: NpcDetailsProps) {
           <p className="muted">无异常状态。</p>
         ) : (
           <div className="chip-row">
-            {npc.statuses.map((s) => {
-              const box = [styleBoxClassName(s.style)].filter(Boolean).join(" ");
-              const boxStyle = styleBoxInline(s.style);
-              const label = (
-                <>
-                  <StyledName name={s.name} style={s.style} />
-                  {s.stacks > 1 ? ` ×${s.stacks}` : ""}
-                </>
-              );
-              return onSelectStatus === undefined ? (
-                <span key={s.id} className={`chip${box === "" ? "" : ` ${box}`}`} style={boxStyle}>
-                  {label}
-                </span>
-              ) : (
-                <button
-                  key={s.id}
-                  type="button"
-                  className={`chip status-chip--action${box === "" ? "" : ` ${box}`}`}
-                  style={boxStyle}
-                  onClick={() => onSelectStatus(s)}
-                >
-                  {label}
-                </button>
-              );
-            })}
+            {/* 与个人面板同一个组件：虚线框（修正 / 战斗状态）与「×N 跟名字同色」在这里才一致。 */}
+            {npc.statuses.map((s) => (
+              <StatusChip
+                key={s.id}
+                status={s}
+                {...(onSelectStatus !== undefined ? { onSelect: onSelectStatus } : {})}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -69,14 +53,10 @@ export function NpcDetails({ npc, onSelectStatus }: NpcDetailsProps) {
         {npc.attributes.length === 0 ? (
           <p className="muted">暂无属性数据</p>
         ) : (
-          <div className="npc-attrs">
-            {npc.attributes.map((attr) => (
-              <div key={attr.key} className="npc-attr">
-                <span className="npc-attr-name">{attr.label}</span>
-                <span className="npc-attr-value">{attr.value}</span>
-              </div>
-            ))}
-          </div>
+          <>
+            <AttributeGrid attributes={npc.attributes} />
+            <LadderList attributes={npc.attributes} />
+          </>
         )}
       </div>
 

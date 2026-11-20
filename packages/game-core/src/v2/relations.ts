@@ -1,4 +1,4 @@
-import { KinshipKindSchema } from "@life-sim/shared";
+import { KinshipKindSchema, relationVisibleTo } from "@life-sim/shared";
 import type { KinshipKind, RelationEdge } from "@life-sim/shared";
 import { PLAYER_ID } from "@life-sim/shared";
 
@@ -24,6 +24,21 @@ import { PLAYER_ID } from "@life-sim/shared";
  * 运行时要取玩家节点请用 `actors.selfIdOf(state)`（它允许未来 `selfId` 指向另一个实例）。
  */
 export const PLAYER_NODE_ID = PLAYER_ID;
+
+/**
+ * 关系端点归一（ADR-001 D4 的收尾，2026-11-19）。
+ *
+ * 模板与效果里写 `player` 是**作者的写法**，不是图里的节点名：`selfId` 指向模板角色时
+ * （扮演某个原作人物），图里那个节点是那个角色的 id，不叫 `player`。世界创建期的声明边已经
+ * 归一过（`turn.ts`），但**效果写边**（`addRelationEdge` / `adjustRelation`）此前没有，
+ * 于是写进去的边挂在了一个图上不存在的 `player` 节点上：投影按 `selfId` 找边，
+ * 找不到；人也没报错——一条关系就这么静默消失了。
+ *
+ * 唯一的读法在这里：一切关系端点（声明边 / 效果边 / 条件查询）都过这一道。
+ */
+export function normalizeRelationEndpoint(id: string, selfId: string): string {
+  return id === PLAYER_ID ? selfId : id;
+}
 
 const KINSHIP_KINDS: ReadonlySet<string> = new Set<string>(KinshipKindSchema.options);
 
@@ -270,9 +285,18 @@ export function freezeOnDeath(edges: readonly RelationEdge[], nodeId: string): R
 
 // ---------------- 可见性投影 ----------------
 
-/** 玩家可见的关系边：`known` / `inferred` 可见；`unknown` / `hidden` 一律不投影（R-OP-05）。 */
-export function projectVisibleRelations(edges: readonly RelationEdge[]): RelationEdge[] {
-  return edges
-    .filter((e) => e.visibility === "known" || e.visibility === "inferred")
-    .map((e) => ({ ...e }));
+/**
+ * 某个观察者能看见的关系边（ADR-007 D3）。
+ *
+ * 判定只有一处：`relationVisibleTo`（shared）。当事人必见；`public` 人人可见；
+ * `limited` 只有 `knownBy` 里的人；`private` 只有当事人。
+ *
+ * `viewerId` 目前恒为玩家，但**不许**在这里写死 —— 参数化的意义就是下次切视角
+ * （玩家扮演 NPC / NPC 之间互相打听）时，调用方换个 id 即可，不用改判定。
+ */
+export function projectVisibleRelations(
+  edges: readonly RelationEdge[],
+  viewerId: string,
+): RelationEdge[] {
+  return edges.filter((e) => relationVisibleTo(e, viewerId)).map((e) => ({ ...e }));
 }

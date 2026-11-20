@@ -10,7 +10,7 @@ export interface NpcCardProps {
    * 扩展版本。覆盖整张卡时这个 prop 可以不用 —— 替换卡片的扩展自己决定详情怎么画。
    */
   Details?: ComponentType<NpcDetailsProps>;
-  /** 点开补正详情：透传给详情区（卡面本身不列补正）。 */
+  /** 点开状态详情：透传给详情区（卡面本身不列状态）。 */
   onSelectStatus?: (status: StatusVM) => void;
 }
 
@@ -32,7 +32,10 @@ export function NpcCard({ npc, Details = NpcDetails, onSelectStatus }: NpcCardPr
       </div>
       <div className="chip-row npc-meta">
         <span className="chip">{npc.lifeStageLabel}</span>
-        <span className="chip">关系 {npc.relationship}</span>
+        {/* 档位而不是裸数值（2026-11-19）：`关系 10` 没有参照系，玩家要的是"这一档算近还是远"。 */}
+        <span className="chip" title={`关系值 ${npc.relationship}`}>
+          关系 {npc.relationshipLabel}
+        </span>
         {!npc.alive && <span className="chip npc-life-chip">{npc.lifeText}</span>}
       </div>
       <p className="muted">{npc.personality}</p>
@@ -41,7 +44,9 @@ export function NpcCard({ npc, Details = NpcDetails, onSelectStatus }: NpcCardPr
         <div className="bar">
           <div className="bar-fill relation" style={{ width: `${((npc.relationship + 100) / 200) * 100}%` }} />
         </div>
-        <span className="attr-value">{npc.relationship}</span>
+        <span className="attr-value" title={`关系值 ${npc.relationship}`}>
+          {npc.relationshipLabel}
+        </span>
       </div>
       {npc.knownGoals.length > 0 && <p className="known-goals">已知目标：{npc.knownGoals.join("；")}</p>}
       <Details npc={npc} {...(onSelectStatus !== undefined ? { onSelectStatus } : {})} />

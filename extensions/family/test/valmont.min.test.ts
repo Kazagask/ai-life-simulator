@@ -150,9 +150,11 @@ function relationRow(state: WorldStateV2, npcName: string, otherName: string) {
 }
 
 describe("valmont · 加载", () => {
-  it("十二人全部在册，事件链与四结局完整", () => {
+  it("在世十二人 + 三名测试角色全部在册，事件链与四结局完整", () => {
     expect(loaded.template.meta.id).toBe("valmont");
-    expect(loaded.template.characters).toHaveLength(12);
+    // 敌人（ADR-003 决斗夹具）不实例化、不进族谱，不计入「在册」。
+    // 12 位家族成员 + 联姻对象 / 嫡子 / 私生子（2026-11-20 加的测试角色）。
+    expect(loaded.template.characters.filter((c) => !c.isEnemy)).toHaveLength(15);
     expect(loaded.template.events.length).toBeGreaterThanOrEqual(10);
     expect(loaded.endings.endings.length).toBeGreaterThanOrEqual(4);
   });
@@ -183,6 +185,16 @@ describe("valmont · 开册的后果落在状态上", () => {
     expect(alive).toContain("npc-cecily");
     // 玩家出边也在这一幕补上（playerTemplate 没有 relations 字段的已知缺口）
     expect(state.relations.some((e) => e.from === "player" && e.kind === "father")).toBe(true);
+
+    /**
+     * 宗族：开册把**在世者逐个入册**（2026-11-20）。
+     * 以前只有雷纳德一条 `joinClan`，宗族面板的「在世成员」是 1，可这屋里站着七个活人 ——
+     * 数据一直是对的，是模板从没把别人写进去。
+     */
+    const family = snapshot(state).extensions?.family as FamilyView | undefined;
+    const clan = family?.clans?.[0];
+    expect(clan?.livingCount).toBe(7);
+    expect(clan?.head?.name).toBe("雷纳德");
   });
 });
 

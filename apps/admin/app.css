@@ -614,3 +614,314 @@ select:focus, input[type="search"]:focus { border-color: var(--accent); }
 
 .eff.fallback { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .eff .json { color: var(--dim); }
+
+
+/* 角色线：左栏角色列表 + 右栏场景条目 */
+.npc-list { max-height: 15vh; }
+.npc-scene {
+  margin-top: 6px;
+  padding: 4px 0 4px 8px;
+  border-left: 2px solid var(--border-soft);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.npc-scene .hint { font-size: 10px; }
+
+
+/* ================================ 战斗木桩 ================================ */
+
+.sim-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px;
+  height: 100%;
+}
+
+.field-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.field-row .field { margin-bottom: 12px; }
+.field.grow2 { grid-column: span 2; }
+
+input[type="text"], input[type="number"] {
+  width: 100%;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text);
+  outline: none;
+}
+input[type="text"]:focus, input[type="number"]:focus { border-color: var(--accent); }
+input::placeholder { color: var(--dim); }
+
+.run-btn {
+  width: 100%;
+  padding: 9px;
+  margin-top: 2px;
+  background: linear-gradient(180deg, #2a3555, #1d2740);
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  color: var(--text);
+  font-weight: 600;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.run-btn:hover { background: linear-gradient(180deg, #33406a, #222d49); }
+.run-btn:disabled { opacity: 0.55; cursor: progress; }
+
+.sim-error {
+  margin-top: 9px;
+  padding: 7px 9px;
+  border: 1px solid rgba(255, 122, 122, 0.32);
+  background: rgba(255, 122, 122, 0.08);
+  border-radius: 8px;
+  color: var(--danger);
+  font-size: 11.5px;
+  word-break: break-all;
+}
+
+.sim-note {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--dim);
+  font-size: 10.5px;
+  line-height: 1.65;
+}
+.sim-note code { color: var(--accent-2); font-family: var(--mono); }
+
+.sim-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.sim-head .vs { color: var(--dim); font-size: 11px; font-weight: 400; }
+
+.sim-bars { display: grid; gap: 5px; margin: 10px 0 4px; }
+.sim-bar-row {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr) 66px;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+}
+.sim-bar-name { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sim-bar-track { height: 8px; background: var(--bg-sunken); border-radius: 5px; overflow: hidden; }
+.sim-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+.sim-bar-val { text-align: right; font-family: var(--mono); color: var(--dim); }
+
+.sim-table-wrap { margin-top: 12px; max-height: calc(100vh - 430px); overflow: auto; }
+.sim-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.sim-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  color: var(--dim);
+  font-weight: 500;
+  text-align: right;
+  padding: 5px 7px;
+  white-space: nowrap;
+}
+.sim-table td {
+  text-align: right;
+  padding: 4px 7px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.sim-table th:first-child, .sim-table td:first-child { text-align: left; }
+.sim-table tbody tr:hover td { background: var(--bg-card-2); color: var(--text); }
+
+.outcome { font-weight: 600; }
+.outcome.victory { color: var(--green); }
+.outcome.defeat { color: var(--danger); }
+.outcome.undecided { color: var(--gold); }
+
+/* 木桩表单：读模板渲染的可点选词表 */
+.picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+  max-height: 150px;
+  overflow: auto;
+}
+.pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--bg-sunken);
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.pick:hover { border-color: var(--accent); color: var(--text); }
+.pick.on { border-color: var(--accent-2); color: var(--text); background: var(--bg-card-2); }
+.pick input[type="checkbox"] { margin: 0; accent-color: var(--accent); }
+.pick small { color: var(--dim); font-family: var(--mono); font-size: 9px; }
+.pick input[type="number"] {
+  width: 52px;
+  padding: 1px 3px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.picker.readonly .pick { cursor: default; }
+.preset-btn { flex: 0 0 auto; align-self: end; margin-bottom: 1px; }
+.live-btn { width: 100%; margin-top: 6px; }
+
+/* 战斗演练 */
+.live-layout { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 12px; height: 100%; }
+.live-toolbar { display: flex; gap: 6px; margin-bottom: 8px; }
+.live-toolbar .run-btn, .live-toolbar .ghost { flex: 1; }
+.live-presets { margin-top: 10px; max-height: 190px; overflow: auto; }
+.live-presets .preset-title { font-size: 11px; color: var(--dim); margin: 0 0 5px; }
+.live-presets .preset-row {
+  display: flex; align-items: center; gap: 5px; padding: 3px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.live-presets .preset-name { flex: 1; min-width: 0; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-presets .preset-name small { color: var(--dim); font-family: var(--mono); font-size: 9px; }
+.live-presets button {
+  padding: 2px 6px; border: 1px solid var(--border); border-radius: 5px;
+  background: var(--bg-sunken); color: var(--muted); font-size: 10px;
+}
+.live-presets button:hover { border-color: var(--accent-2); color: var(--text); }
+.live-patch { display: grid; gap: 8px; margin-top: 12px; }
+.live-patch .row { display: grid; grid-template-columns: 72px minmax(0, 1fr) 84px; gap: 5px; align-items: center; }
+.live-patch select, .live-patch input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-sunken);
+  color: var(--text);
+  font-size: 11px;
+}
+.live-patch .row .run-btn { padding: 5px 8px; font-size: 11px; }
+.live-patch .applied { color: var(--green); font-size: 10px; }
+#liveRoot { padding: 12px; }
+#liveRoot .battle-body { display: flex; flex-direction: column; }
+#liveRoot .row { display: flex; align-items: center; justify-content: space-between; }
+#liveRoot .row h3 { font-size: 15px; font-weight: 500; }
+#liveRoot .battle-over { opacity: 0.85; }
+#liveRoot .battle-self {
+  display: flex; flex-direction: column; gap: 6px; margin: 10px 0 4px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg-card-2);
+}
+#liveRoot .battle-self__pick {
+  display: flex; flex-direction: column; gap: 6px; padding: 0; border: 0;
+  background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+#liveRoot .battle-self.is-selected { border-color: var(--accent); box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 35%, transparent); }
+#liveRoot .attr { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+#liveRoot .attr-name { width: 72px; flex-shrink: 0; color: var(--muted); }
+#liveRoot .attr-value { width: 48px; text-align: right; font-variant-numeric: tabular-nums; }
+#liveRoot .bar { flex: 1; height: 6px; border-radius: 999px; background: var(--bg-sunken); overflow: hidden; }
+#liveRoot .bar.bar-sm { height: 4px; }
+#liveRoot .bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+#liveRoot .bar-fill.hp, #liveRoot .bar-fill.enemy-hp { background: linear-gradient(90deg, #ff7a7a, #ffb199); }
+#liveRoot .bar-fill.mp { background: linear-gradient(90deg, #7c8cff, #9f7cff); }
+#liveRoot .bar-fill.res { background: linear-gradient(90deg, #c9a227, #f0d78c); }
+#liveRoot .enemy-list, #liveRoot .ally-list, #liveRoot .neutral-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+/* 中立卡与敌方卡同版式（2026-11-20）：它们现在共用一个目标框，样式不能一个是默认按钮。 */
+#liveRoot .enemy, #liveRoot .ally, #liveRoot .neutral {
+  display: flex; flex-direction: column; gap: 4px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card-2);
+  color: var(--text); text-align: left; cursor: pointer;
+}
+#liveRoot .ally { border-color: #4fc3f7; }
+#liveRoot .enemy.dead, #liveRoot .ally.dead, #liveRoot .neutral.dead { opacity: 0.35; text-decoration: line-through; cursor: default; }
+#liveRoot .enemy.targeting,
+#liveRoot .neutral.targeting { border-color: var(--danger); box-shadow: 0 0 10px rgba(255, 122, 122, 0.25); }
+#liveRoot .enemy-status { font-size: 11px; color: var(--muted); }
+#liveRoot .battle-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+#liveRoot .action {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  background: var(--bg-card-2); border: 1px solid var(--border); color: var(--text);
+  padding: 10px 12px; border-radius: 10px; text-align: left;
+}
+#liveRoot .action strong { font-size: 13px; }
+#liveRoot .action span { font-size: 11px; color: var(--muted); }
+#liveRoot .action:disabled { opacity: 0.5; cursor: default; }
+/* 封印 / 非法目标：原因就写在按钮上，不能把字一起压暗（同 web 端口径）。 */
+#liveRoot .action.is-sealed,
+#liveRoot .action.is-illegal {
+  opacity: 1;
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+}
+#liveRoot .action.is-sealed strong,
+#liveRoot .action.is-illegal strong { color: var(--muted); }
+#liveRoot .action .action-seal { font-size: 11px; color: var(--danger); }
+#liveRoot .action.flee { border-color: var(--danger); }
+#liveRoot .primary { padding: 8px 12px; border-radius: 8px; border: 1px solid var(--accent); background: var(--bg-card-2); color: var(--text); }
+#liveRoot .muted { color: var(--muted); font-size: 11px; }
+#liveRoot .battle-log {
+  margin-top: 12px; max-height: 180px; overflow-y: auto; font-size: 12px;
+  color: var(--muted); border-top: 1px dashed var(--border); padding-top: 8px;
+}
+#liveRoot .tag { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); font-size: 11px; }
+#liveRoot .unit-wrap { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+#liveRoot .unit-summon-label { color: var(--gold); font-size: 11px; }
+#liveRoot .unit-death-reason { color: var(--dim); font-size: 11px; }
+#liveRoot .unit-summoner { color: var(--muted); font-size: 11px; }
+#liveRoot .unit-detail-btn {
+  align-self: flex-start; padding: 2px 8px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--bg-sunken); color: var(--muted); font-size: 11px;
+}
+#liveRoot .action-summon { color: var(--gold); font-weight: 500; }
+#liveRoot .action-cost-note { color: var(--dim); font-size: 10px; }
+#liveRoot .unit-detail-panel {
+  margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--bg-card-2);
+  font-size: 12px; color: var(--muted); line-height: 1.7;
+}
+#liveRoot .unit-detail-head { display: flex; align-items: center; justify-content: space-between; }
+#liveRoot .unit-detail-close {
+  padding: 2px 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-sunken); color: var(--text); font-size: 12px;
+}
+#liveRoot .fallen-list { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; opacity: 0.75; }
+@media (max-width: 900px) { .live-layout { grid-template-columns: 1fr; } }
+
+/* ---------- 补正面板（ADR-018）：天赋 / 状态 / 补正总值 ---------- */
+.status-board { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.status-group { display: flex; flex-direction: column; gap: 4px; }
+.status-group__title { font-size: 11px; letter-spacing: 0.08em; color: var(--muted); }
+.status-chip__meta { margin-left: 6px; color: var(--muted); font-size: 11px; }
+.status-board .status-chips { margin-top: 0; }
+.ledger { display: flex; flex-direction: column; gap: 2px; }
+.ledger-row { border-top: 1px solid var(--border); padding: 4px 0; }
+.ledger-row__head { display: flex; justify-content: space-between; gap: 8px; cursor: pointer; font-size: 12px; color: var(--text); list-style: none; }
+.ledger-row__head::-webkit-details-marker { display: none; }
+.ledger-row__label { color: var(--muted); }
+.ledger-row__total { font-variant-numeric: tabular-nums; }
+.ledger-sources { margin: 4px 0 0; padding: 0 0 0 12px; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.ledger-sources li { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
+
+/* 天赋是身份（实线），状态与战斗态会掉（虚线）——滚动之后分组标题不在屏里也分得开 */
+.status-chip--modifier,
+.status-chip--battle { border-style: dashed; }
+
+/* 跳过回合是兜底出口，不是战术选择：虚线 + 弱化，别和技能抢注意力 */
+.battle-actions .action.pass { border-style: dashed; }
+.battle-actions .action.pass strong { font-weight: 600; color: var(--muted); }

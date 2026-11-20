@@ -1,432 +1,30 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { createTimeAdapter } from "@life-sim/game-core";
-import type { LlmTrace } from "@life-sim/shared";
-import type { ReadyTemplateEntry, TemplateRegistry } from "./templates.js";
+import { simulateDuel, type SimActorSpec, type SimDuelSpec } from "./admin/sim.js";
+import type { TemplateRegistry } from "./templates.js";
 import { dataDir, traceFile, worldStore } from "./store.js";
+import { buildOrchestration, diagnoseOrchestration, listWorlds, readTraceFile } from "./admin-data.js";
+import { buildNpcLine } from "./admin-lines.js";
+import { registerLiveBattleRoutes } from "./admin/battle.js";
 
 /**
  * 本地开发用后台工具（2026-11-19）。
  *
- * 两个视图：
+ * 三个视图：
  * - trace：把 `<worldId>.trace.jsonl` 的 invocation 序列摊平成可读时间线（模型调了什么、
  *   服务端收/拒了什么、正文长什么样、延迟与 token 花在哪）。
  * - orchestration：把模板的 events.yaml 派生成「事件 → 事件」图 + 「flag 写入/读取」索引，
  *   用来看分支、断链、结局可达性。
+ * - sim（战斗木桩）：把表单翻译成 `SimDuelSpec` 交给 `simulateDuel`，量技能消耗 / 伤害 /
+ *   命中率。这一栏**不放任何战斗规则**，数字全部来自真实的 `performBattleAction`。
+ *
+ * 数据层在 `admin-data.ts`（无 HTTP 依赖），同一份推导也被 `cli/inspect.ts` 用作命令行体检。
  *
  * **只在 `LIFE_SIM_ADMIN=1` 时注册**：trace 里是完整叙事正文（含本该被窗口挡住的原文），
  * 这个工具绝不能跟着线上部署一起开门。数据全部只读，不提供任何写接口。
  */
-
-/* ------------------------------------------------------------------ *
- * 数据结构
- * ------------------------------------------------------------------ */
-
-interface AdminFlagWrite {
-  flag: string;
-  how: string;
-  optionId?: string;
-}
-
-interface AdminFlagRead {
-  flag: string;
-  where: "trigger" | "missWhen" | "visibleWhen" | "ending" | "unlock" | "termination";
-  /** 读取点所属事件；结局 / 终止条件读旗标时没有单一事件，留空。 */
-  eventId?: string;
-  optionId?: string;
-}
-
-interface AdminEdge {
-  from: string;
-  to: string;
-  type: "option" | "wheel" | "victory" | "defeat" | "flee" | "enqueue";
-  label: string;
-}
-
-interface AdminOrchestration {
-  template: { id: string; version: string; name: string; description: string; startYear: number };
-  generatedAt: string;
-  labels: Record<string, string>;
-  resources: Record<string, string>;
-  characters: Array<{ id: string; name: string; isEnemy: boolean; gender?: string }>;
-  items: Array<{ id: string; name: string }>;
-  skills: Array<{ id: string; name: string }>;
-  statuses: Array<{ id: string; name: string }>;
-  events: unknown[];
-  edges: AdminEdge[];
-  flags: Array<{
-    id: string;
-    writers: Array<{ eventId: string; optionId?: string; how: string }>;
-    readers: AdminFlagRead[];
-  }>;
-  endings: unknown[];
-  termination: unknown[];
-  chains: unknown[];
-  stats: {
-    eventCount: number;
-    edgeCount: number;
-    flagCount: number;
-    danglingEdges: AdminEdge[];
-    orphanChainEvents: string[];
-  };
-}
-
-/* ------------------------------------------------------------------ *
- * 模板 → 编排图
- * ------------------------------------------------------------------ */
-
-/** 从效果里收集 flag 写入（只认闭集里的三种写法，其余形态不猜）。 */
-function flagWritesOf(effects: unknown): Array<{ flag: string; how: string }> {
-  if (!Array.isArray(effects)) return [];
-  const out: Array<{ flag: string; how: string }> = [];
-  for (const raw of effects) {
-    if (raw === null || typeof raw !== "object") continue;
-    const effect = raw as Record<string, unknown>;
-    const id = effect.id;
-    if (typeof id !== "string" || id === "") continue;
-    if (effect.type === "setFlag") out.push({ flag: id, how: `setFlag = ${JSON.stringify(effect.value)}` });
-    else if (effect.type === "adjustFlag") out.push({ flag: id, how: `adjustFlag ${String(effect.value)}` });
-    else if (effect.type === "clearFlag") out.push({ flag: id, how: "clearFlag" });
-  }
-  return out;
-}
-
-/** 条件里引用的 flag。条件数组是 AND 语义，只看平层 key。 */
-function flagsReadInConditions(conditions: unknown): string[] {
-  if (!Array.isArray(conditions)) return [];
-  const out: string[] = [];
-  for (const cond of conditions) {
-    if (cond === null || typeof cond !== "object") continue;
-    const flag = (cond as Record<string, unknown>).flag;
-    if (typeof flag === "string" && flag !== "") out.push(flag);
-  }
-  return [...new Set(out)];
-}
-
-function nextEventIdOf(value: unknown): string | undefined {
-  if (value === null || typeof value !== "object") return undefined;
-  const id = (value as Record<string, unknown>).nextEventId;
-  return typeof id === "string" && id !== "" ? id : undefined;
-}
-
-/** 效果里的 `enqueueEvent` 也是编排的一部分（占槽之外的另一条入队路径）。 */
-function enqueuedEventIds(effects: unknown): string[] {
-  if (!Array.isArray(effects)) return [];
-  const out: string[] = [];
-  for (const raw of effects) {
-    if (raw === null || typeof raw !== "object") continue;
-    const effect = raw as Record<string, unknown>;
-    if (effect.type === "enqueueEvent" && typeof effect.eventId === "string") out.push(effect.eventId);
-  }
-  return out;
-}
-
-function buildOrchestration(entry: ReadyTemplateEntry): AdminOrchestration {
-  const tpl = entry.template;
-  const edges: AdminEdge[] = [];
-  const flags = new Map<string, { writers: Array<{ eventId: string; optionId?: string; how: string }>; readers: AdminFlagRead[] }>();
-
-  const ensureFlag = (id: string) => {
-    let row = flags.get(id);
-    if (!row) {
-      row = { writers: [], readers: [] };
-      flags.set(id, row);
-    }
-    return row;
-  };
-
-  for (const event of tpl.events) {
-    const trigger = event.trigger as Record<string, unknown>;
-    for (const flag of flagsReadInConditions(trigger.conditions)) {
-      ensureFlag(flag).readers.push({ flag, where: "trigger", eventId: event.id });
-    }
-    for (const flag of flagsReadInConditions(trigger.missWhen)) {
-      ensureFlag(flag).readers.push({ flag, where: "missWhen", eventId: event.id });
-    }
-
-    // 事件自身的写入（选项 / 转盘分段 / 战斗结果）
-    const writes = (list: Array<{ optionId?: string; effects: unknown }>) => {
-      for (const item of list) {
-        for (const w of flagWritesOf(item.effects)) {
-          ensureFlag(w.flag).writers.push({
-            eventId: event.id,
-            ...(item.optionId !== undefined ? { optionId: item.optionId } : {}),
-            how: w.how,
-          });
-        }
-        for (const target of enqueuedEventIds(item.effects)) {
-          edges.push({
-            from: event.id,
-            to: target,
-            type: "enqueue",
-            label: "enqueueEvent",
-          });
-        }
-      }
-    };
-
-    if (event.kind === "normal") {
-      writes(event.settle.normal.options.map((o) => ({ optionId: o.id, effects: o.effects })));
-      for (const option of event.settle.normal.options) {
-        for (const flag of flagsReadInConditions(option.visibleWhen)) {
-          ensureFlag(flag).readers.push({ flag, where: "visibleWhen", eventId: event.id, optionId: option.id });
-        }
-        if (option.nextEventId) {
-          edges.push({ from: event.id, to: option.nextEventId, type: "option", label: option.text });
-        }
-      }
-    } else if (event.kind === "random") {
-      writes(event.settle.random.wheel.segments.map((s) => ({ effects: s.effects })));
-      for (const segment of event.settle.random.wheel.segments) {
-        if (segment.nextEventId) {
-          edges.push({ from: event.id, to: segment.nextEventId, type: "wheel", label: segment.label });
-        }
-      }
-    } else {
-      const outcomes: Array<[AdminEdge["type"], string, unknown]> = [
-        ["victory", "胜利", event.settle.combat.onVictory],
-        ["defeat", "战败", event.settle.combat.onDefeat],
-        ["flee", "逃跑", event.settle.combat.onFlee],
-      ];
-      for (const [type, label, outcome] of outcomes) {
-        if (outcome === undefined) continue;
-        const effects = (outcome as Record<string, unknown>).effects;
-        writes([{ effects }]);
-        const next = nextEventIdOf(outcome);
-        if (next) edges.push({ from: event.id, to: next, type, label });
-      }
-    }
-  }
-
-  const endings = (entry.endingConfig?.endings ?? []) as Array<Record<string, unknown>>;
-  for (const ending of endings) {
-    for (const flag of flagsReadInConditions(ending.triggerConditions)) {
-      ensureFlag(flag).readers.push({ flag, where: "ending" });
-    }
-    for (const flag of flagsReadInConditions(ending.unlockConditions)) {
-      ensureFlag(flag).readers.push({ flag, where: "unlock" });
-    }
-  }
-  const termination = (entry.endingConfig?.terminationConditions ?? []) as Array<Record<string, unknown>>;
-  for (const cond of termination) {
-    const params = (cond.params ?? {}) as Record<string, unknown>;
-    for (const flag of flagsReadInConditions(params.conditions)) {
-      ensureFlag(flag).readers.push({ flag, where: "termination" });
-    }
-  }
-
-  const eventIds = new Set(tpl.events.map((e) => e.id));
-  const danglingEdges = edges.filter((e) => !eventIds.has(e.to));
-  const targeted = new Set(edges.map((e) => e.to));
-  const orphanChainEvents = tpl.events
-    .filter((e) => e.trigger.source === "chain" && !targeted.has(e.id))
-    .map((e) => e.id);
-
-  const attributeLabels = (tpl.attributes.labels ?? {}) as Record<string, string>;
-  return {
-    template: {
-      id: entry.ref.id,
-      version: entry.ref.version,
-      name: tpl.meta.name,
-      description: tpl.meta.description,
-      startYear: tpl.meta.startYear,
-    },
-    generatedAt: new Date().toISOString(),
-    labels: attributeLabels,
-    resources: { hp: "生命", mp: "咒力" },
-    characters: tpl.characters.map((c) => ({
-      id: c.id,
-      name: c.identity.name,
-      isEnemy: c.isEnemy === true,
-      ...(c.identity.gender !== undefined ? { gender: c.identity.gender } : {}),
-    })),
-    items: tpl.items.map((i) => ({ id: i.id, name: i.name })),
-    skills: tpl.skills.map((s) => ({ id: s.id, name: s.name })),
-    statuses: tpl.statuses.map((s) => ({ id: s.id, name: s.name })),
-    events: tpl.events,
-    edges,
-    flags: [...flags.entries()]
-      .map(([id, row]) => ({ id, writers: row.writers, readers: row.readers }))
-      .sort((a, b) => a.id.localeCompare(b.id)),
-    endings,
-    termination,
-    chains: (tpl.chains ?? []) as unknown[],
-    stats: {
-      eventCount: tpl.events.length,
-      edgeCount: edges.length,
-      flagCount: flags.size,
-      danglingEdges,
-      orphanChainEvents,
-    },
-  };
-}
-
-/* ------------------------------------------------------------------ *
- * trace 读取
- * ------------------------------------------------------------------ */
-
-interface TraceFileSummary {
-  entries: LlmTrace[];
-  skippedLines: number;
-  bytes: number;
-  stats: {
-    committed: number;
-    fallback: number;
-    deferred: number;
-    inputTokens: number;
-    outputTokens: number;
-    avgLatencyMs: number;
-    p95LatencyMs: number;
-    maxLatencyMs: number;
-    tools: Array<{ tool: string; count: number }>;
-    diagnostics: Array<{ code: string; count: number }>;
-    fallbackCodes: Array<{ code: string; count: number }>;
-  };
-}
-
-/** 损坏行跳过而不是整份失败：append-only 文件可能被进程崩溃截断在最后一行。 */
-function readTraceFile(worldId: string): TraceFileSummary {
-  const file = traceFile(worldId);
-  const raw = readFileSync(file, "utf-8");
-  const entries: LlmTrace[] = [];
-  let skippedLines = 0;
-  for (const line of raw.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed === "") continue;
-    try {
-      entries.push(JSON.parse(trimmed) as LlmTrace);
-    } catch {
-      skippedLines += 1;
-    }
-  }
-
-  const tools = new Map<string, number>();
-  const diagnostics = new Map<string, number>();
-  const fallbackCodes = new Map<string, number>();
-  let inputTokens = 0;
-  let outputTokens = 0;
-  let committed = 0;
-  let fallback = 0;
-  let deferred = 0;
-  const latencies: number[] = [];
-
-  for (const entry of entries) {
-    if (entry.outcome === "committed") committed += 1;
-    else if (entry.outcome === "fallback") fallback += 1;
-    else deferred += 1;
-    inputTokens += entry.inputTokens ?? 0;
-    outputTokens += entry.outputTokens ?? 0;
-    latencies.push(entry.latencyMs ?? 0);
-    for (const call of entry.calls ?? []) tools.set(call.tool, (tools.get(call.tool) ?? 0) + 1);
-    for (const code of entry.diagnostics ?? []) diagnostics.set(code, (diagnostics.get(code) ?? 0) + 1);
-    if (entry.fallbackCode) fallbackCodes.set(entry.fallbackCode, (fallbackCodes.get(entry.fallbackCode) ?? 0) + 1);
-  }
-
-  latencies.sort((a, b) => a - b);
-  const p95 = latencies.length === 0 ? 0 : latencies[Math.min(latencies.length - 1, Math.floor(latencies.length * 0.95))]!;
-  const avg = latencies.length === 0 ? 0 : latencies.reduce((s, v) => s + v, 0) / latencies.length;
-
-  return {
-    entries,
-    skippedLines,
-    bytes: statSync(file).size,
-    stats: {
-      committed,
-      fallback,
-      deferred,
-      inputTokens,
-      outputTokens,
-      avgLatencyMs: Math.round(avg),
-      p95LatencyMs: p95,
-      maxLatencyMs: latencies.length === 0 ? 0 : latencies[latencies.length - 1]!,
-      tools: [...tools.entries()].map(([tool, count]) => ({ tool, count })).sort((a, b) => b.count - a.count),
-      diagnostics: [...diagnostics.entries()]
-        .map(([code, count]) => ({ code, count }))
-        .sort((a, b) => b.count - a.count),
-      fallbackCodes: [...fallbackCodes.entries()]
-        .map(([code, count]) => ({ code, count }))
-        .sort((a, b) => b.count - a.count),
-    },
-  };
-}
-
-/* ------------------------------------------------------------------ *
- * 世界列表（磁盘扫描，含不可载档）
- * ------------------------------------------------------------------ */
-
-interface AdminWorldRow {
-  id: string;
-  playerName?: string;
-  templateId?: string;
-  templateVersion?: string;
-  templateName?: string;
-  turnIndex?: number;
-  worldTime?: number;
-  formattedTime?: string;
-  status?: "running" | "terminated" | "archived";
-  loadable: boolean;
-  unloadableReason?: string;
-  savedAt?: string;
-  trace: { exists: boolean; entries: number; bytes: number };
-}
-
-function listWorlds(): AdminWorldRow[] {
-  const dir = dataDir();
-  if (!existsSync(dir)) return [];
-  const loaded = new Map(worldStore.all().map((r) => [r.state.id, r]));
-  const rows = new Map<string, AdminWorldRow>();
-
-  for (const name of readdirSync(dir)) {
-    if (name.endsWith(".trace.jsonl")) {
-      const id = name.slice(0, -".trace.jsonl".length);
-      const file = path.join(dir, name);
-      const size = statSync(file).size;
-      const lineCount = readFileSync(file, "utf-8").split("\n").filter((l) => l.trim() !== "").length;
-      const existing = rows.get(id) ?? { id, loadable: false, trace: { exists: true, entries: 0, bytes: 0 } };
-      existing.trace = { exists: true, entries: lineCount, bytes: size };
-      rows.set(id, existing);
-    } else if (name.endsWith(".json")) {
-      const id = name.slice(0, -".json".length);
-      const existing = rows.get(id) ?? { id, loadable: false, trace: { exists: false, entries: 0, bytes: 0 } };
-      existing.savedAt = statSync(path.join(dir, name)).mtime.toISOString();
-      rows.set(id, existing);
-    }
-  }
-
-  for (const row of rows.values()) {
-    const record = loaded.get(row.id);
-    if (record) {
-      const state = record.state;
-      row.loadable = true;
-      row.playerName = state.player.name;
-      row.templateId = record.entry.ref.id;
-      row.templateVersion = record.entry.ref.version;
-      row.templateName = record.entry.template.meta.name;
-      row.turnIndex = state.turnIndex;
-      row.worldTime = state.worldTime;
-      row.status = state.archived === true ? "archived" : state.termination !== null ? "terminated" : "running";
-      // 时间格式化只在可载档做得出来（需要模板历法）。
-      try {
-        row.formattedTime = createTimeAdapter(record.entry.template).format(state.worldTime);
-      } catch {
-        row.formattedTime = undefined;
-      }
-    }
-  }
-
-  for (const unloadable of worldStore.unloadableAll()) {
-    const row = rows.get(unloadable.id);
-    if (row) {
-      row.unloadableReason = unloadable.reason;
-      row.templateId = unloadable.templateId;
-      row.templateVersion = unloadable.templateVersion;
-    }
-  }
-
-  return [...rows.values()].sort((a, b) => (a.savedAt ?? "") < (b.savedAt ?? "") ? 1 : -1);
-}
 
 /* ------------------------------------------------------------------ *
  * 静态资源
@@ -444,13 +42,102 @@ const ADMIN_MIME: Record<string, string> = {
 
 function sendAdminAsset(reply: FastifyReply, relative: string): FastifyReply {
   const resolved = path.resolve(path.join(ADMIN_DIST, relative));
-  if (!resolved.startsWith(ADMIN_DIST)) return reply.code(403).send({ error: "forbidden" });
+  if (resolved !== ADMIN_DIST && !resolved.startsWith(ADMIN_DIST + path.sep)) {
+    return reply.code(403).send({ error: "forbidden" });
+  }
   const target =
     existsSync(resolved) && statSync(resolved).isFile() ? resolved : path.join(ADMIN_DIST, "index.html");
   if (!existsSync(target)) {
     return reply.code(503).send({ error: "admin_dist_missing", hint: "缺少 apps/admin/index.html" });
   }
   return reply.type(ADMIN_MIME[path.extname(target).toLowerCase()] ?? "application/octet-stream").send(readFileSync(target));
+}
+
+/* ------------------------------------------------------------------ *
+ * 战斗木桩（第三视图）：请求体 → SimDuelSpec
+ * ------------------------------------------------------------------ */
+
+/**
+ * 表单是自由文本，所以这里做一次白名单收窄：只取内核认得的字段，
+ * 数值夹进合理区间（一局木桩不该被 `repeat: 1e9` 拖死服务端）。
+ * **不在这里做任何战斗解释** —— 建世界、挑技能、结算全部走 `simulateDuel`。
+ */
+const SIM_MAX_DUELS = 200;
+const SIM_MAX_ROUNDS = 100;
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function numberRecord(value: unknown): Record<string, number> | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const out: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const n = finiteNumber(raw);
+    if (n !== undefined) out[key] = n;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function stringList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out = value.filter((item): item is string => typeof item === "string" && item.length > 0);
+  return out.length > 0 ? out : undefined;
+}
+
+function actorSpecOf(value: unknown): SimActorSpec | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const ref = typeof raw.ref === "string" && raw.ref.length > 0 ? raw.ref : undefined;
+
+  const rawDummy = raw.dummy;
+  let dummy: NonNullable<SimActorSpec["dummy"]> | undefined;
+  if (rawDummy !== null && typeof rawDummy === "object" && !Array.isArray(rawDummy)) {
+    const d = rawDummy as Record<string, unknown>;
+    const hp = finiteNumber(d.hp);
+    const attributes = numberRecord(d.attributes);
+    const statuses = stringList(d.statuses);
+    dummy = {
+      ...(typeof d.name === "string" && d.name.length > 0 ? { name: d.name } : {}),
+      ...(hp !== undefined ? { hp: Math.max(1, Math.round(hp)) } : {}),
+      ...(attributes !== undefined ? { attributes } : {}),
+      ...(statuses !== undefined ? { statuses } : {}),
+    };
+  }
+
+  const attributes = numberRecord(raw.attributes);
+  const skills = stringList(raw.skills);
+  const statuses = stringList(raw.statuses);
+  const equipment = stringList(raw.equipment);
+  const spec: SimActorSpec = {
+    ...(ref !== undefined ? { ref } : {}),
+    ...(dummy !== undefined ? { dummy } : {}),
+    ...(attributes !== undefined ? { attributes } : {}),
+    ...(skills !== undefined ? { skills } : {}),
+    ...(statuses !== undefined ? { statuses } : {}),
+    ...(equipment !== undefined ? { equipment } : {}),
+  };
+  if (spec.ref === undefined && spec.dummy === undefined) return null;
+  return spec;
+}
+
+function simSpecOf(value: unknown): SimDuelSpec | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  const left = actorSpecOf(raw.left);
+  const right = actorSpecOf(raw.right);
+  if (left === null || right === null) return null;
+  const repeat = Math.min(SIM_MAX_DUELS, Math.max(1, Math.round(finiteNumber(raw.repeat) ?? 20)));
+  const maxRounds = Math.min(SIM_MAX_ROUNDS, Math.max(1, Math.round(finiteNumber(raw.maxRounds) ?? 30)));
+  const seed = finiteNumber(raw.seed);
+  return {
+    left,
+    right,
+    repeat,
+    maxRounds,
+    ...(seed !== undefined ? { seed: Math.round(seed) } : {}),
+    ...(raw.stance === "coverage" ? { stance: "coverage" as const } : {}),
+  };
 }
 
 /* ------------------------------------------------------------------ *
@@ -520,10 +207,82 @@ export function registerAdminRoutes(app: FastifyInstance, registry: TemplateRegi
         reasonCode: raw?.status === "invalid" ? raw.reasonCode : undefined,
       });
     }
-    return buildOrchestration(entry);
+    const orchestration = buildOrchestration(entry);
+    return { ...orchestration, issues: diagnoseOrchestration(orchestration) };
+  });
+
+  app.get("/api/admin/templates/:id/:version/npc/:npcId", async (request, reply) => {
+    const { id, version, npcId } = request.params as { id: string; version: string; npcId: string };
+    const entry = registry.resolve({ id, version });
+    if (!entry) return reply.code(404).send({ error: "template_not_ready" });
+    const line = buildNpcLine(buildOrchestration(entry), npcId);
+    if (!line) return reply.code(404).send({ error: "npc_not_found", npcId });
+    return line;
+  });
+
+  /**
+   * 木桩表单的候选项：角色 / 状态 / 属性键。全部取自**同一个已载入模板**，
+   * 前端不缓存、不硬编码 id —— 模板一改，下拉就跟着变。
+   */
+  app.get("/api/admin/templates/:id/:version/roster", async (request, reply) => {
+    const { id, version } = request.params as { id: string; version: string };
+    const entry = registry.resolve({ id, version });
+    if (!entry) return reply.code(404).send({ error: "template_not_ready" });
+    const template = entry.template;
+    return {
+      templateId: template.meta.id,
+      templateVersion: version,
+      characters: template.characters.map((c) => ({
+        id: c.id,
+        name: c.identity.name,
+        isEnemy: c.isEnemy === true,
+        visibility: c.visibility ?? "public",
+        skills: [...(c.skills ?? [])],
+        equipment: [...(c.equipment ?? [])],
+        statuses: [...(c.statuses ?? [])],
+        attributes: { ...c.attributes },
+        traits: [...(c.private?.traits ?? [])],
+      })),
+      statuses: template.statuses.map((s) => ({ id: s.id, name: s.name })),
+      skills: template.skills.map((s) => ({ id: s.id, name: s.name, kind: s.kind })),
+      items: template.items.map((i) => ({ id: i.id, name: i.name, slot: i.slot })),
+      equipmentSlots: (template.equipment?.slots ?? []).map((s) => ({ id: s.id, label: s.label })),
+      traits: [...new Set(template.characters.flatMap((c) => c.private?.traits ?? []))].sort(),
+      attributeKeys: [...template.attributes.order],
+      attributeLabels: { ...(template.attributes.labels ?? {}) },
+      attributeDefaults: { ...template.attributes.defaults },
+    };
+  });
+
+  /** 跑一场木桩。纯粹是 `simulateDuel` 的一层 HTTP 皮：没有规则、没有缓存、没有落盘。 */
+  app.post("/api/admin/sim", async (request, reply) => {
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const templateId = typeof body.templateId === "string" ? body.templateId : undefined;
+    const version = typeof body.version === "string" ? body.version : undefined;
+    if (templateId === undefined || version === undefined) {
+      return reply.code(400).send({ error: "bad_request", detail: "需要 templateId 与 version" });
+    }
+    const entry = registry.resolve({ id: templateId, version });
+    if (!entry) return reply.code(404).send({ error: "template_not_ready", detail: `${templateId}@${version}` });
+    const spec = simSpecOf(body.spec);
+    if (spec === null) {
+      return reply.code(400).send({ error: "bad_spec", detail: "left 与 right 各需要一个 ref 或 dummy" });
+    }
+    try {
+      return simulateDuel(entry.template, spec);
+    } catch (error) {
+      // 角色 id 打错是最常见的失败：把内核的原文带回前端，比 500 好查。
+      return reply.code(400).send({
+        error: "sim_failed",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
   });
 
   app.get("/api/admin/templates", async () => ({
     templates: registry.listTemplates(),
   }));
+
+  // 实时演练场：与木桩共用同一份 spec 解析器，但一回合一回合地走真实战斗管线。
+  registerLiveBattleRoutes(app, registry, simSpecOf);
 }

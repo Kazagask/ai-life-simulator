@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { WheelVM } from "@life-sim/shared";
 
-// ---------- 随机事件转盘（咒术式圆盘：扇区按权重切分，指针固定，转子先快后慢停住） ----------
+// ---------- 随机事件转盘（扇区按权重切分，指针固定，转子先快后慢停住） ----------
 
 /** 扇区几何：0° 在正上方、顺时针为正；极坐标换算与 SVG 的 y 轴向下对齐。 */
 const WHEEL_SIZE = 232;
@@ -48,7 +48,7 @@ function wrapByEm(chars: string[], budgetEm: number, letterSpacingEm: number): s
       lines.push(cur.join(""));
       cur = [];
       curEm = 0;
-      if (ch === " ") continue; // 空格不带行的开头（「二级咒灵 · / 从排水口」而不是「 · /  从排水口」）
+      if (ch === " ") continue; // 空格不带行的开头（避免折行后第二行以「 · 」开头）
     }
     cur.push(ch);
     curEm += w;
@@ -243,7 +243,7 @@ function WheelReveal({
               <stop offset="100%" stopColor="#121724" />
             </radialGradient>
           </defs>
-          {/* 外圈：双环 + 刻度，咒术式朱金配色 */}
+          {/* 外圈：双环 + 刻度，朱金配色 */}
           <circle cx={WHEEL_C} cy={WHEEL_C} r={WHEEL_R + 6} className="wheel-ring-outer" />
           <circle cx={WHEEL_C} cy={WHEEL_C} r={WHEEL_R + 2} className="wheel-ring-inner" />
           <g

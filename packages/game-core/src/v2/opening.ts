@@ -147,19 +147,19 @@ export function runOpening(
   applySetup(next, tpl.objectives, lookup, rng);
   applySetup(next, tpl.choices, lookup, rng);
 
-  // 关系：默认所有 NPC 为 unknown 且无关系条目；仅模板声明者建立带 source 的关系。
-  for (const npc of next.npcs) {
-    next.flags[`infoVisibility:${npc.id}`] = "unknown";
-  }
-  for (const [npcId, level] of Object.entries(tpl.npcSetup.visibility ?? {})) {
-    next.flags[`infoVisibility:${npcId}`] = level;
-  }
+  /**
+   * 关系：模板声明者写入**标量**（NPC→玩家 强度）；未声明者保持角色卡上的初值。
+   *
+   * ADR-017 D3：这里曾经还写两组**只写不读**的旗标 ——
+   * `infoVisibility:<npcId>`（信息档位）与 `relationSource:<npcId>`（关系来源文字）。
+   * 它们在 V2 里没有任何读者，而且都不是「可判定谓词」：知情程度由三件真事实表达
+   * （`npc.visibility` 有没有卡 / 关系边 `scope` 谁知道 / `secrets` 永不投影），
+   * 关系来源则留在声明侧。往 `flags` 里塞描述性事实只会让存档长出一堆没人用的字符串。
+   */
   for (const rel of tpl.npcSetup.relations ?? []) {
     const npc = next.npcs.find((n) => n.id === rel.npcId);
     if (!npc) continue;
     npc.relationship = rel.value;
-    next.flags[`relationSource:${rel.npcId}`] = rel.source;
-    next.flags[`infoVisibility:${rel.npcId}`] = "known";
   }
 
   // 事件池抽取 + effects / nextEvents 执行（按 definitionId 回查定义，实例不复制定义）。

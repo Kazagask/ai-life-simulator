@@ -47,13 +47,48 @@ export interface CredentialEnvelope {
   data: string;
 }
 
-/** 请求体是否是信封（服务端**只接受**信封；明文 JSON 一律 400）。 */
-export function isCredentialEnvelope(body: unknown): body is { envelope: CredentialEnvelope } {
+/**
+ * **未加密**信封（`v: 0`，2026-11-20）：局域网 HTTP 下浏览器没有 WebCrypto，
+ * 只能明文提交。这一档**只在私有来源**被接受（见 `allowsPlaintextCredentials`），
+ * 公网来源一律 400 —— 不给公网 HTTP 开明文口子。
+ */
+export interface PlainCredentialEnvelope {
+  v: 0;
+  plain: Record<string, unknown>;
+}
+
+export type CredentialEnvelopeLike = CredentialEnvelope | PlainCredentialEnvelope;
+
+/** 请求体是否是信封（服务端**只接受**信封；裸 JSON 一律 400）。 */
+export function isCredentialEnvelope(body: unknown): body is { envelope: CredentialEnvelopeLike } {
   if (typeof body !== "object" || body === null) return false;
   const env = (body as { envelope?: unknown }).envelope;
   if (typeof env !== "object" || env === null) return false;
   const e = env as Record<string, unknown>;
+  if (e.v === 0) return typeof e.plain === "object" && e.plain !== null;
   return e.v === 1 && typeof e.key === "string" && typeof e.iv === "string" && typeof e.data === "string";
+}
+
+/** 地址是否是"自己家"（loopback / 私网 / `.local`）。IPv4-mapped IPv6 也认。 */
+function isPrivateAddress(value: string): boolean {
+  const bare = value.trim().toLowerCase().replace(/^\[|\]$/g, "").replace(/^::ffff:/, "");
+  const host = bare.split(":")[0] ?? "";
+  if (host === "localhost" || host === "::1") return true;
+  if (/^127\./.test(host)) return true;
+  if (/^10\./.test(host)) return true;
+  if (/^192\.168\./.test(host)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
+  return host.endsWith(".local");
+}
+
+/**
+ * 这次请求能不能收 `v: 0`（明文信封）。
+ *
+ * 判据是**来源**而不是配置开关：局域网里跑的服务天然是私有地址，公网部署天然是公网地址。
+ * 要开一个"允许明文"的环境变量，迟早会在云端被打开 —— 那时它就成了一个静默的降级口。
+ */
+export function allowsPlaintextCredentials(request: { ip: string; hostname: string }): boolean {
+  return isPrivateAddress(request.ip) || isPrivateAddress(request.hostname);
 }
 
 /**
@@ -62,8 +97,13 @@ export function isCredentialEnvelope(body: unknown): body is { envelope: Credent
  * 任何一步失败（形状不对 / base64 坏 / RSA 解不开 / GCM 校验失败 / 不是合法 JSON）
  * 都返回 `null`——**不抛错**，因为调用方对外只能表达「凭证无效」这一种结果。
  */
-export function openCredentialEnvelope(body: unknown): unknown | null {
+export function openCredentialEnvelope(body: unknown, options?: { allowPlaintext?: boolean }): unknown | null {
   if (!isCredentialEnvelope(body)) return null;
+  if (body.envelope.v === 0) {
+    // 明文档：来源不是私有地址就当作"信封解不开"（对外只能表达一种结果）。
+    if (options?.allowPlaintext !== true) return null;
+    return body.envelope.plain;
+  }
   const { key, iv, data } = body.envelope;
   try {
     const rawAesKey = privateDecrypt(

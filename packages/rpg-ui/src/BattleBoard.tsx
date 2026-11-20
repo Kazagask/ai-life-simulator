@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import type { BattleCommand } from "@life-sim/shared";
 import type { BattleVM, StatusVM } from "@life-sim/shared";
-import { StyledName, styleBoxClassName, styleBoxInline } from "./StyledName.js";
 
 export interface BattleBoardProps {
   /** 战斗展示模型（来自 `toBattleVM`，不含引擎规则细节）。 */
@@ -15,14 +14,14 @@ export interface BattleBoardProps {
   /** 战斗结束后「离开战场」的推进函数。 */
   onContinue: () => void;
   /**
-   * 点开某条补正的详情（玩家 / 友军 / 敌人身上的都算）。
+   * 点开某条状态的详情（玩家 / 友军 / 敌人身上的都算）。
    * 不传 ⇒ 芯片只读（自定义前端没有浮层时也不会出现「点了没反应」）。
    */
   onSelectStatus?: (status: StatusVM) => void;
 }
 
 /**
- * 补正芯片（战斗内唯一实现：玩家、友军、敌人共用）。
+ * 状态芯片（战斗内唯一实现：玩家、友军、敌人共用）。
  *
  * 战斗态一律换成语义色（增益绿 / 异常红 / 中性灰）：打法上先看这个，
  * 身份色（神话 / 传说）留在详情浮层里看。没有语义标签的纯天赋才退回身份色。
@@ -38,21 +37,19 @@ function StatusChips({
   return (
     <span className="enemy-status ls-battle-chips">
       {statuses.map((s) => {
-        const st = s.battleStyle ?? s.style;
-        const box = styleBoxClassName(st);
-        const label = (
-          <>
-            <StyledName name={s.name} style={st} />
-            {s.stacks > 1 ? `×${s.stacks}` : ""}
-          </>
-        );
-        const cls = `ls-battle-status${box === undefined ? "" : ` ${box}`}`;
+        /**
+         * 战斗芯片只读**正负**（一等字段，2026-11-20）：后端不再下发 `battleStyle`，
+         * 也不再拿 tags 猜增益/异常。层数 `×N` 与名字同色（同一段文本）。
+         */
+        // 实线 = 天赋（身份），虚线 = 会掉的东西（修正 / 战斗状态），与个人页同一套语言。
+        const cls = `ls-battle-status ls-tone--${s.polarity} ls-battle-status--${s.kind}`;
+        const label = s.stacks > 1 ? `${s.name} ×${s.stacks}` : s.name;
         return onSelect === undefined ? (
-          <span key={s.id} className={cls} style={styleBoxInline(st)}>
+          <span key={s.id} className={cls}>
             {label}
           </span>
         ) : (
-          <button key={s.id} type="button" className={cls} style={styleBoxInline(st)} onClick={() => onSelect(s)}>
+          <button key={s.id} type="button" className={cls} onClick={() => onSelect(s)}>
             {label}
           </button>
         );
@@ -65,23 +62,139 @@ function StatusChips({
  * 战斗面板（事件区的 combat 分支）。
  *
  * 三条只读约束（都是引擎语义，前端不许自己重算）：
- *  - `canAct === false`（`cannot_act` 类补正压制，如眩晕）：引擎**不报错**，只记一行
+ *  - `canAct === false`（`cannot_act` 类状态压制，如眩晕）：引擎**不报错**，只记一行
  *    「你无法行动。」并跳过玩家动作、照常推进回合 ⇒ 前端必须主动告知，否则玩家看到的是
  *    「点了技能、什么都没变、回合没了」。用覆盖层盖住整个行动区，并保留一个「硬撑」出口
  *    （`{type:"pass"}`，不消耗 MP / 道具 / 冷却，只消耗一个战斗回合）。
  *  - `canUseItems === false`（`bound_items`）与 `canFlee === false`（`flee_not_allowed`）
- *    同样由投影层用与引擎**同一个**控制判定算出，这里只按结论置灰 + 写原因，不查补正表。
+ *    同样由投影层用与引擎**同一个**控制判定算出，这里只按结论置灰 + 写原因，不查状态表。
  *  - 逃跑按钮**常显但可禁用**（D-12）：不给按钮会让玩家以为「没有逃跑这个选项」。
  */
+
+/** 我方资源条（生命 / 咒力 / 自定义）。整块可被「选自己」的按钮包住。 */
+function PlayerResources({ resources }: { resources: BattleVM["player"]["resources"] }) {
+  return (
+    <>
+      {resources.map((r) => {
+        const max = Math.max(1, r.max);
+        const danger = r.dangerAt > 0 && r.value / max <= r.dangerAt;
+        const usePips = r.display === "pips" && r.max <= 12;
+        const fillClass = r.key === "hp" ? "hp" : r.key === "mp" ? "mp" : "res";
+        return (
+          <div className="attr" key={r.key} data-key={r.key} data-tone={danger ? "danger" : "normal"}>
+            <span className="attr-name">{r.label}</span>
+            {usePips ? (
+              <div className="ls-bar__pips" role="img" aria-label={`${r.label} ${r.value}/${r.max}`}>
+                {Array.from({ length: Math.round(r.max) }, (_, i) => (
+                  <span key={i} className={`ls-pip${i < Math.round(r.value) ? " is-filled" : ""}`} />
+                ))}
+              </div>
+            ) : (
+              <div className="bar">
+                <div className={`bar-fill ${fillClass}`} style={{ width: `${(r.value / max) * 100}%` }} />
+              </div>
+            )}
+            <span className="attr-value">
+              {r.value}/{r.max}
+            </span>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * 战斗单位卡（敌 / 友 / 中立共用）。
+ *
+ * 两件事只在这里做：`tier === "minion"` 加小框类（ADR-012 D2），有专属资源池就画一条
+ * （ADR-012 D9：术式储备这种「只有他会烧」的东西，不该在每个人头上画一条空槽）。
+ */
+function UnitCard({
+  unit,
+  kind,
+  selected,
+  onSelect,
+  onSelectStatus,
+}: {
+  unit: BattleVM["enemies"][number];
+  kind: "enemy" | "ally" | "neutral";
+  selected?: boolean;
+  onSelect?: (id: string) => void;
+  onSelectStatus?: (status: StatusVM) => void;
+}) {
+  const cls = [
+    kind,
+    unit.tier === "minion" ? "minion" : "",
+    !unit.alive ? "dead" : "",
+    selected ? "targeting" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const body = (
+    <>
+      <strong>{unit.name}</strong>
+      {unit.summonerName !== undefined && (
+        <span className="unit-summoner">召唤者：{unit.summonerName}</span>
+      )}
+      {unit.deathReason !== undefined && <span className="unit-death-reason">{unit.deathReason}</span>}
+      <div className="bar">
+        <div className={`bar-fill ${kind}-hp`} style={{ width: `${(unit.hp / Math.max(1, unit.maxHp)) * 100}%` }} />
+      </div>
+      <span className="attr-value">
+        {unit.hp}/{unit.maxHp}
+      </span>
+      {(unit.resources ?? []).length > 0 && (
+        <div className="unit-res">
+          {(unit.resources ?? []).map((r) => (
+            <span className="unit-res-item" key={r.key}>
+              <span className="unit-res-name">{r.label}</span>
+              <div className="bar bar-sm">
+                <div className="bar-fill res" style={{ width: `${(r.value / Math.max(1, r.max)) * 100}%` }} />
+              </div>
+              <span className="attr-value">
+                {r.value}/{r.max}
+              </span>
+            </span>
+          ))}
+        </div>
+      )}
+      <StatusChips statuses={unit.statuses} {...(onSelectStatus !== undefined ? { onSelect: onSelectStatus } : {})} />
+    </>
+  );
+  // 友军平时不可点选（不需要对它下指令）；只有存在「友军单体」技能时才变成可选目标
+  // （ADR-012 D6 补）。没给 `onSelect` 就保持只读，旧前端行为不变。
+  if (kind === "ally" && onSelect === undefined) return <div className={cls}>{body}</div>;
+  return (
+    <button className={cls} disabled={!unit.alive} onClick={() => onSelect?.(unit.id)}>
+      {body}
+    </button>
+  );
+}
+
 export function BattleBoard({
   battle: b,
-  labels,
   busy = false,
   onCommand,
   onContinue,
   onSelectStatus,
 }: BattleBoardProps) {
   const [target, setTarget] = useState<string>("");
+  /**
+   * 友军目标（2026-11-20 用户裁决）：**开局不选**，`null` 就是「还没选」。
+   *
+   * 不能再用空串表示「自己」——那样「没选」与「选了自己」在契约上分不开。
+   * 现在自己也是一个真实 id（`b.player.id`），由点击顶部状态框选中。
+   */
+  const [allyTarget, setAllyTarget] = useState<string | null>(null);
+
+  /** 资源不足判定（ADR-003 D9）：与引擎同一份 costs 清单，前端不自己猜 MP。 */
+  const valueOfResource = (key: string): number =>
+    b.player.resources.find((r) => r.key === key)?.value ?? 0;
+  const canPay = (costs: { resource: string; amount: number }[]): boolean =>
+    costs.every((c) => valueOfResource(c.resource) >= c.amount);
+  const costText = (costs: { label: string; amount: number }[]): string =>
+    costs.length === 0 ? "无消耗" : costs.map((c) => `${c.label} ${c.amount}`).join(" · ");
 
   const locked = !b.over && !b.player.canAct;
   // 原因只从投影里已有的 statuses 读，不自造文案、不改引擎：眩晕的名字就来自模板。
@@ -91,8 +204,34 @@ export function BattleBoard({
     if (!locked) setLockedTapped(false);
   }, [locked]);
 
-  const aliveEnemies = b.enemies.filter((e) => e.alive);
-  const effectiveTarget = target && aliveEnemies.some((e) => e.id === target) ? target : aliveEnemies[0]?.id;
+  /**
+   * 敌方目标池（ADR-012 D5）：中立与敌方**同侧** —— 对目标判定来说它本来就是一伙的
+   * （`campsOf` 把中立并进双方的 `hostile`），所以 UI 也不再分成两个阵营。
+   */
+  const hostileUnits = [
+    ...b.enemies.map((u) => ({ unit: u, kind: "enemy" as const })),
+    ...b.neutrals.map((u) => ({ unit: u, kind: "neutral" as const })),
+  ];
+  const targets = hostileUnits.map((h) => h.unit).filter((e) => e.alive);
+  // 开局自动选敌方第一个（用户 2026-11-20）；当前目标不在了就回落到首位。
+  const effectiveTarget = target && targets.some((e) => e.id === target) ? target : targets[0]?.id;
+
+  /**
+   * 有友军单体技能时，友军卡片才变成可选目标（平时点它没有语义，不该变成可点）。
+   * 友军**开局不选**（`null`）；自己与存活友军都算候选，选中的人不在了就回到「还没选」。
+   */
+  const needsAlly = b.player.skills.some((s) => s.target === "ally");
+  const allyTargets = b.allies.filter((a) => a.alive);
+  const effectiveAlly =
+    allyTarget === b.player.id || allyTargets.some((a) => a.id === allyTarget) ? allyTarget : null;
+  /** 再点一次同一只 = 取消（回到「还没选」），否则选完就没路可退。 */
+  const toggleAllyTarget = (id: string): void =>
+    setAllyTarget((cur) => (cur === id ? null : id));
+  const allyTargetName =
+    effectiveAlly === b.player.id
+      ? "自己"
+      : (allyTargets.find((a) => a.id === effectiveAlly)?.name ?? null);
+  const enemyTargetName = targets.find((e) => e.id === effectiveTarget)?.name;
 
   return (
     <div className={`battle-body ${b.over ? "battle-over" : ""}`}>
@@ -105,25 +244,33 @@ export function BattleBoard({
         )}
       </div>
 
-      {/* 我方资源：战斗内以战斗镜像为准，消耗实时可见 */}
-      <div className="battle-self">
-        <div className="attr">
-          <span className="attr-name">{labels?.hp ?? "hp"}</span>
-          <div className="bar">
-            <div className="bar-fill hp" style={{ width: `${(b.player.hp / Math.max(1, b.player.maxHp)) * 100}%` }} />
-          </div>
-          <span className="attr-value">{b.player.hp}/{b.player.maxHp}</span>
-        </div>
-        <div className="attr">
-          <span className="attr-name">{labels?.mp ?? "mp"}</span>
-          <div className="bar">
-            <div className="bar-fill mp" style={{ width: `${(b.player.mp / Math.max(1, b.player.maxMp)) * 100}%` }} />
-          </div>
-          <span className="attr-value">{b.player.mp}/{b.player.maxMp}</span>
-        </div>
+      {/*
+        我方资源（ADR-003 D10：含自定义资源）。
+        有友军单体技能时，这一块整体就是「选自己」的落点（用户 2026-11-20 裁决：
+        去掉「自己」那张友军卡）。**不做差异化展示、不加提示文案** ——
+        它就是资源面板，只是可点；选中与否由技能按钮与友军卡片的反馈说明。
+        状态芯片仍独立可点（在按钮外面，不会误触）。
+      */}
+      <div
+        className={`battle-self${needsAlly && effectiveAlly === b.player.id ? " is-selected" : ""}`}
+      >
+        {needsAlly ? (
+          <button
+            type="button"
+            className="battle-self__pick"
+            onClick={() => setAllyTarget(b.player.id)}
+            aria-pressed={effectiveAlly === b.player.id}
+            aria-label="把友军单体技能的目标选为自己"
+            title="选择自己为目标"
+          >
+            <PlayerResources resources={b.player.resources} />
+          </button>
+        ) : (
+          <PlayerResources resources={b.player.resources} />
+        )}
         {/*
-          自身补正（2026-11-19 用户反馈「战斗时自己的补正没展示」）。
-          数据一直在 `battle.player.statuses` 里（投影已把战斗内 + 世界层补正合并去重），
+          自身状态（2026-11-19 用户反馈「战斗时自己的状态没展示」）。
+          数据一直在 `battle.player.statuses` 里（投影已把战斗内 + 世界层状态合并去重），
           只是这一块之前只画了两条资源条。
         */}
         <StatusChips
@@ -135,62 +282,163 @@ export function BattleBoard({
       {b.allies.length > 0 && (
         <div className="ally-list">
           <span className="muted">友军</span>
-          {b.allies.map((a) => (
-            <div key={a.id} className={`ally ${!a.alive ? "dead" : ""}`}>
-              <strong>{a.name}</strong>
-              <div className="bar">
-                <div className="bar-fill ally-hp" style={{ width: `${(a.hp / Math.max(1, a.maxHp)) * 100}%` }} />
-              </div>
-              <span className="attr-value">{a.hp}/{a.maxHp}</span>
-              <StatusChips
-                statuses={a.statuses}
-                {...(onSelectStatus !== undefined ? { onSelect: onSelectStatus } : {})}
+          {b.allies
+            .filter((a) => a.tier !== "minion")
+            .map((a) => (
+              <UnitCard
+                key={a.id}
+                unit={a}
+                kind="ally"
+                selected={needsAlly && effectiveAlly === a.id}
+                {...(needsAlly ? { onSelect: toggleAllyTarget } : {})}
+                {...(onSelectStatus !== undefined ? { onSelectStatus } : {})}
               />
+            ))}
+          {b.allies.some((a) => a.tier === "minion") && (
+            <div className="minion-grid">
+              {b.allies
+                .filter((a) => a.tier === "minion")
+                .map((a) => (
+                  <UnitCard
+                    key={a.id}
+                    unit={a}
+                    kind="ally"
+                    selected={needsAlly && effectiveAlly === a.id}
+                    {...(needsAlly ? { onSelect: toggleAllyTarget } : {})}
+                    {...(onSelectStatus !== undefined ? { onSelectStatus } : {})}
+                  />
+                ))}
             </div>
-          ))}
+          )}
         </div>
       )}
 
+      {/*
+        敌方与第三方**共用一个目标框**（用户 2026-11-20）：对目标判定来说中立与敌方同侧，
+        UI 再分一个「第三方」阵营只会让人以为技能选不到它。中立卡保留自己的配色，
+        选中态与敌方一致（红边）。
+      */}
       <div className="enemy-list">
-        {b.enemies.map((e) => (
-          <button
-            key={e.id}
-            className={`enemy ${!e.alive ? "dead" : ""} ${effectiveTarget === e.id && e.alive ? "targeting" : ""}`}
-            disabled={!e.alive}
-            onClick={() => setTarget(e.id)}
-          >
-            <strong>{e.name}</strong>
-            <div className="bar">
-              <div className="bar-fill enemy-hp" style={{ width: `${(e.hp / Math.max(1, e.maxHp)) * 100}%` }} />
-            </div>
-            <span className="attr-value">{e.hp}/{e.maxHp}</span>
-            <StatusChips
-              statuses={e.statuses}
-              {...(onSelectStatus !== undefined ? { onSelect: onSelectStatus } : {})}
+        {hostileUnits
+          .filter(({ unit }) => unit.tier !== "minion")
+          .map(({ unit, kind }) => (
+            <UnitCard
+              key={unit.id}
+              unit={unit}
+              kind={kind}
+              selected={effectiveTarget === unit.id && unit.alive}
+              onSelect={setTarget}
+              {...(onSelectStatus !== undefined ? { onSelectStatus } : {})}
             />
-          </button>
-        ))}
+          ))}
+        {hostileUnits.some(({ unit }) => unit.tier === "minion") && (
+          <div className="minion-grid">
+            {hostileUnits
+              .filter(({ unit }) => unit.tier === "minion")
+              .map(({ unit, kind }) => (
+                <UnitCard
+                  key={unit.id}
+                  unit={unit}
+                  kind={kind}
+                  selected={effectiveTarget === unit.id && unit.alive}
+                  onSelect={setTarget}
+                  {...(onSelectStatus !== undefined ? { onSelectStatus } : {})}
+                />
+              ))}
+          </div>
+        )}
       </div>
+
+      {b.fallen.length > 0 && (
+        <div className="fallen-list">
+          <span className="muted">已退场</span>
+          {b.fallen.map((unit) => (
+            /**
+             * 边框按**它自己的阵营**上色（2026-11-20 用户裁决）：
+             * 以前这里写死 `kind="ally"`，于是敌方献祭的咒灵也是一圈蓝边，
+             * 看起来像「我方损失」。中立同理（灰边）。
+             */
+            <UnitCard key={unit.id} unit={unit} kind={unit.side ?? "neutral"} />
+          ))}
+        </div>
+      )}
 
       {!b.over && (
         <>
           <div className="battle-action-zone">
             <div className="battle-actions">
-              {b.player.skills.map((skill) => (
+              {b.player.skills.map((skill) => {
+                /**
+                 * ADR-015：`seal` 由内核下发（判据就是 `canUseSkill`）。
+                 * 有封印 ⇒ 置灰**并且在按钮上写出原因**：只置灰不说原因，
+                 * 玩家只会得出「点了没反应」。
+                 */
+                const seal = skill.seal;
+                /**
+                 * 合法目标（2026-11-20）：**先选目标、再放技能；不是合法目标就不能放**。
+                 *
+                 * 判据全部来自内核下发的 `legalTargets`（`enemy` / `ally` 才有这份清单）：
+                 * 前端只做 `includes`，不重算阵营、不自己读 DSL —— 否则 `legalTarget`
+                 * 新增谓词时，面板和引擎会各说一套。
+                 */
+                const chosen =
+                  skill.target === "ally"
+                    ? effectiveAlly
+                    : skill.target === "enemy"
+                      ? effectiveTarget
+                      : undefined;
+                const targetIssue =
+                  skill.legalTargets === undefined
+                    ? undefined
+                    : chosen === undefined || chosen === null
+                      ? "请选择目标"
+                      : skill.legalTargets.includes(chosen)
+                        ? undefined
+                        : "不是合法目标";
+                const blocked =
+                  busy ||
+                  locked ||
+                  seal !== undefined ||
+                  skill.cooldownLeft > 0 ||
+                  !canPay(skill.costs) ||
+                  targetIssue !== undefined;
+                const reason = seal?.text ?? targetIssue;
+                return (
                 <button
                   key={skill.id}
-                  className="action"
-                  disabled={busy || locked || skill.cooldownLeft > 0 || b.player.mp < skill.costMp}
-                  aria-disabled={busy || locked || skill.cooldownLeft > 0 || b.player.mp < skill.costMp}
-                  onClick={() => onCommand({ type: "skill", skillId: skill.id, targetInstanceId: effectiveTarget })}
+                  className={`action${seal !== undefined ? " is-sealed" : ""}${
+                    targetIssue !== undefined ? " is-illegal" : ""
+                  }`}
+                  disabled={blocked}
+                  aria-disabled={blocked}
+                  {...(reason !== undefined
+                    ? {
+                        // 悬停解释要和按钮上的字对得上：封印优先；否则非法目标用 DSL 的解释。
+                        title:
+                          seal !== undefined
+                            ? seal.text
+                            : (skill.legalTargetNote ?? reason),
+                      }
+                    : {})}
+                  onClick={() =>
+                    onCommand({
+                      type: "skill",
+                      skillId: skill.id,
+                      // 只有「单个敌人 / 单个友军」才传目标：`self` / `all_enemies` / `all_allies` / `none`
+                      // 由引擎按声明决定收件人，前端多传一个 id 只会让「这一发到底打谁」变得可疑。
+                      ...(chosen !== undefined && chosen !== null ? { targetInstanceId: chosen } : {}),
+                    })
+                  }
                 >
                   <strong>{skill.name}</strong>
                   <span>
-                    {skill.costMp > 0 ? `${labels?.mp ?? "mp"} ${skill.costMp}` : "无消耗"}
+                    {costText(skill.costs)}
                     {skill.cooldownLeft > 0 ? ` · 冷却 ${skill.cooldownLeft}` : ""}
                   </span>
+                  {reason !== undefined && <span className="action-seal">{reason}</span>}
                 </button>
-              ))}
+                );
+              })}
               {b.player.items.map((item) => (
                 <button
                   key={item.itemId}
@@ -213,6 +461,21 @@ export function BattleBoard({
               >
                 <strong>逃跑</strong>
                 <span>{b.player.canFlee ? "尝试脱离战斗" : "退路已被封死"}</span>
+              </button>
+              {/*
+                跳过回合**常显**（2026-11-20 用户裁决）：咒力不足、技能全灰、道具被禁、
+                退路封死时，面板上会一个能点的都没有 —— 那不是「难」，是卡死。
+                引擎的 `{type:"pass"}` 本来就不花 MP / 道具 / 冷却，只是以前只在
+                `cannot_act` 覆盖层里露出一个入口，覆盖层之外无路可走。
+              */}
+              <button
+                className="action pass"
+                disabled={busy || locked}
+                aria-disabled={busy || locked}
+                onClick={() => onCommand({ type: "pass" })}
+              >
+                <strong>跳过回合</strong>
+                <span>放弃这次行动，硬撑过去</span>
               </button>
             </div>
 
@@ -251,7 +514,12 @@ export function BattleBoard({
           </div>
           {!locked && !b.player.canFlee && <p className="battle-limit-hint">此战无法逃离：局势不允许脱身。</p>}
           {!locked && !b.player.canUseItems && <p className="battle-limit-hint">你被束缚住了：本回合无法使用道具。</p>}
-          <p className="muted target-hint">点击敌人选择目标（默认最前者）</p>
+          <p className="muted target-hint">
+            点敌人或第三方切换目标（当前：{enemyTargetName ?? "无"}）
+            {needsAlly
+              ? `；友军单体技能需先选目标：点友军卡片，或点自己的状态框（当前：${allyTargetName ?? "未选"}）`
+              : ""}
+          </p>
         </>
       )}
 

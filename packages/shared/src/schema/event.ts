@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { TaskConditionSchema, TemplateEffectSchema, TimeAmountSchema, TimeSpecSchema } from "./common.js";
-import { OpposedCheckSchema } from "./skill.js";
+import { ConditionSchema, TaskConditionSchema, TemplateEffectSchema, TimeAmountSchema, TimeSpecSchema } from "./common.js";
+import { OpposedCheckSchema, SummonTierSchema } from "./skill.js";
 
 /**
  * 事件协议 V2：三段式「触发 trigger -> 类型 kind -> 结算 settle」。
@@ -156,6 +156,59 @@ export const SettleOutcomeSchema = z
   })
   .strict();
 
+/**
+ * 胜负条件（ADR-012 D4）。
+ *
+ * 为什么不是布尔开关而是条件表：一场战斗的「赢」可能是全灭、可能是斩首、可能是撑住，
+ * 而「输」可能是自己倒下、也可能是要保的人倒下。写死在 `checkBattleEnd` 里只能表达第一种。
+ *
+ * 不声明 `victory` / `defeat` ⇒ 走今天那两条 `if`（零漂移），所以旧事件一个字都不用改。
+ */
+export const BattleConditionSchema = z.union([
+  /** 敌方数组全灭（胜利缺省）。 */
+  z.object({ kind: z.literal("all_enemies") }).strict(),
+  /** 指定角色的**全部实例**倒下（含其召唤物）：斩首 / 击杀目标。 */
+  z.object({ kind: z.literal("unit_down"), ref: z.string().min(1) }).strict(),
+  /** 撑过 N 回合：`battle.round > rounds` 时成立。 */
+  z.object({ kind: z.literal("survive_rounds"), rounds: z.number().int().positive() }).strict(),
+  /** 友军全灭（含玩家？不含 —— 玩家另有 `player_down`）。 */
+  z.object({ kind: z.literal("all_allies_down") }).strict(),
+  /** 玩家倒下（失败缺省）：hp ≤ 1。 */
+  z.object({ kind: z.literal("player_down") }).strict(),
+]);
+
+/**
+ * 中途加入（ADR-012 D3）：剧本按回合投放，与「技能召唤」是两条路。
+ *
+ * 与召唤的区别写死在语义里：召唤消费施放者的资源换兵，玩家能操作；
+ * 中途加入是作者安排 —— 不看资源、只看回合/概率/条件。
+ */
+export const ReinforcementSchema = z
+  .object({
+    /** 进度键；缺省用声明下标。存档里靠它记「来过几次」。 */
+    id: z.string().min(1).optional(),
+    ref: z.string().min(1),
+    /** 落到哪一阵营，缺省 enemy。 */
+    side: z.enum(["enemy", "ally", "neutral"]).optional(),
+    levelScale: z.number().positive().optional(),
+    /** 展示档位（ADR-012 D2），缺省 minion。 */
+    tier: SummonTierSchema.optional(),
+    /** 第几回合开始时到场，缺省 1。 */
+    atRound: z.number().int().positive().optional(),
+    /** 每隔几回合再判一次；不写 ⇒ 只来一次。 */
+    everyRounds: z.number().int().positive().optional(),
+    /** 每次判定成立的概率，缺省 1。 */
+    chance: z.number().min(0).max(1).optional(),
+    /** 条件（AND），复用模板条件 DSL。 */
+    when: z.array(ConditionSchema).optional(),
+    /** 同 ref 存活上限，缺省 1。 */
+    maxAlive: z.number().int().positive().max(9).optional(),
+  })
+  .strict();
+
+export type BattleCondition = z.infer<typeof BattleConditionSchema>;
+export type Reinforcement = z.infer<typeof ReinforcementSchema>;
+
 export const CombatSettleSchema = z
   .object({
     combat: z
@@ -163,6 +216,17 @@ export const CombatSettleSchema = z
         enemies: z.array(EnemyRefSchema).min(1),
         /** 友军单位（与主角同阵营，AI 自动行动；形状同敌人） */
         allies: z.array(EnemyRefSchema).optional(),
+        /**
+         * 中立单位（ADR-012 D5）：第三方，对所有人敌对，**不参与胜负判定**。
+         * 不能塞进 `enemies` —— 它一死就等于全灭胜利。
+         */
+        neutrals: z.array(EnemyRefSchema).optional(),
+        /** 中途加入的单位（ADR-012 D3）。 */
+        reinforcements: z.array(ReinforcementSchema).optional(),
+        /** 胜利条件；缺省 = 敌方全灭。 */
+        victory: z.array(BattleConditionSchema).optional(),
+        /** 失败条件；缺省 = 玩家倒下。 */
+        defeat: z.array(BattleConditionSchema).optional(),
         canFlee: z.boolean().optional(),
         fleeCheck: OpposedCheckSchema.optional(),
         onVictory: SettleOutcomeSchema.optional(),

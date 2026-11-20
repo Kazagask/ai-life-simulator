@@ -21,7 +21,7 @@ description: Run a Spec Coding iteration for the AI Life Simulator repo. Use whe
 2. `AGENTS.md` — 工程规范（尤其 §0 工作方式、§1 架构边界、§4 交付与测试、§5 禁止事项）
 3. 本轮 `specs/iteration-*/README.md` — 范围、冲突对齐、交给 Agent 的读法
 4. `specs/iteration-*/requirements.md` → `design.md` → `tasks.md`
-5. `docs/DECISIONS.md`（ADR）、`docs/OPEN_QUESTIONS.md`（待决项）
+5. `docs/adr/README.md`（ADR 索引：按模块查现行口径）+ 当前改动涉及的模块文件、`docs/OPEN_QUESTIONS.md`（待决项）
 6. `tasks/reports/*.md`（已有差距报告 / 验收证据）
 
 > 若 `PROJECT.md` 的状态表与 `specs/` 冲突，**以 `specs/` 为准**，并提示用户更新面板。
@@ -31,7 +31,7 @@ description: Run a Spec Coding iteration for the AI Life Simulator repo. Use whe
 | 门禁 | 条件 |
 |---|---|
 | G1 审查对齐 | 阶段 0（差距报告）完成并经用户确认前，**不得修改实现代码** |
-| G2 ADR 先行 | 涉及核心数据模型 / 技术栈 / 目录结构 / 游戏规则变更，必须先写 ADR 并落到 `docs/DECISIONS.md` |
+| G2 ADR 先行 | 涉及核心数据模型 / 技术栈 / 目录结构 / 游戏规则变更，必须先写 ADR：原文进 `docs/adr/archive/ADR-0NN-*.md`，**结论同时并进对应模块文件**（`docs/adr/10..60-*.md`），只归档不并流等于没写 |
 | G3 单任务 | 一次只执行一个 `T<阶段>-<序号>` 任务，按 `tasks.md` 的依赖顺序；不擅自扩展范围 |
 | G4 单写者 | 同一时刻只允许一个 Agent 写 `packages/`；并行任务先确认对方已停或已提交 |
 | G5 状态过滤 | `DEFERRED` / `RETIRED` 需求只登记，**不实现、不测试、不派任务、不计入 DoD**；编号与原文保留 |

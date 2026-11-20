@@ -47,7 +47,7 @@ items:
     slot: slot-cursed-tool
     category: talisman
     quality: common
-    dynamicModifier: { attribute: cursedEnergy, preset: fixed, params: { value: 6 } }
+    dynamicModifiers: [{ attribute: cursedEnergy, preset: fixed, params: { value: 6 }}]
 
   - id: item-cursed-blade
     type: equipment
@@ -59,7 +59,7 @@ items:
     slot: slot-cursed-tool
     category: weapon
     quality: rare
-    dynamicModifier: { attribute: physique, preset: scaled, params: { base: 4, scaleBy: physique, multiplier: 0.15 } }
+    dynamicModifiers: [{ attribute: physique, preset: scaled, params: { base: 4, scaleBy: physique, multiplier: 0.15 }}]
 
   - id: item-flame-talisman
     type: equipment
@@ -71,4 +71,4 @@ items:
     slot: slot-cursed-tool
     category: talisman
     quality: common
-    dynamicModifier: { attribute: agility, preset: fixed, params: { value: 4 } }
+    dynamicModifiers: [{ attribute: agility, preset: fixed, params: { value: 4 }}]

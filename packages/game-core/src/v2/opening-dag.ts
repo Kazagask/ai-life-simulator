@@ -7,15 +7,19 @@
  * - 不重放 effect DSL：每一步的 `set` 是**参数赋值**，commit 时按引擎闭集落点直接写状态。
  * - roll 的随机源按节点派生（`deriveOpeningSeed`），不消耗世界 RNG 主流；同 node 重算同结果。
  * - v1 不支持 `weightBy`（D-4 裁决）：加载期已拒载，这里也防御性忽略。
+ *   按**本会话已落定参数**调制的 `weightByParam` 是 D-4 的修订（ADR-001 D7），见 `optionWeights`。
  */
+import { normalizeAllocation } from "./allocation.js";
 import type {
   OpeningBranchDag,
   OpeningBranchNode,
   OpeningBranchOption,
+  OpeningParamDecl,
   OpeningStepResult,
+  ResolvedStyle,
   WorldTemplateV2,
 } from "@life-sim/shared";
-import { RelationKindSchema } from "@life-sim/shared";
+import { RelationKindSchema, SimulationDurationSchema, numericAttr } from "@life-sim/shared";
 import { createRng, deriveOpeningSeed, pickWeighted } from "../rng.js";
 import type { TurnGain, UiConfig } from "@life-sim/shared";
 import {
@@ -31,7 +35,7 @@ import {
   skillEffectSummaries,
   statusEffectSummaries,
 } from "./presentation/effects.js";
-import { applyStatusToPlayer, maxHp, maxMp } from "./engine.js";
+import { applyStatusToPlayer, assignAttributeValue, maxHp, maxMp } from "./engine.js";
 import { createLookup } from "./lookup.js";
 import { createWorldV2, type SelfSelectionV2 } from "./turn.js";
 import { createTimeAdapter, type TimeUnit } from "./time.js";
@@ -56,6 +60,16 @@ export function currentNode(dag: OpeningBranchDag, session: OpeningSessionCore):
   return dag.nodes.find((n) => n.node === session.nodeId) ?? null;
 }
 
+export interface OpeningAllocationTargetView {
+  attribute: string;
+  /** 展示名：target.label > world.yaml attributes.labels > 属性 id。 */
+  label: string;
+  min?: number;
+  max?: number;
+  /** 属性名着色（ADR-004 D6）：模板在 target 上声明，由投影解析后下发。 */
+  style?: ResolvedStyle;
+}
+
 export interface OpeningNodeView {
   nodeId: string;
   title: string;
@@ -64,23 +78,121 @@ export interface OpeningNodeView {
   /** choose 节点：等玩家点选；roll 节点：已由服务端决定，前端只演动画。 */
   options: Array<{ id: string; text: string; weight?: number }>;
   /** allocate 节点：点数规格（param id + budget + targets）。 */
-  allocation?: { param: string; budget: number; targets: Array<{ attribute: string; min?: number; max?: number }> };
+  allocation?: { param: string; budget: number; targets: OpeningAllocationTargetView[] };
+}
+
+/** describeNode 的可选上下文：只有带上 template/ui 才能解析 label 与 style。 */
+export interface OpeningDescribeContext {
+  template: WorldTemplateV2;
+  ui?: UiConfig;
+}
+
+/**
+ * 解析 allocate 节点的预算（ADR-004 D2）。
+ *
+ * 有 `budgetFrom` ⇒ 取该参数在**本会话**的落定值（由前面的 roll/choose 写入）。
+ * 没落定、不是数字、不是非负整数 ⇒ 直接报错而不是回退 0：静默按 0 处理会让
+ * 「先加点后抽点」这类模板顺序错误表现成「面板说 0 点」，玩家只能干瞪眼。
+ */
+export function resolveAllocationBudget(
+  dag: OpeningBranchDag,
+  session: OpeningSessionCore,
+  decl: OpeningParamDecl,
+): number {
+  if (decl.budgetFrom === undefined) return decl.budget ?? 0;
+  const params = resolveParamMap(dag, session);
+  const raw = params[decl.budgetFrom];
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 0) {
+    throw new Error(`opening_allocate_budget_unavailable: ${decl.budgetFrom}`);
+  }
+  return raw;
+}
+
+/**
+ * 解包参数落定值（ADR-001 D7）。
+ *
+ * `resolveParamMap` 存的是 `option.set` 原样：flag / attribute 参数的形状是
+ * `{ id, value, mode? }`，只有 `kind: number` 之类才是裸数字。权重调制要的是「值」本身，
+ * 所以先剥掉对象壳：**对象且带 `value` 键 ⇒ 取 `.value`**，否则用原值。
+ */
+function unwrapParamValue(raw: unknown): unknown {
+  if (raw !== null && typeof raw === "object" && !Array.isArray(raw) && "value" in raw) {
+    return (raw as Record<string, unknown>).value;
+  }
+  return raw;
+}
+
+/**
+ * 计算 roll 节点各选项在**本会话**下的最终权重（ADR-001 D7），与 `node.options` 等长。
+ *
+ * `final = max(0, weight + Σ(数值参数值 × 系数) + Σ(枚举参数查表值))`，
+ * 与事件侧 `settle.random.wheel.segments[].weightBy` 同一套算法，只把取值源换成 param map。
+ *
+ * 参数缺失 / 类型不匹配 / 枚举查表键不存在 ⇒ 该条偏置计 0，**不抛错**：
+ * 「没抽过这个参数」在语义上等于「没有偏向」。
+ */
+export function optionWeights(
+  dag: OpeningBranchDag,
+  session: OpeningSessionCore,
+  node: OpeningBranchNode,
+): number[] {
+  const params = resolveParamMap(dag, session);
+  return (node.options ?? []).map((option) => {
+    let weight = option.weight ?? 1;
+    for (const [paramId, spec] of Object.entries(option.weightByParam ?? {})) {
+      const value = unwrapParamValue(params[paramId]);
+      if (typeof value === "number") {
+        // 数值参数：系数；写成查表 = 类型不匹配，计 0。
+        if (typeof spec === "number") weight += value * spec;
+      } else if (typeof value === "string") {
+        // 枚举参数：查表；写成裸系数 = 类型不匹配，计 0。
+        if (typeof spec !== "number") weight += spec[value] ?? 0;
+      }
+      // 布尔 / 对象 / 缺失 ⇒ 没有可用的数值语义，计 0。
+    }
+    return Math.max(0, weight);
+  });
 }
 
 /** 呈现给前端的节点描述。roll 节点在这里**不掷**——掷发生在 resolveStep。 */
-export function describeNode(dag: OpeningBranchDag, session: OpeningSessionCore): OpeningNodeView | null {
+export function describeNode(
+  dag: OpeningBranchDag,
+  session: OpeningSessionCore,
+  ctx?: OpeningDescribeContext,
+): OpeningNodeView | null {
   const node = currentNode(dag, session);
   if (!node) return null;
-  const options = (node.options ?? []).map((o) => ({ id: o.id, text: o.text, weight: o.weight }));
+  // ADR-001 D7：roll 节点必须下发**本会话算出的最终权重**，否则转盘扇区面积与实际概率
+  // 不一致——玩家看到的就是假盘。choose 节点的权重不参与决策，保持静态声明即可。
+  const rollWeights = node.mode === "roll" ? optionWeights(dag, session, node) : undefined;
+  const options = (node.options ?? []).map((o, i) => ({
+    id: o.id,
+    text: o.text,
+    weight: rollWeights !== undefined ? rollWeights[i] : o.weight,
+  }));
   let allocation: OpeningNodeView["allocation"];
   if (node.mode === "allocate") {
     const pid = node.param;
     const decl = pid ? dag.params.find((p) => p.id === pid) : undefined;
-    allocation = {
-      param: pid ?? "",
-      budget: decl?.budget ?? 0,
-      targets: (decl?.targets ?? []).map((t) => ({ attribute: t.attribute, min: t.min, max: t.max })),
-    };
+    if (decl !== undefined) {
+      const lookup = ctx !== undefined ? createLookup(ctx.template) : undefined;
+      allocation = {
+        param: pid ?? "",
+        budget: resolveAllocationBudget(dag, session, decl),
+        targets: (decl.targets ?? []).map((t) => ({
+          attribute: t.attribute,
+          label: t.label ?? lookup?.attributeLabel(t.attribute) ?? t.attribute,
+          ...(t.min !== undefined ? { min: t.min } : {}),
+          ...(t.max !== undefined ? { max: t.max } : {}),
+          ...(t.style !== undefined && ctx !== undefined
+            ? { style: resolveStyle(t.style, undefined, ctx.ui) }
+            : {}),
+        })),
+      };
+    } else {
+      // 加载期已拒载「allocate 没有 param / param 不存在」；这里只保证形状不炸。
+      allocation = { param: pid ?? "", budget: 0, targets: [] };
+    }
   }
   return {
     nodeId: node.node,
@@ -130,27 +242,30 @@ export function resolveStep(
     if (options.length === 0) throw new Error(`opening_roll_no_options: ${node.node}`);
     // 按 node 派生 ⇒ 同 seed + 同 node 重算同结果；不消耗主流。
     const random = createRng(deriveOpeningSeed(session.seed, dag.openingId, node.node));
-    option = pickWeighted(options, (o) => o.weight ?? 1, random) ?? options[0];
+    // ADR-001 D7：权重按本会话已落定参数调制；缺值/类型不符的偏置计 0（不抛错）。
+    const weights = optionWeights(dag, session, node);
+    option =
+      pickWeighted(
+        options.map((o, i) => ({ option: o, weight: weights[i] })),
+        (item) => item.weight,
+        random,
+      )?.option ?? options[0];
     result = { nodeId: node.node, optionId: option.id, rollIndex: options.indexOf(option) };
   } else if (node.mode === "choose" && input.kind === "choose") {
     option = (node.options ?? []).find((o) => o.id === input.optionId);
     if (!option) throw new Error(`opening_option_not_found: ${input.optionId}`);
     result = { nodeId: node.node, optionId: option.id };
   } else if (node.mode === "allocate" && input.kind === "allocate") {
-    // allocate：校验分配总额 = budget，且各属性在 [min,max]。
+    // ADR-004 D2/D4：预算由模板声明（字面或参数），分配逐条校验后再记入 results。
     const pid = node.param;
     const decl = pid ? dag.params.find((p) => p.id === pid) : undefined;
-    if (!decl || decl.budget === undefined) throw new Error(`opening_allocate_no_spec: ${node.node}`);
-    const allocation: Record<string, number> = input.allocation;
-    const values = Object.values(allocation);
-    if (values.reduce((sum, v) => sum + v, 0) !== decl.budget) throw new Error("opening_allocation_budget_mismatch");
-    for (const target of decl.targets ?? []) {
-      const v = allocation[target.attribute] ?? 0;
-      if (target.min !== undefined && v < target.min) throw new Error("opening_allocation_below_min");
-      if (target.max !== undefined && v > target.max) throw new Error("opening_allocation_above_max");
-    }
+    if (!decl || decl.kind !== "points") throw new Error(`opening_allocate_no_spec: ${node.node}`);
+    const budget = resolveAllocationBudget(dag, session, decl);
+    // 与游戏内加点**同一个校验器**（2026-11-20）：两处各写一份，反馈迟早分叉。
+    const checked = normalizeAllocation(input.allocation, { budget, targets: decl.targets ?? [] });
+    if (!checked.ok) throw new Error(`opening_allocation_${checked.code}: ${checked.detail}`);
     // 形状 = paramId -> attribute -> value（与 shared 契约一致）。
-    result = { nodeId: node.node, allocation: { [pid ?? ""]: { ...allocation } } };
+    result = { nodeId: node.node, allocation: { [pid ?? ""]: checked.points } };
   } else {
     throw new Error("opening_step_invalid_input");
   }
@@ -234,8 +349,10 @@ export function commitOpening(
     }
     for (const { value } of byKind.get("attribute") ?? []) {
       const a = asRecord(value);
-      if (a?.mode === "set" && typeof a.id === "string" && typeof a.value === "number") {
-        state.player.attributes[a.id] = a.value;
+      if (a?.mode !== "set" || typeof a.id !== "string") continue;
+      // ADR-003：set 既可写数值也可写 enum 选项 id；类型校验由 assignAttributeValue 统一负责。
+      if (typeof a.value === "number" || typeof a.value === "string") {
+        assignAttributeValue(state, template, a.id, a.value);
       }
     }
   }
@@ -263,12 +380,12 @@ export function commitOpening(
  * 开局所得（ADR-002 D4 的开局版本）。
  *
  * 与世界的「回合增量」不同：开局没有「前一个状态」，玩家要看的不是差分而是
- * **这一生开局拿到了什么**——技能 / 物品 / 补正 / 初始属性。
+ * **这一生开局拿到了什么**——技能 / 物品 / 状态 / 初始属性。
  *
  * 同一函数服务两处：`/step`（每步预览，界面上的「已经落定」）与 `/commit`（最终面板）。
  * 只有一份实现，预览与结果不会对不上。
  *
- * 属性：`mode: set` 记为 `action: "set"`（展示成「咒力 126」，中性色），
+ * 属性：`mode: set` 记为 `action: "set"`（展示成「力量 126」，中性色），
  * `mode: add` 记为 up/down（展示成「幸运 +2」，绿/红）。
  */
 export function collectOpeningGains(
@@ -284,15 +401,55 @@ export function collectOpeningGains(
 
   for (const { value } of byKind.get("attribute") ?? []) {
     const a = asRecord(value);
-    if (typeof a?.id !== "string" || typeof a.value !== "number") continue;
-    const mode = a.mode === "set" ? "set" : a.value >= 0 ? "up" : "down";
-    out.push({
-      category: "attribute",
-      action: mode,
-      id: a.id,
-      name: lookup.attributeLabel(a.id),
-      amount: a.value,
-    });
+    if (typeof a?.id !== "string") continue;
+    if (typeof a.value === "number") {
+      const mode = a.mode === "set" ? "set" : a.value >= 0 ? "up" : "down";
+      out.push({
+        category: "attribute",
+        action: mode,
+        id: a.id,
+        name: lookup.attributeLabel(a.id),
+        amount: a.value,
+      });
+      continue;
+    }
+    // ADR-003：enum 属性的开局赋值（如身份类的文本属性）。展示选项 label + 选项样式。
+    if (typeof a.value === "string") {
+      const def = template.attributes.defs?.[a.id];
+      const option = def?.kind === "enum" ? def.values.find((v) => v.id === a.value) : undefined;
+      const style = resolveStyle(option?.style, undefined, ui);
+      out.push({
+        category: "attribute",
+        action: "set",
+        id: a.id,
+        name: lookup.attributeLabel(a.id),
+        value: option?.label ?? String(a.value),
+        ...(style !== undefined ? { style } : {}),
+      });
+    }
+  }
+
+  // ADR-004 D7：加点结果也进「开局所得」——否则玩家提交后再也看不见自己点在哪。
+  // 0 不产条目（没点就是没点，与属性 diff 的口径一致）。
+  for (const { value } of byKind.get("points") ?? []) {
+    const allocation = asRecord(value);
+    if (allocation === undefined) continue;
+    for (const [attribute, amount] of Object.entries(allocation)) {
+      if (typeof amount !== "number" || amount === 0) continue;
+      const target = dag.params
+        .filter((p) => p.kind === "points")
+        .flatMap((p) => p.targets ?? [])
+        .find((t) => t.attribute === attribute);
+      const style = target?.style !== undefined ? resolveStyle(target.style, undefined, ui) : undefined;
+      out.push({
+        category: "attribute",
+        action: amount > 0 ? "up" : "down",
+        id: attribute,
+        name: target?.label ?? lookup.attributeLabel(attribute),
+        amount,
+        ...(style !== undefined ? { style } : {}),
+      });
+    }
   }
 
   for (const { value } of byKind.get("status") ?? []) {
@@ -313,7 +470,16 @@ export function collectOpeningGains(
         ...(style !== undefined ? { style } : {}),
         ...(tags.length > 0 ? { tags } : {}),
         ...(def?.description !== undefined ? { description: def.description } : {}),
-        ...(def !== undefined ? { effects: statusEffectSummaries(def, lookup, ui), durationLabel: durationLabel(def) } : {}),
+        ...(def !== undefined
+          ? {
+              effects: statusEffectSummaries(def, lookup, ui),
+              // 开局挂上的特质默认永久（ADR-009 D5）；参数显式给了时长才照实说。
+              durationLabel: (() => {
+                const parsed = SimulationDurationSchema.safeParse(asRecord(spec)?.duration);
+                return parsed.success ? durationLabel(parsed.data) : "直到被移除";
+              })(),
+            }
+          : {}),
       });
     }
   }
@@ -404,7 +570,7 @@ export function selfSelectionFromValue(value: unknown): SelfSelectionV2 {
       name: typeof obj.name === "string" && obj.name.length > 0 ? obj.name : "无名氏",
       gender: typeof obj.gender === "string" ? obj.gender : "",
       age: typeof obj.age === "number" ? obj.age : 16,
-      attributes: (asRecord(obj.attributes) ?? {}) as Record<string, number>,
+      attributes: (asRecord(obj.attributes) ?? {}) as Record<string, number | string>,
       skills: Array.isArray(obj.skills) ? (obj.skills as string[]) : [],
     };
   }
@@ -421,12 +587,12 @@ function applyAdditiveParams(
   template: WorldTemplateV2,
   byKind: ParamsByKind,
 ): void {
-  // 附加属性不区分 self 形态：复用 / 新建都照常叠加。
+  // 附加属性不区分 self 形态：复用 / 新建都照常叠加（add 只对数值属性有意义）。
   for (const { value } of byKind.get("attribute") ?? []) {
     const a = asRecord(value);
     if (a === undefined) continue;
     if ((a.mode === "add" || a.mode === undefined) && typeof a.id === "string" && typeof a.value === "number") {
-      state.player.attributes[a.id] = (state.player.attributes[a.id] ?? 0) + a.value;
+      state.player.attributes[a.id] = numericAttr(state.player.attributes[a.id]) + a.value;
     }
   }
   // 特质（status）在 commit 时统一获得，turnIndex=0；形态支持 id / id[] / {id,stacks}。
@@ -440,13 +606,10 @@ function applyAdditiveParams(
       }
       const s = asRecord(spec);
       if (typeof s?.id !== "string") continue;
-      const dur = asRecord(s.duration);
-      const duration =
-        dur !== undefined && typeof dur.turns === "number"
-          ? { turns: dur.turns }
-          : dur?.untilCured === true
-            ? { untilCured: true as const }
-            : undefined;
+      // 开局参数里的 `duration` 走模拟域词表（ADR-009）：`{value,unit}` 或 `{untilCured}`。
+      // 不写 = 永久——开局挂上的特质是身份，不是「一次施加」。
+      const parsed = s.duration === undefined ? undefined : SimulationDurationSchema.safeParse(s.duration);
+      const duration = parsed?.success ? parsed.data : undefined;
       applyStatusToPlayer(
         state,
         s.id,
@@ -474,9 +637,9 @@ function applyAdditiveParams(
     if (typeof r?.with !== "string" || typeof r.value !== "number") continue;
     /**
      * 复用原作人物时，模板里写死的「和某个角色有关系」可能正好指向**你扮演的那个人**
-     * （jjk 的林间路线就会有 `with: npc-gojo`）。自环关系在 schema 层非法
+     * （某条路线的同行者就会写 `with: <角色 id>`）。自环关系在 schema 层非法
      * （「关系边不允许自环」），写进去就是一份**载不回来的存档**——直接跳过这条：
-     * 「五条悟和五条悟是同事」本来也没有语义。
+     * 「某人和自己是同事」本来也没有语义。
      */
     if (r.with === state.player.id) continue;
     const target = state.npcs.find((n) => n.id === r.with);
@@ -499,7 +662,7 @@ function applyAdditiveParams(
           to: r.with,
           kind,
           source: "effect",
-          visibility: "known", // 模板显式声明的开局关系，作者意图即玩家已知。
+          scope: "public", // 模板显式声明的开局关系：作者写了就是要大家都知道。
           value: Math.max(-100, Math.min(100, r.value)),
         });
       }
@@ -513,7 +676,7 @@ function applyAdditiveParams(
     const p = asRecord(value);
     if (!p) continue;
     for (const [attrId, v] of Object.entries(p)) {
-      if (typeof v === "number") state.player.attributes[attrId] = (state.player.attributes[attrId] ?? 0) + v;
+      if (typeof v === "number") state.player.attributes[attrId] = numericAttr(state.player.attributes[attrId]) + v;
     }
   }
   for (const { value } of byKind.get("extensions") ?? []) {

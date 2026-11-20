@@ -54,7 +54,7 @@ export interface KinMove {
   readonly from: string;
   readonly to: string;
   /** 与事实边同一口径；指针模型建出来的移动一律 `known`。 */
-  readonly visibility?: string;
+  readonly scope?: string;
   readonly gapped?: boolean;
 }
 
@@ -350,7 +350,7 @@ export function signatureOfPath(
     kind,
     from: nodes[i]!,
     to: nodes[i + 1]!,
-    visibility: "known",
+    scope: "public",
     gapped,
   }));
   return signatureOfMoves(moves, facts, from, gapped);

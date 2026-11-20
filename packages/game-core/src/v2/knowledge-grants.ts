@@ -1,4 +1,4 @@
-import type { Rules, SetKnowledgeArgs, WorldStateV2 } from "@life-sim/shared";
+import type { Rules, SetKnowledgeArgs, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
 import {
   derivedTriggerRng,
   evaluateAll,
@@ -19,11 +19,13 @@ export function computeKnowledgeGrants(
   rules: Rules,
   registry: ConditionRegistry,
   turnIndex: number,
+  template?: WorldTemplateV2,
 ): SetKnowledgeArgs[] {
   const ctx: ConditionEvalContext = {
     state,
     rng: derivedTriggerRng(state.seed, turnIndex),
     turnIndex,
+    ...(template !== undefined ? { template } : {}),
   };
   const out: SetKnowledgeArgs[] = [];
   for (const entry of [...rules.knowledgeGrants, ...rules.inferenceRules]) {

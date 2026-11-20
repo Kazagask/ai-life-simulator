@@ -1,7 +1,9 @@
-import type { TurnGain, UiConfig, WorldStateV2 } from "@life-sim/shared";
+import type { AttributeValue, TurnGain, UiConfig, WorldStateV2 } from "@life-sim/shared";
+import { numericAttr } from "@life-sim/shared";
 import type { TemplateLookup } from "../lookup.js";
 import { resolveEntityStyle, resolveEntityTags, resolveStyle, tagIdsOf } from "./style.js";
-import { durationLabel, equipmentEffectSummaries, itemEffectSummaries, skillEffectSummaries, statusEffectSummaries } from "./effects.js";
+import { resolveAttributeView } from "./attributes.js";
+import { equipmentEffectSummaries, itemEffectSummaries, remainingLabel, skillEffectSummaries, statusEffectSummaries } from "./effects.js";
 
 /**
  * 回合增量（ADR-002 D4）：**基线 + 差分**，只走响应、不落库。
@@ -13,7 +15,9 @@ import { durationLabel, equipmentEffectSummaries, itemEffectSummaries, skillEffe
  * 派生字段（哪一轮的增量、要不要清理），与 ADR-002 D1 冲突。
  */
 export interface GainBaseline {
-  attributes: Record<string, number>;
+  attributes: Record<string, AttributeValue>;
+  /** reset 阶梯的档位基线（ADR-003 D4）：升档时数值会被扣掉，不能只看数值差分。 */
+  attributeTiers: Record<string, string>;
   statuses: Array<{ id: string; stacks: number }>;
   skills: string[];
   inventory: Record<string, number>;
@@ -23,6 +27,7 @@ export interface GainBaseline {
 export function captureGainBaseline(state: WorldStateV2): GainBaseline {
   return {
     attributes: { ...state.player.attributes },
+    attributeTiers: { ...(state.player.attributeTiers ?? {}) },
     statuses: state.player.statuses.map((s) => ({ id: s.statusId, stacks: s.stacks ?? 1 })),
     skills: [...state.player.skills],
     inventory: { ...state.player.inventory },
@@ -33,7 +38,7 @@ export function captureGainBaseline(state: WorldStateV2): GainBaseline {
 const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
- * 差出本回合的收获。顺序固定（属性 → 补正 → 技能 → 物品 → 装备，同类按 id 排序），
+ * 差出本回合的收获。顺序固定（属性 → 状态 → 技能 → 物品 → 装备，同类按 id 排序），
  * 保证「同输入 ⇒ 同输出」，便于写断言与回放。
  */
 export function diffGains(
@@ -44,22 +49,77 @@ export function diffGains(
 ): TurnGain[] {
   const out: TurnGain[] = [];
 
-  // ---- 属性：净值 ≠ 0 才出条目（同一条属性多段变化合并） ----
+  // ---- 属性（ADR-003）：按 kind 分派；hidden 属性不出条目（它只作为 composite 的输入） ----
   const keys = new Set([...Object.keys(before.attributes), ...Object.keys(after.player.attributes)]);
+  const template = lookup.template;
   for (const key of [...keys].sort(byId)) {
-    const prev = before.attributes[key] ?? 0;
-    const next = after.player.attributes[key] ?? 0;
-    if (next === prev) continue;
+    const def = template.attributes.defs?.[key];
+    if (def?.hidden) continue;
+    const prev = before.attributes[key];
+    const next = after.player.attributes[key];
+
+    if (def?.kind === "enum") {
+      if (prev === next) continue;
+      const prevView = resolveAttributeView(key, before.attributes, template, ui, before.attributeTiers);
+      const nextView = resolveAttributeView(key, { ...after.player.attributes }, template, ui, after.player.attributeTiers);
+      if (prevView?.display === nextView?.display) continue;
+      out.push({
+        category: "attribute",
+        action: "set",
+        id: key,
+        name: lookup.attributeLabel(key),
+        ...(nextView?.display !== undefined ? { value: nextView.display } : {}),
+        ...(nextView?.style !== undefined ? { style: nextView.style } : {}),
+      });
+      continue;
+    }
+
+    if (def?.kind === "composite") {
+      const prevView = resolveAttributeView(key, before.attributes, template, ui, before.attributeTiers);
+      const nextView = resolveAttributeView(key, { ...after.player.attributes }, template, ui, after.player.attributeTiers);
+      if (prevView?.display === nextView?.display) continue;
+      out.push({
+        category: "attribute",
+        action: "set",
+        id: key,
+        name: lookup.attributeLabel(key),
+        ...(nextView?.display !== undefined ? { value: nextView.display } : {}),
+        ...(nextView?.style !== undefined ? { style: nextView.style } : {}),
+      });
+      continue;
+    }
+
+    if (def?.kind === "ladder" && def.mode === "reset") {
+      // reset：升档时数值会被扣掉，展示「档位变化」而不是负数差分。
+      const prevTier = before.attributeTiers[key];
+      const nextTier = after.player.attributeTiers?.[key];
+      if (prevTier !== nextTier) {
+        const view = resolveAttributeView(key, { ...after.player.attributes }, template, ui, after.player.attributeTiers);
+        out.push({
+          category: "attribute",
+          action: "set",
+          id: key,
+          name: lookup.attributeLabel(key),
+          ...(view?.display !== undefined ? { value: view.display } : {}),
+          ...(view?.style !== undefined ? { style: view.style } : {}),
+        });
+        continue;
+      }
+    }
+
+    const prevNum = numericAttr(prev);
+    const nextNum = numericAttr(next);
+    if (nextNum === prevNum) continue;
     out.push({
       category: "attribute",
-      action: next > prev ? "up" : "down",
+      action: nextNum > prevNum ? "up" : "down",
       id: key,
       name: lookup.attributeLabel(key),
-      amount: next - prev,
+      amount: nextNum - prevNum,
     });
   }
 
-  // ---- 补正：按 id 比层数（获得 / 失去 / 层数变化各一条） ----
+  // ---- 状态：按 id 比层数（获得 / 失去 / 层数变化各一条） ----
   const prevStatus = new Map(before.statuses.map((s) => [s.id, s.stacks]));
   const nextStatus = new Map(after.player.statuses.map((s) => [s.statusId, s.stacks ?? 1]));
   for (const id of [...new Set([...prevStatus.keys(), ...nextStatus.keys()])].sort(byId)) {
@@ -67,6 +127,7 @@ export function diffGains(
     const next = nextStatus.get(id);
     if (prev === next) continue;
     const def = lookup.status(id);
+    const instance = after.player.statuses.find((s) => s.statusId === id);
     const style = resolveEntityStyle(def, ui);
     const tags = resolveEntityTags(def, ui);
     out.push({
@@ -79,7 +140,13 @@ export function diffGains(
       ...(style !== undefined ? { style } : {}),
       ...(tags.length > 0 ? { tags } : {}),
       ...(def?.description !== undefined ? { description: def.description } : {}),
-      ...(def !== undefined ? { effects: statusEffectSummaries(def, lookup, ui), durationLabel: durationLabel(def) } : {}),
+      ...(def !== undefined
+        ? {
+            effects: statusEffectSummaries(def, lookup, ui),
+            // 时长只能从**实例**读（ADR-009）：定义上已经没有「多久」这回事了。
+            ...(instance !== undefined ? { durationLabel: remainingLabel(instance, after.worldTime) } : {}),
+          }
+        : {}),
     });
   }
 

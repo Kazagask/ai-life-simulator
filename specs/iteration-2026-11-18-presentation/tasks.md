@@ -16,7 +16,7 @@ T0 ──┬─> T1 ──┐
 
 ## T0 · ADR + 契约扩展（DONE 前置）
 
-- **依赖**：无。**产出**：`docs/ADR-002-表现层协议.md`、`packages/shared/src/schema/style.ts`、
+- **依赖**：无。**产出**：`docs/adr/60-表现层与仪器.md`、`packages/shared/src/schema/style.ts`、
   `contract/view-model.ts` 追加字段、`schema/{status-effect,skill,item,ui}.ts` 追加可选字段。
 - **完成定义**：
   1. ADR 六条决策写清（只读投影 / 受控样式词汇 / 效果摘要派生 / 差分不落库 / 叙事分段 / schemaVersion 不变）。

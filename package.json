@@ -8,7 +8,9 @@
     "start": "pnpm --filter @life-sim/server start",
     "build": "pnpm typecheck && pnpm --filter @life-sim/web build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "inspect": "pnpm --filter @life-sim/server run inspect",
+    "test": "vitest run",
+    "build:admin": "esbuild apps/admin/battle.tsx --bundle --format=esm --jsx=automatic --outfile=apps/admin/battle.js --alias:react=./node_modules/react/index.js --alias:react/jsx-runtime=./node_modules/react/jsx-runtime.js --alias:react-dom=./node_modules/react-dom/index.js --alias:react-dom/client=./node_modules/react-dom/client.js --alias:@life-sim/shared=./packages/shared/src/index.ts --alias:@life-sim/rpg-ui=./packages/rpg-ui/src/index.ts"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

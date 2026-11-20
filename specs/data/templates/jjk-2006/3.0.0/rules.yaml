@@ -1,0 +1,106 @@
+# jjk-2006 · rules.yaml（叙事参与声明）
+#
+# ⚠ 这个文件不是可选的装饰：`runSettlementHooks` 在 `pipeline.rules === undefined` 时**直接 return**。
+# 也就是说**没有 rules.yaml 的模板永远不会有 LLM invocation** —— 玩家配了自定义 key 也不会被调用，
+# 前端那条 SSE 只能一直 idle（用户 2026-11-18 实测「配了 LLM 但 SSE 调用失败」就是这个）。
+#
+# ## 为什么是「一章一次」而不是「每回合」
+#
+# `fireMode: level`（每回合）会让一次交互里的 turn / choose / confirm **各调一次** LLM：
+# 玩家看到的是同一件事被叙述三遍，而且每次都等模型（用户 2026-11-18 实测「重复叙述」+「不真流式」）。
+# 这个剧本事件密集，逐回合交给模型既贵又碎；改成**章节收束时总结一次**，
+# 平时由引擎的模板叙事兜底（`recordTurnNarrative`，确定性、零成本）。
+#
+# ## 章节小结的三个参数（2026-11-19 用户反馈「3-5 句太少、像流水账」）
+#
+# - `mode: recap`：换掉输出契约里两条**逐拍**约束（只写这一回合的一小段 / 紧接最后一条往下写）。
+#   不加这个只改 instruction 是没用的——契约里的硬约束会压过口头要求。
+# - `length`：篇幅上限写在契约里（缺省 80–220 字 / 1–3 段），光在 instruction 里喊"多写点"无效。
+#   这里给 320–760 字 / 3–6 段，并把后处理截断上限一起抬到 760（否则超 420 字会被按段砍掉）。
+# - `historyTurns`：滚动历史窗口（缺省 6 轮，整章看不全就写不出内容）。40 轮够覆盖一章。
+#
+# 文风（`prompt.style`）是**模板级**的，对所有 invocation 生效，且进 prompt cache 前缀。
+llmTriggers:
+  # 2026-11-21：章节从 7 章收成 1 章，原来那 6 条「章节收束」全部作废。
+  # 现在的触发点全部挂在**怀玉的关键事实**上（旗标由事件写，edge 语义 = 只发一次）：
+  #   出发 → 甚尔 → 收束 → 年末。每一次都给模型一件具体的事、一个明确的边界。
+  - id: lt.hv-start
+    when:
+      - { op: flagSet, args: { flag: spJoined, value: true } }
+    invoke:
+      reason: jjk.hv.departure
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      length: { minChars: 200, maxChars: 520, minParagraphs: 2, maxParagraphs: 4 }
+      historyTurns: 12
+      instruction: >-
+        写「出发前那一晚」。主角刚决定跟着去护卫星浆体，理子还没有正式出场。
+        写他/她收拾东西、走神、听见走廊尽头有人说话这类小事；不要预告薨星宫、不要提甚尔的名字、不要替玩家做决定。
+      toolProfile: narrative
+  - id: lt.hv-toji
+    when:
+      - { op: flagSet, args: { flag: metToji, value: true } }
+    invoke:
+      reason: jjk.hv.toji
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      length: { minChars: 180, maxChars: 460, minParagraphs: 2, maxParagraphs: 3 }
+      historyTurns: 16
+      instruction: >-
+        写「第一次看见伏黑甚尔」的那几秒。他不带咒力、不带杀意，像一个走错片场的人 ——
+        正因如此才可怕。只写感受与细节（他的鞋、他的手、他看人的顺序），不要写他的来历，
+        不要让玩家在这一段里动手。
+      toolProfile: narrative
+  - id: lt.hv-outcome
+    when:
+      - { op: flagSet, args: { flag: spDone, value: true } }
+    invoke:
+      reason: jjk.hv.closing
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      mode: recap
+      length: { minChars: 320, maxChars: 760, minParagraphs: 3, maxParagraphs: 6 }
+      historyTurns: 40
+      instruction: >-
+        收束怀玉：从任务下达到薨星宫之后，按时间顺序把这一段拢成一次完整的经历。
+        写清主角做了什么、选了哪一边、付出了什么、谁因此活着或死去；
+        用具体的场景、动作和对话推进，不要罗列流程，不要点评或讲道理。
+      toolProfile: narrative
+  - id: lt.year-end
+    when:
+      - { op: flagSet, args: { flag: yearEnd, value: true } }
+    invoke:
+      reason: jjk.year.closing
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      mode: recap
+      length: { minChars: 240, maxChars: 600, minParagraphs: 2, maxParagraphs: 4 }
+      historyTurns: 30
+      instruction: >-
+        写这一年最后的几天。夏天已经过去四个月，活着的人各自回到日常，死去的人不再有新的消息。
+        不要总结「这一年教会了你什么」，只写一个具体的傍晚：谁在场、说了什么、天气怎么样。
+      toolProfile: narrative
+toolProfile:
+  narrative:
+    - world.now
+    - world.history
+    - world.present
+    - world.self
+
+knowledgeGrants: []
+inferenceRules: []
+
+prompt:
+  style: |
+    文风：日式都市怪谈的冷调子——克制，不煽情，不解释。
+    镜头贴着主角的身体走：先写看见、听见、闻到什么，再写身体怎么反应——呼吸、指尖、喉咙、脚底。
+    句子长短交错，多让短句落点；一段只推一个动作或一个转折，不要一段里塞三件事。
+    用具体的名词和动词代替形容词堆砌：写「咒力在指节上结了一层薄壳」，不写「强大的力量在体内涌动」。
+    不写「他感到」「他觉得」这类概述，让动作和感官自己说话；不写总结陈词，不写人生道理。
+    严禁流水账：不要按时间顺序罗列做过的事，不要每段都以时间词开头，不要复述已经写过的场面，
+    也不要用「然后」「接着」「随后」当连接词串场。
+    不写数值、属性、任务提示或系统口吻；对话用「」，不用括号旁注。

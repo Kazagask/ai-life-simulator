@@ -26,6 +26,41 @@ export interface CredentialEnvelope {
   data: string;
 }
 
+/**
+ * **未加密**信封（2026-11-20，`v: 0`）：只在拿不到 WebCrypto 时用。
+ *
+ * 为什么要有它：`crypto.subtle` 只在**安全上下文**存在（https / localhost）。
+ * 局域网用 `http://192.168.x.x` 打开时它直接是 `undefined`，于是「填自定义 LLM」
+ * 这条路整条不可用（用户 2026-11-20 报的就是这个）。自签证书在手机上要逐台接受警告，
+ * 比明文过自己家局域网更难用。
+ *
+ * 代价写清楚：明文会经过链路（同网段可嗅探）。所以两端的门都在**私有地址**上：
+ * 前端只在 loopback / 私网 / `.local` 页面降级，服务端也只对私有来源接受 `v: 0`。
+ * 这不是"加密了"，界面上必须明说。
+ */
+export interface PlainCredentialEnvelope {
+  v: 0;
+  /** 原始载荷（`{ apiKey, model, baseUrl? }`）。 */
+  plain: Record<string, unknown>;
+}
+
+export type CredentialPayload = CredentialEnvelope | PlainCredentialEnvelope;
+
+/** 当前页面能不能做真正的加密（= 是不是安全上下文）。 */
+export function isCredentialEncryptionAvailable(): boolean {
+  return globalThis.crypto?.subtle !== undefined;
+}
+
+/** 页面主机是否是"自己家"（loopback / 私网 / `.local`）：只有这些地址允许明文降级。 */
+function isPrivateHost(host: string): boolean {
+  if (host === "localhost" || host === "::1" || host === "[::1]") return true;
+  if (/^127\./.test(host)) return true;
+  if (/^10\./.test(host)) return true;
+  if (/^192\.168\./.test(host)) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
+  return host.endsWith(".local");
+}
+
 // 返回**独立 ArrayBuffer** 的视图：WebCrypto 的 BufferSource 不接受 SharedArrayBuffer 兜底类型
 // （TS 5.7 起 `Uint8Array` 带泛型参数，必须显式绑到 ArrayBuffer 上）。
 function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
@@ -47,8 +82,8 @@ let publicKeyPromise: Promise<CryptoKey> | null = null;
 function publicKey(): Promise<CryptoKey> {
   const subtle = globalThis.crypto?.subtle;
   if (subtle === undefined) {
-    // 非安全上下文（http:// 局域网 IP）拿不到 WebCrypto。**宁可拒绝也不降级成明文**：
-    // 静默降级会让「已经加密了」这句话变成假话。
+    // 非安全上下文（`http://` + 公网/局域网主机名）拿不到 WebCrypto。
+    // 不在这里降级：降级由 `encryptCredentialPayload` 按 Host 决定，且必须显式告知用户。
     return Promise.reject(
       new Error("当前页面无法加密凭证（需要 HTTPS 或 localhost）。请改用安全连接后重试。"),
     );
@@ -63,8 +98,24 @@ function publicKey(): Promise<CryptoKey> {
   return publicKeyPromise;
 }
 
-/** 把任意 JSON 载荷加密成信封（服务端唯一接受的提交格式）。 */
-export async function encryptCredentialPayload(payload: unknown): Promise<CredentialEnvelope> {
+/**
+ * 把任意 JSON 载荷装进信封。
+ *
+ * - 安全上下文（https / localhost）⇒ `v: 1`，真正的混合加密；
+ * - 非安全上下文 + **私有主机**（局域网 IP / `.local`）⇒ `v: 0`，明文载荷。
+ *   服务端只对私有来源收这一档，界面也要明说「未加密」；
+ * - 非安全上下文 + 公网主机 ⇒ 直接拒绝（不给公网 HTTP 开明文口子）。
+ */
+export async function encryptCredentialPayload(payload: unknown): Promise<CredentialPayload> {
+  if (!isCredentialEncryptionAvailable()) {
+    const host = globalThis.location?.hostname ?? "";
+    if (!isPrivateHost(host)) {
+      throw new Error(
+        "当前页面无法加密凭证（公网 HTTP 不受支持）。请改用 HTTPS 或 localhost 后重试。",
+      );
+    }
+    return { v: 0, plain: payload as Record<string, unknown> };
+  }
   // 先做安全上下文检查（`publicKey()` 会给一句人话），再取 subtle。
   const rsa = await publicKey();
   const subtle = globalThis.crypto.subtle;

@@ -78,7 +78,9 @@ node apps/server/smoke/cloud.smoke.mjs       # 可移植冒烟，见 docs/CLOUD_
 - Spec Coding：`requirements → design → tasks`；新迭代建在 `specs/iterations/<YYYY-MM-DD>-<短标签>/`，收尾整包移入 `specs/archive/iterations/`。
 - **G1 / G2 正常门禁仍生效**：动 `packages/shared` / `packages/game-core` / `apps/**` 契约面（T-2）必须先写 ADR 并经评审；仅改模板 yaml 免 ADR（`AGENTS.md §0.3`）。
 - ADR-0027 的「免前置 ADR + 事后补记」是 **2026-11-13 一次性裁决，不延续到后续任何任务**。
-- 待决项登记在 `docs/OPEN_QUESTIONS.md`（当前 **#49** 未决：登录用户 → 服务端免密钥 LLM 的真实注入链路）；不得自行伪造共识。
+- 待决项登记在 BACKLOG / ADR 的「待裁决」段。原 `docs/OPEN_QUESTIONS.md` 已在 2026-11-16 重写中归档，
+  指针作废；**#49（登录用户 → 服务端免密钥 LLM）于 2026-11-20 冻结**（用户裁定 LLM 保持现状形态，
+  不再推进免密钥链路）。不得自行伪造共识。
 - 小问题 / 优化点记 `docs/BACKLOG.md`，不要新建 spec 文件追踪。
 - **CI = 本地命令的镜像**：`.github/workflows/ci.yml` 在 push / PR 到 `main` 时跑
   `pnpm typecheck` → `shared test` → `pnpm test` → playthrough（串行）→ `web build` → 可移植冒烟，
@@ -96,5 +98,5 @@ node apps/server/smoke/cloud.smoke.mjs       # 可移植冒烟，见 docs/CLOUD_
 | `AGENTS.md` | 工程规范与硬约束（任何任务先读） |
 | `PROJECT.md` | WorkBuddy 项目面板 / 迭代状态快照 |
 | `tasks/reports/R27-COMPLETION.md` | R2.7 完成报告（含上轮明确未执行的验证清单） |
-| `docs/DECISIONS.md` | ADR 正文（ADR-0027 为 LLM 叙事层） |
+| `docs/adr/` | ADR：`README.md` 是索引，`10..60-*.md` 是六块现行口径，`archive/` 是编号原文 |
 | `docs/OPEN_QUESTIONS.md` | 产品待决项 |

@@ -5,10 +5,12 @@ import type {
   Rules,
   TaskCondition,
   WorldStateV2,
+  WorldTemplateV2,
 } from "@life-sim/shared";
-import { DEFAULT_LLM_BUDGET, isPlayerVisible } from "@life-sim/shared";
+import { DEFAULT_LLM_BUDGET, isPlayerVisible, numericAttr } from "@life-sim/shared";
 import { createRng, deriveTurnSeed, type Rng } from "../rng.js";
 import { buildFacts } from "../api/perspective.js";
+import { evaluateAttributeCondition } from "./attribute-rules.js";
 
 /**
  * 条件求值器（T-02，纯函数）。
@@ -27,6 +29,11 @@ export interface ConditionEvalContext {
   state: WorldStateV2;
   rng: Rng;
   turnIndex: number;
+  /**
+   * 模板（ADR-003）：属性条件需要查 `defs` 才知道 kind / enum 选项 / 阶梯档位。
+   * 可选是为了兼容既有调用点；缺省时属性条件退化为「原文比较 + 数值比较」。
+   */
+  template?: WorldTemplateV2;
   /**
    * 本轮已结算的事件 id 集合（`eventResolved` 求值用）。
    * 可选：缺省 = 本轮无结算，`eventResolved` 一律 false。做成可选是为了既有调用方不改即编译。
@@ -120,10 +127,36 @@ const FLAT_EVALUATORS: readonly FlatEvaluator[] = [
   {
     probe: (c) => "attribute" in c,
     eval: (c, ctx) => {
-      const a = c as { attribute: string; gte?: number; lte?: number };
-      const value = ctx.state.player.attributes[a.attribute] ?? 0;
-      if (a.gte !== undefined && value < a.gte) return false;
-      if (a.lte !== undefined && value > a.lte) return false;
+      /**
+       * ADR-003：属性条件与引擎 `checkCondition` 共用一份实现（attribute-rules）。
+       * 这里传的是**原始属性**（触发器求值历来不叠状态/装备），保持既有语义；
+       * 文本属性、阶梯 tier 都只依赖原始值，不需要有效值链。
+       */
+      const raw = ctx.state.player.attributes;
+      const numericView: Record<string, number> = {};
+      for (const [k, v] of Object.entries(raw)) {
+        if (typeof v === "number") numericView[k] = v;
+      }
+      if (ctx.template !== undefined) {
+        return evaluateAttributeCondition(
+          c as { attribute: string; eq?: number | string; ne?: number | string; gte?: number; lte?: number; gt?: number; lt?: number; tier?: string },
+          raw,
+          numericView,
+          ctx.template,
+          ctx.state.player.attributeTiers,
+        );
+      }
+      // 无模板退化路径（只在测试 / 旧调用点出现）：只做原文与数值比较，tier 一律不匹配。
+      const a = c as { attribute: string; eq?: number | string; ne?: number | string; gte?: number; lte?: number; gt?: number; lt?: number; tier?: string };
+      if (a.tier !== undefined) return false;
+      const value = raw[a.attribute] ?? 0;
+      if (a.eq !== undefined && value !== a.eq) return false;
+      if (a.ne !== undefined && value === a.ne) return false;
+      const num = numericAttr(value);
+      if (a.gte !== undefined && num < a.gte) return false;
+      if (a.lte !== undefined && num > a.lte) return false;
+      if (a.gt !== undefined && num <= a.gt) return false;
+      if (a.lt !== undefined && num >= a.lt) return false;
       return true;
     },
   },
@@ -211,6 +244,8 @@ export interface TriggerOptions {
   targetPerspective?: Perspective;
   /** 本轮已结算的事件 id（透传给 `eventResolved`；缺省 = 本轮无结算）。 */
   resolvedEventIds?: ReadonlySet<string>;
+  /** 模板（ADR-003）：属性条件需要 defs 解释 kind / enum / 阶梯。 */
+  template?: WorldTemplateV2;
 }
 
 /**
@@ -245,6 +280,7 @@ function createTriggerContext(
     state,
     rng: derivedTriggerRng(opts.seed, opts.turnIndex),
     turnIndex: opts.turnIndex,
+    ...(opts.template !== undefined ? { template: opts.template } : {}),
     ...(opts.resolvedEventIds !== undefined ? { resolvedEventIds: opts.resolvedEventIds } : {}),
   };
 }

@@ -5,6 +5,7 @@ import type {
   EvaluationRecord,
   WorldStateV2,
 } from "@life-sim/shared";
+import { numericAttr } from "@life-sim/shared";
 
 /**
  * 阶段 4 · 人生评价（design §4 / §6、协议 §18、R-EV-01..05）。
@@ -83,7 +84,7 @@ export function collectProcessSignals(state: WorldStateV2): ProcessSignals {
     // 选择记录：选项结算写入的 event 历史，id 带 -c- 标记
     choiceIds: history.filter((h) => h.type === "event" && h.id.includes("-c-")).map((h) => h.id),
     relationAvg: relations.length > 0 ? relations.reduce((a, b) => a + b, 0) / relations.length : 0,
-    attributeSum: Object.values(state.player.attributes).reduce((a, b) => a + b, 0),
+    attributeSum: Object.values(state.player.attributes).reduce<number>((a, b) => a + numericAttr(b), 0),
     milestoneFlags: Object.entries(state.flags).filter(
       ([key, value]) => key.startsWith("milestone:") && value === true,
     ).length,

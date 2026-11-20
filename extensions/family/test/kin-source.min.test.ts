@@ -85,7 +85,7 @@ function makeActors(pointer: boolean): Map<string, SnapshotActor> {
 function makeEdges(): RelationEdge[] {
   const edges: RelationEdge[] = [];
   const push = (from: string, to: string, kind: RelationEdge["kind"]): void => {
-    edges.push({ from, to, kind, source: "template", visibility: "known" });
+    edges.push({ from, to, kind, source: "template", scope: "public" });
   };
 
   for (const p of PEOPLE) {
@@ -230,14 +230,14 @@ describe("等价性：同一家族写成边图或指针图，称谓逐条相同"
       to: "dad",
       kind: "father",
       source: "template",
-      visibility: "known",
+      scope: "public",
     });
     expect(adapted).toContainEqual({
       from: "me",
       to: "mom",
       kind: "mother",
       source: "template",
-      visibility: "known",
+      scope: "public",
     });
   });
 });

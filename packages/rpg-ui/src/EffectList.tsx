@@ -10,6 +10,8 @@ export interface EffectListProps {
   onOpenRef?: (effect: EffectSummaryVM) => void;
   /** 紧凑模式：收获卡 / 事件区里用，去掉分隔线。 */
   dense?: boolean;
+  /** 单行模式：条目横向排开（召唤物技能表里「一个技能一行」用）。 */
+  inline?: boolean;
 }
 
 /**
@@ -22,10 +24,40 @@ export interface EffectListProps {
  *
  * 色义：增益绿、减益红、中性灰（用户 2026-11-18 裁决「增绿减红 0 灰」）。
  */
-export function EffectList({ effects, onOpenRef, dense = false }: EffectListProps) {
+/**
+ * 效果文本：**样式只落在被引用实体的名字上**（用户 2026-11-20）。
+ *
+ * 三段由内核拼好（`lead / refName / trail`），前端不再按标题在整句里找位置 ——
+ * 那是字符串切分，文案一改就退化。没有 `refName` 就整句按纯文本渲染。
+ */
+function EffectText({ effect, as }: { effect: EffectSummaryVM; as?: "span" }) {
+  if (effect.refName === undefined) return <>{effect.text}</>;
+  /**
+   * 状态引用按**正负**上色（2026-11-20）：技能描述里的「施加 束缚」读的是状态的一等字段，
+   * 不是它的身份色（品级 / 自定义 style）。非状态引用（技能 / 物品）仍走 `style`。
+   */
+  const tone = effect.refDetail?.polarity;
+  return (
+    <>
+      {effect.lead ?? ""}
+      <StyledName
+        name={effect.refName}
+        {...(tone !== undefined
+          ? { className: `ls-tone--${tone}` }
+          : effect.refDetail?.style !== undefined
+            ? { style: effect.refDetail.style }
+            : {})}
+        {...(as === "span" ? { as } : {})}
+      />
+      {effect.trail ?? ""}
+    </>
+  );
+}
+
+export function EffectList({ effects, onOpenRef, dense = false, inline = false }: EffectListProps) {
   if (effects === undefined || effects.length === 0) return null;
   return (
-    <ul className={`ls-effects${dense ? " ls-effects--dense" : ""}`}>
+    <ul className={`ls-effects${dense ? " ls-effects--dense" : ""}${inline ? " ls-effects--inline" : ""}`}>
       {effects.map((effect, i) => {
         const tone = effect.tone ?? "neutral";
         const ref = effect.ref;
@@ -41,11 +73,11 @@ export function EffectList({ effects, onOpenRef, dense = false }: EffectListProp
         } else if (ref !== undefined && onOpenRef !== undefined) {
           body = (
             <button type="button" className="ls-effect__link" onClick={() => onOpenRef(effect)}>
-              <StyledName name={effect.text} style={effect.refDetail?.style} />
+              <EffectText effect={effect} />
             </button>
           );
         } else {
-          body = <StyledName name={effect.text} style={effect.refDetail?.style} as="span" />;
+          body = <EffectText effect={effect} as="span" />;
         }
 
         return (

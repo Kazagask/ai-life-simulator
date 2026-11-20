@@ -1,0 +1,747 @@
+# JJK 世界模板 · characters.yaml
+#
+# 阵容按原作时间线铺开：2006 高专（夜蛾/五条/夏油/硝子/七海/灰原/理子/甚尔）
+# → 2017 咒术回战 0（乙骨）→ 2018 本篇（虎杖/伏黑/钉崎/真人/漏瑚/羂索/宿傩）。
+# 玩家是 2006 年入学的一年生 —— 七海与灰原的同班同学，五条与夏油的学弟/学妹。
+#
+# `isEnemy` 的判据（2026-11-19 用户裁决）：**有没有戏**，不是「打不打得起来」。
+#   * 有名字、有立场、会被玩家记住的人 ⇒ NPC（`isEnemy: false`）。他们在实例表里，
+#     能当关系边的端点、有卡、会自己行动；不想让玩家看见就 `visibility: hidden`。
+#     漏瑚 / 羂索 / 宿傩（三形态）/ 甚尔 都属于这一档：**打他们仍然可以用 combat
+#     settle 的 `enemies[].ref` 直接引用**——参战与实例化是两件事。
+#   * 完全没剧情的野怪（二级咒灵 / 一级咒灵 / 诅咒师 / 咒胎）才是 `isEnemy: true`：
+#     永不实例化、无卡、不能当关系端点。
+#
+# 登场时点写在 `world.yaml npcSpawnRules`（定时，见 ADR-006 D2）；本文件只写「这个人是谁」。
+#
+# 关于 `to: player` 的初始边（2026-11-12 修复「面板看不到 NPC 视你为 X」）：
+#   * 关系是**世界事实**，`scope` 说明「多少人知道」：public 大家都知道 / limited 部分人
+#     知道（配 `knownBy`）/ private 仅当事人。玩家是当事人 ⇒ 一定看得到。
+#   * 边语义仍是「`to` 是 `from` 的 kind」⇒ 要表达「夜蛾视你为弟子」必须写
+#     `{ from: npc-yaga, to: player, kind: disciple }`；写成 `mentor` 会读成
+#     「你视夜蛾为师父」（方向反了，见 npc-yaga 下的历史坑注释）。
+#   * 必须显式 `scope: public`（ADR-007 D3）：缺省按 `private` 处理，只有当事人看得到。
+#   * **省略 `value`**：人物卡片已有 `relationship` 标量 chip，两处关系值会同卡自相矛盾；
+#     且模板里 `{ relation: npc-x, gte: N }` 条件走的是标量形态，不写 value 才不会改变既有分支。
+characters:
+  # ══════════════ 2006 · 东京咒术高专 ══════════════
+
+  - id: npc-yaga
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 夜蛾正道
+      age: 34
+      gender: male
+      description: 一年生班主任，一级术师。沉默、魁梧、会缝布偶，也会在你偷懒时把布偶扔到你脸上。
+    mood: { value: 55 }
+    attributes: { cursedEnergy: 30, intellect: 9, physique: 8, agility: 6, reputation: 35 }
+    skills: [sk-puppet, sk-basic-strike]
+    public:
+      personality: 严厉、护短，从不把「保护学生」四个字说出口。
+      knownGoals: [把学生活着送出高专]
+    private:
+      secrets: [他在秘密制造一种能自我判断的咒骸]
+      goals: [protect-students]
+      traits: [stern, caring]
+      combatHints:
+        skillWeights: { sk-puppet: 4, sk-basic-strike: 1 }
+    relationship: 8
+    relations:
+      # 夜蛾是二人之师：边语义为「to 是 from 的 kind」，故此处是 disciple（弟子），
+      # 不是 mentor。原写成 mentor 会读成「五条/七海是夜蛾的师父」（2026-11-12 面板验收发现）。
+      - { to: npc-gojo, kind: disciple, scope: public, value: 80 }
+      - { to: npc-nanami, kind: disciple, scope: public, value: 70 }
+      # 夜蛾视你为弟子（玩家是他名下的一年生）
+      - { to: player, kind: disciple, scope: public }
+
+  - id: npc-gojo
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 五条悟
+      age: 17
+      gender: male
+      description: 二年生，五条家的六眼。全世界最强的两个咒术师之一，也是最吵的那个。
+    mood: { value: 80 }
+    attributes: { cursedEnergy: 120, intellect: 10, physique: 9, agility: 11, reputation: 60, grade: special, innateTechnique: limitless }
+    # ADR-010 D6：开局只会顺转。赫与领域由 world.yaml 的 scheduledFacts 在
+    # 怀玉收束（518 天）与苦夏之后（760 天）解锁 —— 2006 年秋天的五条悟还不会反转。
+    skills: [sk-gojo-blue, sk-basic-strike]
+    statuses: [six-eyes, infinity]
+    public:
+      personality: 轻浮、自大、随时在开玩笑。真的危险时，他会站在最前面。
+      knownGoals: [把咒术界翻过来]
+    private:
+      secrets: [他正在摸索「反转术式」能不能治别人]
+      goals: [become-strongest, protect-students]
+      traits: [confident, playful]
+      combatHints:
+        skillWeights: { sk-gojo-blue: 4, sk-gojo-red: 3, sk-domain-empty: 1 }
+    relationship: 10
+    relations:
+      - { to: npc-geto, kind: friend, scope: public, value: 70 }
+      - { to: npc-shoko, kind: colleague, scope: public, value: 60 }
+      - { to: npc-yaga, kind: mentor, scope: public, value: 80 }
+      - { to: npc-yuta, kind: relative, scope: public, value: 20, gap: true }
+      # 「五条视惠为弟子」是 2018 年一年级编成时才有的事，写在这里会让 2006 年的
+      # 五条卡上凭空出现一个 15 岁的徒弟（ADR-007 D1：改由 scheduledFacts 定时建立）。
+      # 五条视你为弟子（学弟/学妹，名义上的带教关系）
+      - { to: player, kind: disciple, scope: public }
+
+  - id: npc-geto
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 夏油杰
+      age: 17
+      gender: male
+      description: 二年生，咒灵操术。总是笑着讲道理，讲的道理越来越重。
+    mood: { value: 62 }
+    attributes: { cursedEnergy: 48, intellect: 10, physique: 8, agility: 7, reputation: 40, grade: special, innateTechnique: cursed-spirits }
+    # ADR-012 D9：咒灵数量是**他的**条，不是全局资源 —— 别人没有这条槽。
+    skills: [sk-summon-curse, sk-summon-dragon, sk-recall, sk-uzumaki, sk-basic-strike]
+    public:
+      personality: 温和、讲道理，把「咒术师是为了保护非术师而存在」当成信条。
+      knownGoals: [守护弱者]
+    private:
+      secrets: [他最近开始觉得，自己吞下的每一只咒灵都是人的怨念]
+      goals: [protect-weak]
+      traits: [caring, thoughtful]
+      combatHints:
+        skillWeights: { sk-summon-curse: 2, sk-uzumaki: 2, sk-summon-dragon: 1, sk-recall: 1, sk-basic-strike: 1 }
+    relationship: 10
+    relations:
+      - { to: npc-gojo, kind: friend, scope: public, value: 70 }
+      - { to: npc-shoko, kind: colleague, scope: public, value: 60 }
+      # 夏油视你为朋友
+      - { to: player, kind: friend, scope: public }
+
+  - id: npc-shoko
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 家入硝子
+      age: 17
+      gender: female
+      description: 二年生，反转术式。高专唯一的医生，也是唯一能在五条和夏油之间插话的人。
+    mood: { value: 60 }
+    attributes: { cursedEnergy: 26, intellect: 9, physique: 5, agility: 6, reputation: 30 }
+    skills: [sk-reverse-heal, sk-reverse-heal-ally, sk-basic-strike]
+    public:
+      personality: 冷淡、嘴毒，医务室的灯永远为你留着。
+      knownGoals: [少死几个人]
+    private:
+      secrets: [她一直在偷偷记录每个同学的咒力回路]
+      traits: [blunt, caring]
+      combatHints:
+        skillWeights: { sk-reverse-heal: 2, sk-reverse-heal-ally: 3, sk-basic-strike: 1 }
+    relationship: 8
+    relations:
+      - { to: npc-gojo, kind: colleague, scope: public, value: 60 }
+      - { to: npc-geto, kind: colleague, scope: public, value: 60 }
+      # 硝子视你为同僚（同为高专的人，医务室的常客）
+      - { to: player, kind: colleague, scope: public }
+
+  - id: npc-nanami
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 七海建人
+      age: 15
+      gender: male
+      description: 你的一年生同班同学。十划咒法，永远在算「这件事值不值得做」。
+    mood: { value: 58 }
+    attributes: { cursedEnergy: 26, intellect: 9, physique: 7, agility: 7, reputation: 15 }
+    skills: [sk-7-3, sk-basic-strike]
+    public:
+      personality: 克制、讲规则，会在你乱来之后冷静地把你骂一顿。
+      knownGoals: [毕业，然后想清楚要不要继续当术师]
+    private:
+      traits: [diligent, reserved]
+      combatHints:
+        skillWeights: { sk-7-3: 3, sk-basic-strike: 2 }
+    relationship: 12
+    relations:
+      - { to: npc-haibara, kind: friend, scope: public, value: 75 }
+      - { to: npc-yaga, kind: mentor, scope: public, value: 70 }
+      # 七海视你为同僚（同年入学的同班同学）
+      - { to: player, kind: colleague, scope: public }
+
+  - id: npc-haibara
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 灰原雄
+      age: 15
+      gender: male
+      description: 你的一年生同班同学。嗓门大、饭量大、笑起来像夏天。
+    mood: { value: 78 }
+    attributes: { cursedEnergy: 20, intellect: 6, physique: 8, agility: 6, reputation: 10 }
+    skills: [sk-basic-strike, sk-cursed-strike]
+    public:
+      personality: 直率、热血，把「术师要保护人」当成理所当然的事。
+      knownGoals: [成为能独当一面的术师]
+    private:
+      traits: [cheerful, brave]
+      combatHints:
+        skillWeights: { sk-basic-strike: 3, sk-cursed-strike: 2 }
+    relationship: 15
+    relations:
+      - { to: npc-nanami, kind: friend, scope: public, value: 75 }
+      # 灰原视你为朋友（同班同学；此前他是唯一没有 `to: player` 边的同班角色）
+      - { to: player, kind: friend, scope: public }
+
+  - id: npc-riko
+    isEnemy: false
+    visibility: hidden
+    identity:
+      name: 天内理子
+      age: 14
+      gender: female
+      description: 星浆体。命中注定要与天元同化，本人却只想再去一次海边。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 0, intellect: 7, physique: 3, agility: 4, reputation: 0 }
+    skills: []
+    public:
+      personality: 嘴硬、倔，会在最害怕的时候故作镇定。
+    private:
+      secrets: [她知道同化意味着「天内理子」这个人从此消失]
+    relationship: 0
+
+  - id: npc-toji
+    isEnemy: false
+    visibility: hidden
+    identity:
+      name: 伏黑甚尔
+      age: 31
+      gender: male
+      description: 天与咒缚的完成形。零咒力，靠一具肉身杀穿术师界，人称「术师杀手」。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 0, intellect: 7, physique: 16, agility: 15, reputation: 20 }
+    # ADR-012 D7：天逆鉾是**行为**（必中），靠装备授予技能，而不是靠词条堆属性。
+    # 没有它，甚尔对五条是 30 局 0 伤害 —— 无下限 100% 闪避，谁都碰不到。
+    equipment: [eq-ten-spear]
+    skills: [sk-heavenly-body, sk-weapon-cleave, sk-basic-strike]
+    public:
+      personality: 懒散、赌钱、只认报酬。动手时没有任何多余动作。
+    private:
+      combatHints:
+        skillWeights: { sk-heavenly-body: 3, sk-weapon-cleave: 2, sk-ten-spear: 3 }
+    relationship: -60
+    relations:
+      # 反向补齐（2026-11-19）：`npc-megumi → npc-toji [father]` 是「惠知道父亲是谁」，
+      # 这条是「甚尔知道那是他儿子」。两端都写才是同一件事实的两种视角。
+      # `unknown`：玩家不主动打听就不知道这层（R-OP-05 默认不认识）。
+      - { to: npc-megumi, kind: son, scope: private, value: 5 }
+
+  # ══════════════ 2017 · 咒术回战 0 ══════════════
+
+  - id: npc-yuta
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 乙骨忧太
+      age: 16
+      gender: male
+      description: 2017 年入学的一年生。身后跟着特级过咒怨灵「里香」，本人却温吞得像张纸。
+    mood: { value: 45 }
+    attributes: { cursedEnergy: 55, intellect: 8, physique: 7, agility: 7, reputation: 25 }
+    skills: [sk-rika, sk-cursed-strike, sk-basic-strike]
+    public:
+      personality: 自卑、温柔，为了别人可以把自己折断。
+    private:
+      secrets: [他相信里香是被自己诅咒的，不是反过来]
+      traits: [gentle, selfless]
+      combatHints:
+        skillWeights: { sk-rika: 3, sk-cursed-strike: 2 }
+    relationship: 5
+    relations:
+      - { to: npc-gojo, kind: mentor, scope: public, value: 80 }
+
+  # 2017 百鬼夜行的「夏油」不再另立 enemy 卡：
+  # 直接复用 npc-geto 实例（同一人、同一条关系、同一份咒灵操术），
+  # 战斗里的强度差用 levelScale 表达，避免两个夏油各自漂移。
+
+  # ══════════════ 2018 · 本篇 ══════════════
+
+  - id: npc-yuji
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 虎杖悠仁
+      age: 15
+      gender: male
+      description: 2018 年入学的一年生。吞下宿傩的手指还活着，全日本只有这一个。
+    mood: { value: 70 }
+    attributes: { cursedEnergy: 32, intellect: 6, physique: 12, agility: 9, reputation: 10 }
+    skills: [sk-divergent-fist, sk-basic-strike]
+    public:
+      personality: 直、快、善良得有点笨。跑得比谁都快，因为他要去救人。
+      knownGoals: [救下眼前的人]
+    private:
+      secrets: [他体内住着诅咒之王]
+      traits: [brave, kind]
+      combatHints:
+        skillWeights: { sk-divergent-fist: 3, sk-basic-strike: 2 }
+    relationship: 10
+    relations:
+      - { to: npc-gojo, kind: mentor, scope: public, value: 70 }
+
+  - id: npc-megumi
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 伏黑惠
+      age: 15
+      gender: male
+      description: 2018 年入学的一年生。十种影法术的继承者，甚尔的儿子，也是你学长敌人的儿子。
+    mood: { value: 52 }
+    attributes: { cursedEnergy: 30, intellect: 8, physique: 7, agility: 8, reputation: 12, grade: grade-2, innateTechnique: ten-shadows }
+    # ADR-013 D7：十影整套招式都是**点名式神**（`summon.ref`），只有体术是自己打的。
+    # 英雄档一次只站一只 ⇒ 换手要先用 `sk-ten-recall` 收回前一只（状态跟着进回收架）。
+    skills:
+      [sk-ten-rabbits, sk-ten-shadow, sk-ten-nue, sk-ten-gama, sk-ten-orochi,
+       sk-ten-enzuru, sk-ten-kangyu, sk-ten-mahoraga, sk-ten-recall, sk-basic-strike]
+    public:
+      personality: 冷静、别扭，把「我不想救所有人」挂在嘴边，做的却全是救人的事。
+    private:
+      secrets: [他不知道父亲是谁]
+      traits: [calm, stubborn]
+      combatHints:
+        # 收回是**手操**按钮，不是出招：给它 0 权重，AI 不会把回合花在「召了又收」上。
+        skillWeights: { sk-ten-rabbits: 2, sk-ten-shadow: 3, sk-ten-nue: 2, sk-ten-gama: 1, sk-ten-orochi: 1, sk-ten-enzuru: 1, sk-ten-kangyu: 1, sk-ten-mahoraga: 1, sk-ten-recall: 0, sk-basic-strike: 1 }
+    relationship: 5
+    relations:
+      - { to: npc-toji, kind: father, scope: public, value: 5 }
+      # 同上：「五条是惠的老师」由 scheduledFacts 在 2018 年建立，不在初始表里。
+
+  - id: npc-nobara
+    isEnemy: false
+    visibility: public
+    identity:
+      name: 钉崎野蔷薇
+      age: 15
+      gender: female
+      description: 2018 年入学的一年生。刍灵咒法，从乡下来，带着一根钉子和一肚子火。
+    mood: { value: 68 }
+    attributes: { cursedEnergy: 24, intellect: 7, physique: 6, agility: 8, reputation: 8 }
+    skills: [sk-doll-curse, sk-doll-nail, sk-basic-strike]
+    public:
+      personality: 直率、好胜，绝不承认自己害怕。
+    private:
+      traits: [bold, proud]
+      combatHints:
+        skillWeights: { sk-doll-curse: 3, sk-doll-nail: 2 }
+    relationship: 5
+
+  - id: npc-jogo
+    isEnemy: false
+    visibility: hidden
+    identity:
+      name: 漏瑚
+      age: 300
+      gender: male
+      description: 特级咒灵，火山之形。他坚信咒灵才是真正的人类，而人类该被烧干净。
+    mood: { value: 60 }
+    attributes: { cursedEnergy: 46, intellect: 8, physique: 9, agility: 8, reputation: 45 }
+    skills: [sk-flame, sk-curse-crush, sk-basic-strike]
+    statuses: [enrage]
+    public:
+      personality: 傲慢、急躁，被叫「小不点」会当场炸掉半条街。
+    private:
+      combatHints:
+        skillWeights: { sk-flame: 2, sk-curse-crush: 3 }
+    relationship: -70
+
+  - id: enemy-mahito
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 真人
+      age: 1
+      gender: male
+      description: 特级咒灵，人类对人类的憎恶所生。他的术式能改写灵魂的形状。
+    mood: { value: 65 }
+    attributes: { cursedEnergy: 40, intellect: 8, physique: 7, agility: 9, reputation: 35 }
+    skills: [sk-impurity, sk-curse-bite, sk-basic-strike]
+    public:
+      personality: 好奇、孩子气，把人类当作可以随便捏的黏土。
+    private:
+      secrets: [他在找「灵魂」到底在哪里]
+      combatHints:
+        skillWeights: { sk-impurity: 3, sk-curse-bite: 2 }
+    relationship: -70
+
+  - id: npc-kenjaku
+    isEnemy: false
+    visibility: hidden
+    identity:
+      name: 羂索
+      age: 1000
+      gender: male
+      description: 千年前的诅咒师，靠换脑活着。他布了一个横跨千年的局，你们全在局里。
+    mood: { value: 55 }
+    attributes: { cursedEnergy: 58, intellect: 12, physique: 7, agility: 8, reputation: 30 }
+    # 羂索操的是夏油杰的身体 —— 同一套咒灵操术，所以他也有这条槽。
+    skills: [sk-summon-curse, sk-summon-dragon, sk-recall, sk-uzumaki, sk-impurity, sk-curse-user-blade, sk-basic-strike]
+    statuses: [kenjaku]
+    public:
+      personality: 礼貌、好奇，说话像在写论文。
+    private:
+      secrets: [他真正的目的是让全人类的咒力「进化」]
+      combatHints:
+        skillWeights: { sk-summon-curse: 2, sk-summon-dragon: 2, sk-recall: 1, sk-uzumaki: 2, sk-impurity: 3, sk-curse-user-blade: 2 }
+    relationship: -80
+
+  - id: npc-sukuna
+    isEnemy: false
+    visibility: hidden
+    identity:
+      name: 两面宿傩
+      age: 1000
+      gender: male
+      description: 诅咒之王。四手四眼，把「解」与「捌」当作呼吸一样使用。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 72, intellect: 11, physique: 12, agility: 11, reputation: 100, grade: special, innateTechnique: shrine }
+    skills: [sk-dismantle, sk-cleaves, sk-fuga, sk-domain-malevolent, sk-basic-strike]
+    statuses: [cursed-king]
+    public:
+      personality: 纯粹的恶，且乐在其中。他看你，就像看一只会走路的蚂蚁。
+    private:
+      combatHints:
+        skillWeights: { sk-dismantle: 4, sk-cleaves: 3, sk-fuga: 1, sk-domain-malevolent: 1 }
+    relationship: -100
+
+  # ══════════════ 决战宿傩 · 两阶段 ══════════════
+  #
+  # 同一存在、两种形态，**分开建两张卡**（用户要求：是两个 NPC）；三个形态都是 NPC
+  # （2026-11-19：有戏的人不做 `isEnemy`），只是 `visibility: hidden`、登场时点不同：
+  #   一阶段 = 借伏黑惠之身（死灭回游末被夺舍，ev-cg-04 把 npc-megumi 置 inactive）
+  #   二阶段 = 完全受肉真身（四臂两面），显著强于一阶段
+  # 涩谷那个「借虎杖之身」的形态**复用 npc-sukuna**，不为同一形态造两套数值。
+
+  - id: npc-sukuna-megumi
+    isEnemy: false
+    visibility: hidden
+    identity:
+      name: 两面宿傩（伏黑惠之身）
+      age: 1000
+      gender: male
+      description: 借来的身体。脸上多了四道纹路，手腕的骨节在错位地生长。他一边笑一边活动手指，像在试一件新衣服合不合身。
+    mood: { value: 60 }
+    # 略强于涩谷那夜（npc-sukuna）：他先适应了这具身体，才开始认真。
+    attributes: { cursedEnergy: 78, intellect: 11, physique: 13, agility: 12, reputation: 100 }
+    skills: [sk-dismantle, sk-cleaves, sk-fuga, sk-domain-malevolent, sk-ten-shadow, sk-basic-strike]
+    statuses: [cursed-king]
+    public:
+      personality: 比涩谷那夜更有耐心——他在算这具身体能承受多少。
+    private:
+      combatHints:
+        skillWeights: { sk-dismantle: 4, sk-cleaves: 3, sk-fuga: 1, sk-domain-malevolent: 1, sk-ten-shadow: 1 }
+    relationship: -100
+
+  - id: npc-sukuna-incarnate
+    isEnemy: false
+    visibility: hidden
+    identity:
+      name: 两面宿傩（受肉）
+      age: 1000
+      gender: male
+      description: 真身。四臂两面，不再借任何人的身体——他把自己塞回了原本的形状，头上的骨冠在路灯下泛着旧血的颜色。
+    mood: { value: 65 }
+    # 显著强于一阶段：真身不受宿主的肉体限制。
+    attributes: { cursedEnergy: 105, intellect: 12, physique: 15, agility: 12, reputation: 100 }
+    # 世界斩只给真身：借伏黑之身那两阶段还没把「斩空间」练成招式（原作时序）。
+    skills: [sk-dismantle, sk-cleaves, sk-fuga, sk-domain-malevolent, sk-sukuna-world-cut, sk-basic-strike]
+    statuses: [cursed-king]
+    public:
+      personality: 终于不必再迁就一具少年的身体。他现在只想把眼前的一切切一遍。
+    private:
+      combatHints:
+        skillWeights: { sk-dismantle: 5, sk-cleaves: 4, sk-fuga: 2, sk-domain-malevolent: 2, sk-sukuna-world-cut: 3 }
+    relationship: -100
+
+  # ══════════════ 杂兵（`isEnemy: true`：没有任何剧情，只有一个数值形状）══════════════
+  #
+  # 这些**永不实例化**：不进 `state.npcs`、不上卡、不跑自主行动、不能当关系端点。
+  # 战斗只按 combat settle 的 `enemies[].ref` 直接引用（ADR-0022 的代价，已被接受）。
+
+  - id: enemy-grade2-curse
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 二级咒灵
+      age: 3
+      gender: agender
+      description: 从某栋公寓的怨念里长出来的东西。形状不稳定，但牙很硬。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 12, intellect: 2, physique: 6, agility: 5, reputation: 0 }
+    skills: [sk-curse-bite, sk-basic-strike]
+    public:
+      personality: 只有食欲。
+    private:
+      combatHints:
+        skillWeights: { sk-curse-bite: 1 }
+    relationship: -50
+
+  - id: enemy-grade1-curse
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 一级咒灵
+      age: 12
+      gender: agender
+      description: 一级。它已经学会了等，学会了在你转身的时候动手。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 30, intellect: 5, physique: 8, agility: 6, reputation: 0 }
+    skills: [sk-curse-crush, sk-curse-wail, sk-basic-strike]
+    public:
+      personality: 沉默，耐心。
+    private:
+      combatHints:
+        skillWeights: { sk-curse-crush: 3, sk-curse-wail: 2 }
+    relationship: -60
+
+  - id: enemy-curse-user
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 诅咒师
+      age: 30
+      gender: male
+      description: 用术式杀人换钱的家伙。他不恨你，只是你值几个钱。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 20, intellect: 6, physique: 6, agility: 7, reputation: 0 }
+    skills: [sk-curse-user-blade, sk-basic-strike]
+    public:
+      personality: 干脆，务实。
+    private:
+      combatHints:
+        skillWeights: { sk-curse-user-blade: 3, sk-basic-strike: 1 }
+    relationship: -40
+
+  - id: enemy-curse-womb
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 特级咒胎
+      age: 1
+      gender: agender
+      description: 少年院地下那间屋子里孵化了不知多久的东西。它还没长完，但已经不需要长完了。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 38, intellect: 3, physique: 11, agility: 7, reputation: 0 }
+    skills: [sk-curse-crush, sk-curse-bite, sk-curse-wail, sk-basic-strike]
+    public:
+      personality: 没有。
+    private:
+      combatHints:
+        skillWeights: { sk-curse-crush: 3, sk-curse-bite: 2, sk-curse-wail: 1 }
+    relationship: -80
+
+# ══════════════ 召唤物卡（`summon.ref` 点名用的角色卡）══════════════
+#
+# 它们与上面的杂兵同形（`isEnemy: true` = 没有剧情、只有数值形状），差别只在**谁把它们叫出来**：
+# 杂兵是 combat settle 的 `enemies[].ref`，这些是技能里 `summon.ref` 点名的单位。
+# 从卡里实例化 ⇒ 装备、补正、技能集与开场单位同源，不是另一套迷你数值（ADR-012 D1）。
+#
+# 「英雄档」不是属性更高的杂兵，而是**个体**：阵亡 / 被献祭 ⇒ `state.lostSummons` 记下这张卡，
+# 本局再也召不出来（ADR-013 D3）。所以这些卡的数值按「一个能打的角色」写，不按「一次性的弹幕」写。
+
+  # ── 咒灵操术：虹龙（ADR-013 D7 补）──
+  # 以前 `sk-summon-dragon.ref` 指着 `enemy-grade1-curse`，夏油放出来的「虹龙」其实是张一级咒灵的皮。
+  # 现在它有自己的一张卡：更硬、更快，招式也换成盘绕与虹光。
+
+  - id: curse-rainbow-dragon
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 虹龙
+      age: 40
+      gender: agender
+      description: 一条会飞的咒灵。鳞片把光折成七种颜色，远远看着像一道彩虹压得很低。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 34, intellect: 4, physique: 12, agility: 13, reputation: 0 }
+    skills: [sk-wyrm-coil, sk-wyrm-breath, sk-basic-strike]
+    public:
+      personality: 温顺——对召唤它的人。对别人只是慢。
+    private:
+      combatHints:
+        skillWeights: { sk-wyrm-coil: 3, sk-wyrm-breath: 2 }
+    relationship: -60
+
+  # ── 十种影法术（ADR-013 D7）──
+  # 一张卡 = 一种式神。玉犬在原作里是黑、白两只，这里合成一张（一对犬一起打）：
+  # 拆成两张会让「英雄档一次只站一只」变得滑稽，合并反而更像「十种」。
+
+  - id: shiki-gyokuken
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 玉犬
+      age: 3
+      gender: agender
+      description: 一黑一白，两条犬。它们从影子里出来时不叫，跑起来也没有声音。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 14, intellect: 6, physique: 9, agility: 10, reputation: 0 }
+    skills: [sk-shiki-bite, sk-basic-strike]
+    public:
+      personality: 只认影子的主人。
+    private:
+      combatHints:
+        skillWeights: { sk-shiki-bite: 1 }
+    relationship: 20
+
+  - id: shiki-nue
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 鵺
+      age: 3
+      gender: agender
+      description: 一团长着翅膀的影子。它飞得很高，然后抓着人一起落下来。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 18, intellect: 5, physique: 7, agility: 12, reputation: 0 }
+    skills: [sk-shiki-plunge, sk-basic-strike]
+    public:
+      personality: 安静，只在扑下去的那一下出声。
+    private:
+      combatHints:
+        skillWeights: { sk-shiki-plunge: 1 }
+    relationship: 20
+
+  - id: shiki-gama
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 蝦蟇
+      age: 6
+      gender: agender
+      description: 一只不肯挪窝的大蛙。舌头从嘴里甩出去，比它的身子长十倍。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 12, intellect: 4, physique: 11, agility: 4, reputation: 0 }
+    skills: [sk-shiki-tongue, sk-basic-strike]
+    public:
+      personality: 懒得动。
+    private:
+      combatHints:
+        skillWeights: { sk-shiki-tongue: 1 }
+    relationship: 20
+
+  - id: shiki-orochi
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 大蛇
+      age: 8
+      gender: agender
+      description: 从影子里游出来的一截巨蛇。你只能看见它的这一段，另几段还在下面。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 22, intellect: 4, physique: 13, agility: 6, reputation: 0 }
+    skills: [sk-shiki-constrict, sk-basic-strike]
+    public:
+      personality: 耐心得不像野兽。
+    private:
+      combatHints:
+        skillWeights: { sk-shiki-constrict: 1 }
+    relationship: 20
+
+  - id: shiki-enzuru
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 円鹿
+      age: 5
+      gender: agender
+      description: 一头有一对弯角的鹿。它不咬人——它把角抵在伤口上，血就倒着流回去。
+    mood: { value: 60 }
+    attributes: { cursedEnergy: 20, intellect: 7, physique: 8, agility: 8, reputation: 0 }
+    skills: [sk-reverse-heal-ally, sk-basic-strike]
+    public:
+      personality: 温和，守着人。
+    private:
+      combatHints:
+        skillWeights: { sk-reverse-heal-ally: 3, sk-basic-strike: 1 }
+    relationship: 25
+
+  - id: shiki-kangyu
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 貫牛
+      age: 7
+      gender: agender
+      description: 一头只认直线的牛。撞上之前不会拐弯，撞上之后也不需要。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 18, intellect: 3, physique: 12, agility: 11, reputation: 0 }
+    skills: [sk-shiki-charge, sk-basic-strike]
+    public:
+      personality: 犟。
+    private:
+      combatHints:
+        skillWeights: { sk-shiki-charge: 1 }
+    relationship: 20
+
+  - id: shiki-mahoraga
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 八握剑异戒神将魔虚罗
+      age: 400
+      gender: agender
+      description: 背着一只法轮的神将。它不躲、不挡，只是挨过一击之后，就不再怕那一击。
+    mood: { value: 50 }
+    attributes: { cursedEnergy: 54, intellect: 8, physique: 15, agility: 12, reputation: 0 }
+    skills: [sk-shiki-wheel, sk-basic-strike]
+    # ADR-014：法轮常驻 —— 每回合末回一点血、给自己叠一层「适应」。
+    statuses: [mahoraga-wheel]
+    public:
+      personality: 没有。
+    private:
+      combatHints:
+        skillWeights: { sk-shiki-wheel: 1 }
+    relationship: 0
+
+  # 脱兔是十影里唯一的**杂兵档**：数量就是它的强度，所以数值压到最低、只留三个位置。
+  - id: shiki-rabbits
+    isEnemy: true
+    visibility: public
+    identity:
+      name: 脱兔
+      age: 1
+      gender: agender
+      description: 影子里涌出来的兔子。一只是可爱，三十只是另一回事。
+    mood: { value: 55 }
+    attributes: { cursedEnergy: 4, intellect: 2, physique: 3, agility: 11, reputation: 0 }
+    skills: [sk-shiki-nibble, sk-basic-strike]
+    public:
+      personality: 慌。
+    private:
+      combatHints:
+        skillWeights: { sk-shiki-nibble: 1 }
+    relationship: 15
+
+# ══════════════ 玩家初始模板 ══════════════
+# 只给「一个新生应有的东西」：一具身体、一门基础体术、一个急救包。
+# 术式 / 咒具 / 战斗风格 / 补正全部由开局的命数转盘决定（旧 demo 的遗留技能与护符已清空）。
+playerTemplate:
+  identity:
+    age: 15
+    gender: female
+  mood: 60
+  attributes: { cursedEnergy: 5, intellect: 6, physique: 5, agility: 5, luck: 5, reputation: 0 }
+  skills: [sk-basic-strike]
+  items:
+    - { itemId: item-first-aid, count: 1 }
+  # 玩家这一侧的关系（2026-11-20）：以前只有 NPC 声明「他视你为 X」，玩家自己一侧一条都没有 ——
+  # 关系图只画出边之后，个人页的图会**整张空掉**。这里把六个入边逐条写出镜像
+  # （夜蛾/五条是老师、夏油/灰原是朋友、硝子/七海是同僚），与 characters.yaml 里那六条一一对应。
+  # 边语义照旧：`to` 是 `from` 的 kind —— 所以是 mentor / friend / colleague，不是 disciple。
+  # 不写 `value`：**你自己的观感由行为养成**（ADR-017 D1，加载期直接拒载）。
+  relations:
+    - { to: npc-yaga, kind: mentor, scope: public }
+    - { to: npc-gojo, kind: mentor, scope: public }
+    - { to: npc-geto, kind: friend, scope: public }
+    - { to: npc-shoko, kind: colleague, scope: public }
+    - { to: npc-nanami, kind: colleague, scope: public }
+    - { to: npc-haibara, kind: friend, scope: public }

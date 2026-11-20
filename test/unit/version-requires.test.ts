@@ -88,12 +88,39 @@ describe("版本声明：加载期核对", () => {
     }
   });
 
+  it("扩展版本进语义指纹：升版本会让同一模板换指纹", () => {
+    const { root, versionDir } = cloneFixture();
+    try {
+      const file = path.join(versionDir, "world.yaml");
+      writeFileSync(file, `extensions:\n  fake: true\n${readFileSync(file, "utf8")}`);
+      registerExtensionRuntime({ id: "fake", version: "1.0.0" });
+      const first = withDir(root, () => loadTemplates(silentLogger)).resolve({ id: "p0", version: "2.0.0" });
+      resetExtensionRuntimes();
+      registerExtensionRuntime({ id: "fake", version: "1.0.1" });
+      const second = withDir(root, () => loadTemplates(silentLogger)).resolve({ id: "p0", version: "2.0.0" });
+
+      expect(first?.status).toBe("ready");
+      expect(second?.status).toBe("ready");
+      expect(first?.status === "ready" && first.semanticFingerprint).toBeTruthy();
+      expect(
+        first?.status === "ready" && second?.status === "ready" && first.semanticFingerprint !== second.semanticFingerprint,
+      ).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("三个真实模板的 requires 都能加载（family 版本对得上）", () => {
     registerExtensionRuntime(familyExtension);
     withDir(path.resolve("specs/data/templates"), () => {
       const registry = loadTemplates(silentLogger);
-      for (const id of ["jjk-2006", "jjk-shinjuku", "valmont"]) {
-        expect(registry.resolve({ id, version: "1.0.0" })?.status, id).toBe("ready");
+      // jjk-2006 的现行版本是 3.0.0（1.0.0 / 2.0.0 已随 ADR-009 归档）
+      for (const [id, version] of [
+        ["jjk-2006", "3.0.0"],
+        ["jjk-shinjuku", "1.0.0"],
+        ["valmont", "1.0.0"],
+      ] as const) {
+        expect(registry.resolve({ id, version })?.status, id).toBe("ready");
       }
     });
   });

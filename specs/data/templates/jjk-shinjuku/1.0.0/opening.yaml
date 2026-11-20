@@ -48,8 +48,6 @@
       - { npcId: npc-yuta, value: 20, source: 学生 }
       - { npcId: npc-maki, value: 15, source: 学生 }
       - { npcId: npc-megumi, value: 30, source: 学生 }
-    visibility:
-      enemy-sukuna: known
   eventPools: []
   objectives:
     flags:
@@ -104,9 +102,6 @@
       - { npcId: npc-choso, value: 10, source: 兄弟 }
       - { npcId: npc-megumi, value: 30, source: 同伴 }
       - { npcId: npc-kugisaki, value: 30, source: 同伴 }
-    visibility:
-      enemy-sukuna: known
-      enemy-kenjaku: known
   eventPools: []
   objectives:
     flags:

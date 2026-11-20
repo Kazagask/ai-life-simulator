@@ -1,5 +1,6 @@
+import { AllocationTargetSchema } from "./allocation.js";
 import { z } from "zod";
-import { RelationKindSchema, RelationVisibilitySchema } from "./relation.js";
+import { RelationKindSchema, RelationScopeSchema, RelationVisibilitySchema } from "./relation.js";
 
 /**
  * 协议 V2 公共 Schema：时间量、数值公式 preset、条件与效果 DSL。
@@ -55,7 +56,7 @@ export const ScaledFormulaSchema = z
   })
   .strict();
 
-/** 按施放者指定补正的层数缩放：base + stacks(status) * perStack（如漩涡按献祭咒灵数） */
+/** 按施放者指定状态的层数缩放：base + stacks(status) * perStack（如按消耗掉的层数） */
 export const StackScaledFormulaSchema = z
   .object({
     preset: z.literal("stack-scaled"),
@@ -65,22 +66,30 @@ export const StackScaledFormulaSchema = z
   })
   .strict();
 
+/**
+ * 按施放者**资源池当前值**缩放（ADR-012 D10）：`base + value(resource) × perPoint`。
+ *
+ * 存在的理由：咒灵操术的旋涡「献祭多少储备就有多响」，而那个储备是资源而不是状态层数
+ * （ADR-012 D9 把「咒灵数量」从状态挪成了专属资源条）。副作用是式子必须读**消耗前**的值 ——
+ * 结算顺序因此固定：先算伤害，再扣资源。
+ */
+export const ResourceScaledFormulaSchema = z
+  .object({
+    preset: z.literal("resource-scaled"),
+    base: z.number(),
+    perPoint: z.number(),
+    resource: z.string().min(1),
+  })
+  .strict();
+
 export const FormulaSchema = z.discriminatedUnion("preset", [
   FixedFormulaSchema,
   ScaledFormulaSchema,
   StackScaledFormulaSchema,
+  ResourceScaledFormulaSchema,
 ]);
 
 // ---------- 对比操作（条件用） ----------
-
-const numOps = {
-  eq: z.number().optional(),
-  ne: z.number().optional(),
-  gte: z.number().optional(),
-  lte: z.number().optional(),
-  gt: z.number().optional(),
-  lt: z.number().optional(),
-};
 
 const hasNumOp = (data: Record<string, unknown>): boolean =>
   ["eq", "ne", "gte", "lte", "gt", "lt"].some((k) => data[k] !== undefined);
@@ -100,10 +109,39 @@ export const FlagConditionSchema = z
   .strict()
   .refine(hasNumOp, { message: "flag 条件需要至少一个比较操作" });
 
+/**
+ * 属性条件（ADR-003）。
+ *
+ * - 数值属性：`eq/ne/gte/lte/gt/lt` 全部可用；
+ * - 文本属性（enum）：只有 `eq/ne`，值是选项 id；
+ * - 阶梯属性：额外支持 `tier`（当前档位 id）；数值比较同样可用（按累计/本档数值）。
+ *
+ * 组合是 AND；至少一个操作。
+ */
 export const AttributeConditionSchema = z
-  .object({ attribute: z.string().min(1), ...numOps })
+  .object({
+    attribute: z.string().min(1),
+    eq: z.union([z.number(), z.string().min(1)]).optional(),
+    ne: z.union([z.number(), z.string().min(1)]).optional(),
+    gte: z.number().optional(),
+    lte: z.number().optional(),
+    gt: z.number().optional(),
+    lt: z.number().optional(),
+    /** 阶梯属性的当前档位 id（只在 kind=ladder 上合法，加载期校验）。 */
+    tier: z.string().min(1).optional(),
+  })
   .strict()
-  .refine(hasNumOp, { message: "attribute 条件需要至少一个比较操作" });
+  .refine(
+    (c) =>
+      c.eq !== undefined ||
+      c.ne !== undefined ||
+      c.gte !== undefined ||
+      c.lte !== undefined ||
+      c.gt !== undefined ||
+      c.lt !== undefined ||
+      c.tier !== undefined,
+    { message: "attribute 条件需要至少一个比较操作" },
+  );
 
 export const StatusConditionSchema = z
   .object({
@@ -124,8 +162,9 @@ export const MoodConditionSchema = z
 /**
  * 关系条件（R2.6 / ADR-0014 扩展）。
  * ① 旧形态：`{ relation: npcId, gte, lte }` —— 读 NPC→玩家 标量 `npc.relationship`。
- * ② 关系边形态：声明 `kind` 时改读边 `(relation → to ?? "player", kind)` 的 `value`
- *    （缺省 0）；`to` 缺省为玩家，便于表达「某 NPC 对玩家的师徒/敌意强度」。
+ * ② 关系边形态：声明 `kind` 时改读边 `(relation → to ?? 当前 self, kind)` 的 `value`
+ *    （缺省 0）；`to` 缺省为**当前 self**（不是字面量玩家 id —— 扮演模板角色时
+ *    那个节点叫角色 id）。`to` 只用来指向别人，例如「A 对 B 的敌意」。
  *
  * ⚠ 只匹配**事实边**：判定读的是权威 `state.relations`（`RelationEdgeSchema`，strict）。
  * 派生行（投影里 `derived: true` 的多跳亲缘，如「爷爷」那条 `kind: "relative"`）只随
@@ -224,28 +263,67 @@ export type OpenCondition = z.infer<typeof OpenConditionSchema>;
  * （原先的 guards / completion 条件已随 DAG 子系统一起删除。）
  */
 /**
- * 补正持续时间。原先在 `status-effect.ts`，2026-11-18 下沉到这里：
- * 「施加点」（`StatusApplicationSchema`，在 skill.ts）也要能声明 duration，
- * 而 status-effect.ts 反过来要 import skill.ts ⇒ 两边互相引用会形成循环。
+ * **模拟域**状态时长（ADR-018 D5）：世界时间的跨度。
+ *
+ * 单位复用 `TimeAmount`（与 `advanceBy` 完全同一套词表），不新造。
+ * 为什么不是「回合数」：`turnIndex` 数的是**指针推进了几次**，与世界观时间流逝脱钩——
+ * 一次事件结算可以 `advanceTo 4752 day` 而不推进一格状态。时长必须挂在世界时间上，
+ * 到期判定才不需要任何地方补 tick（见 `StatusInstance.expiresAt`）。
+ *
+ * `{ untilCured: true }` 已退役：在「省略即语义」的口径下它是噪音——
+ * 不写时长就是「直到被移除」，不需要一个令牌把这件事说第二遍。
  */
-export const DurationSchema = z.union([
-  z.object({ turns: z.number().int().positive() }).strict(),
-  z.object({ untilCured: z.literal(true) }).strict(),
-]);
-export type Duration = z.infer<typeof DurationSchema>;
+export const SimulationDurationSchema = TimeAmountSchema;
+export type SimulationDuration = z.infer<typeof SimulationDurationSchema>;
+
+/**
+ * **战斗域**状态时长（ADR-018 D5）：只剩战斗回合一种，省略 = 整场。
+ *
+ * 不能复用模拟域那一支：战斗是槽内过程，`worldTime` 全程不动 ⇒ 按世界时间算永远不到期。
+ * `{ untilBattleEnd }` 与 `{ value, unit }` 已退役：前者等于省略，后者是「战后还持续」的
+ * 双时钟补丁 —— 那件事现在由状态定义上的 `toModifier` 单向折算承担。
+ */
+export const CombatDurationSchema = z
+  .object({ rounds: z.number().int().positive() })
+  .strict();
+export type CombatDuration = z.infer<typeof CombatDurationSchema>;
 
 export const TaskConditionSchema = z.union([ConditionSchema, OpenConditionSchema]);
 export type TaskCondition = z.infer<typeof TaskConditionSchema>;
 
 // ---------- 效果 DSL（声明式，引擎白名单实现） ----------
 
+/**
+ * 效果的作用对象（ADR-010 D2）。缺省 = 当前 self；给了 id 则作用于该演员。
+ *
+ * 这是「能力流转」的统一词：物品、状态、资源、技能、成长、属性调整全走它。
+ * 目标必须是 `state.npcs` 里**存活**的人（加载期校验 id 已声明，运行期校验存活）；
+ * 指向不存在或已离场的人时**静默无效** —— 不造人、不改别人、不抛错。
+ */
+const ActorTargetSchema = z.string().min(1).optional();
+
 export const EffectSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("setFlag"), id: z.string().min(1), value: z.union([z.string(), z.number(), z.boolean()]) }).strict(),
   z.object({ type: z.literal("adjustFlag"), id: z.string().min(1), value: z.number() }).strict(),
   z.object({ type: z.literal("clearFlag"), id: z.string().min(1) }).strict(),
-  z.object({ type: z.literal("adjustAttribute"), attribute: z.string().min(1), value: z.number() }).strict(),
-  z.object({ type: z.literal("adjustResource"), resource: z.enum(["hp", "mp"]), value: z.number() }).strict(),
-  z.object({ type: z.literal("adjustMood"), value: z.number() }).strict(),
+  z.object({ type: z.literal("adjustAttribute"), attribute: z.string().min(1), value: z.number(), who: ActorTargetSchema }).strict(),
+  /**
+   * 绝对赋值（ADR-003）：数值属性写 number，文本属性写选项 id（如 `"limitless"`）。
+   * 文本值是否在 `defs[id].values` 内由加载期交叉校验；运行期再兜一次（可诊断）。
+   */
+  z
+    .object({
+      type: z.literal("setAttribute"),
+      attribute: z.string().min(1),
+      value: z.union([z.number(), z.string().min(1)]),
+    })
+    .strict(),
+  /**
+   * 资源增减：`hp` / `mp` 走同名字段，其余已在 `resources` 声明的自定义资源
+   * 走 `state.player.resources`（ADR-003 D8）。
+   */
+  z.object({ type: z.literal("adjustResource"), resource: z.string().min(1), value: z.number(), who: ActorTargetSchema }).strict(),
+  z.object({ type: z.literal("adjustMood"), value: z.number(), who: ActorTargetSchema }).strict(),
   /**
    * 改写玩家身份（性别 / 起始年龄 / 父母指针）。供「开局角色创建」在事件里定下性别与年龄——
    * 二者原本只能由 world.yaml 的 playerTemplate 静态声明，无法由玩家选择。
@@ -270,10 +348,63 @@ export const EffectSchema = z.discriminatedUnion("type", [
     })
     .strict(),
   /**
+   * **世界内加点**（ADR-019，2026-11-20）：挂一条待完成的分配请求。
+   *
+   * 它**不改任何属性** —— 只是把「你有 3 点可以分」这件事写进世界，等玩家在
+   * 个人页面板里点确定（`POST /api/worlds/:id/allocation`，轮外，不推进回合）。
+   * 为什么不直接 `adjustAttribute`：加点要玩家自己选，选完还要过一遍
+   * 与开局同一套边界（预算 / 单项上下限 / 整数）。直接写属性等于替玩家做了选择。
+   *
+   * 同一时刻最多一条：再来一条会被拒（两笔一起挂，「点确定」只能靠猜）。
+   */
+  z
+    .object({
+      type: z.literal("grantAllocation"),
+      id: z.string().min(1),
+      budget: z.number().int().positive(),
+      targets: z.array(AllocationTargetSchema).min(1),
+      reason: z.string().min(1).optional(),
+    })
+    .strict(),
+  /**
+   * **观察者切换**（ADR-010 D4，2026-11-20 模板入口）。
+   *
+   * 只改「以谁的眼睛看」：关系可见性按它判、快照 `viewerId` 跟着变；
+   * **不换人**（self 段、能力、数值一概不动）。换人控制走 `inheritActor` + 改 selfId。
+   *
+   * `actorId: null` = 回到自己。写非在场演员由加载期拒（`checkEffectRefs`）。
+   */
+  z.object({ type: z.literal("observeActor"), actorId: z.string().min(1).nullable() }).strict(),
+  /**
+   * **继承 / 夺舍 / 换身**（ADR-010 D7 的模板入口，2026-11-20）。
+   *
+   * `transplantActor` 一直是「切换角色的唯一通道」，但只作为纯函数存在 —— 模板里
+   * 没有任何办法触发它。这条效果把它接上：`from` 的指定分组搬到 `to` 上，
+   * **覆盖不是合并**（源没有的字段会被删掉，不留残影），`age` 不在任何分组里。
+   *
+   * 分组语义见 `ACTOR_FIELD_GROUPS`：
+   * - `body`     体魄 / 属性 / 资源 / 状态 / 装备
+   * - `mind`     技能 / 成长 / 知识 / 秘密
+   * - `identity` 姓名 / 性别 / 出身
+   * - `standing` 关系 / 声望 / 敌友 / 可见性
+   *
+   * 典型用法：老爵爷身故后，把 `identity + standing` 交给私生子（身体与本事留在原主身上）；
+   * 夺舍则四组全搬。**不动 `selfId`** —— 换人控制仍要另改 `state.selfId`，
+   * 这条效果只负责搬字段。
+   */
+  z
+    .object({
+      type: z.literal("inheritActor"),
+      from: z.string().min(1),
+      to: z.string().min(1),
+      groups: z.array(z.enum(["body", "mind", "identity", "standing"])).min(1),
+    })
+    .strict(),
+  /**
    * 关系调整（R2.6 / ADR-0014）。两种形态互斥，引擎侧校验：
    * ① 旧形态（兼容）：`{ npcId, value }` —— 调整 NPC→玩家 标量 `npc.relationship`。
    * ② 关系边形态：`{ fromId, toId, kind, value }` —— 对边值做增量调整；
-   *    边不存在时按 `value` 建边（`visibility` 缺省 `unknown`，**不误建为 known**）。
+   *    边不存在时按 `value` 建边（`scope` 缺省 `private`：当事人知道，外人不知道）。
    * 冻结边（一端已死亡）忽略调整。
    */
   z
@@ -284,6 +415,11 @@ export const EffectSchema = z.discriminatedUnion("type", [
       fromId: z.string().min(1).optional(),
       toId: z.string().min(1).optional(),
       kind: RelationKindSchema.optional(),
+      /** 知情人范围（ADR-007 D3）；建新边时缺省 `private`。 */
+      scope: RelationScopeSchema.optional(),
+      /** `scope: limited` 的知情人名单。 */
+      knownBy: z.array(z.string().min(1)).optional(),
+      /** @deprecated 旧写法（R-OP-05）：`known`/`inferred` 视作 public，其余 private。 */
       visibility: RelationVisibilitySchema.optional(),
       value: z.number(),
     })
@@ -295,6 +431,10 @@ export const EffectSchema = z.discriminatedUnion("type", [
       fromId: z.string().min(1),
       toId: z.string().min(1),
       kind: RelationKindSchema,
+      /** 知情人范围（ADR-007 D3）；缺省 `private`。 */
+      scope: RelationScopeSchema.optional(),
+      knownBy: z.array(z.string().min(1)).optional(),
+      /** @deprecated 见 `adjustRelation`。 */
       visibility: RelationVisibilitySchema.optional(),
       value: z.number().min(-100).max(100).optional(),
       gap: z.boolean().optional(),
@@ -333,26 +473,44 @@ export const EffectSchema = z.discriminatedUnion("type", [
       reasonCode: z.string().min(1).optional(),
     })
     .strict(),
-  z.object({ type: z.literal("grantItem"), itemId: z.string().min(1), count: z.number().int().positive() }).strict(),
-  z.object({ type: z.literal("removeItem"), itemId: z.string().min(1), count: z.number().int().positive() }).strict(),
-  // `duration` 是**施加点**的持续时间（覆盖补正定义里的默认值）：同一次施加说了算。
+  /**
+   * 切换 NPC 在玩家人物列表里的可见性（2026-11-20）。
+   * 与生命周期正交：`hidden` 的人照样活着、照样参与关系与自主行动，只是不上列表。
+   * 用于叛逃线——此时夏油不再是「可拜访的 NPC」。
+   */
+  z
+    .object({
+      type: z.literal("setNpcVisibility"),
+      npcId: z.string().min(1),
+      visibility: z.enum(["public", "hidden"]),
+    })
+    .strict(),
+  z.object({ type: z.literal("grantItem"), itemId: z.string().min(1), count: z.number().int().positive(), who: ActorTargetSchema }).strict(),
+  z.object({ type: z.literal("removeItem"), itemId: z.string().min(1), count: z.number().int().positive(), who: ActorTargetSchema }).strict(),
+  /**
+   * 施加状态（模拟域）。**按 kind 必填时长**（ADR-018 D5）：
+   *
+   * - `modifier` ⇒ 必须写 `duration`（世界域没有「战斗结束」这个天然边界，
+   *   静默给个默认值我们已经付过学费——`veil` 的 2 vs 3）；
+   * - `talent` ⇒ **必须不写**（天赋没有时钟）；
+   * - `battle` ⇒ 拒载（战斗态只能在战斗里产生）。
+   *
+   * schema 层只能是 optional（解析期看不到被引用状态的 kind），硬约束由加载期
+   * 交叉校验承担，见 `world.ts` 的 `expectDurationFor`。
+   */
   z
     .object({
       type: z.literal("applyStatus"),
       status: z.string().min(1),
+      who: ActorTargetSchema,
       stacks: z.number().int().positive().optional(),
-      duration: z
-        .union([
-          z.object({ turns: z.number().int().positive() }).strict(),
-          z.object({ untilCured: z.literal(true) }).strict(),
-        ])
-        .optional(),
+      duration: SimulationDurationSchema.optional(),
     })
     .strict(),
-  z.object({ type: z.literal("cureStatus"), status: z.string().min(1) }).strict(),
-  z.object({ type: z.literal("unlockSkill"), skillId: z.string().min(1) }).strict(),
-  z.object({ type: z.literal("adjustProficiency"), skillId: z.string().min(1), value: z.number() }).strict(),
-  z.object({ type: z.literal("adjustGrowth"), value: z.number() }).strict(),
+  z.object({ type: z.literal("cureStatus"), status: z.string().min(1), who: ActorTargetSchema }).strict(),
+  z.object({ type: z.literal("unlockSkill"), skillId: z.string().min(1), who: ActorTargetSchema }).strict(),
+  z.object({ type: z.literal("adjustProficiency"), skillId: z.string().min(1), value: z.number(), who: ActorTargetSchema }).strict(),
+  z.object({ type: z.literal("adjustGrowth"), value: z.number(), who: ActorTargetSchema }).strict(),
   /** 绝对推进目标（剧情节点），相对世界起始的偏移量；不倒退 */
   z.object({ type: z.literal("advanceTo"), value: TimeAmountSchema }).strict(),
   /** 相对推进量 */
@@ -446,3 +604,40 @@ export type Formula = z.infer<typeof FormulaSchema>;
 export type TimeAmount = z.infer<typeof TimeAmountSchema>;
 /** R2.6 起 TimeSpec = TimeAmount 对象 | 字符串字面量（复合时长 / 历法日期，ADR-0013） */
 export type TimeSpec = z.infer<typeof TimeSpecSchema>;
+
+/**
+ * 战斗内每回合回复（ADR-003 D12）。
+ *
+ * 与 `regen.perTurn` 的区别：`perTurn` 是**自由行动轮**的结算，且在 schema 上强制
+ * hp/mp 两项（引擎对它们有硬语义）；战斗内回复不强制任何键 —— 缺键就是 0，
+ * 模板写 `{ beans: 1 }` 表示「每回合回 1 颗决意」，不写 hp 就是不回血。
+ *
+ * 值必须是非负数：战斗内没有「每回合掉血」的写法（持续伤害走状态的 `onRoundEnd`，
+ * 那里能吃到攻击方属性与公式，语义不同，不能混）。
+ */
+/**
+ * 单个资源的回复量（ADR-003 D12 追加）：`1` 或 `{ base: 1, perAttribute: { physique: 0.2 } }`。
+ *
+ * 加权用**基础属性**（与资源上限 `perAttribute` 同一口径）：回复量若随状态波动，
+ * 「这回合回多少」会变成不可预期的数，玩家也无从校验。
+ * 结果四舍五入到整数（资源本身就是整数）。
+ */
+export const RegenAmountSchema = z.union([
+  z.number().nonnegative(),
+  z
+    .object({
+      base: z.number().nonnegative(),
+      perAttribute: z.record(z.string(), z.number()).optional(),
+    })
+    .strict(),
+]);
+export type RegenAmount = z.infer<typeof RegenAmountSchema>;
+
+/**
+ * 战斗内每回合回复（ADR-003 D12）：任意已声明资源 → 回复量，缺键 = 0。
+ *
+ * 与 `regen.perTurn` 的区别：`perTurn` 是**自由行动轮**的结算，且在 schema 上强制
+ * hp/mp 两项（引擎对它们有硬语义）；战斗内回复不强制任何键。
+ * 值必须非负：战斗内没有「每回合掉血」的写法（持续伤害走状态的 `onRoundEnd`）。
+ */
+export const CombatRegenSchema = z.record(z.string(), RegenAmountSchema);

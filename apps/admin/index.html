@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>命数后台 · trace / 事件编排</title>
     <link rel="stylesheet" href="/admin/app.css" />
+    <link rel="stylesheet" href="/admin/battle.css" />
   </head>
   <body>
     <header class="topbar">
@@ -16,6 +17,8 @@
       <nav class="tabs" role="tablist">
         <button class="tab active" data-tab="trace">Trace</button>
         <button class="tab" data-tab="graph">事件编排</button>
+        <button class="tab" data-tab="sim">战斗木桩</button>
+        <button class="tab" data-tab="live">战斗演练</button>
       </nav>
       <div class="env" id="envInfo">连接中…</div>
     </header>
@@ -93,6 +96,9 @@
                 <span>只看有连线的</span>
               </label>
 
+              <div class="section-title">角色（点一个看他的线）</div>
+              <div class="flag-list scroll npc-list" id="npcList"></div>
+
               <div class="section-title">旗标（点一个高亮读写双方）</div>
               <div class="flag-filter" id="flagFilter"></div>
               <div class="flag-list scroll" id="flagList"></div>
@@ -133,8 +139,150 @@
           </aside>
         </div>
       </section>
+
+      <!-- ============================ 战斗木桩 ============================ -->
+      <section class="view" id="view-sim">
+        <div class="sim-layout">
+          <aside class="panel controls">
+            <div class="panel-head">
+              <span>木桩参数</span>
+              <span class="hint" id="simRosterHint"></span>
+            </div>
+            <div class="panel-body scroll">
+              <label class="field">
+                <span class="field-label">模板版本</span>
+                <select id="simTpl"></select>
+              </label>
+
+              <label class="field">
+                <span class="field-label">左侧 · 受测角色</span>
+                <select id="simLeft"></select>
+              </label>
+
+              <label class="field">
+                <span class="field-label">右侧 · 对手</span>
+                <select id="simRight"></select>
+              </label>
+
+              <div id="simDummyFields" hidden>
+                <div class="field-row">
+                  <label class="field">
+                    <span class="field-label">木桩 HP</span>
+                    <input id="simDummyHp" type="number" min="1" step="50" value="5000" />
+                  </label>
+                  <label class="field grow2">
+                    <span class="field-label">木桩属性覆盖</span>
+                    <input id="simDummyAttrs" type="text" placeholder="agility=8,physique=10" />
+                  </label>
+                </div>
+              </div>
+
+              <div class="field-row">
+                <label class="field">
+                  <span class="field-label">局数</span>
+                  <input id="simRepeat" type="number" min="1" max="200" value="20" />
+                </label>
+                <label class="field">
+                  <span class="field-label">回合上限</span>
+                  <input id="simMaxRounds" type="number" min="1" max="100" value="30" />
+                </label>
+                <label class="field">
+                  <span class="field-label">seed</span>
+                  <input id="simSeed" type="number" value="1" />
+                </label>
+                <label class="field">
+                  <span class="field-label">挑招姿态</span>
+                  <select id="simStance">
+                    <option value="damage">堆伤害</option>
+                    <option value="coverage">先走召唤环</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="field-row">
+                <label class="field grow2">
+                  <span class="field-label">左侧属性覆盖 <span class="hint">点选填数，留空用角色卡</span></span>
+                  <input id="simLeftAttributes" type="text" placeholder="cursedEnergy=140" />
+                </label>
+                <button class="ghost preset-btn" id="simUsePreset" title="把选中角色的自带配置填进下方表单">用角色卡填表</button>
+              </div>
+              <div class="picker" id="simAttrPicker"></div>
+
+              <label class="field">
+                <span class="field-label">左侧战斗补正</span>
+                <input id="simLeftStatuses" type="text" placeholder="six-eyes,infinity" />
+                <div class="picker" id="simStatusPicker"></div>
+              </label>
+
+              <label class="field">
+                <span class="field-label">左侧装备</span>
+                <input id="simLeftEquipment" type="text" placeholder="item-ten-spear" />
+                <div class="picker" id="simEquipmentPicker"></div>
+              </label>
+
+              <label class="field">
+                <span class="field-label">额外技能（角色自带之外）</span>
+                <input id="simLeftSkills" type="text" placeholder="sk-blue-sky" />
+                <div class="picker" id="simSkillPicker"></div>
+              </label>
+
+              <label class="field">
+                <span class="field-label">角色特质 <span class="hint">仅供查看，不进战斗结算</span></span>
+                <div class="picker readonly" id="simTraitPicker"></div>
+              </label>
+
+              <button class="run-btn" id="simRun">跑一场</button>
+              <button class="ghost live-btn" id="simToLive">用这套配置进演练场 →</button>
+              <div class="sim-error" id="simError" hidden></div>
+              <div class="sim-note">
+                数字全部来自真实的 <code>performBattleAction</code>：建世界 → 摆对手 → 每回合挑技能 → 结算。
+                页面不重算任何伤害公式。
+              </div>
+            </div>
+          </aside>
+
+          <section class="panel">
+            <div class="panel-head">
+              <span>结果</span>
+              <span class="hint" id="simMeta"></span>
+            </div>
+            <div class="panel-body scroll" id="simResult">
+              <div class="empty">配好参数，点「跑一场」</div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <!-- ============================ 战斗演练 ============================ -->
+      <section class="view" id="view-live">
+        <div class="live-layout">
+          <aside class="panel controls">
+            <div class="panel-head">
+              <span>演练控制</span>
+              <span class="hint" id="liveHint">先在木桩页配好参数</span>
+            </div>
+            <div class="panel-body scroll">
+              <div class="live-toolbar">
+                <button class="run-btn" id="liveStart">用木桩配置开打</button>
+                <button class="ghost" id="liveAuto">仪器代打一回</button>
+              </div>
+              <p class="sim-note">战场由 <code>BattleBoard</code> 渲染；所有数值来自真实的 <code>performBattleAction</code>。临时改动只在内存里，不写存档。</p>
+              <div class="live-presets" id="livePresets"></div>
+              <div class="live-patch" id="livePatch"></div>
+              <div class="sim-error" id="liveError" hidden></div>
+            </div>
+          </aside>
+          <section class="panel">
+            <div class="panel-head"><span>战场</span><span class="hint" id="liveMeta"></span></div>
+            <div class="panel-body scroll" id="liveRoot">
+              <div class="empty">点「用木桩配置开打」</div>
+            </div>
+          </section>
+        </div>
+      </section>
     </main>
 
     <script src="/admin/app.js"></script>
+    <script type="module" src="/admin/battle.js"></script>
   </body>
 </html>

@@ -9,6 +9,7 @@ import type {
   EventV2,
   Item,
   RelationEdge,
+  RelationScope,
   ScheduledEventInstance,
   Skill,
   StatusEffect,
@@ -18,8 +19,12 @@ import type {
   TerminationRecord,
 } from "./schema/index.js";
 import type { EffectSummary } from "./schema/effects.js";
+import type { RegenAmount } from "./schema/common.js";
+import type { AttributeValue } from "./schema/attribute.js";
+import type { PendingAllocation } from "./schema/allocation.js";
 import type { ResolvedStyle, ResolvedTag } from "./schema/style.js";
 import type { ObservationLedger } from "./contract/perspective.js";
+import type { StatusTotalVM } from "./contract/view-model.js";
 import type { LlmInvocation } from "./contract/llm-invocation.js";
 
 /**
@@ -35,19 +40,33 @@ export function eventNarrativeOrTitle(view: { narrative?: string; title: string 
  * 与 Schema（协议定义）分离：Schema 校验模板，本文件描述引擎运行时。
  */
 
-// ---------- 运行时补正实例 ----------
+// ---------- 运行时状态实例 ----------
 
 export interface StatusInstance {
   statusId: string;
   stacks: number;
-  /** 模拟域：施加时的世界轮次 */
+  /** 施加时的世界轮次（仅日志 / 展示用——**不是**时长单位，ADR-009 D2） */
   appliedTurn: number;
-  /** 战斗域：已存在的战斗回合数（用于 battleRounds 到期判定） */
-  battleRoundsElapsed?: number;
-  /** 模拟域：休息治疗进度（cureConditions.restTurns 用） */
+  /** 施加时的 `worldTime`（分钟）。`expiresAt` 的基准点。 */
+  appliedAt: number;
+  /**
+   * 模拟域到期点（`worldTime` 分钟）。到期 = `worldTime >= expiresAt`，纯比较、不递减。
+   * `untilCured` 与「挂载的身份」没有这个字段 ⇒ 永不到期。
+   */
+  expiresAt?: number;
+  /** 战斗域：剩余战斗回合（`{ rounds: n }` 施加时置位），归零即移除 */
+  roundsLeft?: number;
+  /**
+   * 战斗域：这条战斗态**已经经历了多少个回合末**（ADR-018 D4）。
+   *
+   * 只给带 `toModifier` 的实例累加，战后按 `timePerRound × max(1, roundsHeld)` 折算世界时间。
+   * 不用 `battle.round - appliedRound`：`battle.round` 在回合末会 +1（`atRound: 3` 指第 3 回合
+   * **开始**），减法要先对齐这个偏移；而中途存档重载、战中补数值之后还得能重建起点。
+   * 单调计数器没有这些解释成本。
+   */
+  roundsHeld?: number;
+  /** 模拟域：休息治疗进度（**分钟**，`cureConditions.restDays` 用） */
   restProgress?: number;
-  /** 模拟域：剩余持续轮次（duration.turns 的实例副本，模板不可变） */
-  turnsLeft?: number;
 }
 
 // ---------- 运行时角色 ----------
@@ -57,7 +76,10 @@ export interface V2CombatantBase {
   name: string;
   gender: string;
   age: number;
-  attributes: Record<string, number>;
+  /** ADR-003：数值属性为 number，enum 属性为选项 id（类型由模板 defs 决定）。 */
+  attributes: Record<string, AttributeValue>;
+  /** reset 阶梯的当前档位（缺省 = 未发生升档；cumulative 不用此字段）。 */
+  attributeTiers?: Record<string, string>;
   hp: number;
   mp: number;
   mood: number;
@@ -68,12 +90,21 @@ export interface V2CombatantBase {
 
 export interface V2Player extends V2CombatantBase {
   inventory: Record<string, number>;
+  /**
+   * 自定义资源（ADR-003 D8）：不含 hp/mp。旧档缺省为 {}。
+   */
+  resources: Record<string, number>;
+  /**
+   * 专属资源池上限（ADR-012 D9）：与 NPC 的 `BattleEnemy.resourceMax` 同义。
+   * 只有「以某角色开局（`self.kind: reuse`）」时才会有内容，缺省空。
+   */
+  resourceMax?: Record<string, number>;
   skills: string[];
   /** 成长等级（adjustGrowth 推进；HP/MP 上限公式 perLevel 引用） */
   growthLevel: number;
   /**
    * 本局装备实例（R-EQ-02，协议 §19；可缺省，旧存档按 [] 处理）。
-   * 只存实例状态，不存补正结果——补正值每次经 evaluateDynamicModifier 现算（P8）。
+   * 只存实例状态，不存状态结果——状态值每次经 evaluateDynamicModifier 现算（P8）。
    */
   equipment?: EquipmentInstance[];
   /**
@@ -82,6 +113,40 @@ export interface V2Player extends V2CombatantBase {
    */
   fatherId?: string;
   motherId?: string;
+
+  // ── ADR-010 D1：以下字段与 V2Npc 同名同义，只为「演员可逆搬运」而存在 ──
+  //
+  // 玩家默认不写这些（扮演的人不一定有生死状态、也不一定有 AI 驱动的人格标签）。
+  // 一旦扮演的是模板角色、或发生夺舍/继承，`actorTransfer` 会把对方的这些字段搬过来，
+  // 搬走时不留残影。**它们不是「玩家的新功能」，是同一个演员在不同位置上的同一份数据。**
+  /** 生死/离场状态。玩家天然恒在世，故缺省。 */
+  lifecycle?: NpcLifecycle;
+  /** 对外人格描述（模板 `public.personality` 的副本）。 */
+  personality?: string;
+  /** 私有目标标签（AI 效用评分用）。 */
+  goals?: string[];
+  /** 私有性格标签（AI 效用评分用）。 */
+  traits?: string[];
+  /** 已知信息标签。 */
+  knowledge?: string[];
+  /** 隐秘信息（不进投影）。 */
+  secrets?: string[];
+  /** 人物列表可见性；玩家视角下自己恒可见，故缺省。 */
+  visibility?: "public" | "hidden";
+  /** 模板 `isEnemy` 的副本。玩家恒 false，故缺省。 */
+  isEnemy?: boolean;
+  /** 出生时刻（世界分钟）。缺省时由 `birthTimeFromAge` 反推。 */
+  birthTime?: number;
+  /** 上次自主行动的轮次。 */
+  lastActedAtTurn?: number;
+  /**
+   * **该演员对当前 self 的单向好感标量**（ADR-010 D5）。
+   *
+   * 与关系边（`state.relations`，带 `kind`/`scope` 的图）是两种东西，不是双轨：
+   * 边是「是什么关系」，这个是「总体态度」，只供 AI 效用评分与投影显示，**不参与任何判定**。
+   * self 换人后该字段自动解释为新 self，不需要迁移。
+   */
+  relationship?: number;
 }
 
 /** NPC 生命周期三态（ADR-0012 决策 1）：不引入阶段枚举，只这三态 + 自由 reasonCode。 */
@@ -117,6 +182,16 @@ export interface SpawnRuleInstance {
 export interface SpawnFact {
   npcId: string;
   ruleId: string;
+  turnIndex: number;
+  worldTime: number;
+}
+
+/**
+ * 世界时间表的事实记录（ADR-007 D1）。与 `SpawnFact` 同构，但记的是「世界自己的
+ * 一行时间表走到了」——NPC 登场只是它的一种效果，所以这里不再有角色字段。
+ */
+export interface FactFact {
+  factId: string;
   turnIndex: number;
   worldTime: number;
 }
@@ -163,8 +238,19 @@ export interface V2Npc extends V2CombatantBase {
    * 旧档缺字段 ⇒ 加载期补 `public`。
    */
   visibility: "public" | "hidden";
-  /** NPC 背包（createWorldV2 初始化为空对象；本轮不做 NPC 物品逻辑） */
+  /**
+   * NPC 背包。`createWorldV2` 初始化为空对象；物品进出走 `grantItem`/`removeItem` 的 `who`
+   * 参数（ADR-010 D2）。NPC 自主使用物品仍未实现（`npcActions` 不读它）。
+   */
   inventory: Record<string, number>;
+
+  // ── ADR-010 D1：与 V2Player 同名同义，只在 NPC 需要时才出现 ──
+  /** 自定义资源（不含 hp/mp）。缺省 = 只有 hp/mp。战斗单位构建时若缺省按空处理。 */
+  resources?: Record<string, number>;
+  /** 装备实例（模板 `characters[].equipment` 实例化而来）。词条计算与玩家同一套函数。 */
+  equipment?: EquipmentInstance[];
+  /** 成长等级（`computeMax` 的 perLevel 公式引用）。缺省 = 0，与旧行为一致。 */
+  growthLevel?: number;
   /** 私有目标标签（效用评分 goalMatch，不进投影） */
   goals: string[];
   /** 私有性格标签（效用评分 traitAffinity，不进投影） */
@@ -188,6 +274,18 @@ export interface V2Npc extends V2CombatantBase {
 
 // ---------- 战斗 ----------
 
+/** 单位在战斗里的阵营。用于**混合列表**（已退场名册）的边框配色。 */
+export type BattleSide = "ally" | "enemy" | "neutral";
+
+/** 装备词条在战斗轴上的合计（`dynamicModifiers` 里 `combat:` 那一支的产物）。 */
+export interface BattleGear {
+  hitChance: number;
+  evade: number;
+  damageDealt: number;
+  damageTaken: number;
+  guaranteedHit: boolean;
+}
+
 export interface BattleEnemy {
   /** 战斗实例 id（同角色多实例区分） */
   instanceId: string;
@@ -198,12 +296,58 @@ export interface BattleEnemy {
   mp: number;
   /** MP 上限（战斗 AI 公有比例用；可选以兼容旧存档，缺省回退当前 mp） */
   maxMp?: number;
-  attributes: Record<string, number>;
+  attributes: Record<string, AttributeValue>;
+  /** 自定义资源（ADR-003 D8）；敌人 / 友军同样携带。 */
+  resources: Record<string, number>;
+  /**
+   * 专属资源池的上限（ADR-012 D9）：`resources` 只存当前值，上限来自角色声明。
+   * 缺省（旧档 / 无专属池）⇒ 空表，投影只显示有名有姓的池。
+   */
+  resourceMax?: Record<string, number>;
+  /** ADR-003 D12：战斗内每回合结束的回复（来自角色声明的 `combatRegen`；值可为常数或加权式）。 */
+  combatRegen?: Record<string, RegenAmount>;
   statuses: StatusInstance[];
   skillCooldowns: Record<string, number>;
+  /**
+   * 心情（ADR-010 D3）。以前战斗单位没有这个字段，`unitCombatant` 一律写 50，
+   * 于是 NPC 的心情从不影响 `moodBand` 的属性修正。可选以兼容旧档（缺省按 50）。
+   */
+  mood?: number;
   skills: string[];
   skillWeights: Record<string, number>;
   alive: boolean;
+
+  // ── ADR-012：召唤与中途加入 ──
+  /** 展示档位：minion = 小框（缺省）；hero = 与真实战斗角色同版式。 */
+  tier?: "minion" | "hero";
+  /**
+   * 阵营（2026-11-20）：建场 / 召唤 / 援军时写入。
+   *
+   * 普通面板按数组分阵营（`enemies` / `allies` / `neutrals`），不需要它；
+   * **已退场名册是混合列表** —— 少了这个字段，敌方献祭的单位会被渲染成友军蓝框
+   * （用户 2026-11-20 实测：夏油献祭的咒灵是蓝的）。
+   */
+  side?: BattleSide;
+  /**
+   * 装备的战斗轴合计（2026-11-20）：命中 / 闪避 / 增减伤 / 必中。
+   *
+   * 建场时算一次、整场不变（战斗中不能换装），与有效属性同理烘进单位快照 ——
+   * 引擎不存「装备实例」，只存它们在这一场结算出来的数。
+   */
+  gear?: BattleGear;
+  /** 召唤者（战斗实例 id）。只对召唤物有值，用于上限统计、召回与连带清除。 */
+  summonedBy?: string;
+  /** 入场回合号。等于当前回合 ⇒ 本回合不行动（免得刚召唤就替玩家打一轮）。 */
+  enteredRound?: number;
+  /**
+   * 召唤它的角色 id（ADR-013）：召回后重新召唤要靠它对上号 ——
+   * 「同一只」是按 `summonRef` + `summonedBy` 认的，不按实例 id。
+   */
+  summonRef?: string;
+  /** 召唤者倒下时是否一并消失（缺省 dismiss）。 */
+    dismissOnSummonerDown?: boolean;
+    /** 单位退场 / 死亡的可展示原因（英雄死亡、被献祭等）。缺省 = 没有可解释的原因。 */
+    deathReason?: string;
 }
 
 export type BattleOutcome = "victory" | "defeat" | "flee";
@@ -218,12 +362,44 @@ export interface BattleState {
   player: {
     hp: number;
     mp: number;
+    /** 自定义资源镜像（ADR-003 D8）；战斗结束回写 `state.player.resources`。 */
+    resources: Record<string, number>;
     statuses: StatusInstance[];
     skillCooldowns: Record<string, number>;
+    /** 装备的战斗轴合计（2026-11-20）：开场算一次，整场不变。 */
+    gear?: BattleGear;
   };
   enemies: BattleEnemy[];
   /** 友军单位（与主角同阵营，AI 自动行动；形状同敌人，战斗内临时，不持久化到世界） */
   allies: BattleEnemy[];
+  /**
+   * 中立单位（ADR-012 D5）：第三方，对所有人敌对，**不参与胜负判定**。
+   * 旧档没有这个字段 ⇒ 读取侧按空数组处理。
+   */
+  neutrals: BattleEnemy[];
+  /**
+   * 已从战场移除但仍需解释下场的单位（献祭 / 召唤者倒下连带消失）。
+   * 留在场上倒下的单位仍在 allies/enemies/neutrals 里，不重复记到这里。
+   */
+  fallen?: BattleEnemy[];
+  /**
+   * 已收回的召唤物（ADR-013）。收回 ≠ 阵亡：单位连同伴随它走过的一切（血量、状态、
+   * 冷却、入场回合）停在这里，同一场战斗里再喊一次就原样回去 ——
+   * 这就是「战斗内收回再召唤，状态继承」。战斗结束即随 `battle` 一起丢弃，
+   * 所以下一场照例满血（ADR-013 D4）。旧档没有这个字段 ⇒ 按空数组读。
+   */
+  bench?: BattleEnemy[];
+  /**
+   * 召唤物实例编号的**单调计数器**（ADR-013）。只增不减：数组长度会因阵亡 / 收回变短，
+   * 拿它起算编号就会与在场的单位撞名，而 `writeBack` 是按实例 id 找人的。
+   * 旧档没有 ⇒ 从 0 起算，编号仍由在场者去重兜底。
+   */
+  summonSeq?: number;
+  /**
+   * 中途加入的触发进度（ADR-012 D3）：键 = 声明的 `id`（缺省 `#<下标>`），值 = 已触发次数。
+   * 进存档是为了读档不重放；缺省空表。
+   */
+  reinforcementFires?: Record<string, number>;
   /** 战斗日志（玩家可见） */
   log: string[];
   over: BattleOutcome | null;
@@ -309,7 +485,7 @@ export interface HistoryEntryV2 {
   worldTime: number;
   /** 由时间适配器生成的历法显示文本（替代前端公历硬编码） */
   formattedTime: string;
-  type: "player_action" | "npc_action" | "event" | "battle" | "milestone";
+  type: "player_action" | "npc_action" | "event" | "battle" | "milestone" | "world";
   summary: string;
   detail?: string;
   /**
@@ -336,6 +512,23 @@ export interface WorldStateV2 {
   playerAgeAtStart: number;
   player: V2Player;
   /**
+   * 玩家**永久失去**的召唤物（ADR-013 D3）：存的是 `summon.ref` 点过的角色 id。
+   *
+   * 英雄档召唤物是「个体」不是「耗材」—— 死了或献祭了就真的没了，本局再也召不出来
+   * （十影那套宝可梦玩法靠的就是这一条：损失是真的）。杂兵不进这张表，它们只是
+   * 一次性的兵力，下一场照常召（ADR-013 D2）。
+   *
+   * 纯新增 ⇒ 不升 `schemaVersion`、不拒旧档；旧档读作「什么都没失去」。
+   */
+  lostSummons?: string[];
+  /**
+   * 当前观察者（2026-11-20）：由 `observeActor` 效果写入，缺省 = `selfId`。
+   *
+   * 只影响**关系可见性**与快照上的 `viewerId` —— 不换人、不改数值。
+   * 模板可以用「行动 / 事件」把镜头交给别人（看某人的关系行、看某个死者的过去）。
+   */
+  viewerId?: string;
+  /**
    * 玩家在**演员表 / 关系图**里的节点 id（ADR-001 / R-SELF-01，2026-11-18 完整切换）。
    *
    * 权威 self 实体**就是 `state.player`**（唯一真源）：`selfId` 是它在图里的名字。
@@ -356,13 +549,26 @@ export interface WorldStateV2 {
   npcs: V2Npc[];
   /**
    * R2.6 / ADR-0014：关系图边（实例层）。kind 语义 = from→to（`{from:A,to:B,kind:"father"}` =
-   * B 是 A 的父亲）；默认 visibility=unknown（R-OP-05），known/inferred 才进玩家投影。
+   * B 是 A 的父亲）；知情人范围见 `scope`（ADR-007 D3，缺省由旧 `visibility` 推导）。
    */
   relations: RelationEdge[];
   /** NPC 刷新规则实例队列（ADR-0022；配置域规则的实例化副本，可序列化、进存档） */
   spawnRules: SpawnRuleInstance[];
   /** 事实层：出生/登场记录（append-only，与 eventFires / missedEvents 同级） */
   spawnLog: SpawnFact[];
+  /**
+   * 世界时间表执行记录（ADR-007 D1）：每条形如 `{ factId, turnIndex, worldTime }`，
+   * append-only。`factId` 出现即「这条事实已经发生」，引擎不再重复执行。
+   */
+  facts: FactFact[];
+  /**
+   * 待完成的加点请求（ADR-019，2026-11-20）：由 `grantAllocation` 效果挂上，
+   * 由轮外端点 `POST /api/worlds/:id/allocation` 提交后清空。
+   *
+   * 只存**请求**，不存「已分配点数」：提交即落基础属性（与开局一致，D3/D5），
+   * 世界里不留一个会被遗忘的余额字段。同 id 的重复授予是幂等的（日常事件反复给同一笔）。
+   */
+  pendingAllocation?: PendingAllocation;
   /** 模板可读写的语义黑板；引擎内部记录不得写入（R-LM-02） */
   flags: Record<string, boolean | number | string>;
   /**
@@ -513,10 +719,24 @@ export interface SlotEventView {
 export interface BattleEnemyView {
   instanceId: string;
   name: string;
+  /** 阵营：已退场名册用它决定边框颜色（普通列表按数组分，不依赖它）。 */
+  side?: BattleSide;
   hp: number;
   maxHp: number;
   alive: boolean;
   statuses: StatusView[];
+  /** ADR-012 D9：专属资源池（只有声明过的角色才有条目）。 */
+  resources: ResourceView[];
+  /** ADR-012 D2：`minion` 小框 / `hero` 整行。缺省按 hero。 */
+  tier?: "minion" | "hero";
+  /** ADR-012 D1：召唤者实例 id；有值说明这是召唤物。 */
+  summonedBy?: string;
+  /** ADR-013 D1：召它的角色 id（收回后再召靠它认亲）。 */
+  summonRef?: string;
+  /** 退场原因（战败 / 献祭 / 召唤者倒下等），前端详情面板直接展示。 */
+  deathReason?: string;
+  /** 召唤者**名字**（不是实例 id）：战斗卡片只展示这个，详情入口在个人技能页。 */
+  summonerName?: string;
 }
 
 export interface BattleView {
@@ -524,15 +744,40 @@ export interface BattleView {
   round: number;
   over: BattleOutcome | null;
   player: {
+    /** 玩家在战斗里的单位 id（= `state.player.id`）：前端「选自己」要传这个值。 */
+    id: string;
     hp: number;
     maxHp: number;
     mp: number;
     maxMp: number;
+    /** 战斗内资源条（含 hp/mp 与自定义资源，ADR-003 D10）。 */
+    resources: ResourceView[];
     statuses: StatusView[];
-    skills: Array<{ id: string; name: string; description: string; costMp: number; cooldownLeft: number }>;
+    skills: Array<{
+      id: string;
+      name: string;
+      description: string;
+      /** 全量消耗清单（含自定义资源）；前端据此展示与置灰。 */
+      costs: Array<{ resource: string; label: string; amount: number }>;
+      cooldownLeft: number;
+      /** 目标类型（ADR-012 D6 补）：前端据此决定哪边的卡片是可选目标。 */
+      target: "enemy" | "self" | "ally" | "all_allies" | "all_enemies" | "none";
+      /**
+       * 合法目标 id（只对 `enemy` / `ally` 下发）：UI 只做 `includes`，不重算规则。
+       * 缺省表示「不需要点选」（`self` / 全体 / 无目标）。
+       */
+      legalTargets?: string[];
+      /** 选中非法目标时的解释（DSL 的 `disableReason`），作悬停提示用。 */
+      legalTargetNote?: string;
+      /**
+       * 封印（ADR-015）：有值 ⇒ 这一回合放不出来，`text` 是给玩家看的原因。
+       * 用不了的技能**不再从列表里删掉**，否则玩家分不清「没学过」与「学过但用不了」。
+       */
+      seal?: { code: string; text: string };
+    }>;
     items: Array<{ itemId: string; name: string; count: number }>;
     /**
-     * 本回合是否可逃跑（D-12）：settle 声明 `canFlee` **与**未被 `cannot_flee` 补正压制
+     * 本回合是否可逃跑（D-12）：settle 声明 `canFlee` **与**未被 `cannot_flee` 状态压制
      * 的合取，由投影层用与引擎同一判定算出。为 false 时引擎会以 `flee_not_allowed` /
      * `cannot_flee` 拒绝，前端据此禁用逃跑按钮，不要自己查 status id。
      */
@@ -540,24 +785,28 @@ export interface BattleView {
     /**
      * 本回合是否允许使用战斗道具（D-08）。由投影层用与引擎**同一**控制判定
      * （`controlOf(battle.player.statuses, "cannot_use_items")`）算出，
-     * 前端据此禁用道具按钮，不要自己查 status id 或补正表。
+     * 前端据此禁用道具按钮，不要自己查 status id 或状态表。
      * 为 false 时引擎也会以 `bound_items` 拒绝，二者同源。
      */
     canUseItems: boolean;
     /**
-     * 本回合能否正常行动（D-13）。为 false 表示玩家被 `cannot_act` 类补正（如眩晕）压制：
+     * 本回合能否正常行动（D-13）。为 false 表示玩家被 `cannot_act` 类状态（如眩晕）压制：
      * 引擎**不会报错**，而是跳过玩家动作、照常让友军/敌人行动并推进战斗回合
      * （眩晕的应有语义，不改），玩家点击只会白费一个回合 —— 故由投影如实告知。
-     * 判定与引擎同一处 `controlOf(..., "cannot_act")`，输入取战斗镜像补正列表。
+     * 判定与引擎同一处 `controlOf(..., "cannot_act")`，输入取战斗镜像状态列表。
      *
-     * 禁用原因**不单独下发**：`known` 可见性的补正本身已在 `statuses` 里（含名字），
-     * 前端可直接展示；若某模板把控制类补正声明为 hidden，则会出现
+     * 禁用原因**不单独下发**：`known` 可见性的状态本身已在 `statuses` 里（含名字），
+     * 前端可直接展示；若某模板把控制类状态声明为 hidden，则会出现
      * 「canAct=false 但 statuses 里看不到原因」，这属于模板可见性声明问题。
      */
     canAct: boolean;
   };
   enemies: BattleEnemyView[];
   allies: BattleEnemyView[];
+  /** ADR-012 D5：第三方单位，对所有人敌对、不计入胜负。 */
+  neutrals: BattleEnemyView[];
+  /** 已退场但仍需解释原因的单位（献祭 / 召唤者倒下连带消失）。 */
+  fallen: BattleEnemyView[];
   log: string[];
 }
 
@@ -565,7 +814,7 @@ export interface StatusView {
   id: string;
   name: string;
   stacks: number;
-  /** 说明（补正详情浮层用）。 */
+  /** 说明（状态详情浮层用）。 */
   description?: string;
   quality?: string;
   /** 解析后的样式（ADR-002 D2）；缺省 = 默认样式。 */
@@ -574,13 +823,59 @@ export interface StatusView {
   effects?: EffectSummary[];
   /** 展示标签（ADR-002 D2b）：品级 / 增益减益。 */
   tags?: ResolvedTag[];
-  /**
-   * 战斗态样式（ADR-002 D2c）：按语义（增益 / 异常 / 中性）解析，**不是身份色**。
-   * 缺省 ⇒ 该实体没有语义标签，战斗里继续用 `style`。
-   */
-  battleStyle?: ResolvedStyle;
+  /** 正负（一等字段）：战斗面与技能描述的配色来源；不再由 tags 推断，也不下发 battleStyle。 */
+  polarity: "positive" | "negative" | "neutral";
+  /** 三类生命周期（ADR-018）：UI 按它分「天赋 / 状态」两栏。 */
+  kind: "talent" | "battle" | "modifier";
   /** 持续时间的人话（「持续到被移除」/「剩余 3 回合」）。 */
   durationLabel?: string;
+}
+
+/**
+ * 一条属性视图（ADR-003）：引擎在投影期按 `defs` 解析好，前端只展示。
+ *
+ * `kind` 决定渲染：number 数值 / enum 带样式文本 / ladder 档位+进度 / composite 派生称号。
+ * hidden 属性不会出现在这里（但仍存在于 `player.attributes` 原始记录）。
+ */
+export interface AttributeSourceView {
+  id: string;
+  label: string;
+  /** 来源属性自己的展示文本（数值 / 选项 label / 档位 label）。 */
+  display: string;
+  style?: ResolvedStyle;
+}
+
+export interface AttributeView {
+  id: string;
+  label: string;
+  kind: "number" | "enum" | "ladder" | "composite";
+  /** number/ladder：数值；enum：选项 id；composite：无。 */
+  value?: number | string;
+  /** 已解析的展示文本（number 为数值字符串；enum 为选项 label；composite 为称号）。 */
+  display: string;
+  style?: ResolvedStyle;
+  /** ladder：本档内进度（无下一档且无 cap 时不出现）。 */
+  progress?: { value: number; max: number };
+  /** ladder：当前档位。 */
+  tier?: { id: string; label: string; style?: ResolvedStyle };
+  /** composite：来源轴（详情展示「恶名 ＋＋ · 善名 ＋＋」）。 */
+  sources?: AttributeSourceView[];
+}
+
+/** 资源显示形态（ADR-003 D10）：条形 / 刻度。模板在 `ui.yaml.resources` 声明。 */
+export type ResourceDisplay = "bar" | "pips";
+
+/**
+ * 一条资源视图：顺序 = 模板 `statusBar` 的 resource 段；hp/mp 与自定义资源同形。
+ * `dangerAt` 是告警阈值比例（0 = 永不告警），由 `ui.yaml.resources` 提供。
+ */
+export interface ResourceView {
+  key: string;
+  label: string;
+  value: number;
+  max: number;
+  display: ResourceDisplay;
+  dangerAt: number;
 }
 
 /**
@@ -608,8 +903,79 @@ export interface EndingView {
 /** 本局运行状态：running=可继续；terminated=已终止；archived=已封存（只读） */
 export type WorldRunStatus = "running" | "terminated" | "archived";
 
+/**
+ * 一条关系行：**关系的投影单位**（NPC 卡与玩家关系图共用同一份）。
+ *
+ * 同一条边两个方向是同一件事实的两种说法（A 视 B 为父 / B 视 A 为子），
+ * 所以行里带 `direction`，由消费方决定画不画：
+ * NPC 卡只画「这个人怎么看别人」（出边），玩家关系图两个方向都画（箭头方向不同）。
+ */
+export interface RelationRow {
+  /** 另一端节点 id（NPC 或 "player"） */
+  withId: string;
+  kind: string;
+  /**
+   * 知情人范围（ADR-007 D3）：`public` 大家都知道 / `limited` 部分人知道 /
+   * `private` 仅当事人知道。
+   *
+   * 不是「玩家看到了什么」——投影期由 `relationVisibleTo(edge, viewerId)` 判定
+   * 要不要出这一行，本字段只描述事实本身属于哪一档。这样换成 NPC 视角时
+   * 同一行数据仍然成立（将来切玩家不需要重写这张表）。
+   */
+  scope: RelationScope;
+  /** 边的方向：out = 本体→withId；in = withId→本体 */
+  direction: "out" | "in";
+  /**
+   * 对方是否有可见的 NPC 卡。`false` = 这条边指向未登场 / 不展示的角色
+   * （敌人、尚未露面的亲属）。关系是独立事实，不因对方不可见而消失。
+   */
+  counterpartVisible?: boolean;
+  /**
+   * `counterpartVisible === false` 时**为什么**没有卡（2026-11-19 用户裁决：
+   * 「不实例化但知道的关系」不该被说成「无档案」——那不是没有资料，是还没出场）。
+   *
+   * · `unspawned`：还没登场（将来会出场、现在还不在世上的人）
+   * · `hidden`：已在世上，但不进玩家的人物列表（当面不认得 / 只闻其名）
+   * · `enemy`：不实例化的野怪（永远不会有卡）
+   *
+   * 缺省（无此字段但 `counterpartVisible === false`）⇒ 展示层按 `unspawned` 兜底。
+   */
+  counterpartState?: "unspawned" | "hidden" | "enemy";
+  /** 对方名字（隐藏 / 未登场者也有名字：关系是独立事实，不因无卡而丢名字）。 */
+  withName?: string;
+  value?: number;
+  /** 多跳中文称谓（仅亲属链可推导时存在）。**按本行自己的关系推导**，不是整对端点的最短路径。 */
+  kinshipTerm?: string;
+  /**
+   * 同一段亲缘的其他读法（不含 `kinshipTerm` 本身）。
+   * 由扩展 `extensions.family` 产出（模板 `extensions.family.showAllRoles` 打开时才有），
+   * 如某人同时是「女儿」与「孙女」。
+   */
+  kinshipTerms?: string[];
+  /**
+   * true = 这一行不是声明出来的边，而是由多跳路径推出的关系。
+   * 只是来源标记，**不代表可信度更低**：它的 `scope` 由路径上各边合成
+   * （任一段 `private` ⇒ 整条 `private`），合成结果就写在上面那个 `scope` 里。
+   */
+  derived?: boolean;
+}
+
 export interface V2Snapshot {
   worldId: string;
+  /**
+   * 当前视角（ADR-010 D4）。缺省 = self。
+   *
+   * **只影响「看到哪些关系」**，不改变 `self` 段与控制权：观察者是在看别人，
+   * 不是变成别人。真要换人控制，走 `transplantActor` + `state.selfId`。
+   */
+  viewerId?: string;
+  /**
+   * 观察者的显示名（2026-11-20；仅 `viewerId !== selfId` 时下发）。
+   *
+   * 顶栏要写「以谁的目光」。只给 id 的话前端得去 `npcs` 里找，而观察者可能是
+   * 不在人物列表里的人（隐藏 / 已离场），名字就丢了。
+   */
+  viewerName?: string;
   templateId: string;
   worldName: string;
   turnIndex: number;
@@ -654,8 +1020,31 @@ export interface V2Snapshot {
     maxMp: number;
     mood: number;
     moodBandLabel: string;
-    attributes: Record<string, number>;
+    /** 原始属性记录（含 hidden；数值/文本混合）。展示请用 `attributeViews`。 */
+    attributes: Record<string, AttributeValue>;
+    /** 属性面板视图（已按 order 排序、已剔除 hidden、已解析样式/档位/进度）。 */
+    attributeViews: AttributeView[];
+    /** 资源条视图（含 hp/mp 与自定义资源；顺序 = statusBar 的 resource 段）。 */
+    resources: ResourceView[];
     statuses: StatusView[];
+    /**
+     * 状态合计（ADR-018 D8）：面板上「咒力 +3 / 伤害 +15%」直接读这里，
+     * 明细（每一笔来自谁）也在同一个对象里，前端不自己求和。
+     */
+    statusTotals: StatusTotalVM[];
+    /**
+     * 玩家自己的关系（2026-11-20 补齐）：与 NPC 卡同一份 `buildRelationRows`，
+     * **两个方向都在**（`direction` 区分）。
+     *
+     * 以前关系只挂得出 NPC 卡：玩家自己的父/母/妻/子只能靠在别人的卡上「反向」看见，
+     * 或者干脆看不见 —— 这是本体能力的缺口，不是展示层没写。
+     */
+    relations: RelationRow[];
+    /**
+     * 这些关系是**谁的**（2026-11-20）：`observeActor` 把镜头交给别人时才有。
+     * 缺省 = 你自己。展示层写「以 XX 的目光」，不让玩家误以为自己的关系变了。
+     */
+    relationsOwner?: { id: string; name: string };
     skills: Array<{
       id: string;
       name: string;
@@ -665,6 +1054,37 @@ export interface V2Snapshot {
       style?: ResolvedStyle;
       effects?: EffectSummary[];
       tags?: ResolvedTag[];
+      /**
+       * 召唤类技能：**参数与召唤物面板一起下发**（`projection.ts` 的 `summonInfoOf` 是唯一产地）。
+       * 合成一个对象是为了消灭「只有一半」的中间态：有召唤就只有这一种形状。
+       */
+      summon?: {
+        /** 技能参数：一次召几只、这批多强。 */
+        count: number;
+        levelScale?: number;
+        /** 召唤物面板。 */
+        unit: {
+          ref: string;
+          name: string;
+          tier: "minion" | "hero";
+          description?: string;
+          /** 召唤物自带技能：名字之外还带效果摘要（浮窗里一行一个技能地展示）。 */
+          skills: Array<{
+            id: string;
+            name: string;
+            description?: string;
+            style?: ResolvedStyle;
+            effects?: EffectSummary[];
+          }>;
+          /** 召唤物身上常驻的状态（`characters[].statuses`，如魔虚罗的法轮）。 */
+          statuses: StatusView[];
+        };
+      };
+      /**
+       * 封印（ADR-015）：技能页里照常列出，但这一招现在用不了，`text` 说明原因
+       * （目前只有英雄召唤永久失去这一条持久判据）。
+       */
+      seal?: { code: string; text: string };
     }>;
     inventory: Array<{
       itemId: string;
@@ -673,11 +1093,12 @@ export interface V2Snapshot {
       count: number;
       usableOutsideBattle: boolean;
       usableInBattle: boolean;
-      /** 展示字段（T5-02 / R-EQ-09）：来自物品定义，不含补正结果 */
+      /** 展示字段（T5-02 / R-EQ-09）：来自物品定义，不含状态结果 */
       type: "consumable" | "material" | "key" | "equipment";
       slot?: string;
       slotLabel?: string;
       category?: string;
+      categoryLabel?: string;
       quality?: string;
       style?: ResolvedStyle;
       effects?: EffectSummary[];
@@ -685,7 +1106,7 @@ export interface V2Snapshot {
     }>;
     /**
      * 已装备实例投影：只含展示字段（实例 id / 物品 id / 槽位 / 层数 / 耐久 / 显示名 / 说明）。
-     * 不含任何补正结果——补正由内核每次结算现算（R-EQ-04 / P8）。
+     * 不含任何状态结果——状态由内核每次结算现算（R-EQ-04 / P8）。
      * 背包（inventory）与装备栏**互斥**：穿戴中的实例不出现在 inventory（ADR-0008）。
      */
     equipment?: Array<{
@@ -698,6 +1119,7 @@ export interface V2Snapshot {
       slotLabel?: string;
       description?: string;
       category?: string;
+      categoryLabel?: string;
       quality?: string;
       style?: ResolvedStyle;
       effects?: EffectSummary[];
@@ -727,48 +1149,24 @@ export interface V2Snapshot {
     knownGoals: string[];
     /**
      * 属性面板（ADR-0021 决策 3）：**只含模板 `attributes.order` 内的键**，值为模板声明的
-     * base 原值（`levelScale` 与状态补正一概不叠）；order 内但 NPC 未声明的键给 0
+     * base 原值（`levelScale` 与状态一概不叠）；order 内但 NPC 未声明的键给 0
      * （与玩家面板同口径）。**必填**——空模板给 `{}`，前端可直接遍历，不必判 undefined。
-     * 不下发 `attributeModifiers` / effective 派生值：补正只走 `statuses`（hidden 侧信道红线）。
+     * 不下发 `attributeModifiers` / effective 派生值：状态只走 `statuses`（hidden 侧信道红线）。
      */
-    attributes: Record<string, number>;
+    attributes: Record<string, AttributeValue>;
+    /** 属性面板视图（ADR-003；与玩家同一份解析，hidden 已剔除）。 */
+    attributeViews: AttributeView[];
     /**
-     * R2.6 / ADR-0014：与本体相关且玩家**已知**的关系边（仅 known / inferred）。
-     * unknown / hidden 一律不投影（R-OP-05：默认不认识，hidden 来源不泄露）。
+     * R2.6 / ADR-0014：与本体相关、且**本体能看见**的关系边（ADR-007 D3 由
+     * `relationVisibleTo(edge, viewerId)` 判定：他在这条事实的知情人范围内才出）。
+     *
+     * 旧口径（R-OP-05）是「known / inferred 才投影」，那把玩家写进了事实本身；
+     * 现在边的属性是 `scope`（谁知道），投影只负责按观察者过滤。
      */
-    relations: Array<{
-      /** 另一端节点 id（NPC 或 "player"） */
-      withId: string;
-      kind: string;
-      visibility: string;
-      /** 边的方向：out = 本体→withId；in = withId→本体 */
-      direction: "out" | "in";
-      /**
-       * 对方是否有可见的 NPC 卡。`false` = 这条边指向未登场 / 不展示的角色
-       * （敌人、尚未露面的亲属）。关系是独立事实，不因对方不可见而消失。
-       */
-      counterpartVisible?: boolean;
-      /** 对方名字（隐藏 / 未登场者也有名字：关系是独立事实，不因无卡而丢名字）。 */
-      withName?: string;
-      value?: number;
-      /** 多跳中文称谓（仅亲属链可推导时存在）。**按本行自己的关系推导**，不是整对端点的最短路径。 */
-      kinshipTerm?: string;
-      /**
-       * 同一段亲缘的其他读法（不含 `kinshipTerm` 本身）。
-       * 由扩展 `extensions.family` 产出（模板 `extensions.family.showAllRoles` 打开时才有），
-       * 如某人同时是「女儿」与「孙女」。
-       */
-      kinshipTerms?: string[];
-      /**
-       * true = 这一行不是声明出来的边，而是由多跳路径推出的关系。
-       * 只是来源标记，**不代表可信度更低**：它的 `visibility` 由路径上各边合成，
-       * 全部 known 时它就是 known。
-       */
-      derived?: boolean;
-    }>;
+    relations: RelationRow[];
     /**
-     * 当前补正（ADR-0019）。**只投影 visibility=known 的定义**，与玩家补正同一过滤口径；
-     * unknown / hidden 补正不外泄，避免「状态列表」变成侧信道。
+     * 当前状态（ADR-0019）。**只投影 visibility=known 的定义**，与玩家状态同一过滤口径；
+     * unknown / hidden 状态不外泄，避免「状态列表」变成侧信道。
      */
     statuses: StatusView[];
     /** 人生阶段 id（按模板阶段表由 NPC 年龄推导，与玩家口径一致）。 */
@@ -790,6 +1188,26 @@ export interface V2Snapshot {
    * 呈现槽（ADR-0034 §5）：`null` = 空槽（可自由行动）。**唯一**的呈现真源。
    * 只描述"当前在演什么"，不含队列内容与长度。
    */
+  /**
+   * 待完成的加点（ADR-019，2026-11-20）：有它 ⇒ 个人页面板挂出加点组件。
+   * 只下发请求；属性在玩家提交（轮外端点）后才变。
+   *
+   * `label` / `style` 已由投影解析好（与开局 `describeNode` 同一口径）。
+   */
+  pendingAllocation?: {
+    id: string;
+    budget: number;
+    reason?: string;
+    targets: Array<{
+      attribute: string;
+      label: string;
+      min?: number;
+      max?: number;
+      style?: ResolvedStyle;
+    }>;
+    sinceTurn: number;
+    sinceWorldTime: number;
+  };
   slotEvent: SlotEventView | null;
   battle: BattleView | null;
   /** 最近一次转盘结果（向后兼容的单槽视图，等价于 `lastWheels` 的末项） */

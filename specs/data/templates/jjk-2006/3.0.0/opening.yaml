@@ -1,0 +1,1071 @@
+# JJK 新开局 · v4（2026-11-21：天赋提前、天与收成唯一入口）
+#
+# 流程：抽出身（决定站位与起点年份）→ 基本信息 → **天赋**（天与咒缚唯一入口，六眼不进池）
+#       → 生得术式 → 术式专属领域 → 体质 → 高阶技巧（3 格，抽到空即「不会」）→ 入场
+#
+# 为什么天赋要先抽（2026-11-21 用户裁决）：
+#   ① 天与咒缚与「咒力天赋」是互斥的 —— 先抽术式再抽天赋，会出现「零咒力 + 特级苗子」；
+#   ② 天赋是后面每一格权重的输入：术式池、体质池、高阶技巧都靠 `weightByParam` 读它。
+#   抽到天与咒缚 ⇒ `goto: n-body` 直接跳过术式与领域（没有咒力就没有术式）。
+#
+# 三条硬约束（读代码得出，不是猜的）：
+#   1. `OpeningBranchOptionSchema` 没有 conditions ⇒ 选项不能按前置结果开关；
+#   2. DAG 无循环、无计数 ⇒ 「先抽 n，再抽 n 次」写不出来；用「每格可能空」等价实现；
+#   3. 开局 roll 的静态 `weight` 可用，按**世界属性**加权不可用（ADR-001 D-4）。
+#      按**已落定的开局参数**加权走 `weightByParam`（ADR-001 D7）——本稿用在三处：
+#      天赋抬/压术式权重（n-tech 每条一个表）、天与抽不到反转术式（b-reverse -18）、
+#      家学抬天才权重（旁支 +6 / 诅咒师世家 +4）。
+# 能用的分流只有一招：`option.goto` —— 抽到哪个扇区就去哪个节点（编译期展开）。
+# 所以「按术式给领域」是**每术式一个领域节点**，不是运行时判断；十个领域节点都必须
+# 显式 `goto: n-body`，否则会按数组顺序连抽十个领域。
+#
+# 另一个必须守的纪律：**一个 param id 只能有一个写者**。
+# `resolveParamMap` 是 `Object.assign`，后写覆盖先写；两个节点写同一个 id，
+# 前一个的加成会静默消失（旧开局就踩过：第六格选的咒具被入学式悄悄换成急救包）。
+# 所以下面的属性补正按节点分开命名：originAttr1 / ageAttr / techBodyAttr / domAttr / …
+#
+# 站位=起点：`era` / `chapter` / `ready1`·`ready3` / `clock` 由**出身与借名这两组选项**写，
+# 不放进场节点 —— 入场节点读不到站位（DAG 只能编译期分流），而事件的 era 门必须与时间锚一致。
+# 晚起点（2018 / 受肉 / 咒灵）跳过的章节旗标统一留 false，等章节表定稿（design §6.1）。
+#
+# 依赖（缺任何一个都会在 **commit 时**失败，不是加载期）：world.yaml 的 innateTechnique 枚举、
+# skills.yaml 的 sk-tech-* / sk-domain-*、statuses.yaml 的 tech-* 与体质补正、characters.yaml 的关系端点。
+
+openingId: op-jjk-v3
+name: 命数 · 出身与术式
+description: 先抽你从哪儿来（这一格决定你在哪条线上），再确定术式、天赋与领域。全程在世界实例化之前完成。
+entry: n-self
+
+params:
+  # ---------- 身元 ----------
+  - { id: who, kind: self, ui: { label: 你是谁, order: 0 } }
+  - { id: nick, kind: name, ui: { label: 名字, component: text, order: 1 } }
+  - { id: sex, kind: gender, ui: { label: 性别, component: enum, order: 2 } }
+  - { id: years, kind: age, ui: { label: 年龄, component: enum, order: 3 } }
+  - { id: clock, kind: time, ui: { label: 入场时间, hidden: true } }
+
+  # ---------- 站位 / 出身（字符串旗标，供事件条件读） ----------
+  - { id: line, kind: flag, ui: { label: 站位, order: 10 } }
+  - { id: originTag, kind: flag, ui: { label: 出身, order: 11 } }
+  - { id: clan, kind: flag, ui: { label: 家系, hidden: true } }
+  - { id: canonRole, kind: flag, ui: { label: 借用的人物, hidden: true } }
+
+  # ---------- 术式 ----------
+  - { id: techFlag, kind: flag, ui: { label: 生得术式, order: 20 } }
+  - { id: techAttr, kind: attribute, ui: { label: 生得术式·枚举, hidden: true } }
+  - { id: techStatus, kind: status, ui: { label: 术式补正, hidden: true } }
+  - { id: techSkill, kind: skill, ui: { label: 术式技能, hidden: true } }
+  - { id: techBodyAttr, kind: attribute, ui: { label: 术式换来的肉体, hidden: true } }
+
+  # ---------- 领域（每个术式一个节点，写进独立参数，互不覆盖） ----------
+  - { id: dName, kind: flag, ui: { label: 领域, order: 30 } }
+  - { id: dTier, kind: flag, ui: { label: 领域完成度, hidden: true } }
+  - { id: dSkill, kind: skill, ui: { label: 领域技能, hidden: true } }
+  - { id: domAttr, kind: attribute, ui: { label: 领域补正, hidden: true } }
+
+  # ---------- 天赋 ----------
+  - { id: rankAttr, kind: attribute, ui: { label: 等级, hidden: true } }
+  - { id: rankFlag, kind: flag, ui: { label: 天赋档, order: 40 } }
+  - { id: talentAttr, kind: attribute, ui: { label: 天赋补正, hidden: true } }
+  - { id: talentAttr2, kind: attribute, ui: { label: 天赋补正2, hidden: true } }
+  - { id: bodyFlag, kind: flag, ui: { label: 体质, order: 41 } }
+  - { id: bodyStatus, kind: status, ui: { label: 体质补正, hidden: true } }
+  - { id: bodyAttr, kind: attribute, ui: { label: 体质补正值, hidden: true } }
+
+  # ---------- 高阶技巧（3 格各占一个 skill 参数，才能叠加） ----------
+  - { id: high1, kind: flag, ui: { label: 高阶技巧·一, order: 50 } }
+  - { id: high2, kind: flag, ui: { label: 高阶技巧·二, order: 51 } }
+  - { id: high3, kind: flag, ui: { label: 高阶技巧·三, order: 52 } }
+  - { id: highSkill1, kind: skill, ui: { label: 技巧·一, hidden: true } }
+  - { id: highSkill2, kind: skill, ui: { label: 技巧·二, hidden: true } }
+  - { id: highSkill3, kind: skill, ui: { label: 技巧·三, hidden: true } }
+  # 普通攻击：任何人都会的一手。没有它，咒力耗尽时只能跳回合（2026-11-21 用户裁决）。
+  - { id: basicSkill, kind: skill, ui: { label: 基础体术, hidden: true } }
+
+  # ---------- 加点（ADR-004） ----------
+  # 预算由**天赋档**决定，不是写死的 5 点：天赋越好，可塑空间越小——
+  # 特级苗子的身体已经长成了，能挪的只剩「往哪儿使」；没天赋的人反而什么都能自己练。
+  # 这是 ADR-004 D2 的 `budgetFrom`：预算 = 已落定的 number 参数值。
+  - { id: talentRoll, kind: number, ui: { label: 天赋点, hidden: true } }
+  - id: talentPoints
+    kind: points
+    budgetFrom: talentRoll
+    targets:
+      # 上限合计 13 ≥ 最大预算 5，任何天赋档都分得完（不靠「必须花完」逼人乱点）。
+      - { attribute: cursedEnergy, min: 0, max: 4, style: purple }
+      - { attribute: intellect, min: 0, max: 3 }
+      - { attribute: physique, min: 0, max: 3 }
+      - { attribute: agility, min: 0, max: 3 }
+
+  # ---------- 出身带来的初始关系与补正 ----------
+  - { id: rel1, kind: relation, ui: { label: 关系, hidden: true } }
+  - { id: rel2, kind: relation, ui: { label: 关系, hidden: true } }
+  - { id: rel3, kind: relation, ui: { label: 关系, hidden: true } }
+  - { id: originAttr1, kind: attribute, ui: { label: 出身补正, hidden: true } }
+  - { id: originAttr2, kind: attribute, ui: { label: 出身补正2, hidden: true } }
+  - { id: ageAttr, kind: attribute, ui: { label: 年龄补正, hidden: true } }
+  - { id: enterAttr, kind: attribute, ui: { label: 入场补正, hidden: true } }
+
+  # ---------- 收尾 ----------
+  # 站位=起点年份：`era` / `chapter` / `ready*` / `clock` 由**出身与借名这两组选项**写，
+  # 不放在入场节点。原因是入场节点读不到站位（DAG 只能编译期分流），
+  # 而事件的 era 门（`flag: era, eq: 1`）必须与时间锚一致：2018 年入场却标 era 1，
+  # 整条 2006 事件链会照常触发。每一条路径上这几个 id 只有一个写者。
+  - { id: gEra, kind: flag, ui: { label: 纪元, hidden: true } }
+  - { id: gChapter, kind: flag, ui: { label: 章节, hidden: true } }
+  - { id: gReady, kind: flag, ui: { label: 一纪元可行动, hidden: true } }
+  - { id: gReady3, kind: flag, ui: { label: 二纪元可行动, hidden: true } }
+  - { id: gCreation, kind: flag, ui: { label: 建角完成, hidden: true } }
+  - { id: gDone, kind: flag, ui: { label: 开局完成, hidden: true } }
+
+  # ---------- 章节与死亡黑板（入场统一写基线，事件往后改） ----------
+  # 这些旗标原开局在入学式一次性落定；事件用 `ne: true` / `eq: false` 读它们，
+  # 未声明就不写会让「没发生过」与「没写过」混成同一个 undefined。
+  - { id: gSpDone, kind: flag, ui: { label: 怀玉完成, hidden: true } }
+  - { id: gGetoGone, kind: flag, ui: { label: 夏油离队, hidden: true } }
+  - { id: gHaibaraDead, kind: flag, ui: { label: 灰原阵亡, hidden: true } }
+  - { id: gGojoGone, kind: flag, ui: { label: 五条离场, hidden: true } }
+  - { id: gNanamiGone, kind: flag, ui: { label: 七海离场, hidden: true } }
+  - { id: gSavedRiko, kind: flag, ui: { label: 救下理子, hidden: true } }
+
+nodes:
+  # ═══════════════════════════════════════════════════════════════════
+  # 0. 你先决定：从空白开始，还是借一个已经写在历史上的名字
+  # ═══════════════════════════════════════════════════════════════════
+  - node: n-self
+    title: 此身是谁
+    text: 转盘停在你面前。你可以从空白开始，让出身那一格决定你落在哪条线上；也可以借一个已经写在历史上的名字——那样你不再掷骰，直接进他的局。
+    mode: choose
+    options:
+      - id: o-new
+        text: 从空白开始（转盘决定出身）
+        set:
+          who: { kind: new, id: player, name: 无名氏, gender: male, age: 16, attributes: {}, skills: [] }
+        goto: n-origin
+      - id: o-canon
+        text: 借一个原作人物的名字（出身 / 术式 / 领域 / 天赋全部跳过）
+        set:
+          line: { id: line, value: canon-fixed }
+        goto: n-canon
+
+  # ═══════════════════════════════════════════════════════════════════
+  # 0b. 复用原作人物：整套转盘跳过
+  #     reuse 路径下 name / gender / age / attribute(set) 本来就被引擎忽略，
+  #     技能与领域由 characters.yaml 给；再抽一份就是白送加成（五条 + 特级苗子）。
+  #     所以这里直接去入场 —— 「借名字」是换一具身体，不是重开一局。
+  # ═══════════════════════════════════════════════════════════════════
+  - node: n-canon
+    title: 借谁的名字
+    text: 名字一旦借来，你就不再是「某届的一个学生」，而是历史里那个人。术式、领域、人脉都是他本来有的——转盘这次不掷。
+    mode: choose
+    options:
+      - id: c-gojo
+        text: 五条悟 · 2006，高专二年生
+        set:
+          who: { kind: reuse, characterId: npc-gojo }
+          canonRole: { id: canonRole, value: gojo }
+          originTag: { id: origin, value: gojo }
+          # 2006 春入场（纪元一，第一章）：92 天把日历推到四月。
+          gEra: { id: era, value: 1 }
+          gChapter: { id: chapter, value: 1 }
+          gReady: { id: ready1, value: true }
+          clock: { value: 92, unit: day }
+        goto: n-entrance
+      - id: c-geto
+        text: 夏油杰 · 2006，高专二年生
+        set:
+          who: { kind: reuse, characterId: npc-geto }
+          canonRole: { id: canonRole, value: geto }
+          originTag: { id: origin, value: geto }
+          gEra: { id: era, value: 1 }
+          gChapter: { id: chapter, value: 1 }
+          gReady: { id: ready1, value: true }
+          clock: { value: 92, unit: day }
+        goto: n-entrance
+      - id: c-riko
+        text: 天内理子 · 2006，星浆体（短线：她只有这一个夏天）
+        set:
+          who: { kind: reuse, characterId: npc-riko }
+          canonRole: { id: canonRole, value: riko }
+          originTag: { id: origin, value: riko }
+          gEra: { id: era, value: 1 }
+          gChapter: { id: chapter, value: 1 }
+          gReady: { id: ready1, value: true }
+          clock: { value: 92, unit: day }
+        goto: n-entrance
+  # ═══════════════════════════════════════════════════════════════════
+  # 1. 出身 —— 这一格决定站位（六条线），也决定你什么时候进场
+  #    权重按「遇到的人有多稀有」给，不按战斗强度给。
+  # ═══════════════════════════════════════════════════════════════════
+  - node: n-origin
+    title: 出身
+    text: 第一格不是「你有多强」，是「你从哪儿来」。这一格落定，你站在哪条线上就定了——同一段夏天，三种人，三种能做的事。
+    mode: roll
+    options:
+      - id: o-civilian
+        text: 普通人家，靠自己考进高专 —— 原作线
+        weight: 30
+        set:
+          line: { id: line, value: canon }
+          originTag: { id: origin, value: civilian }
+          # 原作线：没有背景、没有师承，能做的只有报警、挡一下、收尸。
+          originAttr1: { id: luck, value: 2, mode: add }
+          originAttr2: { id: intellect, value: 1, mode: add }
+          rel1: { with: npc-nanami, value: 8, kind: friend }
+          rel2: { with: npc-haibara, value: 10, kind: friend }
+          rel3: { with: npc-gojo, value: 3, kind: colleague }
+          gEra: { id: era, value: 1 }
+          gChapter: { id: chapter, value: 1 }
+          gReady: { id: ready1, value: true }
+          clock: { value: 92, unit: day }
+      - id: o-clan
+        text: 御三家旁支，家里知道「咒术」两个字 —— 高专线
+        weight: 22
+        set:
+          line: { id: line, value: highschool }
+          originTag: { id: origin, value: clan-branch }
+          clan: { id: clan, value: branch }
+          originAttr1: { id: cursedEnergy, value: 6, mode: add }
+          originAttr2: { id: reputation, value: 10, mode: add }
+          rel1: { with: npc-gojo, value: 6, kind: colleague }
+          rel2: { with: npc-geto, value: 4, kind: colleague }
+          rel3: { with: npc-yaga, value: 8, kind: mentor }
+          gEra: { id: era, value: 1 }
+          gChapter: { id: chapter, value: 1 }
+          gReady: { id: ready1, value: true }
+          clock: { value: 92, unit: day }
+      - id: o-curse-family
+        text: 诅咒师世家，从小知道钱能买命 —— 诅咒师线
+        weight: 14
+        set:
+          line: { id: line, value: curse-user }
+          originTag: { id: origin, value: curse-family }
+          # 恶名是 0..2 的 ladder，+1 已经是「圈子里有人记得你」的量级。
+          originAttr1: { id: infamy, value: 1, mode: add }
+          originAttr2: { id: cursedEnergy, value: 4, mode: add }
+          rel1: { with: npc-toji, value: 10, kind: colleague }
+          rel2: { with: npc-gojo, value: -30, kind: enemy }
+          gEra: { id: era, value: 1 }
+          gChapter: { id: chapter, value: 1 }
+          gReady: { id: ready1, value: true }
+          clock: { value: 92, unit: day }
+  # ═══════════════════════════════════════════════════════════════════
+  # 2. 基本信息
+  # ═══════════════════════════════════════════════════════════════════
+  - node: n-gender
+    title: 性别
+    text: 性别这一格对咒术界不重要，对你怎么被人叫很重要。
+    mode: choose
+    options:
+      - { id: male, text: 男性, set: { sex: male } }
+      - { id: female, text: 女性, set: { sex: female } }
+      - { id: femboy, text: 男娘, set: { sex: femboy } }
+      - { id: agender, text: 无性别, set: { sex: agender } }
+
+  - node: n-age
+    title: 年龄
+    text: 年龄不是数字，是别人愿意把多大的事交给你。
+    mode: roll
+    options:
+      - { id: a15, text: 十五岁, weight: 26, set: { years: 15 } }
+      - { id: a16, text: 十六岁, weight: 24, set: { years: 16 } }
+      - { id: a17, text: 十七岁, weight: 18, set: { years: 17 } }
+      - { id: a20, text: 二十岁 · 晚入学, weight: 14, set: { years: 20 } }
+      - { id: a26, text: 二十六岁 · 半路转行, weight: 10, set: { years: 26 } }
+      - id: a32
+        text: 三十二岁 · 之前在做别的事
+        weight: 8
+        set:
+          years: 32
+          ageAttr: { id: intellect, value: 2, mode: add }
+
+  # ═══════════════════════════════════════════════════════════════════
+  # 3. 生得术式
+  #    池子里**没有**血继 / 唯一术式：无下限（五条家 + 六眼）、十种影法术（禅院血统）、
+  #    赤血操术（加茂血统）、御厨子（宿傩）、无为转变（真人）、咒灵操术（夏油）都在原作
+  #    人物身上，陌生人抽到就是「两个十影」这种硬伤。原作人物复用时不进这个节点。
+  # ═══════════════════════════════════════════════════════════════════
+  - node: n-talent
+    title: 天赋
+    text: 天赋这一格最不公平。有人第一次握咒具就像握过十年，有人练到吐血也只是二级。
+    mode: roll
+    options:
+      - id: t-none
+        text: 毫无天赋 · 靠练
+        weight: 5
+        set:
+          talentRoll: 5
+          rankFlag: { id: talent, value: none }
+          rankAttr: { id: grade, value: grade-4, mode: set }
+          talentAttr: { id: cursedEnergy, value: 1, mode: add }
+          talentAttr2: { id: physique, value: 2, mode: add }
+      - id: t-ordinary
+        text: 普通天赋 · 够用
+        weight: 30
+        set:
+          talentRoll: 4
+          rankFlag: { id: talent, value: ordinary }
+          rankAttr: { id: grade, value: grade-3, mode: set }
+          talentAttr: { id: cursedEnergy, value: 3, mode: add }
+      - id: t-good
+        text: 优秀天赋 · 教官会多看你一眼
+        weight: 27
+        set:
+          talentRoll: 4
+          rankFlag: { id: talent, value: good }
+          rankAttr: { id: grade, value: grade-2, mode: set }
+          talentAttr: { id: cursedEnergy, value: 6, mode: add }
+          talentAttr2: { id: intellect, value: 2, mode: add }
+      - id: t-genius
+        text: 天才级 · 乙骨那种「学一遍就会」
+        weight: 15
+        # 家学是真实存在的：御三家旁支与诅咒师世家从小摸咒具，出天才的比例更高。
+        # 这是「出身第一次有机制后果」，不是给玩家发福利（平民的权重没动）。
+        weightByParam:
+          originTag:
+            clan-branch: 6
+            curse-family: 4
+        set:
+          talentRoll: 3
+          rankFlag: { id: talent, value: genius }
+          rankAttr: { id: grade, value: grade-1, mode: set }
+          talentAttr: { id: cursedEnergy, value: 12, mode: add }
+          talentAttr2: { id: intellect, value: 3, mode: add }
+      - id: t-special
+        text: 特级苗子 · 上面会把你的名字圈起来
+        weight: 6
+        set:
+          talentRoll: 3
+          rankFlag: { id: talent, value: special-seed }
+          rankAttr: { id: grade, value: grade-1, mode: set }
+          talentAttr: { id: cursedEnergy, value: 18, mode: add }
+          talentAttr2: { id: reputation, value: 8, mode: add }
+      - id: t-anomaly
+        text: 异形 · 无法用等级衡量
+        weight: 2
+        set:
+          talentRoll: 2
+          rankFlag: { id: talent, value: anomaly }
+          rankAttr: { id: grade, value: special, mode: set }
+          talentAttr: { id: cursedEnergy, value: 26, mode: add }
+          talentAttr2: { id: reputation, value: 14, mode: add }
+      - id: t-heavenly
+        text: 天与咒缚 · 你用全部咒力换了一具不讲道理的肉体
+        weight: 4
+        set:
+          talentRoll: 3
+          rankFlag: { id: talent, value: heavenly }
+          rankAttr: { id: grade, value: grade-1, mode: set }
+          techFlag: { id: tech, value: none }
+          techAttr: { id: innateTechnique, value: none, mode: set }
+          techStatus: heavenly-restriction
+          techBodyAttr: { id: physique, value: 8, mode: add }
+          techSkill: [sk-heavenly-body, sk-heavenly-rush, sk-basic-strike]
+        # 没有咒力 ⇒ 没有术式、没有领域（n-dom-* 整段跳过）。
+        goto: n-body
+
+  - node: n-tech
+    title: 生得术式
+    text: 术式不是学来的，是生下来就写在身体里的那一行字。转盘只负责让你知道它写了什么。
+    mode: roll
+    options:
+      - id: t-space
+        text: 空间系 —— 距离在你手里是可以折叠的东西
+        weight: 6
+        weightByParam:
+          rankFlag:
+            special-seed: 3
+            anomaly: 4
+            genius: 2
+            none: -2
+        set:
+          techFlag: { id: tech, value: space }
+          techAttr: { id: innateTechnique, value: space, mode: set }
+          techStatus: tech-space
+          techSkill: [sk-tech-space-shift, sk-tech-space-cut]
+        goto: n-dom-space
+      - id: t-illusion
+        text: 精神幻术系 —— 你改的不是画面，是他确信的那一段
+        weight: 5
+        weightByParam:
+          rankFlag:
+            good: 1
+            none: -1
+        set:
+          techFlag: { id: tech, value: illusion }
+          techAttr: { id: innateTechnique, value: illusion, mode: set }
+          techStatus: tech-illusion
+          techSkill: [sk-tech-illusion-suggest, sk-tech-illusion-rewrite]
+        goto: n-dom-illusion
+      - id: t-flesh
+        text: 肉体操控系 —— 细胞、骨、血管，都听你的
+        weight: 5
+        weightByParam:
+          rankFlag:
+            ordinary: 1
+            none: 1
+        set:
+          techFlag: { id: tech, value: flesh }
+          techAttr: { id: innateTechnique, value: flesh, mode: set }
+          techStatus: tech-flesh
+          techSkill: [sk-tech-flesh-mend, sk-tech-flesh-warp]
+        goto: n-dom-flesh
+      - id: t-gravity
+        text: 重力力场系 —— 你决定哪边是下
+        weight: 4
+        weightByParam:
+          rankFlag:
+            special-seed: 1
+            anomaly: 2
+        set:
+          techFlag: { id: tech, value: gravity }
+          techAttr: { id: innateTechnique, value: gravity, mode: set }
+          techStatus: tech-gravity
+          techSkill: [sk-tech-gravity-press, sk-tech-gravity-lift]
+        goto: n-dom-gravity
+      - id: t-shadow
+        text: 影子系 —— 有光的地方就有你的入口
+        weight: 4
+        weightByParam:
+          rankFlag:
+            good: 1
+            genius: 1
+        set:
+          techFlag: { id: tech, value: shadow }
+          techAttr: { id: innateTechnique, value: shadow, mode: set }
+          techStatus: tech-shadow
+          techSkill: [sk-tech-shadow-pin, sk-tech-shadow-step]
+        goto: n-dom-shadow
+      - id: t-sound
+        text: 声波振动系 —— 你说话的时候骨头在响
+        weight: 3
+        weightByParam:
+          rankFlag:
+            none: 2
+            ordinary: 1
+        set:
+          techFlag: { id: tech, value: sound }
+          techAttr: { id: innateTechnique, value: sound, mode: set }
+          techStatus: tech-sound
+          techSkill: [sk-tech-sound-pulse, sk-tech-sound-shatter]
+        goto: n-dom-sound
+      - id: t-toxin
+        text: 毒素腐蚀系 —— 你呼出的气在别人体内结算
+        weight: 3
+        weightByParam:
+          rankFlag:
+            ordinary: 1
+            good: 1
+        set:
+          techFlag: { id: tech, value: toxin }
+          techAttr: { id: innateTechnique, value: toxin, mode: set }
+          techStatus: tech-toxin
+          techSkill: [sk-tech-toxin-mist, sk-tech-toxin-rot]
+        goto: n-dom-toxin
+      - id: t-matter
+        text: 物质转化系 —— 血可以变成铁，骨可以变成盐
+        weight: 4
+        weightByParam:
+          rankFlag:
+            genius: 2
+            special-seed: 1
+        set:
+          techFlag: { id: tech, value: matter }
+          techAttr: { id: innateTechnique, value: matter, mode: set }
+          techStatus: tech-matter
+          techSkill: [sk-tech-matter-forge, sk-tech-matter-swap]
+        goto: n-dom-matter
+      - id: t-rule
+        text: 契约规则系 —— 你说出口的条件会成立
+        weight: 3
+        weightByParam:
+          rankFlag:
+            special-seed: 3
+            anomaly: 3
+            none: -3
+        set:
+          techFlag: { id: tech, value: rule }
+          techAttr: { id: innateTechnique, value: rule, mode: set }
+          techStatus: tech-rule
+          techSkill: [sk-tech-rule-clause, sk-tech-rule-break]
+        goto: n-dom-rule
+      - id: t-fate
+        text: 运势因果系 —— 你不太用力，事情自己会往你这边倒
+        weight: 2
+        weightByParam:
+          rankFlag:
+            anomaly: 5
+            special-seed: 2
+            none: -1
+        set:
+          techFlag: { id: tech, value: fate }
+          techAttr: { id: innateTechnique, value: fate, mode: set }
+          techStatus: tech-fate
+          techSkill: [sk-tech-fate-coin, sk-tech-fate-debt]
+        goto: n-dom-fate
+      - id: t-latent
+        text: 还没觉醒 —— 转盘这次什么都没说
+        weight: 5
+        weightByParam:
+          rankFlag:
+            none: 6
+            ordinary: 2
+            special-seed: -2
+        set:
+          techFlag: { id: tech, value: latent }
+          techAttr: { id: innateTechnique, value: latent, mode: set }
+        goto: n-body
+
+  # ═══════════════════════════════════════════════════════════════════
+  # 4. 领域（一术式一节点）
+  #    这是「按术式给领域」在现行契约里唯一可行的写法：术式的每个扇区 goto 到自己的
+  #    领域节点，领域名与必中效果随术式走。**不能**按天赋/属性调制权重（无 weightBy）。
+  #    完度沿用转盘分布：不会 50 / 半成品 18 / 完整 18 / 开放 6（这里按 3-4 项重新配权）。
+  # ═══════════════════════════════════════════════════════════════════
+  - node: n-dom-space
+    title: 领域 · 无间回廊
+    text: 你想让一片空间只认你定的距离。门在身后关上时，走廊会自己变长。
+    mode: roll
+    goto: n-body
+    options:
+      - id: none
+        text: 不会领域
+        weight: 55
+        set: { dName: { id: domain, value: none } }
+      - id: half
+        text: 半成品 · 要靠咒具或「帐」把边界撑起来
+        weight: 24
+        set:
+          dName: { id: domain, value: 无间回廊 }
+          dTier: { id: domainTier, value: 1 }
+          dSkill: [sk-domain-space]
+      - id: full
+        text: 完整领域 · 无间回廊：对手每次移动都被搬回原点
+        weight: 18
+        set:
+          dName: { id: domain, value: 无间回廊 }
+          dTier: { id: domainTier, value: 2 }
+          dSkill: [sk-domain-space]
+          domAttr: { id: cursedEnergy, value: 4, mode: add }
+      - id: open
+        text: 开放式领域 · 不设结界，把整条街变成回廊
+        weight: 3
+        set:
+          dName: { id: domain, value: 无间回廊 }
+          dTier: { id: domainTier, value: 3 }
+          dSkill: [sk-domain-space]
+          domAttr: { id: cursedEnergy, value: 6, mode: add }
+
+  - node: n-dom-illusion
+    title: 领域 · 百八烦恼
+    text: 一百零八种烦恼，一人分一种。必中的不是幻觉，是他最确信的那段记忆被换掉了一页。
+    mode: roll
+    goto: n-body
+    options:
+      - id: none
+        text: 不会领域
+        weight: 55
+        set: { dName: { id: domain, value: none } }
+      - id: half
+        text: 半成品 · 只能对一个人生效
+        weight: 24
+        set:
+          dName: { id: domain, value: 百八烦恼 }
+          dTier: { id: domainTier, value: 1 }
+          dSkill: [sk-domain-illusion]
+      - id: full
+        text: 完整领域 · 百八烦恼：进来的人先忘记自己为什么来
+        weight: 18
+        set:
+          dName: { id: domain, value: 百八烦恼 }
+          dTier: { id: domainTier, value: 2 }
+          dSkill: [sk-domain-illusion]
+          domAttr: { id: intellect, value: 4, mode: add }
+      - id: open
+        text: 开放式领域 · 没有墙，只有一句话反复被听见
+        weight: 3
+        set:
+          dName: { id: domain, value: 百八烦恼 }
+          dTier: { id: domainTier, value: 3 }
+          dSkill: [sk-domain-illusion]
+          domAttr: { id: intellect, value: 6, mode: add }
+
+  - node: n-dom-flesh
+    title: 领域 · 胎藏
+    text: 胎藏是「还没长成」的意思。进了这里的人，身体会按你的图纸重新长一遍。
+    mode: roll
+    goto: n-body
+    options:
+      - id: none
+        text: 不会领域
+        weight: 55
+        set: { dName: { id: domain, value: none } }
+      - id: half
+        text: 半成品 · 只改得动伤口，改不动骨架
+        weight: 24
+        set:
+          dName: { id: domain, value: 胎藏 }
+          dTier: { id: domainTier, value: 1 }
+          dSkill: [sk-domain-flesh]
+      - id: full
+        text: 完整领域 · 胎藏：骨骼错位、器官移位，先痛后死
+        weight: 18
+        set:
+          dName: { id: domain, value: 胎藏 }
+          dTier: { id: domainTier, value: 2 }
+          dSkill: [sk-domain-flesh]
+          domAttr: { id: physique, value: 4, mode: add }
+      - id: open
+        text: 开放式领域 · 整片区域都是培养基
+        weight: 3
+        set:
+          dName: { id: domain, value: 胎藏 }
+          dTier: { id: domainTier, value: 3 }
+          dSkill: [sk-domain-flesh]
+          domAttr: { id: physique, value: 6, mode: add }
+
+  - node: n-dom-gravity
+    title: 领域 · 须弥
+    text: 须弥是压在地底的那座山。这里没有上下，只有「压向哪里」。
+    mode: roll
+    goto: n-body
+    options:
+      - id: none
+        text: 不会领域
+        weight: 55
+        set: { dName: { id: domain, value: none } }
+      - id: half
+        text: 半成品 · 只能压一个方向，撑不过十秒
+        weight: 24
+        set:
+          dName: { id: domain, value: 须弥 }
+          dTier: { id: domainTier, value: 1 }
+          dSkill: [sk-domain-gravity]
+      - id: full
+        text: 完整领域 · 须弥：方向被重定义，对手被自己的体重压住
+        weight: 18
+        set:
+          dName: { id: domain, value: 须弥 }
+          dTier: { id: domainTier, value: 2 }
+          dSkill: [sk-domain-gravity]
+          domAttr: { id: cursedEnergy, value: 4, mode: add }
+      - id: open
+        text: 开放式领域 · 一片没有重力的空腔，空气先被抽走
+        weight: 3
+        set:
+          dName: { id: domain, value: 须弥 }
+          dTier: { id: domainTier, value: 3 }
+          dSkill: [sk-domain-gravity]
+          domAttr: { id: cursedEnergy, value: 5, mode: add }
+
+  - node: n-dom-shadow
+    title: 领域 · 常夜
+    text: 常夜是没有天亮的那一夜。领域里没有光源，站着的人都是靶子。
+    mode: roll
+    goto: n-body
+    options:
+      - id: none
+        text: 不会领域
+        weight: 55
+        set: { dName: { id: domain, value: none } }
+      - id: half
+        text: 半成品 · 只能把一个人的影子钉住
+        weight: 24
+        set:
+          dName: { id: domain, value: 常夜 }
+          dTier: { id: domainTier, value: 1 }
+          dSkill: [sk-domain-shadow]
+      - id: full
+        text: 完整领域 · 常夜：影被钉住，人就不能动
+        weight: 18
+        set:
+          dName: { id: domain, value: 常夜 }
+          dTier: { id: domainTier, value: 2 }
+          dSkill: [sk-domain-shadow]
+          domAttr: { id: agility, value: 4, mode: add }
+      - id: open
+        text: 开放式领域 · 把整座废弃校舍变成影子的内部
+        weight: 3
+        set:
+          dName: { id: domain, value: 常夜 }
+          dTier: { id: domainTier, value: 3 }
+          dSkill: [sk-domain-shadow]
+          domAttr: { id: agility, value: 5, mode: add }
+
+  - node: n-dom-sound
+    title: 领域 · 梵钟
+    text: 梵钟响的时候，人先听见，再碎掉。这里的心跳就是频率。
+    mode: roll
+    goto: n-body
+    options:
+      - id: none
+        text: 不会领域
+        weight: 55
+        set: { dName: { id: domain, value: none } }
+      - id: half
+        text: 半成品 · 只能让对手耳鸣、失衡
+        weight: 24
+        set:
+          dName: { id: domain, value: 梵钟 }
+          dTier: { id: domainTier, value: 1 }
+          dSkill: [sk-domain-sound]
+      - id: full
+        text: 完整领域 · 梵钟：共鸣到骨头里，从内往外碎
+        weight: 18
+        set:
+          dName: { id: domain, value: 梵钟 }
+          dTier: { id: domainTier, value: 2 }
+          dSkill: [sk-domain-sound]
+          domAttr: { id: cursedEnergy, value: 4, mode: add }
+      - id: open
+        text: 开放式领域 · 不需要墙，声音本来就是全向的
+        weight: 3
+        set:
+          dName: { id: domain, value: 梵钟 }
+          dTier: { id: domainTier, value: 3 }
+          dSkill: [sk-domain-sound]
+          domAttr: { id: cursedEnergy, value: 5, mode: add }
+
+  - node: n-dom-toxin
+    title: 领域 · 腐海
+    text: 腐海不是毒雾，是「这里的空气按你的耐性重新配过」。
+    mode: roll
+    goto: n-body
+    options:
+      - id: none
+        text: 不会领域
+        weight: 55
+        set: { dName: { id: domain, value: none } }
+      - id: half
+        text: 半成品 · 只有贴身处有毒，得把人拖进来
+        weight: 24
+        set:
+          dName: { id: domain, value: 腐海 }
+          dTier: { id: domainTier, value: 1 }
+          dSkill: [sk-domain-toxin]
+      - id: full
+        text: 完整领域 · 腐海：呼吸即摄入，从肺开始烂
+        weight: 18
+        set:
+          dName: { id: domain, value: 腐海 }
+          dTier: { id: domainTier, value: 2 }
+          dSkill: [sk-domain-toxin]
+          domAttr: { id: physique, value: 3, mode: add }
+      - id: open
+        text: 开放式领域 · 毒扩散得比结界快，索性不设边界
+        weight: 3
+        set:
+          dName: { id: domain, value: 腐海 }
+          dTier: { id: domainTier, value: 3 }
+          dSkill: [sk-domain-toxin]
+          domAttr: { id: physique, value: 5, mode: add }
+
+  - node: n-dom-matter
+    title: 领域 · 万宝槌
+    text: 万宝槌敲一下，想要什么就出来什么。这里的东西没有「本来是什么」。
+    mode: roll
+    goto: n-body
+    options:
+      - id: none
+        text: 不会领域
+        weight: 55
+        set: { dName: { id: domain, value: none } }
+      - id: half
+        text: 半成品 · 只改得动无主之物
+        weight: 24
+        set:
+          dName: { id: domain, value: 万宝槌 }
+          dTier: { id: domainTier, value: 1 }
+          dSkill: [sk-domain-matter]
+      - id: full
+        text: 完整领域 · 万宝槌：对手身上的东西被改写材质
+        weight: 18
+        set:
+          dName: { id: domain, value: 万宝槌 }
+          dTier: { id: domainTier, value: 2 }
+          dSkill: [sk-domain-matter]
+          domAttr: { id: intellect, value: 4, mode: add }
+      - id: open
+        text: 开放式领域 · 一整条街都是原料
+        weight: 3
+        set:
+          dName: { id: domain, value: 万宝槌 }
+          dTier: { id: domainTier, value: 3 }
+          dSkill: [sk-domain-matter]
+          domAttr: { id: intellect, value: 5, mode: add }
+
+  - node: n-dom-rule
+    title: 领域 · 白纸黑字
+    text: 白纸黑字的意思是：说出口的就算数。领域内自动成立一份契约，违者受罚。
+    mode: roll
+    goto: n-body
+    options:
+      - id: none
+        text: 不会领域
+        weight: 55
+        set: { dName: { id: domain, value: none } }
+      - id: half
+        text: 半成品 · 只有对手先答应了才生效
+        weight: 24
+        set:
+          dName: { id: domain, value: 白纸黑字 }
+          dTier: { id: domainTier, value: 1 }
+          dSkill: [sk-domain-rule]
+      - id: full
+        text: 完整领域 · 白纸黑字：必中条款写进对手的「罪」
+        weight: 18
+        set:
+          dName: { id: domain, value: 白纸黑字 }
+          dTier: { id: domainTier, value: 2 }
+          dSkill: [sk-domain-rule]
+          domAttr: { id: intellect, value: 4, mode: add }
+      - id: open
+        text: 开放式领域 · 契约不需要边界，只需要有人听见
+        weight: 3
+        set:
+          dName: { id: domain, value: 白纸黑字 }
+          dTier: { id: domainTier, value: 3 }
+          dSkill: [sk-domain-rule]
+          domAttr: { id: intellect, value: 5, mode: add }
+
+  - node: n-dom-fate
+    title: 领域 · 命数转盘
+    text: 你第一次见到转盘，是在自己的领域里。这里每一次判定都要转一次——包括对手的。
+    mode: roll
+    goto: n-body
+    options:
+      - id: none
+        text: 不会领域
+        weight: 55
+        set: { dName: { id: domain, value: none } }
+      - id: half
+        text: 半成品 · 只能替自己转，改不了对手
+        weight: 24
+        set:
+          dName: { id: domain, value: 命数转盘 }
+          dTier: { id: domainTier, value: 1 }
+          dSkill: [sk-domain-fate]
+      - id: full
+        text: 完整领域 · 命数转盘：命中 / 落空由转盘说了算
+        weight: 18
+        set:
+          dName: { id: domain, value: 命数转盘 }
+          dTier: { id: domainTier, value: 2 }
+          dSkill: [sk-domain-fate]
+          domAttr: { id: luck, value: 6, mode: add }
+      - id: open
+        text: 开放式领域 · 转盘转的不只是这场架，还有这条街
+        weight: 3
+        set:
+          dName: { id: domain, value: 命数转盘 }
+          dTier: { id: domainTier, value: 3 }
+          dSkill: [sk-domain-fate]
+          domAttr: { id: luck, value: 9, mode: add }
+
+  # ═══════════════════════════════════════════════════════════════════
+  # 5. 天赋
+  #    六眼**不进池**：六眼与无下限、与天元的因果是绑在一起的，五条悟在世时不可能
+  #    出现第二个；写进池子等于免费送「无下限 + 无限」。同理「受肉体（宿傩容器）」也
+  #    不进池——那是虎杖的位置，进来就等于自带一个宿傩。
+  # ═══════════════════════════════════════════════════════════════════
+  - node: n-body
+    title: 体质
+    text: 体质不是术式，是「你这具身体本来是什么样」。它决定你能承受多少，不决定你能打出多少。
+    mode: roll
+    options:
+      - id: b-none
+        text: 没有特别之处
+        weight: 34
+        set: { bodyFlag: { id: body, value: none } }
+      - id: b-reverse
+        text: 反转术式的天赋 · 伤口合得比别人快
+        weight: 14
+        set:
+          bodyFlag: { id: body, value: reverse-apt }
+          bodyStatus: blessed-reverse
+          bodyAttr: { id: intellect, value: 2, mode: add }
+      - id: b-poison
+        text: 咒毒抗性极强 · 别人中毒你只是难受
+        weight: 12
+        set:
+          bodyFlag: { id: body, value: poison-ward }
+          bodyStatus: poison-ward
+          bodyAttr: { id: physique, value: 2, mode: add }
+      - id: b-sense
+        text: 咒力感知范围极广 · 你比雷达早半步
+        weight: 12
+        set:
+          bodyFlag: { id: body, value: wide-sense }
+          bodyStatus: wide-sense
+          bodyAttr: { id: intellect, value: 1, mode: add }
+      - id: b-memory
+        text: 记忆操作抗性 · 有人试过改你的记忆，没成功
+        weight: 8
+        set:
+          bodyFlag: { id: body, value: memory-ward }
+          bodyStatus: memory-ward
+      - id: b-multi
+        text: 多重人格 / 多重灵魂 · 身体里不止一个人
+        weight: 6
+        set:
+          bodyFlag: { id: body, value: multi-soul }
+          bodyStatus: multi-soul
+          bodyAttr: { id: cursedEnergy, value: 3, mode: add }
+      - id: b-mahoraga
+        text: 魔虚罗适配体质 · 你能承受「适应」本身
+        weight: 3
+        set:
+          bodyFlag: { id: body, value: mahoraga-fit }
+          bodyStatus: mahoraga-fit
+          bodyAttr: { id: physique, value: 3, mode: add }
+      - id: b-vow
+        text: 术式束缚 · 你给自己立过一条规矩，换来的是力量
+        weight: 3
+        set:
+          bodyFlag: { id: body, value: self-binding }
+          bodyStatus: self-binding
+          bodyAttr: { id: cursedEnergy, value: 4, mode: add }
+
+  # ═══════════════════════════════════════════════════════════════════
+  # 6. 高阶技巧 · 三格
+  #    「会几个」不是先抽个数再抽几次（DAG 无循环，写不出来），而是三格各自可能落空。
+  #    七个技巧拆成三格、互不重叠 ⇒ 不会抽到重复；每格一个独立 skill 参数才能叠加。
+  # ═══════════════════════════════════════════════════════════════════
+  - node: n-high1
+    title: 高阶技巧 · 一
+    text: 高专不教这些。要么有人在尸体边上教过你，要么你在自己要死的那次里学会了。
+    mode: roll
+    options:
+      - id: none
+        text: 不会
+        weight: 46
+        set: { high1: { id: high1, value: none } }
+      - id: reverse
+        text: 反转术式 · 把负的咒力乘一次负，伤口就合上了
+        weight: 20
+        # 反转术式是「负负得正」：两股负向咒力相乘。天与咒缚（techFlag=none）没有咒力可乘，
+        # 这一格对他们几乎必然落空 —— 这是设定，不是平衡。ADR-001 D7 weightByParam。
+        weightByParam:
+          techFlag:
+            none: -18
+        set:
+          high1: { id: high1, value: reverse }
+          highSkill1: [sk-reverse-heal]
+      - id: black-flash
+        text: 黑闪 · 打完那一击，你会有一瞬间听懂自己在干什么
+        weight: 24
+        set:
+          high1: { id: high1, value: black-flash }
+          highSkill1: [sk-black-flash]
+      - id: simple
+        text: 简易领域 · 没有结界，只有一圈「你进不来」
+        weight: 10
+        set:
+          high1: { id: high1, value: simple-domain }
+          highSkill1: [sk-simple-domain]
+
+  - node: n-high2
+    title: 高阶技巧 · 二
+    text: 第二格问的是：你不靠结界的时候，靠什么。
+    mode: roll
+    options:
+      - id: none
+        text: 不会
+        weight: 48
+        set: { high2: { id: high2, value: none } }
+      - id: envelop
+        text: 领域展延 · 不设结界，只把咒力裹在身上去中和对方的术式
+        weight: 16
+        set:
+          high2: { id: high2, value: domain-envelopment }
+          highSkill2: [sk-domain-envelopment]
+      - id: disclose
+        text: 术式公开 · 把自己的术式讲给对手听，换一次加成
+        weight: 24
+        set:
+          high2: { id: high2, value: disclosure }
+          highSkill2: [sk-technique-disclosure]
+      - id: kago
+        text: 弥虚葛笼 · 真·阴流的奥义，简易领域的原型
+        weight: 12
+        set:
+          high2: { id: high2, value: mishu-kago }
+          highSkill2: [sk-mishu-kago]
+
+  - node: n-high3
+    title: 高阶技巧 · 三
+    text: 最后一格通常落在最不像「战斗」的那一样上。
+    mode: roll
+    options:
+      - id: none
+        text: 不会
+        weight: 50
+        set: { high3: { id: high3, value: none } }
+      - id: curtain
+        text: 帐 · 把普通人挡在外面，也把自己关在里面
+        weight: 22
+        set:
+          high3: { id: high3, value: curtain }
+          highSkill3: [sk-curtain]
+      - id: vow
+        text: 束缚 · 你给自己加一条限制，换一次「这次一定成」
+        weight: 20
+        set:
+          high3: { id: high3, value: binding-vow }
+          highSkill3: [sk-self-binding-vow]
+      - id: sense
+        text: 咒力视觉 · 你能看见咒力的流向，等于看见对方的意图
+        weight: 8
+        set:
+          high3: { id: high3, value: curse-sight }
+          highSkill3: [sk-curse-sight]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # 6.5 加点（ADR-004）
+  #     这是**唯一**一个玩家自己写数字的节点。放在高阶技巧之后、入场之前：
+  #     前面每一格都在「抽」（命），这一格是「选」（人），最后再入场。
+  # ═══════════════════════════════════════════════════════════════════
+  - node: n-allocate
+    title: 加点
+    text: 天赋是把牌发到你手上，加点是决定先打哪张。落定之后，这一生都改不了。
+    mode: allocate
+    param: talentPoints
+
+  # ═══════════════════════════════════════════════════════════════════
+  # 7. 入场
+  #    只写所有站位都成立的旗标；`chapter` / `era` / `studentYear` 的差异留给章节表，
+  #    不要在这里按站位分叉（这个节点读不到出身结果）。
+  # ═══════════════════════════════════════════════════════════════════
+  - node: n-entrance
+    title: 入场
+    text: 转盘停了。你手里握着的这些东西——术式、领域、几样不教的本事——从现在起不再由它决定，由你怎么用决定。
+    mode: choose
+    options:
+      - id: in
+        text: 走进去
+        set:
+          gCreation: { id: creationDone, value: true }
+          gDone: { id: openingDone, value: true }
+          basicSkill: [sk-basic-strike]
+          # 章节黑板的基线：全 false。era / chapter / ready 已由出身那一格写定，
+          # 这里只补「还没发生」的那批（原开局在入学式一次性落定这些）。
+          gSpDone: { id: spDone, value: false }
+          gGetoGone: { id: getoGone, value: false }
+          gHaibaraDead: { id: haibaraDead, value: false }
+          gGojoGone: { id: gojoGone, value: false }
+          gNanamiGone: { id: nanamiGone, value: false }
+          gSavedRiko: { id: savedRiko, value: false }
+      - id: in-look
+        text: 先低头看一眼自己的手
+        set:
+          gCreation: { id: creationDone, value: true }
+          gDone: { id: openingDone, value: true }
+          basicSkill: [sk-basic-strike]
+          gSpDone: { id: spDone, value: false }
+          gGetoGone: { id: getoGone, value: false }
+          gHaibaraDead: { id: haibaraDead, value: false }
+          gGojoGone: { id: gojoGone, value: false }
+          gNanamiGone: { id: nanamiGone, value: false }
+          gSavedRiko: { id: savedRiko, value: false }
+          # 只是多看一秒：给一点幸运，不给额外资源。
+          enterAttr: { id: luck, value: 1, mode: add }

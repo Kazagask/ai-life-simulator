@@ -28,7 +28,7 @@
 
 ## 1.1 数据源
 
-只有 `state.relations`（经 `projectVisibleRelations` 收敛到 known/inferred）+ actor 目录。
+只有 `state.relations`（经 `projectVisibleRelations` 收敛到「对 self 可见」）+ actor 目录。
 **不许读宗族成员表**——那会把"归族"和"血缘"搅在一起（见 §3）。
 
 ## 1.2 世代 / 配偶 / 环：四条决定
@@ -332,3 +332,11 @@ B 段才需要 `state.extensions` 泛型命名空间与 effect 注册表。
 **不能**用"跳数远大于主称谓"通杀——那会把 `外孙女`、`甥外孙女` 一起误杀。
 
 **落地时要同时锁**：`哥哥` 消失 **且** `外孙女`/`甥外孙女` 仍在（`valmont` 用例）。
+
+---
+
+## 附：运行时成婚（`addSpouse`，2026-11-20）
+
+`spouses` 过去只有建局期 `initClanState` 一个写点，运行时结婚只能落关系边、族谱不动。
+`{ type: "addSpouse", a, b }` 直接写权威切片（无向、幂等、端点必须是已知演员），
+投影下一帧即可见 —— 这条也是「不能只认建局快照」的落地。

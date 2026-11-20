@@ -4,6 +4,7 @@ import {
   OpeningBranchDagSchema,
   StyleSpecSchema,
   UiConfigSchema,
+  QUALITY_TIER_IDS,
   isQualityTier,
   type EffectSummary,
   type Item,
@@ -15,7 +16,6 @@ import {
   captureGainBaseline,
   equipmentEffectSummaries,
   itemEffectSummaries,
-  resolveBattleStyle,
   resolveEntityStyle,
   resolveEntityTags,
   resolveStyle,
@@ -89,18 +89,19 @@ describe("效果摘要（ADR-002 D3）", () => {
   const { entry } = makeWorld();
   const lookup = entry.lookup;
 
-  it("补正：属性 / 控制 / 战斗面分别出条目，控制类 kind=control", () => {
+  it("状态：属性 / 控制 / 战斗面分别出条目，控制类 kind=control", () => {
     const def: StatusEffect = {
       id: "stun",
       name: "眩晕",
-      duration: { turns: 2 },
-      stacking: "refresh",
+      kind: "battle",
+      stacking: "unique",
+      polarity: "negative",
       visibility: "known",
-      simulation: { attributeModifiers: { cursedEnergy: -2 } },
+      attributeModifiers: { cursedEnergy: -2 },
       combat: { control: ["cannot_act"], hitChance: -0.1 },
     };
     const out = statusEffectSummaries(def, lookup);
-    // 底层效果只描述战斗能力限制，**不带回合数**（回合数属于补正的 duration）
+    // 底层效果只描述战斗能力限制，**不带回合数**（回合数属于状态的 duration）
     const control = out.find((e) => e.kind === "control");
     expect(control?.text).toBe("战斗中无法行动");
     expect(control?.text).not.toContain("回合");
@@ -109,12 +110,13 @@ describe("效果摘要（ADR-002 D3）", () => {
     expect(out.some((e) => e.text.includes("命中"))).toBe(true);
   });
 
-  it("技能：消耗 / 目标 / 冷却齐全，伤害公式是人话", () => {
+  it("技能：消耗 / 目标齐全；冷却按需出现（0 = 什么都不展示）", () => {
     const skill = entry.template.skills.find((s) => s.kind === "combat");
     if (skill === undefined) return;
     const out = skillEffectSummaries(skill, lookup);
-    expect(out.some((e) => e.kind === "cost" && e.text.includes("消耗"))).toBe(true);
-    expect(out.some((e) => e.text.includes("冷却"))).toBe(true);
+    // 零消耗写「无消耗」（2026-11-20）；冷却同理，`cooldownTurns` 为 0 时整行不出现。
+    expect(out.some((e) => e.kind === "cost" && /^(消耗|无消耗)/.test(e.text))).toBe(true);
+    expect(out.filter((e) => e.text.startsWith("冷却"))).toHaveLength(skill.cooldownTurns > 0 ? 1 : 0);
   });
 
   it("物品：消耗品效果翻译成「恢复 30 生命」这类句子", () => {
@@ -132,7 +134,7 @@ describe("效果摘要（ADR-002 D3）", () => {
     expect(out[0]?.tone).toBe("buff");
   });
 
-  it("装备动态补正只描述规则，不算值", () => {
+  it("装备动态状态只描述规则，不算值", () => {
     const eq: Item = {
       id: "blade",
       type: "equipment",
@@ -143,20 +145,22 @@ describe("效果摘要（ADR-002 D3）", () => {
       slot: "weapon",
       category: "blade",
       quality: "rare",
-      dynamicModifier: { attribute: "cursedEnergy", preset: "scaled", params: { base: 3, scaleBy: "cursedEnergy", multiplier: 0.2 } },
+      dynamicModifiers: [
+        { attribute: "cursedEnergy", preset: "scaled", params: { base: 3, scaleBy: "cursedEnergy", multiplier: 0.2 } },
+      ],
     };
     const out = equipmentEffectSummaries(eq, lookup);
     expect(out[0]?.text).toContain("随成长");
     expect(out[0]?.text).not.toMatch(/^\D*\d+\.\d+/);
   });
 
-  it("施加补正类条目带被引用实体的样式（浮层里「施加 力竭」也要有色）", () => {
+  it("施加状态类条目带被引用实体的样式（浮层里「施加 力竭」也要有色）", () => {
     const { entry } = makeWorld();
     const def: StatusEffect = {
       id: "carrier",
       name: "载体",
       duration: { turns: 1 },
-      stacking: "refresh",
+      stacking: "unique",
       visibility: "known",
       simulation: { attributeModifiers: { cursedEnergy: 1 } },
       combat: { control: ["cannot_act"] },
@@ -186,7 +190,7 @@ describe("回合增量（ADR-002 D4）", () => {
     expect(cats).toContain("attribute");
     expect(cats).toContain("status");
     expect(cats).toContain("item");
-    // 顺序固定：属性 → 补正 → 技能 → 物品 → 装备
+    // 顺序固定：属性 → 状态 → 技能 → 物品 → 装备
     const rank = ["attribute", "status", "skill", "item", "equipment"];
     expect(cats).toEqual([...cats].sort((a, b) => rank.indexOf(a) - rank.indexOf(b)));
     const attr = gains.find((g) => g.category === "attribute");
@@ -219,14 +223,14 @@ const _typecheck: EffectSummary = { text: "x", kind: "attr" };
 void _typecheck;
 
 describe("开局所得（ADR-002 D4 的开局版本）", () => {
-  it("每步与 commit 用同一份 collectOpeningGains：技能/物品/补正/属性都出现", async () => {
+  it("每步与 commit 用同一份 collectOpeningGains：技能/物品/状态/属性都出现", async () => {
     const { loadTemplates } = await import("../../apps/server/src/templates.ts");
     const { createOpeningSession, resolveStep, collectOpeningGains } = await import(
       "../../packages/game-core/src/v2/opening-dag.ts"
     );
     const entry = loadTemplates({ warn: () => {}, error: () => {}, info: () => {} }).resolve({
       id: "jjk-2006",
-      version: "2.0.0",
+      version: "3.0.0",
     });
     if (entry?.status !== "ready" || entry.openingDag === undefined) throw new Error("not ready");
 
@@ -234,22 +238,64 @@ describe("开局所得（ADR-002 D4 的开局版本）", () => {
     for (let guard = 0; !session.done && guard < 40; guard += 1) {
       const node = entry.openingDag.nodes.find((n) => n.node === session.nodeId);
       if (node === undefined) break;
-      session =
-        node.mode === "roll"
-          ? resolveStep(entry.openingDag, session, { kind: "roll" }).session
-          : resolveStep(entry.openingDag, session, { kind: "choose", optionId: node.options![0]!.id }).session;
+      if (node.mode === "roll") {
+        session = resolveStep(entry.openingDag, session, { kind: "roll" }).session;
+        continue;
+      }
+      if (node.mode === "allocate") {
+        // ADR-004：这条用例只关心「各类条目都出现」，加点按第一项吃满走个过场。
+        const { describeNode } = await import("../../packages/game-core/src/v2/opening-dag.ts");
+        const view = describeNode(entry.openingDag, session, { template: entry.template });
+        const allocation: Record<string, number> = {};
+        let left = view?.allocation?.budget ?? 0;
+        for (const target of view?.allocation?.targets ?? []) {
+          const take = Math.min(left, target.max ?? left);
+          allocation[target.attribute] = take;
+          left -= take;
+        }
+        session = resolveStep(entry.openingDag, session, { kind: "allocate", allocation }).session;
+        continue;
+      }
+      session = resolveStep(entry.openingDag, session, {
+        kind: "choose",
+        optionId: node.options![0]!.id,
+      }).session;
     }
 
     const gains = collectOpeningGains(entry.openingDag, session, entry.template, entry.ui);
     const categories = new Set(gains.map((g) => g.category));
     expect(categories.has("status")).toBe(true);
     expect(categories.has("skill")).toBe(true);
-    expect(categories.has("item")).toBe(true);
-    // 属性增减（jjk 模板只用 add；`set` 的形态由下一条用例覆盖）
+    // 属性增减（出身/天赋/体质都是 add；`set` 的形态由下一条用例覆盖）
     expect(gains.some((g) => g.category === "attribute" && (g.action === "up" || g.action === "down"))).toBe(true);
     // 条目自带详情快照（否则开局面板点开详情会「没反应」）
     const status = gains.find((g) => g.category === "status");
     expect(status?.effects?.length ?? 0).toBeGreaterThan(0);
+
+    // 2026-11-19 的 v3 开局不白送物品（旧开局「第六格咒具」已随转盘下线），
+    // item 分支改用夹具：物品条目仍要带数量与效果摘要。
+    const itemDag = OpeningBranchDagSchema.parse({
+      openingId: "op-item",
+      name: "物品所得",
+      entry: "a",
+      params: [{ id: "it", kind: "item" }],
+      nodes: [
+        {
+          node: "a",
+          title: "战利品",
+          mode: "choose",
+          options: [{ id: "x", text: "收下", set: { it: { itemId: "item-first-aid", count: 2 } } }],
+        },
+      ],
+    });
+    const itemSession = resolveStep(itemDag, createOpeningSession(itemDag, 1), {
+      kind: "choose",
+      optionId: "x",
+    }).session;
+    const itemGains = collectOpeningGains(itemDag, itemSession, entry.template, entry.ui);
+    const itemGain = itemGains.find((g) => g.category === "item");
+    expect(itemGain?.amount).toBe(2);
+    expect(itemGain?.name).toBe("急救包");
   });
 });
 
@@ -313,23 +359,28 @@ describe("标签（ADR-002 D2b）", () => {
     expect(resolveTags(["mythic"], custom)[0]?.name).toBe("一品·神话");
   });
 
-  it("战斗态样式只看语义：增益绿 / 异常红 / 纯天赋无战斗态", () => {
-    expect(resolveBattleStyle(["mythic-unique", "buff"], undefined)?.preset).toBe("green");
-    expect(resolveBattleStyle(["abnormal"], undefined)?.preset).toBe("red");
-    expect(resolveBattleStyle(["neutral"], undefined)?.preset).toBe("gray");
-    // 只有品级、没有语义标签 ⇒ 没有 battleStyle（战斗里继续用身份色）
-    expect(resolveBattleStyle(["mythic"], undefined)).toBeUndefined();
-    expect(resolveBattleStyle(undefined, undefined)).toBeUndefined();
+  it("状态正负是一等字段：配色读 polarity，不再从 tags 推断", () => {
+    const ui = undefined;
+    expect(resolveEntityStyle({ polarity: "positive" }, ui)?.preset).toBe("green");
+    // 即便挂了 `buff` 标签，正负仍以 polarity 为准（语义标签不再参与状态配色）
+    expect(resolveEntityStyle({ tags: ["buff"], polarity: "negative" }, ui)?.preset).toBe("red");
+    expect(resolveEntityStyle({ tags: ["abnormal"], polarity: "neutral" }, ui)?.preset).toBe("gray");
+    // 品级是**身份色**（个人面板），优先于正负；战斗面由 UI 直接读 polarity，两套口径互不干扰
+    expect(resolveEntityStyle({ quality: "epic", polarity: "positive" }, ui)?.preset).toBe("orange");
   });
 
-  it("施加点可以覆盖持续时间（同一条补正，这次只持续 1 回合）", () => {
+  it("施加点决定时长：给多久就多久，不给就是永久（ADR-009）", () => {
     const { state, entry } = makeWorld();
-    // fixture 的「轻伤」默认 2 回合；施加点说 1 回合就以施加点为准
-    applyStatusToPlayer(state, "inj", 1, entry.lookup, { turns: 1 });
-    expect(state.player.statuses.find((s) => s.statusId === "inj")?.turnsLeft).toBe(1);
-    // 不传 ⇒ 回落补正定义里的默认值（refresh 叠加也会把 turnsLeft 重置回默认）
+    const DAY = 24 * 60;
+    // 时长只由施加点说（ADR-009）：给一天就到明天这个时候，定义里没有可继承的默认值。
+    applyStatusToPlayer(state, "inj", 1, entry.lookup, { value: 1, unit: "day" });
+    expect(state.player.statuses.find((s) => s.statusId === "inj")?.expiresAt).toBe(state.worldTime + DAY);
+    // 再施加一次（ADR-011 D1）：时长按**这一次**重算，不给上一次的留缝；层数仍按 unique 不动
+    applyStatusToPlayer(state, "inj", 1, entry.lookup, { value: 3, unit: "day" });
+    expect(state.player.statuses.find((s) => s.statusId === "inj")?.expiresAt).toBe(state.worldTime + 3 * DAY);
+    // 不给时长 = 永久（只有「挂载身份」会这么调用）
     applyStatusToPlayer(state, "inj", 1, entry.lookup);
-    expect(state.player.statuses.find((s) => s.statusId === "inj")?.turnsLeft).toBe(2);
+    expect(state.player.statuses.find((s) => s.statusId === "inj")?.expiresAt).toBeUndefined();
   });
 
   it("quality 写品级阶梯 id 会自动生成标签（装备不必再写 tags）", () => {
@@ -347,6 +398,45 @@ describe("标签（ADR-002 D2b）", () => {
     // 自定义 quality 词不生成标签（仍可走 ui.qualityStyles 的旧通道）
     expect(tagIdsOf({ quality: "cursed" })).toEqual([]);
     expect(tagIdsOf(undefined)).toEqual([]);
+  });
+
+  it("十四档平铺：四档光谱是阶梯里的一档，写 quality 即可", () => {
+    // 名字与光谱一一对应（2026-11-19 用户裁决的四档）
+    const expected: ReadonlyArray<[string, string, string]> = [
+      ["ancient", "旷古·传说", "aurum"],
+      ["sublime", "绝世·史诗", "ember"],
+      ["precious", "稀世·珍宝", "magenta"],
+      ["superb", "超凡·卓越", "indigo"],
+    ];
+    for (const [id, name, preset] of expected) {
+      const tag = resolveTags([id], undefined)[0];
+      expect(tag?.name).toBe(name);
+      expect(tag?.style?.preset).toBe(preset);
+      // 写进 quality 与写进 tags 等价
+      expect(tagIdsOf({ quality: id })).toEqual([id]);
+      // 它们**就是**阶梯里的一档（用户 2026-11-19：十四档平铺）
+      expect(isQualityTier(id)).toBe(true);
+    }
+
+    // 阶梯是十四档，且四档光谱紧挨同色那一档、排在它前面（顺序 = 由高到低）
+    expect(QUALITY_TIER_IDS).toHaveLength(14);
+    expect(QUALITY_TIER_IDS).toEqual([
+      "mythic-unique",
+      "mythic",
+      "ancient",
+      "legend",
+      "sublime",
+      "epic",
+      "precious",
+      "treasure",
+      "superb",
+      "excellent",
+      "rare",
+      "fine",
+      "common",
+      "poor",
+    ]);
+    expect(isQualityTier("cursed")).toBe(false);
   });
 
   it("加载期校验：未知标签 id 拒载", () => {

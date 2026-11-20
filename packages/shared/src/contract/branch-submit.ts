@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TimeSpecSchema } from "../schema/common.js";
-import { RelationKindSchema, RelationVisibilitySchema } from "../schema/relation.js";
+import { RelationKindSchema, RelationScopeSchema, RelationVisibilitySchema } from "../schema/relation.js";
 
 /**
  * `story.submitBranch` 的入参（AGENTIC-GM 重构 · 设计 §4.2）。
@@ -86,11 +86,15 @@ export const BranchEffectSchema = z.union([
     .strict(),
   /**
    * 建立一条**关系边**（npc↔npc 或 npc↔player）。`from`/`to` 支持本次提交别名 /
-   * `player` / 模板角色 id。`visibility` 语义与模板关系边一致：
-   * known（明确相识）/ inferred（推断）/ unknown（默认不认识）/ hidden（对玩家隐藏）。
+   * `player` / 模板角色 id。
+   *
+   * **知情人范围用 `scope`**（ADR-007 D3）：`public` 大家都知道 / `limited` 名单内知道
+   * （必须给 `knownBy`）/ `private` 仅当事人知道（缺省）。旧的四档 `visibility`
+   * 仍接受但已废弃 —— 它和 `scope` 是同一件事的两套写法，模型只应该见到一套
+   * （ADR-017 D1：写入口不再教一个新词）。
    *
    * 与 `{relation:{with,to}}` 的区别：那个只调 NPC→玩家**标量**，这个能建带 kind、
-   * 带可见性的**有向边**，是关系图（ADR-0014）的主通道。
+   * 带知情人范围的**有向边**，是关系图的主通道。
    */
   z
     .object({
@@ -99,9 +103,22 @@ export const BranchEffectSchema = z.union([
           from: z.string().min(1),
           to: z.string().min(1),
           kind: RelationKindSchema,
-          visibility: RelationVisibilitySchema,
+          scope: RelationScopeSchema.optional(),
+          /** `scope: limited` 的知情人名单（当事人不必列，判定时自动算在内）。 */
+          knownBy: z.array(z.string().min(1)).optional(),
+          /** @deprecated 用 `scope`；旧调用方仍可发，引擎按 `relationScopeOf` 折算。 */
+          visibility: RelationVisibilitySchema.optional(),
         })
-        .strict(),
+        .strict()
+        .superRefine((edge, ctx) => {
+          if (edge.scope === "limited" && (edge.knownBy ?? []).length === 0) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ["knownBy"],
+              message: "scope: limited 必须给 knownBy（否则没人看得到这条关系）",
+            });
+          }
+        }),
     })
     .strict(),
   /** 往某个 NPC 的 `secrets` 追加一条隐秘（引擎按文本去重）。 */

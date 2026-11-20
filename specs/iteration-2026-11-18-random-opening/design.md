@@ -110,6 +110,6 @@ POST /openings/:id/commit 一次建世界 → 返回 worldId
 
 ## 8. 需 ADR 的点（G2）
 
-- self 存储从 `state.player` 迁到 `state.npcs[selfId]`（核心数据模型）→ `docs/ADR-001`。
+- self 存储从 `state.player` 迁到 `state.npcs[selfId]`（核心数据模型）→ `docs/adr/10-开局与角色.md`。
 - 开局会话作为新的 server 资源（新协议，非 WorldState 字段）→ 同一 ADR 记录。
 - 不新增 settle kind、不重建 taskDag——已裁决，写进 ADR 的"不做"段而非新开条目。

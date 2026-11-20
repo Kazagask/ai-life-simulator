@@ -17,3 +17,11 @@ place:
   event: overlay
   pedigree: slot:world.subview
   clan: slot:world.subview
+# ADR-003：决意（能量豆）用刻度展示；花光不告警（dangerAt: 0）。
+resources:
+  beans: { display: pips, dangerAt: 0 }
+
+# 人生页人物卡展示哪些属性（2026-11-19）：顺序即展示顺序，
+# ladder 占整行（带进度条），其余三列排布。这份文件不进语义指纹。
+playerCard:
+  attributes: [prowess, body, mind, will]

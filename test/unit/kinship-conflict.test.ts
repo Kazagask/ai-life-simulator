@@ -37,7 +37,7 @@ function templateOf(options: { family: boolean; relations?: Relation[] }): World
         relations: options.relations?.map((relation) => ({
           to: relation.to,
           kind: relation.kind,
-          visibility: "known" as const,
+          scope: "public" as const,
           value: 50,
         })),
       },

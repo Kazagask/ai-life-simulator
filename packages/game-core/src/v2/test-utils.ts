@@ -115,7 +115,6 @@ export function makeTestTemplate(): WorldTemplateV2 {
       {
         id: "absorbed-curses",
         name: "收集弹",
-        duration: { turns: 5 },
         stacking: "stack",
         combat: {},
         visibility: "known",
@@ -123,10 +122,9 @@ export function makeTestTemplate(): WorldTemplateV2 {
       {
         id: "inj",
         name: "轻伤",
-        duration: { turns: 2 },
-        stacking: "refresh",
+        stacking: "unique",
         simulation: { attributeModifiers: { agility: -2 }, moodDeltaPerTurn: -2 },
-        cureConditions: [{ restTurns: 2 }],
+        cureConditions: [{ restDays: 2 }],
         visibility: "known",
       },
     ],

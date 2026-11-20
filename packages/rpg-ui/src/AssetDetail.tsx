@@ -79,7 +79,7 @@ export function AssetDetail({
           <TagChips tags={worn.tags} className="tag-row" />
           <div className="tag-row">
             <span className="tag">已装备</span>
-            {worn.category && <span className="tag">类别 {worn.category}</span>}
+            {worn.category && <span className="tag">类别 {worn.categoryLabel ?? worn.category}</span>}
           </div>
           {worn.description && <p className="item-desc">{worn.description}</p>}
           <EquipMeta equipment={worn} />
@@ -116,7 +116,7 @@ export function AssetDetail({
                   {/* 品级不再印 `quality` 原文（那是引擎词）；改由标签行承担（ADR-002 D2b/D2c）。 */}
                   <TagChips tags={item.tags} className="tag-row" />
                   <p className="muted">
-                    {item.category ?? "无类别"}
+                    {item.categoryLabel ?? item.category ?? "无类别"}
                     {item.count > 1 ? ` · 备用 ${item.count}` : ""}
                   </p>
                 </div>
@@ -152,7 +152,7 @@ export function AssetDetail({
       <TagChips tags={item.tags} className="tag-row" />
       <div className="tag-row">
         {item.slotLabel && <span className="tag">槽位 {item.slotLabel}</span>}
-        {item.category && <span className="tag">类别 {item.category}</span>}
+        {item.category && <span className="tag">类别 {item.categoryLabel ?? item.category}</span>}
         {item.usableInBattle && <span className="tag">战斗可用</span>}
       </div>
       {item.description && <p className="item-desc">{item.description}</p>}

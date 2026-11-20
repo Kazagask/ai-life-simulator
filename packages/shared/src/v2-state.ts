@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { PendingAllocationSchema } from "./schema/allocation.js";
+import { AttributeValueSchema } from "./schema/attribute.js";
 import { CombatSettleSchema, EventV2Schema } from "./schema/event.js";
 import { CharacterSchema } from "./schema/character.js";
 import { EndingConfigSchema } from "./schema/ending.js";
@@ -24,9 +26,13 @@ const StatusInstanceSchema = z
     statusId: z.string().min(1),
     stacks: z.number().int(),
     appliedTurn: z.number().int().nonnegative(),
-    battleRoundsElapsed: z.number().int().nonnegative().optional(),
+    /** ADR-009：施加时的 worldTime（分钟）。到期判定与展示的基准点。 */
+    appliedAt: z.number().int().nonnegative(),
+    expiresAt: z.number().int().nonnegative().optional(),
+    roundsLeft: z.number().int().nonnegative().optional(),
+    /** ADR-018 D4：战斗态已经历的回合末次数（战后折算世界时间用）。 */
+    roundsHeld: z.number().int().nonnegative().optional(),
     restProgress: z.number().int().nonnegative().optional(),
-    turnsLeft: z.number().int().nonnegative().optional(),
   })
   .strict();
 
@@ -36,7 +42,12 @@ const CombatantBaseSchema = z
     name: z.string().min(1),
     gender: z.string(),
     age: z.number(),
-    attributes: z.record(z.string(), z.number()),
+    /** ADR-003：数值属性为 number，enum 属性为选项 id。 */
+    attributes: z.record(z.string(), AttributeValueSchema),
+    /**
+     * reset 阶梯的当前档位（ADR-003 D4）。可选：旧档与只用 cumulative 的世界没有该字段。
+     */
+    attributeTiers: z.record(z.string(), z.string().min(1)).optional(),
     hp: z.number(),
     mp: z.number(),
     mood: z.number(),
@@ -45,8 +56,28 @@ const CombatantBaseSchema = z
   })
   .strict();
 
+/**
+ * 生命周期（ADR-0012 决策 1 / ADR-0020）。抽出来是为了 ADR-010 D1：玩家结构在
+ * 接管一个 NPC 时也要能携带它（可选），而 NPC 上它必填且默认存活。
+ */
+const LifecycleSchema = z
+  .object({
+    state: z.enum(["alive", "inactive", "unspawned"]),
+    reasonCode: z.string().min(1).optional(),
+    sinceTurn: z.number().int().nonnegative(),
+    sinceWorldTime: z.number(),
+  })
+  .strict();
+
 const V2PlayerSchema = CombatantBaseSchema.extend({
   inventory: z.record(z.string(), z.number().int().nonnegative()),
+  /**
+   * 自定义资源（ADR-003 D8）：**不含 hp/mp**（它们是同名字段）。
+   * 可选 + 默认 {} ⇒ 旧档直载。
+   */
+  resources: z.record(z.string(), z.number()).default({}),
+  /** ADR-012 D9：专属资源池上限（以角色开局时才有）。 */
+  resourceMax: z.record(z.string(), z.number()).optional(),
   skills: z.array(z.string().min(1)),
   growthLevel: z.number().int().nonnegative(),
   equipment: z.array(EquipmentInstanceSchema).optional(),
@@ -56,6 +87,22 @@ const V2PlayerSchema = CombatantBaseSchema.extend({
    */
   fatherId: z.string().min(1).optional(),
   motherId: z.string().min(1).optional(),
+  /**
+   * ⚠ **ADR-010 D1 演员同构**：以下字段与 NPC 同名同义，只在「self 就是某个模板角色」
+   * （扮演、夺舍、继承）时出现。全部可选 + 无默认 ⇒ 旧档与普通玩家档逐字段不变。
+   */
+  lifecycle: LifecycleSchema.optional(),
+  personality: z.string().optional(),
+  goals: z.array(z.string()).optional(),
+  traits: z.array(z.string()).optional(),
+  knowledge: z.array(z.string()).optional(),
+  secrets: z.array(z.string()).optional(),
+  visibility: z.enum(["public", "hidden"]).optional(),
+  isEnemy: z.boolean().optional(),
+  birthTime: z.number().optional(),
+  lastActedAtTurn: z.number().int().nonnegative().optional(),
+  /** ADR-010 D5：对**当前 self** 的单向好感标量，不参与判定。 */
+  relationship: z.number().optional(),
 }).strict();
 
 const V2NpcSchema = CombatantBaseSchema.extend({
@@ -72,6 +119,13 @@ const V2NpcSchema = CombatantBaseSchema.extend({
    */
   visibility: z.enum(["public", "hidden"]).default("public"),
   inventory: z.record(z.string(), z.number().int().nonnegative()),
+  /**
+   * ⚠ **ADR-010 D1 演员同构**：与玩家同名同义。全部可选 + 无默认 ⇒ 旧档逐字段不变，
+   * 且「NPC 没有这个东西」仍可辨认（字段缺席，而不是 0）。
+   */
+  resources: z.record(z.string(), z.number()).optional(),
+  equipment: z.array(EquipmentInstanceSchema).optional(),
+  growthLevel: z.number().int().nonnegative().optional(),
   goals: z.array(z.string()),
   traits: z.array(z.string()),
   knowledge: z.array(z.string()),
@@ -84,15 +138,7 @@ const V2NpcSchema = CombatantBaseSchema.extend({
    * 该字段引入前落盘的存档没有它，加载时补成 alive，不升 `schemaVersion`
    * （沿用 `lastWheels` 的兼容先例，避免为一个新增字段废掉全部在跑存档）。
    */
-  lifecycle: z
-    .object({
-      state: z.enum(["alive", "inactive", "unspawned"]),
-      reasonCode: z.string().min(1).optional(),
-      sinceTurn: z.number().int().nonnegative(),
-      sinceWorldTime: z.number(),
-    })
-    .strict()
-    .default({ state: "alive", sinceTurn: 0, sinceWorldTime: 0 }),
+  lifecycle: LifecycleSchema.default({ state: "alive", sinceTurn: 0, sinceWorldTime: 0 }),
   /**
    * 出生时刻（世界分钟，**可为负** = 世界起点之前出生；ADR-0021 决策 4.1）。
    * 可选 + 读侧反推：缺字段的旧档不拒载，投影按 `birthTimeFromAge(age, adapter)` 兜底
@@ -116,12 +162,43 @@ const BattleEnemySchema = z
     maxHp: z.number(),
     mp: z.number(),
     maxMp: z.number().optional(),
-    attributes: z.record(z.string(), z.number()),
+    attributes: z.record(z.string(), AttributeValueSchema),
+    /** 敌人 / 友军的自定义资源（ADR-003 D9：引擎对称，不做「只有玩家有」的特例）。 */
+    resources: z.record(z.string(), z.number()).default({}),
+    /** ADR-012 D9：专属资源池上限。旧档 / 无专属池 ⇒ 空表。 */
+    resourceMax: z.record(z.string(), z.number()).optional(),
     statuses: z.array(StatusInstanceSchema),
     skillCooldowns: z.record(z.string(), z.number()),
+    /** ADR-010 D3：心情进战斗。可选 ⇒ 旧档缺省按 50 处理。 */
+    mood: z.number().optional(),
     skills: z.array(z.string().min(1)),
     skillWeights: z.record(z.string(), z.number()),
     alive: z.boolean(),
+    /** ADR-012 D2：展示档位。旧档缺省 ⇒ 按 minion 处理（小框）。 */
+    tier: z.enum(["minion", "hero"]).optional(),
+    /** 装备战斗轴合计（2026-11-20）：建场时算一次，整场不变；旧档缺省 ⇒ 空。 */
+    gear: z
+      .object({
+        hitChance: z.number(),
+        evade: z.number(),
+        damageDealt: z.number(),
+        damageTaken: z.number(),
+        guaranteedHit: z.boolean(),
+      })
+      .strict()
+      .optional(),
+    /** 阵营（2026-11-20）：已退场名册的混合列表靠它上色。旧档缺省 ⇒ 按友军兜底。 */
+    side: z.enum(["ally", "enemy", "neutral"]).optional(),
+    /** ADR-012 D1：召唤者实例 id（只对召唤物有值）。 */
+    summonedBy: z.string().min(1).optional(),
+    /** ADR-012 D1：入场回合号（= 当前回合 ⇒ 本回合不行动）。 */
+    enteredRound: z.number().int().nonnegative().optional(),
+    /** ADR-013 D1：召它的角色 id —— 收回后再召靠它认亲（不按实例 id）。 */
+    summonRef: z.string().min(1).optional(),
+    /** ADR-012 D1：召唤者倒下时是否连带消失。 */
+    dismissOnSummonerDown: z.boolean().optional(),
+    /** 死亡 / 献祭 / 连带消失的可展示原因。旧档缺省。 */
+    deathReason: z.string().optional(),
   })
   .strict();
 
@@ -135,12 +212,24 @@ const BattleStateSchema = z
       .object({
         hp: z.number(),
         mp: z.number(),
+        /** 战斗镜像里的自定义资源（ADR-003 D8）；结束时回写权威状态。 */
+        resources: z.record(z.string(), z.number()).default({}),
         statuses: z.array(StatusInstanceSchema),
         skillCooldowns: z.record(z.string(), z.number()),
       })
       .strict(),
     enemies: z.array(BattleEnemySchema),
     allies: z.array(BattleEnemySchema),
+    /** ADR-012 D5：中立单位。旧档缺省空数组。 */
+    neutrals: z.array(BattleEnemySchema).default([]),
+    /** 已退场但保留原因的单位（献祭 / 连带消失）。旧档缺省空。 */
+    fallen: z.array(BattleEnemySchema).optional(),
+    /** ADR-013 D4：已收回的召唤物（战斗内保留状态，重召即原位回来）。旧档 ⇒ 空。 */
+    bench: z.array(BattleEnemySchema).optional(),
+    /** ADR-013：召唤实例编号的单调计数器（长度会变，不能用长度起算）。 */
+    summonSeq: z.number().int().nonnegative().optional(),
+    /** ADR-012 D3：中途加入触发进度（键 = id / `#下标`，值 = 次数）。 */
+    reinforcementFires: z.record(z.string(), z.number()).optional(),
     log: z.array(z.string()),
     over: z.enum(["victory", "defeat", "flee"]).nullable(),
   })
@@ -152,7 +241,7 @@ const HistoryEntryV2Schema = z
     turnIndex: z.number().int().nonnegative(),
     worldTime: z.number(),
     formattedTime: z.string(),
-    type: z.enum(["player_action", "npc_action", "event", "battle", "milestone"]),
+    type: z.enum(["player_action", "npc_action", "event", "battle", "milestone", "world"]),
     summary: z.string(),
     detail: z.string().optional(),
     /** 可选：R2.2 及以前旧档缺字段，读取侧视为 public（协议 §21.1 兼容策略） */
@@ -290,6 +379,8 @@ export const WorldStateV2Schema = z
      * **可选**：引入前落盘的存档没有它，读取时回落 `PLAYER_ID`（"player"），行为逐字段不变。
      */
     selfId: z.string().min(1).optional(),
+    /** 观察者（`observeActor` 写入）；缺省 = selfId。旧档直载。 */
+    viewerId: z.string().min(1).optional(),
     /** ADR-001：前实例化开局落盘记录（只记结果）。schemaVersion 5 新档必写。 */
     opening: z
       .object({
@@ -340,7 +431,32 @@ export const WorldStateV2Schema = z
           .strict(),
       )
       .default([]),
+    /**
+     * 待完成的加点请求（ADR-019，2026-11-20）。
+     *
+     * **可选** ⇒ 旧档直载、不升 `schemaVersion`（与 `spawnRules` / `facts` 同一策略）。
+     * 提交后由轮外端点清空；不写回「剩余点数」，那会变成一个永远没人对账的字段。
+     */
+    pendingAllocation: PendingAllocationSchema.optional(),
     flags: z.record(z.string(), FlagsValueSchema),
+    /**
+     * 世界时间表的执行记录（ADR-007 D1）：`factId` 出现即「这条事实已经发生过」。
+     *
+     * append-only，只由引擎在 `scheduledFacts` 条件满足时追加一条；读侧只看「在不在」。
+     * **可选 + 默认 []** ⇒ 旧档直载、不升 schemaVersion（与 `spawnRules` / `spawnLog`
+     * 同一兼容策略）。
+     */
+    facts: z
+      .array(
+        z
+          .object({
+            factId: z.string().min(1),
+            turnIndex: z.number().int().nonnegative(),
+            worldTime: z.number(),
+          })
+          .strict(),
+      )
+      .default([]),
     /** 过渡兼容索引：与 lastFiredIndex / eventFires 由 recordFire 一处写入 */
     firedEvents: z.record(z.string(), z.number().int().nonnegative()),
     /** 唯一队列（ADR-0034 §1）：延时事件队列。改名自 `scheduledEvents`（形状不变）。 */

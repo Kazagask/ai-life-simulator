@@ -21,6 +21,7 @@
 pnpm typecheck         # 全仓 tsc
 pnpm build             # typecheck + web 构建
 pnpm dev               # server + vite dev
+pnpm inspect           # 模板 / trace 只读体检（check / tpl --flag|--event|--line|--npc|--grep / trace，见 apps/admin/README.md）
 ```
 
 **测试在 `test/`（引擎级）与 `extensions/*/test/`（扩展自有）**，根 `pnpm test` = `vitest run`

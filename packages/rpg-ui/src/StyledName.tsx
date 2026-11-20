@@ -56,7 +56,7 @@ export interface StyledNameProps {
   as?: "span" | "strong" | "b";
 }
 
-/** 带样式的实体名（补正 / 技能 / 物品 / 装备统一入口）。 */
+/** 带样式的实体名（状态 / 技能 / 物品 / 装备统一入口）。 */
 export function StyledName({ children, name, style, className, as = "span" }: StyledNameProps) {
   const Tag = as;
   const cls = [className, styleClassName(style)].filter(Boolean).join(" ");

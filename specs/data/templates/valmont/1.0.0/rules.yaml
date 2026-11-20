@@ -1,9 +1,48 @@
 # 独立规则文件（不并入 TEMPLATE_MERGE_FILES）。
 #
-# 本模板**不接 LLM**：llmTriggers 与 toolProfile 为空，所有异常都归因到 game-core，
-# 不会混进一次生成里。
-llmTriggers: []
-toolProfile: {}
+# 2026-11-20：**改成接 LLM**（用户裁决：这个剧本要自由一点，多让模型写事件）。
+# 分工：模板只保留骨架与因果（册子、族表、决斗、暗杀），
+# 具体场面交给 `story.submitBranch` —— 它提交的 NPC 会走 generatedCharacters，
+# 由分支里的 `spawn` 效果激活，这就是「NPC 生成事件（LLM 提交）」的通路。
+llmTriggers:
+  # 议亲之后：只写清早，不写婚礼过程（册子戏，不写情欲）。
+  - id: lt.marriage
+    when: [{ op: flagSet, args: { flag: married, value: true } }]
+    invoke:
+      reason: valmont.marriage
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      instruction: 写议亲之后的第一个清早：谁先起、谁擦了桌子、册子翻到哪一页。只写器物与动作，不写身体，不评判任何人。
+      toolProfile: freeform
+
+  # 认领侧院孩子之后：模型可以自己写一条支线（含新 NPC），引擎负责排期与判活。
+  - id: lt.bastard
+    when: [{ op: flagSet, args: { flag: bastardBorn, value: true } }]
+    invoke:
+      reason: valmont.branch
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      instruction: 侧院的孩子已经写进侧册。写一条这座宅子里可能发生的支线：可以是认亲、可以是下毒、也可以是有人连夜离开。可以造新 NPC，但必须给得出他在这座宅子里的位置。
+      toolProfile: freeform
+
+  # 传艺之后：收束这一段，写成一段完整的回顾。
+  - id: lt.legacy
+    when: [{ op: flagSet, args: { flag: legacyPassed, value: true } }]
+    invoke:
+      reason: valmont.recap
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      mode: recap
+      instruction: 把这几日拢成一段完整的经历：议亲、生子、认领、递剑、传艺。写清主角做了什么选择、付出了什么代价，不要罗列流程，不要讲道理。
+      toolProfile: freeform
+
+# 能力画像：`freeform` 允许模型提交分支（分支里可声明 npcs）。
+# 不写 `branchEventIds` —— 引擎已不再用白名单限制提交，这里只作能力声明。
+toolProfile:
+  freeform: ["story.submitBranch", "agent.submit"]
 
 knowledgeGrants:
   # 外姓那一栏只有亲手翻到的人才知道 —— 看过那一页（sawDoor 任意取值）即登记为目击。

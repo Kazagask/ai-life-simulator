@@ -4,7 +4,7 @@ import { StyledName, styleBoxClassName, styleBoxInline } from "./StyledName.js";
 const GROUP_ORDER = ["attribute", "status", "skill", "item", "equipment"] as const;
 const GROUP_LABEL: Record<(typeof GROUP_ORDER)[number], string> = {
   attribute: "属性",
-  status: "补正",
+  status: "状态",
   skill: "技能",
   item: "物品",
   equipment: "装备",
@@ -14,7 +14,7 @@ export interface TurnGainsCardProps {
   gains: TurnGainVM[];
   /** 本轮的转盘结果（若有）：作为卡片首行，避免「只有收获没有事件上下文」。 */
   wheel?: { title?: string; label: string } | null;
-  /** 点开条目详情（属性不可点；技能 / 物品 / 装备 / 补正走各自详情）。 */
+  /** 点开条目详情（属性不可点；技能 / 物品 / 装备 / 状态走各自详情）。 */
   onSelect?: (gain: TurnGainVM) => void;
 }
 
@@ -24,7 +24,7 @@ function signed(amount: number | undefined): string {
   return `${amount > 0 ? "+" : ""}${amount}`;
 }
 
-/** 类别的动词前缀：补正是 +/-，技能是「习得」，物品是「获得/失去」，装备是「装备/卸下」。 */
+/** 类别的动词前缀：状态是 +/-，技能是「习得」，物品是「获得/失去」，装备是「装备/卸下」。 */
 function prefixOf(gain: TurnGainVM): string {
   switch (gain.category) {
     case "status":
@@ -87,13 +87,15 @@ export function TurnGainsCard({ gains, wheel, onSelect }: TurnGainsCardProps) {
                 const content = (
                   <>
                     <span className="ls-gains__sign">{prefixOf(gain)}</span>
-                    {gain.category === "attribute" ? (
-                      <span>{gain.name}</span>
-                    ) : (
-                      <StyledName name={gain.name} style={gain.style} />
-                    )}
+                    {/* 属性也要吃样式：文本属性（等级 / 身份）的颜色是模板给的，
+                        只给行加边框会让「特级」显示成灰字（用户 2026-11-19 反馈）。 */}
+                    <StyledName name={gain.name} style={gain.style} />
                     {gain.category === "attribute" && (
-                      <span className="ls-gains__amount">{attributeText(gain)}</span>
+                      gain.value !== undefined ? (
+                        <StyledName className="ls-gains__amount" name={String(gain.value)} style={gain.style} />
+                      ) : (
+                        <span className="ls-gains__amount">{attributeText(gain)}</span>
+                      )
                     )}
                     {gain.category !== "attribute" && gain.amount !== undefined && (
                       <span className="ls-gains__amount">×{Math.abs(gain.amount)}</span>

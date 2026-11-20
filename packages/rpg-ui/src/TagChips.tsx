@@ -7,7 +7,7 @@ import { StyledName, styleBoxClassName, styleBoxInline } from "./StyledName.js";
  * 标签是**模板自己的词**（神话 / 增益 / 减益），不是引擎的样式名（rainbow / green）。
  * 每个标签带自己的样式，所以同一行里可以既有金色的品级、又有绿色的增益。
  *
- * 为什么单独成组件：补正浮层、装备详情、收获卡都要同一套观感；各写一遍必然漂移。
+ * 为什么单独成组件：状态浮层、装备详情、收获卡都要同一套观感；各写一遍必然漂移。
  */
 export interface TagChipsProps {
   tags?: ResolvedTag[];

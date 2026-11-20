@@ -465,6 +465,24 @@ export const AdjustClanPrestigeEffectSchema = z
   })
   .strict();
 
+/**
+ * 运行时成婚（2026-11-20）：把一对配偶写进**权威切片** `state.extensions.family.spouses`。
+ *
+ * 为什么需要它：`spouses` 过去只有建局期 `initClanState` 播种那一次写点 ——
+ * 运行时「结婚」只能落一条关系边，族谱的配偶行不动（用户 2026-11-20：
+ * 「不能只认快照，要实时更新」）。这条效果补上写点，投影下一帧就能看到新配偶。
+ *
+ * 无向、幂等（同一对写两次不重复）；`since` 缺省取当前世界时间。
+ */
+export const AddSpouseEffectSchema = z
+  .object({
+    type: z.literal("addSpouse"),
+    a: z.string().min(1),
+    b: z.string().min(1),
+    since: z.number().int().optional(),
+  })
+  .strict();
+
 export const UnlockLegacyEffectSchema = z
   .object({
     type: z.literal("unlockLegacy"),
@@ -482,6 +500,28 @@ export const ClanHistoryEffectSchema = z
     refs: z.array(z.string().min(1)).optional(),
   })
   .strict();
+
+function applyAddSpouse(state: WorldStateV2, raw: unknown): void {
+  const effect = AddSpouseEffectSchema.parse(raw);
+  if (effect.a === effect.b) throw new Error("addSpouse: a 与 b 不能是同一人");
+  /**
+   * 端点必须是**已声明 / 已在场**的演员：写错一个 id 会让族谱长出一对查不到的夫妻，
+   * 而且不会报错。加载期没有扩展配置的校验口，所以在这里 fail-fast。
+   */
+  const selfId = state.selfId ?? state.player.id;
+  const known = new Set<string>([selfId, ...state.npcs.map((n) => n.id)]);
+  if (!known.has(effect.a) || !known.has(effect.b)) {
+    throw new Error(`addSpouse: 未知演员 ${!known.has(effect.a) ? effect.a : effect.b}`);
+  }
+  const clanState = ensureClanState(state);
+  const spouses = clanState.spouses ?? [];
+  const exists = spouses.some(
+    (s) => (s.a === effect.a && s.b === effect.b) || (s.a === effect.b && s.b === effect.a),
+  );
+  if (exists) return;
+  clanState.spouses = [...spouses, { a: effect.a, b: effect.b, since: effect.since ?? state.worldTime }];
+  writeClanState(state, clanState);
+}
 
 function applyJoinClan(state: WorldStateV2, raw: unknown, ctx: ExtensionEffectContext): void {
   const effect = JoinClanEffectSchema.parse(raw);
@@ -648,6 +688,7 @@ export const clanEffectHandlers: readonly ExtensionEffectHandler[] = [
     schema: AdjustClanPrestigeEffectSchema,
     apply: applyAdjustClanPrestige,
   },
+  { type: "addSpouse", schema: AddSpouseEffectSchema, apply: applyAddSpouse },
   { type: "unlockLegacy", schema: UnlockLegacyEffectSchema, apply: applyUnlockLegacy },
   { type: "clanHistory", schema: ClanHistoryEffectSchema, apply: applyClanHistory },
 ];

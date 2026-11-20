@@ -71,11 +71,11 @@ describe("世界模板协议 V2 Schema", () => {
     for (const id of ["ev-w12", "ev-patrol-wheel", "ev-explore-wheel", "ev-sj-03"]) {
       expect(world.events.find((e) => e.id === id)?.kind, `${id} 必须是 random 轮盘`).toBe("random");
     }
-    // 生得术式是「补正 + 多技能」，不是单个技能
+    // 生得术式是「状态 + 多技能」，不是单个技能
     for (const tech of ["tech-ten-shadow", "tech-red-blood", "tech-doll", "tech-thunder", "tech-speech"]) {
-      expect(world.statuses.some((s) => s.id === tech), `缺少术式补正 ${tech}`).toBe(true);
+      expect(world.statuses.some((s) => s.id === tech), `缺少术式状态 ${tech}`).toBe(true);
     }
-    // 领域展开用补正确实现：自身增幅 + 全体敌人压制
+    // 领域展开用状态确实现：自身增幅 + 全体敌人压制
     const domain = world.skills.find((s) => s.id === "sk-domain-expansion");
     expect(domain?.kind).toBe("combat");
     if (domain?.kind === "combat") {
@@ -96,13 +96,13 @@ describe("世界模板协议 V2 Schema", () => {
     expect(gojo?.skills).toContain("sk-domain-empty");
   });
 
-  it("拒绝：补正既无 simulation 面也无 combat 面", () => {
+  it("拒绝：状态既无 simulation 面也无 combat 面", () => {
     const world = loadJjkTemplate();
     (world.statuses as unknown[]).push({
       id: "broken-status",
-      name: "坏补正",
+      name: "坏状态",
       duration: { turns: 1 },
-      stacking: "refresh",
+      stacking: "unique",
       visibility: "known",
     });
     expect(WorldTemplateV2Schema.safeParse(world).success).toBe(false);
@@ -114,7 +114,7 @@ describe("世界模板协议 V2 Schema", () => {
       id: "bad-control",
       name: "非法控制",
       duration: { turns: 1 },
-      stacking: "refresh",
+      stacking: "unique",
       combat: { control: ["fly_to_the_moon"] },
       visibility: "known",
     });
@@ -134,7 +134,7 @@ describe("世界模板协议 V2 Schema", () => {
     expect(WorldTemplateV2Schema.safeParse(world).success).toBe(false);
   });
 
-  it("拒绝：技能 applyStatus 指向不存在的补正", () => {
+  it("拒绝：技能 applyStatus 指向不存在的状态", () => {
     const world = loadJjkTemplate();
     const skill = (world.skills as Array<Record<string, unknown>>).find((s) => s.id === "sk-cursed-strike");
     (skill as { applyStatus: unknown[] }).applyStatus = [{ status: "no-such-status", chance: 0.5 }];
@@ -205,14 +205,14 @@ describe("世界模板协议 V2 Schema", () => {
     expect(WorldTemplateV2Schema.safeParse(world).success).toBe(false);
   });
 
-  it("拒绝：consumeStatus 指向不存在的补正", () => {
+  it("拒绝：consumeStatus 指向不存在的状态", () => {
     const world = loadJjkTemplate();
     const uzumaki = (world.skills as Array<Record<string, unknown>>).find((s) => s.id === "sk-uzumaki");
     (uzumaki as { consumeStatus: Record<string, unknown> }).consumeStatus = { status: "no-such-reserve" };
     expect(WorldTemplateV2Schema.safeParse(world).success).toBe(false);
   });
 
-  it("拒绝：stack-scaled 公式指向不存在的补正", () => {
+  it("拒绝：stack-scaled 公式指向不存在的状态", () => {
     const world = loadJjkTemplate();
     const uzumaki = (world.skills as Array<Record<string, unknown>>).find((s) => s.id === "sk-uzumaki");
     ((uzumaki as { damage: Array<Record<string, unknown>> }).damage)[0] = {

@@ -11,7 +11,7 @@
   - AGENTS.md
   - PROJECT.md（状态快照）
   - specs/iteration-<日期>/ 四件套：README.md、requirements.md、design.md、tasks.md
-  - docs/DECISIONS.md（ADR）、docs/OPEN_QUESTIONS.md（待决项）
+  - docs/adr/README.md（ADR 索引）与相关模块文件 docs/adr/1x–6x-*.md、docs/BACKLOG.md
   - tasks/reports/<报告>.md（已有差距报告 / 验收证据）
   - 当前工作区实际代码（以代码为准，不以旧 spec 为准）
 

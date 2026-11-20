@@ -103,7 +103,74 @@ export function buildEventFlavorRequest(input: EventFlavorRequestInput): EventFl
 }
 
 /** LLM 请求联合：结局/总结走 `NarrativeRequest`，事件 flavor 走 `EventFlavorRequest`。 */
-export type NarrativeInput = NarrativeRequest | EventFlavorRequest;
+export type NarrativeInput = NarrativeRequest | EventFlavorRequest | OpeningPrologueRequest;
+
+// ---------- 开局序章（2026-11-19） ----------
+
+/**
+ * 开局序章请求：**只读**的开局档案 + 一条写作指令。
+ *
+ * 为什么单开一种请求而不是塞进 `NarrativeRequest`：后者的字段语义是「评价维度 + 证据白名单」，
+ * 与「根据开局选择写一段开场白」不是一件事；硬塞会让证据校验对一段没有证据的文本生效。
+ *
+ * 与事件 flavor 同一条纪律：这是**装饰**。输出只进 `history`（展示层），
+ * 绝不写权威状态、绝不触发事件、绝不参与评分。
+ */
+export interface OpeningPrologueRequestInput {
+  worldTitle: string;
+  worldSummary: string;
+  player: { name: string; gender: string; age: number };
+  /** 开局落定的属性（已按模板 `name` 翻成人话，不是 id）。 */
+  attributes: ReadonlyArray<{ name: string; value: number | string }>;
+  /** 开局落定的身份 / 体质状态名（已经是人话）。 */
+  traits: readonly string[];
+  /** 开局每一步选了什么（`步名 → 选项文本`）。 */
+  choices: ReadonlyArray<{ step: string; choice: string }>;
+  /** 世界设定条目（模板 `lore.md` 的 always 段；只读，供模型对齐世界观）。 */
+  setting: readonly string[];
+}
+
+export interface OpeningPrologueRequest {
+  readonly task: "opening.prologue";
+  readonly instruction: string;
+  readonly world: { readonly title: string; readonly summary: string };
+  readonly player: { readonly name: string; readonly gender: string; readonly age: number };
+  readonly attributes: ReadonlyArray<{ readonly name: string; readonly value: number | string }>;
+  readonly traits: readonly string[];
+  readonly choices: ReadonlyArray<{ readonly step: string; readonly choice: string }>;
+  readonly setting: readonly string[];
+  readonly constraints: readonly string[];
+}
+
+const PROLOGUE_INSTRUCTION =
+  "你是这个世界的叙述者。下面是一份开局档案：玩家刚刚落定此身，故事还没有开始。" +
+  "请用第二人称「你」写一段中文开场白（180–260 字），交代此刻的场合、身体的感觉、以及你为什么会站在这里。" +
+  "只写此刻，不预告未来，不复述属性数值，不出现档案里没有的专名。" +
+  "输出严格 JSON：{\"text\": \"...\"}";
+
+const PROLOGUE_CONSTRAINTS = [
+  "第二人称，散文，不要小标题、不要列表",
+  "只写这一个场景，不写后续剧情",
+  "不出现档案里没有的人名 / 地名 / 组织名",
+  "不写数值、不写系统术语（属性、状态、转盘等）",
+  "不替玩家做决定，不写玩家说过的话",
+];
+
+export function buildOpeningPrologueRequest(
+  input: OpeningPrologueRequestInput,
+): OpeningPrologueRequest {
+  return Object.freeze({
+    task: "opening.prologue" as const,
+    instruction: PROLOGUE_INSTRUCTION,
+    world: Object.freeze({ title: input.worldTitle, summary: input.worldSummary }),
+    player: Object.freeze({ ...input.player }),
+    attributes: Object.freeze(input.attributes.map((a) => Object.freeze({ ...a }))),
+    traits: Object.freeze([...input.traits]),
+    choices: Object.freeze(input.choices.map((c) => Object.freeze({ ...c }))),
+    setting: Object.freeze([...input.setting]),
+    constraints: Object.freeze([...PROLOGUE_CONSTRAINTS]),
+  });
+}
 
 /**
  * 结构化校验器的最小接口：让 game-core **不直接 import zod**，

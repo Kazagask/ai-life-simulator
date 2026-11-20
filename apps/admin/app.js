@@ -29,8 +29,13 @@
     return str.length > n ? `${str.slice(0, n - 1)}…` : str;
   };
 
-  async function api(path) {
-    const res = await fetch(path, { headers: { accept: "application/json" } });
+  async function api(path, init = {}) {
+    const headers = {
+      accept: "application/json",
+      ...(init.body === undefined ? {} : { "content-type": "application/json" }),
+      ...(init.headers ?? {}),
+    };
+    const res = await fetch(path, { ...init, headers });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       const detail = body.detail ?? body.error ?? `HTTP ${res.status}`;
@@ -50,6 +55,9 @@
     tplKey: null,
     selectedNode: null,
     flagId: null,
+    npcId: null,
+    npcLine: null,
+    npcHits: null,
     search: "",
     sources: new Set(),
     kinds: new Set(),
@@ -75,6 +83,8 @@
         applyTransform();
       }
     }
+    if (tabName === "sim") bootSim();
+    if (tabName === "live") window.dispatchEvent(new CustomEvent("life-sim:live-visible"));
   }
 
   for (const tab of document.querySelectorAll(".tab")) {
@@ -426,10 +436,14 @@
       state.tplKey = `${templateId}@${version}`;
       state.selectedNode = null;
       state.flagId = null;
+      state.npcId = null;
+      state.npcLine = null;
+      state.npcHits = null;
       initFilters();
       buildIndex();
       computeLayout();
       renderFlagList();
+      renderNpcList();
       renderTermination();
       // 默认选一个入口事件，右栏不至于空着：优先池/行动钩的 depth 0 节点。
       const entryNodes = state.layout.nodes.filter((n) => n.kind === "event" && n.depth === 0);
@@ -451,6 +465,7 @@
       $("#graph").innerHTML = "";
       $("#graphStats").textContent = "";
       $("#flagList").innerHTML = "";
+      $("#npcList").innerHTML = "";
       $("#terminationList").innerHTML = "";
     }
   }
@@ -816,12 +831,16 @@
   function focusSet() {
     const orch = state.orch;
     if (!orch) return null;
+    if (state.npcId && state.npcHits) {
+      const name = state.npcLine?.character?.name ?? state.npcId;
+      return { nodes: state.npcHits, label: `角色 ${name}` };
+    }
     if (state.flagId) {
       const flag = orch._flagById.get(state.flagId);
       if (flag) {
         const ids = new Set();
         for (const w of flag.writers) ids.add(w.eventId);
-        for (const r of flag.readers) ids.add(r.eventId);
+        for (const r of flag.readers) if (r.eventId) ids.add(r.eventId);
         return { nodes: ids, label: `flag ${state.flagId}` };
       }
     }
@@ -835,7 +854,7 @@
       for (const flag of orch.flags) {
         if (flag.id.toLowerCase().includes(q)) {
           for (const w of flag.writers) ids.add(w.eventId);
-          for (const r of flag.readers) ids.add(r.eventId);
+          for (const r of flag.readers) if (r.eventId) ids.add(r.eventId);
         }
       }
       return { nodes: ids, label: `搜索 ${state.search}` };
@@ -853,11 +872,15 @@
     let dragging = false;
     let moved = false;
     let last = null;
+    // setPointerCapture 会把后续 pointerup 与派生的 click 重定向到 svg 本身，
+    // 到 click 时 ev.target 已经指不到节点，只能在按下时先记住点的是谁。
+    let pressedNode = null;
 
     svg.onpointerdown = (ev) => {
       if (ev.button !== 0) return;
       dragging = true;
       moved = false;
+      pressedNode = ev.target.closest?.(".node")?.dataset.node ?? null;
       last = { x: ev.clientX, y: ev.clientY };
       svg.classList.add("panning");
       svg.setPointerCapture?.(ev.pointerId);
@@ -872,14 +895,17 @@
       last = { x: ev.clientX, y: ev.clientY };
       applyTransform();
     };
-    svg.onpointerup = () => {
+    svg.onpointerup = (ev) => {
       dragging = false;
       last = null;
       svg.classList.remove("panning");
+      // 主动释放捕获，别把后续事件继续绑在 svg 上（拖拽结束就还回去）。
+      if (ev && svg.hasPointerCapture?.(ev.pointerId)) svg.releasePointerCapture(ev.pointerId);
     };
     svg.onpointerleave = () => {
       dragging = false;
       last = null;
+      pressedNode = null;
       svg.classList.remove("panning");
     };
 
@@ -898,10 +924,15 @@
     };
 
     svg.onclick = (ev) => {
-      if (moved) return;
+      if (moved) {
+        pressedNode = null;
+        return;
+      }
       const nodeEl = ev.target.closest?.(".node");
-      if (!nodeEl) return;
-      selectNode(nodeEl.dataset.node);
+      const id = nodeEl?.dataset.node ?? pressedNode;
+      pressedNode = null;
+      // 点空白处取消选中；点节点则切过去（重复点同一节点不再取消，避免像点了没反应）。
+      selectNode(id ?? null);
     };
 
     // 悬停：标签 + 邻边高亮
@@ -934,11 +965,17 @@
   }
 
   function selectNode(id) {
-    state.selectedNode = state.selectedNode === id ? null : id;
+    state.selectedNode = id;
     if (state.flagId) {
       // 旗标高亮和节点选择是两种聚焦，切到节点时收起旗标，免得两套 dim 打架。
       state.flagId = null;
       renderFlagList();
+    }
+    if (state.npcId) {
+      state.npcId = null;
+      state.npcLine = null;
+      state.npcHits = null;
+      renderNpcList();
     }
     if (state.layout) renderGraph();
     renderInspector(state.selectedNode);
@@ -962,10 +999,134 @@
     for (const row of box.querySelectorAll(".flag-row")) {
       row.addEventListener("click", () => {
         state.flagId = state.flagId === row.dataset.flag ? null : row.dataset.flag;
+        // 旗标与角色线互斥，同时只保留一套高亮。
+        if (state.npcId) {
+          state.npcId = null;
+          state.npcLine = null;
+          state.npcHits = null;
+          renderNpcList();
+        }
         renderFlagList();
         renderGraph();
         renderFlagInspector(state.flagId);
       });
+    }
+  }
+
+  /* ---------- 角色线 ---------- */
+
+  function renderNpcList() {
+    const orch = state.orch;
+    const box = $("#npcList");
+    if (!orch) {
+      box.innerHTML = "";
+      return;
+    }
+    box.innerHTML = orch.characters
+      .map(
+        (c) => `<div class="flag-row${state.npcId === c.id ? " active" : ""}" data-npc="${esc(c.id)}" title="${esc(c.id)}">
+          <span>${esc(truncate(c.name, 14))}</span>
+          <span class="r">${c.isEnemy ? "⚔" : ""}</span>
+        </div>`,
+      )
+      .join("");
+    for (const row of box.querySelectorAll(".flag-row")) {
+      row.addEventListener("click", () => selectNpc(row.dataset.npc));
+    }
+  }
+
+  async function selectNpc(id) {
+    if (!state.orch) return;
+    if (state.npcId === id) {
+      state.npcId = null;
+      state.npcLine = null;
+      state.npcHits = null;
+      renderNpcList();
+      renderGraph();
+      renderInspector(state.selectedNode);
+      return;
+    }
+    const orch = state.orch;
+    const character = orch.characters.find((c) => c.id === id);
+    state.npcId = id;
+    state.npcLine = null;
+    state.npcHits = null;
+    // 角色线和旗标高亮是同一级别的聚焦，同时开两套 dim 会互相打架。
+    state.flagId = null;
+    renderFlagList();
+    renderNpcList();
+    $("#inspectorHint").textContent = id;
+    $("#inspector").innerHTML = `<div class="empty">载入 ${esc(character?.name ?? id)} 的线…</div>`;
+    try {
+      const line = await api(
+        `/api/admin/templates/${encodeURIComponent(orch.template.id)}/${encodeURIComponent(orch.template.version)}/npc/${encodeURIComponent(id)}`,
+      );
+      if (state.npcId !== id) return; // 用户已经点了别人
+      state.npcLine = line;
+      state.npcHits = new Set(line.scenes.map((s) => s.eventId));
+      renderGraph();
+      renderNpcInspector(line);
+    } catch (error) {
+      if (state.npcId !== id) return;
+      $("#inspector").innerHTML = `<div class="empty">载入失败：${esc(error.message)}</div>`;
+    }
+  }
+
+  function renderNpcInspector(line) {
+    const c = line.character;
+    $("#inspectorHint").textContent = c.id;
+    const bits = [c.isEnemy ? "敌人" : "友方"];
+    if (c.gender) bits.push(c.gender);
+    if (c.age !== undefined) bits.push(`${c.age} 岁`);
+    // visibility 只在 hidden 时值得说：那意味着玩家端投影看不到他。
+    if (c.visibility === "hidden") bits.push("hidden（玩家不可见）");
+
+    const parts = [
+      `<h3>${esc(c.name)}</h3>
+       <div class="sub">${esc(c.id)} · ${esc(bits.join(" · "))}</div>
+       <div class="chips"><span class="chip">${line.scenes.length} 个场景</span>
+       ${line.lifecycle.length > 0 ? `<span class="chip">${line.lifecycle.length} 次生死</span>` : ""}
+       ${line.spawns.length > 0 ? `<span class="chip">${line.spawns.length} 次登场</span>` : ""}</div>`,
+    ];
+    if (c.description) parts.push(`<div class="narrative">${esc(c.description)}</div>`);
+    if (c.relations.length > 0) {
+      parts.push(
+        `<h4>初始关系</h4>${c.relations
+          .map(
+            (r) =>
+              `<div class="eff">${esc(r.to)} <span class="hint">${esc(r.kind)}${r.value !== undefined ? ` ${r.value}` : ""}${r.visibility ? ` · ${esc(r.visibility)}` : ""}</span></div>`,
+          )
+          .join("")}`,
+      );
+    }
+    if (line.spawns.length > 0 || line.lifecycle.length > 0) {
+      const rows = [
+        ...line.spawns.map(
+          (s) => `<div class="eff"><span class="k">登场</span> <span class="next-link" data-goto="${esc(s.eventId)}">${esc(s.eventId)}</span> <span class="hint">规则 ${esc(s.ruleId)}${s.age !== undefined ? ` · ${s.age} 岁` : ""}</span></div>`,
+        ),
+        ...line.lifecycle.map(
+          (s) => `<div class="eff"><span class="k">生命</span> <span class="next-link" data-goto="${esc(s.eventId)}">${esc(s.eventId)}</span> <span class="hint">→ ${esc(s.state)}${s.reason ? ` · ${esc(s.reason)}` : ""}</span></div>`,
+        ),
+      ];
+      parts.push(`<h4>登场与生死</h4>${rows.join("")}`);
+    }
+    parts.push(
+      `<h4>场景（${line.scenes.length}）</h4>${line.scenes
+        .map((s) => {
+          const turn = (s.details ?? []).filter((d) => d.startsWith("⚑ ")).slice(0, 2);
+          return `<div class="npc-scene">
+            <div><span class="next-link" data-goto="${esc(s.eventId)}">${esc(s.eventId)}</span>
+              <span class="hint">${esc(s.roles.join(" / "))}${s.era !== undefined ? ` · era ${s.era}` : ""}${s.chapter !== undefined ? ` · ch${s.chapter}` : ""}</span></div>
+            <div>${esc(truncate(s.title, 34))}</div>
+            ${turn.map((t) => `<div class="hint">${esc(t)}</div>`).join("")}
+          </div>`;
+        })
+        .join("")}`,
+    );
+    const box = $("#inspector");
+    box.innerHTML = parts.join("");
+    for (const link of box.querySelectorAll("[data-goto]")) {
+      link.addEventListener("click", () => jumpTo(link.dataset.goto));
     }
   }
 
@@ -1087,6 +1248,8 @@
         return `入队事件 ${esc(e.eventId)}`;
       case "setNpcLifecycle":
         return `${esc(npcName(e.npcId))} → ${esc(e.state)}${e.reasonCode ? ` <span class="hint">${esc(e.reasonCode)}</span>` : ""}`;
+      case "setNpcVisibility":
+        return `${esc(npcName(e.npcId))} → ${e.visibility === "hidden" ? "隐藏" : "显示"}`;
       case "addSecret":
         return `秘闻 ${esc(npcName(e.npcId))}: ${esc(truncate(e.text, 24))}`;
       case "freezeRelationsOnDeath":
@@ -1124,7 +1287,7 @@
   const KNOWN_EFFECTS = new Set([
     "setFlag","adjustFlag","clearFlag","adjustAttribute","adjustResource","adjustMood",
     "grantItem","removeItem","adjustRelation","addRelationEdge","applyStatus","cureStatus",
-    "spawnNpc","enqueueEvent","setIdentity","advanceTo","setNpcLifecycle","addSecret",
+    "spawnNpc","enqueueEvent","setIdentity","advanceTo","setNpcLifecycle","setNpcVisibility","addSecret",
     "freezeRelationsOnDeath","adjustGrowth","adjustProficiency","advanceBy","startChain",
     "advanceChain","cancelChain","unlockSkill","log",
   ]);
@@ -1307,16 +1470,22 @@
     if (!flag) return;
     $("#inspectorHint").textContent = "flag";
     const writers = flag.writers
-      .map(
-        (w) =>
-          `<div class="eff"><span class="next-link" data-goto="${esc(w.eventId)}">${esc(w.eventId)}</span> <span class="hint">${esc(w.optionId ?? "")} ${esc(w.how)}</span></div>`,
-      )
+      .map((w) => {
+        const how = `<span class="hint">${esc(w.optionId ?? "")} ${esc(w.how)}</span>`;
+        // 开局写入没有图上的事件节点，渲染成纯文本，避免点不动的链接。
+        return w.source === "opening"
+          ? `<div class="eff"><span class="k">开局</span> ${esc(w.eventId)} ${how}</div>`
+          : `<div class="eff"><span class="next-link" data-goto="${esc(w.eventId)}">${esc(w.eventId)}</span> ${how}</div>`;
+      })
       .join("");
     const readers = flag.readers
-      .map(
-        (r) =>
-          `<div class="eff"><span class="next-link" data-goto="${esc(r.eventId)}">${esc(r.eventId)}</span> <span class="hint">${esc(r.where)}${r.optionId ? ` · ${r.optionId}` : ""}</span></div>`,
-      )
+      .map((r) => {
+        const where = `<span class="hint">${esc(r.where)}${r.optionId ? ` · ${esc(r.optionId)}` : ""}</span>`;
+        // 结局 / 终止条件读旗标没有单一事件，别渲染成可点但点不动的链接。
+        return r.eventId
+          ? `<div class="eff"><span class="next-link" data-goto="${esc(r.eventId)}">${esc(r.eventId)}</span> ${where}</div>`
+          : `<div class="eff"><span class="k">${esc(r.ref ?? (r.where === "termination" ? "终止条件" : "结局条件"))}</span> ${where}</div>`;
+      })
       .join("");
     $("#inspector").innerHTML = `<h3>${esc(flag.id)}</h3>
       <div class="sub">写入 ${flag.writers.length} · 读取 ${flag.readers.length}</div>
@@ -1385,14 +1554,393 @@
     if (state.tab === "graph") applyTransform();
   });
 
+  /* ================================ 战斗木桩 ================================ */
+
+  /**
+   * 这一栏是 `simulateDuel`（`packages/game-core/src/v2/sim.ts`）的遥控器。
+   *
+   * 页面**不碰任何战斗规则**：建世界、摆对手、每回合挑技能、结算全在内核里跑，
+   * 这里只做三件事 —— 把表单翻译成 `SimDuelSpec`、POST 出去、把报告画出来。
+   * 所以量到的数字就是玩家真打出来的数字；表单改坏了（角色 id 打错）也只是 400，
+   * 不会在浏览器里造出第二套伤害公式。
+   */
+
+  const SIM_DUMMY = "__dummy__";
+  const OUTCOME_LABEL = { victory: "胜", defeat: "败", undecided: "未决" };
+  const simState = { roster: null, key: null, running: false, booted: false };
+
+  const pct = (v) => (typeof v === "number" && Number.isFinite(v) ? `${(v * 100).toFixed(1)}%` : "—");
+  const fixed = (v, n = 1) => (typeof v === "number" && Number.isFinite(v) ? v.toFixed(n) : "—");
+
+  const simKey = () => $("#simTpl").value || "";
+
+  /** `agility=8,hp=500` → `{ agility: 8, hp: 500 }`（与 CLI 的 `--dummy` 同一套写法）。 */
+  function parseOverrides(text) {
+    const out = {};
+    for (const piece of String(text ?? "").split(/[,;]/)) {
+      const item = piece.trim();
+      if (item === "") continue;
+      const eq = item.indexOf("=");
+      if (eq <= 0) continue;
+      const key = item.slice(0, eq).trim();
+      const value = Number(item.slice(eq + 1));
+      if (key !== "" && Number.isFinite(value)) out[key] = value;
+    }
+    return out;
+  }
+
+  const parseIds = (text) =>
+    String(text ?? "")
+      .split(/[,;]/)
+      .map((s) => s.trim())
+      .filter((s) => s !== "");
+
+  /** 模板列表是启动时异步拉的；这里等它落地，避免自己再 fetch 一次（会重复挂 select 监听）。 */
+  async function waitTemplates() {
+    for (let i = 0; i < 50 && state.templates.length === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
+  async function bootSim() {
+    if (!simState.booted) {
+      simState.booted = true;
+      await waitTemplates();
+      const select = $("#simTpl");
+      if (select.options.length === 0) {
+        select.innerHTML = state.templates
+          .map(
+            (t) =>
+              `<option value="${esc(t.templateId)}@${esc(t.version)}"${t.loadable ? "" : " disabled"}>${esc(t.label)}</option>`,
+          )
+          .join("");
+        const firstReady = state.templates.find((t) => t.loadable);
+        if (firstReady) select.value = `${firstReady.templateId}@${firstReady.version}`;
+      }
+    }
+    await loadSimRoster();
+  }
+
+  async function loadSimRoster(force = false) {
+    const key = simKey();
+    if (key === "") return;
+    if (!force && simState.roster !== null && simState.key === key) return;
+    const [templateId, version] = key.split("@");
+    $("#simRosterHint").textContent = "读取角色…";
+    try {
+      const roster = await api(
+        `/api/admin/templates/${encodeURIComponent(templateId)}/${encodeURIComponent(version)}/roster`,
+      );
+      simState.roster = roster;
+      simState.key = key;
+      fillSimActors(roster);
+      $("#simRosterHint").textContent = `${roster.characters.length} 角色 · ${roster.statuses.length} 补正`;
+    } catch (error) {
+      simState.roster = null;
+      $("#simRosterHint").textContent = `读取失败：${error.message}`;
+    }
+  }
+
+  function fillSimActors(roster) {
+    const keepLeft = $("#simLeft").value;
+    const keepRight = $("#simRight").value;
+    const options = roster.characters
+      .map(
+        (c) =>
+          `<option value="${esc(c.id)}">${esc(c.name)} · ${esc(c.id)}${c.isEnemy ? " · 敌" : ""}${c.visibility === "hidden" ? " · 隐" : ""}</option>`,
+      )
+      .join("");
+    $("#simLeft").innerHTML = options;
+    $("#simRight").innerHTML = `${options}<option value="${SIM_DUMMY}">木桩（不还手）</option>`;
+
+    const left = roster.characters.find((c) => c.id === keepLeft) ? keepLeft : (roster.characters.find((c) => c.id === "npc-gojo")?.id ?? roster.characters[0]?.id ?? "");
+    $("#simLeft").value = left;
+    $("#simRight").value =
+      keepRight === SIM_DUMMY || roster.characters.some((c) => c.id === keepRight) ? keepRight : SIM_DUMMY;
+    syncSimDummy();
+    renderSimPickers(roster);
+  }
+
+  /** 把模板词表渲染成可点选芯片；文本输入框保留为「高级手填」入口，两边互相同步。 */
+  function renderSimPickers(roster) {
+    const selected = () => simState.roster?.characters.find((c) => c.id === $("#simLeft").value);
+    const attrBox = $("#simAttrPicker");
+    attrBox.innerHTML = roster.attributeKeys
+      .map((key) => {
+        const label = roster.attributeLabels?.[key] ?? key;
+        const hint = selected()?.attributes?.[key] ?? roster.attributeDefaults?.[key];
+        return `<label class="pick" title="角色卡 ${esc(String(hint ?? "—"))}">
+          <span>${esc(label)} <small>${esc(key)}</small></span>
+          <input type="number" step="1" data-attr="${esc(key)}" placeholder="${esc(String(hint ?? ""))}" />
+        </label>`;
+      })
+      .join("");
+
+    const idPicker = (boxId, items, inputId) => {
+      const box = $(boxId);
+      const chosen = new Set(parseIds($(inputId).value));
+      box.innerHTML = items
+        .map(
+          (item) => `<label class="pick${chosen.has(item.id) ? " on" : ""}">
+            <input type="checkbox" data-id="${esc(item.id)}"${chosen.has(item.id) ? " checked" : ""} />
+            <span>${esc(item.name)} <small>${esc(item.id)}</small></span>
+          </label>`,
+        )
+        .join("");
+      box.onchange = () => {
+        $(inputId).value = [...box.querySelectorAll("input:checked")].map((el) => el.dataset.id).join(",");
+        for (const label of box.querySelectorAll(".pick")) {
+          label.classList.toggle("on", label.querySelector("input")?.checked === true);
+        }
+      };
+      $(inputId).oninput = () => {
+        const next = new Set(parseIds($(inputId).value));
+        for (const label of box.querySelectorAll(".pick")) {
+          const checked = next.has(label.querySelector("input")?.dataset.id ?? "");
+          label.querySelector("input").checked = checked;
+          label.classList.toggle("on", checked);
+        }
+      };
+    };
+    idPicker("#simStatusPicker", roster.statuses ?? [], "#simLeftStatuses");
+    idPicker("#simEquipmentPicker", (roster.items ?? []).filter((i) => i.slot), "#simLeftEquipment");
+    idPicker("#simSkillPicker", roster.skills ?? [], "#simLeftSkills");
+
+    $("#simTraitPicker").innerHTML = (roster.traits ?? [])
+      .map((trait) => {
+        const own = (selected()?.traits ?? []).includes(trait);
+        return `<span class="pick${own ? " on" : ""}">${esc(trait)}</span>`;
+      })
+      .join("");
+
+    attrBox.oninput = () => {
+      const parts = [];
+      for (const input of attrBox.querySelectorAll("input[data-attr]")) {
+        if (input.value.trim() !== "" && Number.isFinite(Number(input.value))) {
+          parts.push(`${input.dataset.attr}=${Number(input.value)}`);
+        }
+      }
+      $("#simLeftAttributes").value = parts.join(",");
+    };
+    $("#simLeftAttributes").oninput = () => {
+      const next = parseOverrides($("#simLeftAttributes").value);
+      for (const input of attrBox.querySelectorAll("input[data-attr]")) {
+        const value = next[input.dataset.attr];
+        input.value = value === undefined ? "" : String(value);
+      }
+    };
+  }
+
+  function applyLeftPreset() {
+    const roster = simState.roster;
+    const char = roster?.characters.find((c) => c.id === $("#simLeft").value);
+    if (!char) return;
+    const attrBox = $("#simAttrPicker");
+    for (const input of attrBox.querySelectorAll("input[data-attr]")) {
+      const value = char.attributes?.[input.dataset.attr];
+      input.value = value === undefined ? "" : String(value);
+    }
+    attrBox.oninput?.();
+    const setIds = (boxId, inputId, ids) => {
+      const box = $(boxId);
+      for (const label of box.querySelectorAll(".pick")) {
+        const input = label.querySelector("input");
+        if (!input) continue;
+        input.checked = ids.includes(input.dataset.id);
+        label.classList.toggle("on", input.checked);
+      }
+      $(inputId).value = ids.join(",");
+    };
+    setIds("#simStatusPicker", "#simLeftStatuses", char.statuses ?? []);
+    setIds("#simEquipmentPicker", "#simLeftEquipment", char.equipment ?? []);
+    $("#simLeftSkills").value = "";
+    for (const label of $("#simSkillPicker").querySelectorAll(".pick")) {
+      const input = label.querySelector("input");
+      if (input) { input.checked = false; label.classList.remove("on"); }
+    }
+  }
+
+  async function startLive() {
+    await bootSim();
+    const [templateId, version] = simKey().split("@");
+    const detail = { templateId, version, spec: buildSimSpec(), seed: Number($("#simSeed").value) || 1 };
+    activateTab("live");
+    window.dispatchEvent(new CustomEvent("life-sim:live-start", { detail }));
+  }
+
+  function syncSimDummy() {
+    $("#simDummyFields").hidden = $("#simRight").value !== SIM_DUMMY;
+  }
+
+  function buildSimSpec() {
+    const left = { ref: $("#simLeft").value };
+    const leftAttributes = parseOverrides($("#simLeftAttributes").value);
+    const leftStatuses = parseIds($("#simLeftStatuses").value);
+    const leftEquipment = parseIds($("#simLeftEquipment").value);
+    const extraSkills = parseIds($("#simLeftSkills").value);
+    const ownSkills = simState.roster?.characters.find((c) => c.id === left.ref)?.skills ?? [];
+    const allSkills = [...new Set([...ownSkills, ...extraSkills])];
+    if (Object.keys(leftAttributes).length > 0) left.attributes = leftAttributes;
+    if (leftStatuses.length > 0) left.statuses = leftStatuses;
+    if (leftEquipment.length > 0) left.equipment = leftEquipment;
+    if (allSkills.length > 0) left.skills = allSkills;
+
+    let right;
+    if ($("#simRight").value === SIM_DUMMY) {
+      const hp = Number($("#simDummyHp").value);
+      const attributes = parseOverrides($("#simDummyAttrs").value);
+      right = {
+        dummy: {
+          name: "木桩",
+          ...(Number.isFinite(hp) && hp > 0 ? { hp } : {}),
+          ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
+        },
+      };
+    } else {
+      right = { ref: $("#simRight").value };
+    }
+
+    const repeat = Number($("#simRepeat").value);
+    const maxRounds = Number($("#simMaxRounds").value);
+    const seed = Number($("#simSeed").value);
+    const stance = $("#simStance").value;
+    return {
+      left,
+      right,
+      ...(Number.isFinite(repeat) ? { repeat } : {}),
+      ...(Number.isFinite(maxRounds) ? { maxRounds } : {}),
+      ...(Number.isFinite(seed) ? { seed } : {}),
+      ...(stance === "coverage" ? { stance } : {}),
+    };
+  }
+
+  function showSimError(message) {
+    const box = $("#simError");
+    box.textContent = message;
+    box.hidden = false;
+  }
+
+  async function runSim() {
+    const key = simKey();
+    if (key === "" || simState.running) return;
+    const [templateId, version] = key.split("@");
+    simState.running = true;
+    const button = $("#simRun");
+    button.disabled = true;
+    button.textContent = "结算中…";
+    $("#simError").hidden = true;
+    try {
+      const report = await api("/api/admin/sim", {
+        method: "POST",
+        body: JSON.stringify({ templateId, version, spec: buildSimSpec() }),
+      });
+      renderSimReport(report);
+      $("#simMeta").textContent = `${simState.key} · ${report.duels} 局`;
+    } catch (error) {
+      showSimError(error.message);
+      $("#simMeta").textContent = "";
+    } finally {
+      simState.running = false;
+      button.disabled = false;
+      button.textContent = "跑一场";
+    }
+  }
+
+  function renderSimReport(report) {
+    const uses = Object.entries(report.skillUse ?? {}).sort((a, b) => b[1] - a[1]);
+    const top = uses.length > 0 ? uses[0][1] : 1;
+    const bars = uses
+      .map(
+        ([id, total]) => `<div class="sim-bar-row">
+          <span class="sim-bar-name" title="${esc(id)}">${esc(id)}</span>
+          <span class="sim-bar-track"><span class="sim-bar-fill" style="width:${Math.max(2, (total / top) * 100).toFixed(1)}%"></span></span>
+          <span class="sim-bar-val">${(total / report.duels).toFixed(2)} /局</span>
+        </div>`,
+      )
+      .join("");
+
+    const rows = (report.rows ?? [])
+      .map(
+        (row, index) => `<tr>
+          <td>#${index + 1}</td>
+          <td><span class="outcome ${esc(row.outcome)}">${esc(OUTCOME_LABEL[row.outcome] ?? row.outcome)}</span></td>
+          <td>${num(row.rounds)}</td>
+          <td>${num(row.damageDealt)}</td>
+          <td>${num(row.damageTaken)}</td>
+          <td>${row.attacks > 0 ? `${row.hits}/${row.attacks}` : "—"}</td>
+          <td>${num(row.mpSpent)}</td>
+          <td>${num(row.endHp)}<small>/${num(row.maxHp)}</small></td>
+        </tr>`,
+      )
+      .join("");
+
+    $("#simResult").innerHTML = `
+      <div class="sim-head">
+        ${esc(report.leftName)}
+        <span class="vs">vs</span>
+        ${esc(report.rightName)}
+        <span class="hint">${num(report.duels)} 局 · 场均 ${fixed(report.avgRounds)} 回合</span>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="stat-k">胜率</div><div class="stat-v">${pct(report.winRate)}</div></div>
+        <div class="stat"><div class="stat-k">胜 / 负 / 未决</div><div class="stat-v">${num(report.wins)}<small>/${num(report.losses)}/${num(report.undecided)}</small></div></div>
+        <div class="stat"><div class="stat-k">DPR（每回合输出）</div><div class="stat-v">${fixed(report.dpr)}</div></div>
+        <div class="stat"><div class="stat-k">每回合承伤</div><div class="stat-v">${fixed(report.takenPerRound)}</div></div>
+        <div class="stat"><div class="stat-k">命中率</div><div class="stat-v">${pct(report.hitRate)}</div></div>
+        <div class="stat"><div class="stat-k">MP / 局</div><div class="stat-v">${fixed(report.mpSpentPerDuel)}</div></div>
+        <div class="stat"><div class="stat-k">残血比</div><div class="stat-v">${pct(report.endHpRatio)}</div></div>
+        ${
+          report.summonsPerDuel > 0
+            ? `<div class="stat"><div class="stat-k">召唤峰值</div><div class="stat-v">${fixed(report.summonsPerDuel)}</div></div>`
+            : ""
+        }
+      </div>
+      ${
+        uses.length > 0
+          ? `<div class="chart-title">技能使用 <span class="hint">均摊到每局</span></div><div class="sim-bars">${bars}</div>`
+          : ""
+      }
+      <div class="sim-table-wrap">
+        <table class="sim-table">
+          <thead>
+            <tr>
+              <th>局</th><th>结果</th><th>回合</th><th>输出</th><th>承伤</th><th>命中</th><th>MP</th><th>残血</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
   /* ================================ 启动 ================================ */
+
+  const tabFromHash = () => {
+    const hash = location.hash.replace("#", "");
+    return hash === "graph" || hash === "sim" || hash === "live" ? hash : "trace";
+  };
+
+  $("#simTpl").addEventListener("change", () => loadSimRoster(true));
+  $("#simRight").addEventListener("change", syncSimDummy);
+  $("#simRun").addEventListener("click", runSim);
+  $("#simLeft").addEventListener("change", () => {
+    if (simState.roster) renderSimPickers(simState.roster);
+  });
+  $("#simUsePreset").addEventListener("click", applyLeftPreset);
+  $("#simToLive").addEventListener("click", startLive);
+  $("#liveStart").addEventListener("click", startLive);
+  $("#liveAuto").addEventListener("click", () => window.dispatchEvent(new CustomEvent("life-sim:live-auto")));
+  for (const input of document.querySelectorAll("#view-sim input")) {
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") runSim();
+    });
+  }
 
   bootHealth();
   loadWorlds();
   loadTemplates();
-  if (location.hash === "#graph") activateTab("graph");
+  if (location.hash !== "") activateTab(tabFromHash());
   window.addEventListener("hashchange", () => {
-    const tab = location.hash === "#graph" ? "graph" : "trace";
+    const tab = tabFromHash();
     if (tab !== state.tab) activateTab(tab);
   });
 })();

@@ -118,8 +118,16 @@ export function CharacterPanel({ player, slots, selection = null, onSelect }: Ch
                 {player.age} 岁 · {player.genderLabel}
               </span>
               <div className="figure-bars">
-                <MiniBar label={player.labels.hp} value={player.hp} max={player.maxHp} cls="hp" />
-                <MiniBar label={player.labels.mp} value={player.mp} max={player.maxMp} cls="mp" />
+                {/* ADR-003：模板声明的资源（hp/mp + 自定义）都要在人物图上可见。 */}
+                {player.resources.map((r) => (
+                  <MiniBar
+                    key={r.key}
+                    label={r.label}
+                    value={r.value}
+                    max={Math.max(1, r.max)}
+                    cls={r.key === "hp" ? "hp" : r.key === "mp" ? "mp" : "res"}
+                  />
+                ))}
               </div>
               {/* 模板没给阶段文案时适配器给空串 ⇒ 不渲染，绝不把 `adulthood` 这种 id 印出来。 */}
               {player.lifeStageLabel !== "" && <span className="figure-sub">{player.lifeStageLabel}</span>}

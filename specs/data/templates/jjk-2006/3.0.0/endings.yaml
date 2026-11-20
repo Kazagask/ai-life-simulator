@@ -1,0 +1,142 @@
+# JJK 结局 / 终止 / 死亡路径（协议 V2.1 §17 · R-EN-01..07）
+#
+# 判据纪律：终止与死亡只看声明式条件与 battleDefeat 信号，
+# **不得以 HP 数值或 HP 归零为判据**（R-EN-07 / P9，加载期会拒绝）。
+#
+# 2026-11-21：世界收束到 2006 单章（怀玉）。跑满 275 天自然收束（2006-12-31），也可随时主动结束。
+# 结局只由**怀玉的四个出口**（早夭 / 救下 / 同化 / 枪杀）与这一年的生涯事实决定。
+# 2007 以后的结局（战殁 / 特级 / 传说 / 涩谷 / 四度逆行）随旧章节一起删掉，
+# 留档在 `archive/2026-11-21-jjk-2006-full-12y/`。
+
+terminationConditions:
+  - type: timeReached
+    params:
+      conditions:
+        - { time: { gte: { value: 275, unit: day } } }
+    combinator: AND
+    terminationMode: afterSettle
+
+  - type: playerRequested
+    params:
+      conditions: []
+    combinator: AND
+    terminationMode: afterSettle
+
+  # 2006 夏 · 幕 6 挡在甚尔面前失败（ev-hv-06-block 的战败结算）：
+  # 早夭就地收束，不接第七幕，也不回日常。判据只读落盘旗标，不读 HP。
+  - type: worldState
+    params:
+      conditions:
+        - { flag: hvEarlyDeath, eq: true }
+    combinator: AND
+    terminationMode: afterSettle
+
+# 本模板不设 deathRoute：2006 只有「挡枪失败」一种死法，用上面的 worldState 终止条件表达。
+# 其余战斗的战败只给「力竭 / 重伤」，让玩家有时间疗伤。
+
+endings:
+  # ---------- 怀玉的四个出口 ----------
+
+  - endingId: end-hv-early-death
+    name: 早夭
+    description: 2006 年夏，你挡在星浆体前面，没能再站起来。
+    triggerConditions:
+      - { flag: hvEarlyDeath, eq: true }
+    # 压过其余全部：这是 2006 年当场收束，不该被「她也没活下来」的结局覆盖。
+    priority: 74
+    endingType: tragedy
+    narrativeConfig:
+      source: template
+      title: 早夭
+      summary: 你比所有人都早地走进那个夏天，也比所有人都早地离开。薨星宫的台阶上留下两摊血，一摊是她的，一摊是你的。后来有人说，那天有一个一年生挡在星浆体前面——只说了这一句，没有名字。
+
+  - endingId: end-hv-saved
+    name: 她活过了那个夏天
+    description: 理子没有被同化，也没有死在薨星宫。
+    triggerConditions:
+      - { flag: savedRiko, eq: true }
+    priority: 64
+    endingType: bond
+    narrativeConfig:
+      source: template
+      title: 她活过了那个夏天
+      summary: 星浆体还在，天元还有合法的同化对象，于是所有人都暂时安全了。代价是盘星教的名单上多了两个名字，一个是你，一个是她。冬天你们在便利店门口分开，她说等风头过去想去一次海边——这次不是任务。
+
+  - endingId: end-hv-merged
+    name: 星浆体
+    description: 理子自己走进了本殿，与天元同化。
+    triggerConditions:
+      - { flag: rikoOutcome, eq: merged }
+    priority: 62
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 星浆体
+      summary: 结界稳住了，天元不需要变成别的东西，高层松了一口气，像送走一件按时交付的货。只有黑井在台阶下站到天黑。你记得理子走进去之前回头看了一眼——你不知道她在看谁。
+
+  - endingId: end-hv-shot
+    name: 那个夏天
+    description: 一枪。然后夏天结束了。
+    triggerConditions:
+      - { flag: rikoOutcome, eq: shot }
+    priority: 60
+    endingType: tragedy
+    narrativeConfig:
+      source: template
+      title: 那个夏天
+      summary: 五条悟在那一枪之后活了过来，也从此变成了另一个人。夏油杰开始记数：他救下的人，和他觉得不值得救的人。你什么也没能改变，但你把这一切看完了。有些年份就是这样，它不问你同不同意。
+
+  # ---------- 那一年的生涯事实 ----------
+
+  - endingId: end-truth
+    name: 知道得太多的人
+    description: 你把那些被盖章「已结案」的档案全翻完了。
+    triggerConditions:
+      - { flag: truthBits, gte: 10 }
+    priority: 44
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 知道得太多的人
+      summary: 你知道了星浆体不是「一个人」而是一个位置，知道了盘星教为什么能提前知道路线，知道了「已结案」三个字通常意味着什么。知道这些不会让人好过，但至少不会再被骗。
+
+  - endingId: end-guardian
+    name: 守护者
+    description: 这一年的巡逻路上，你救下的人比你想的多。
+    triggerConditions:
+      - { flag: savedCivilians, gte: 6 }
+    priority: 42
+    endingType: neutral
+    narrativeConfig:
+      source: template
+      title: 守护者
+      summary: 没有人给你发过奖章。但那年冬天，有几个陌生人在地铁口认出你，隔着人群点了下头。他们记不住你的名字，只记得那个方向有人站着。
+
+  - endingId: end-together
+    name: 有人一起
+    description: 这一年你没有一个人过。
+    triggerConditions:
+      - { relation: npc-gojo, gte: 30 }
+      - { relation: npc-geto, gte: 30 }
+    priority: 40
+    endingType: bond
+    narrativeConfig:
+      source: template
+      title: 有人一起
+      summary: 到后来你们都懒得算谁欠谁。有人负责闯祸，有人负责收拾，有人负责在医务室骂人。一年很短，但如果是几个人一起过，就够把那一枪的回声压下去一点。
+
+  # ---------- 兜底 ----------
+
+  - endingId: end-ordinary
+    name: 一年生
+    description: 你活过了那一年，成了一个还不错的术师。
+    triggerConditions: []
+    priority: 0
+    endingType: neutral
+    fallback: true
+    narrativeConfig:
+      source: template
+      title: 一年生
+      summary: 没有救下谁，也没有失去谁。你只是每天出任务、回来、写报告，然后在年末给自己放两天假。第二年开学时，你发现自己在走廊里走得比去年稳了一点。
+
+fallback: end-ordinary

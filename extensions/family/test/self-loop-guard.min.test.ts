@@ -9,15 +9,18 @@ import {
 } from "@life-sim/game-core";
 
 /**
- * 自环边的运行期守卫（已知缺陷，P0）。
+ * 自环边的运行期守卫。
  *
  * `RelationEdgeSchema.superRefine` 明确拒绝 `from === to`（见 schema/relation.ts），
- * 但 `applyEffectsV2` 的 `adjustRelation` / `addRelationEdge` 直接写数组，不经过 schema。
+ * 而 `applyEffectsV2` 的 `adjustRelation` / `addRelationEdge` 直接写数组，不经过 schema。
  * 后果不是显示难看，是**存档读不回来**：世界落盘时 `WorldStateV2Schema.parse`
  * 会在 relations 上失败，这一局再也载入不了。
  *
- * 这两条断言与任何剧本无关，只用最小测试模板 —— 原来它挂在 `stress-lineage` 上，
- * 模板删掉后移到这里，避免这条 P0 随模板一起消失。
+ * 2026-11-19：这条 P0 **已修**。做法不是在效果里加一句「不许自环」，而是端点归一的
+ * 副产品 —— 幂等规则「写 `player` 就是写当前 self」（`normalizeRelationEndpoint`）
+ * 会把 `from` 与 `to` 都指向 self 的那条边归一成自环，于是在写入口顺手丢弃。
+ * 因为这条路径以前是 `it.fails`（红着），改成普通用例就是回归信号：
+ * 谁把归一去掉，这条会立刻变红。
  */
 
 const template = makeTestTemplate();
@@ -37,7 +40,7 @@ describe("自环边", () => {
       to: "enemy-x",
       kind: "wife" as const,
       source: "effect" as const,
-      visibility: "known" as const,
+      scope: "public" as const,
       value: 0,
     };
     const parsed = WorldStateV2Schema.shape.relations.element.safeParse(bad);
@@ -45,7 +48,7 @@ describe("自环边", () => {
     if (!parsed.success) expect(parsed.error.issues[0]?.message).toContain("自环");
   });
 
-  it.fails("运行时应当拒绝把节点连到自己（P0：修好之前这条会一直红着）", () => {
+  it("运行时也拒绝把节点连到自己（P0 已修，2026-11-19）", () => {
     const state = newState();
     applyEffectsV2(
       { state, lookup: createLookup(template), rng: createRunnerContext(1).rng },

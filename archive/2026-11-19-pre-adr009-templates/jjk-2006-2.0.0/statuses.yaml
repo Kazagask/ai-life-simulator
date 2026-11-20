@@ -1,0 +1,616 @@
+# JJK 世界模板 · statuses.yaml
+#
+# 补正（buff/debuff 统称）：单定义双面（simulation / combat，至少其一）。
+# 转换规则为引擎固定逻辑：进战斗激活 combat 面（缺省休眠不消失）；
+# 战斗结束存续 simulation 面（仅 combat 面则清除）；战斗中 duration.turns 不递减。
+#
+# 2026-11-12：生得术式改为「角色级补正」（tech-*）。术式不是技能列表，
+# 而是给角色带来持续属性加成 + 战斗增幅的**身份**，技能只是它的外显。
+statuses:
+  # ══════════════ 生得术式（角色级、永久；一人可持有多个） ══════════════
+
+  - id: tech-ten-shadow
+    name: 术式·十种影法术
+    tags: [legend, buff]
+    description: 影子里的十种式神。你与它们共享同一片阴影——影子越多，你的咒力越沉。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 4, intellect: 1 }
+    combat:
+      damageDealt: 0.1
+    visibility: known
+
+  - id: tech-red-blood
+    name: 术式·赤血操术
+    tags: [epic, buff]
+    description: 血液即武器。加茂家的血脉，越失血越锋利。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 2, physique: 4 }
+    combat:
+      hitChance: 0.05
+    visibility: known
+
+  - id: tech-doll
+    name: 术式·刍灵咒法
+    tags: [excellent, buff]
+    description: 以草人与钉子代替自己承受因果。你比谁都清楚「名字」有多重。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 3, luck: 3 }
+    combat:
+      damageDealt: 0.08
+    visibility: known
+
+  - id: tech-thunder
+    name: 术式·雷电
+    tags: [epic, buff]
+    description: 咒力以雷的形态存在。出手总是比别人快半步。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 3, agility: 4 }
+    combat:
+      hitChance: 0.08
+    visibility: known
+
+  - id: tech-speech
+    name: 术式·咒言
+    tags: [epic, buff]
+    description: 说出的话成为规则。代价是喉咙一直在渗血。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 3, intellect: 4 }
+    combat:
+      damageDealt: 0.08
+    visibility: known
+
+  # 多重术式：极罕见的体质，一人持有两个生得术式（宿傩、羂索、以及玩家的隐藏分支）
+  - id: multi-technique
+    name: 多重术式
+    tags: [mythic, buff]
+    description: 你的身体里不止一个术式。这在咒术史上是「不该出现」的东西。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 6 }
+    visibility: known
+
+  # ══════════════ 生得术式 · 玩家池（十条原创系） ══════════════
+  # 只表达「这具身体被术式改造过」，不外显招式（招式在 sk-tech-* 里）。
+
+  - id: tech-space
+    name: 术式·空间
+    tags: [epic, buff]
+    description: 距离在你手里是一件可以折叠的东西。你站过的地方，会一直留着一条能回去的缝。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 3, agility: 4 }
+    combat:
+      hitChance: 0.07
+    visibility: known
+
+  - id: tech-illusion
+    name: 术式·精神幻术
+    tags: [epic, buff]
+    description: 你改的不是画面，是一个人确信的那一段。被改过的人不会觉得哪里不对。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 2, intellect: 4 }
+    combat:
+      damageTaken: -0.06
+    visibility: known
+
+  - id: tech-flesh
+    name: 术式·肉体操控
+    tags: [epic, buff]
+    description: 细胞、骨、血管，都按你的图纸长。每次改动都用这具身体本身结账。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 3, physique: 4 }
+    combat:
+      damageTaken: -0.08
+    visibility: known
+
+  - id: tech-gravity
+    name: 术式·重力
+    tags: [legend, buff]
+    description: 哪一边是下，由你来说。走近你的人会先觉得膝盖变沉。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 4, physique: 3 }
+    combat:
+      damageDealt: 0.09
+    visibility: known
+
+  - id: tech-shadow
+    name: 术式·影子
+    tags: [epic, buff]
+    description: 有光的地方就有一道门。你从影子里进去，从另一片影子里出来。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 3, agility: 4 }
+    combat:
+      hitChance: 0.06
+      damageTaken: -0.05
+    visibility: known
+
+  - id: tech-sound
+    name: 术式·声波
+    tags: [excellent, buff]
+    description: 你说话的时候，别人的骨头在跟着震。安静下来反而更危险。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 3, intellect: 3 }
+    combat:
+      damageDealt: 0.07
+    visibility: known
+
+  - id: tech-toxin
+    name: 术式·毒素
+    tags: [excellent, buff]
+    description: 你呼出的气在别人体内慢慢结算。他们要到第二天才发觉自己病了。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 2, physique: 3 }
+    combat:
+      damageDealt: 0.06
+    visibility: known
+
+  - id: tech-matter
+    name: 术式·物质转化
+    tags: [epic, buff]
+    description: 血可以变成铁，骨可以变成盐。你碰过的东西不再保证还是原来的东西。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 3, intellect: 4 }
+    combat:
+      damageDealt: 0.05
+      damageTaken: -0.05
+    visibility: known
+
+  - id: tech-rule
+    name: 术式·契约规则
+    tags: [legend, buff]
+    description: 你说出口的条件会成立——包括写在自己身上的那一条。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 3, intellect: 4 }
+    combat:
+      damageDealt: 0.08
+    visibility: known
+
+  - id: tech-fate
+    name: 术式·运势因果
+    tags: [legend, buff]
+    description: 你不太用力，事情自己会往你这边倒。只是借来的运气，迟早要还。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 4, luck: 3 }
+    combat:
+      hitChance: 0.08
+    visibility: known
+
+  # ══════════════ 领域 / 黑闪（战斗域） ══════════════
+
+  - id: domain-active
+    name: 领域展开
+    tags: [mythic, buff]
+    description: 你的法则覆盖了这片空间。攻击必中、伤害放大，敌人的防御被压到最低——但只撑三回合。
+    duration: { turns: 3 }
+    stacking: unique
+    combat:
+      hitChance: 0.3
+      damageDealt: 0.6
+      damageTaken: -0.25
+      battleRounds: 3
+    visibility: known
+
+  - id: domain-pin
+    name: 领域压制
+    tags: [abnormal]
+    description: 被卷进别人的领域。术式被压制，身体像陷在泥里。
+    duration: { turns: 3 }
+    stacking: refresh
+    combat:
+      damageTaken: 0.35
+      hitChance: -0.25
+      battleRounds: 3
+    visibility: known
+
+  - id: black-flash
+    name: 黑闪
+    tags: [legend, buff]
+    description: 咒力与物理打击在百万分之一秒的偏差内重合。下一击会被这层余韵放大。
+    duration: { turns: 1 }
+    stacking: refresh
+    combat:
+      damageDealt: 0.5
+      battleRounds: 1
+    visibility: known
+
+  # ══════════════ 角色级特质（原作人物） ══════════════
+
+  - id: six-eyes
+    name: 六眼
+    tags: [mythic-unique, buff]
+    description: 五条家相传的眼睛。看穿咒力的流动，以近乎零损耗运转咒力。
+    # 品级由标签表达（mythic → 神话 / 动虹）；不再写 `quality`——那是引擎的选择器，
+    # 玩家不该在详情里看到「RAINBOW」这种变量名。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 20, agility: 10, intellect: 10 }
+    combat:
+      hitChance: 0.2
+      damageDealt: 0.3
+    visibility: known
+
+  - id: cursed-king
+    name: 诅咒之王
+    tags: [mythic-unique, buff]
+    description: 两面宿傩。千年之前让整个咒术界跪下的存在。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 60 }
+    combat:
+      damageDealt: 0.25
+      damageTaken: -0.2
+    visibility: known
+
+  - id: kenjaku
+    name: 千年术师
+    tags: [mythic, buff]
+    description: 换过无数具身体的诅咒师。他记得每一个死在他手里的人的名字。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 12, intellect: 8 }
+    combat:
+      damageDealt: 0.15
+    visibility: known
+
+  - id: heavenly-restriction
+    name: 天与咒缚
+    tags: [legend, buff]
+    description: 出生时就被拿走全部咒力，换来的是一具超越常识的肉体。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: -8, physique: 20, agility: 12 }
+    visibility: known
+
+  - id: special-physique
+    name: 特殊体质
+    tags: [epic, buff]
+    description: 生来异于常人的躯体，能承受别人承受不了的咒力。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { physique: 8, cursedEnergy: 6 }
+    visibility: known
+
+  - id: reverse-mastered
+    name: 反转术式·精通
+    tags: [legend, buff]
+    description: 以正向咒力重构肉体。只要还有一口气，就能把伤口合上。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 6 }
+    combat:
+      damageDealt: 0.15
+    visibility: known
+
+  # ══════════════ 体质 / 天赋（玩家池；不是术式） ══════════════
+
+  - id: blessed-reverse
+    name: 反转术式·天赋
+    tags: [epic, buff]
+    description: 你的身体记得怎么把伤口倒着长回去。没人教过，但流血时它自己会算。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 2, physique: 2 }
+    combat:
+      onRoundEnd:
+        - { heal: { preset: fixed, value: 3 } }
+    visibility: known
+
+  - id: poison-ward
+    name: 咒毒抗性
+    tags: [epic, buff]
+    description: 别人中毒是毒在走，你是毒在门口就被拦下了。难受，但走不深。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { physique: 2 }
+    combat:
+      damageTaken: -0.04
+    visibility: known
+
+  - id: wide-sense
+    name: 广域感知
+    tags: [excellent, buff]
+    description: 咒力的动静从很远的地方传过来，像水面下的脚步。你总是先抬头。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { intellect: 2, agility: 1 }
+    combat:
+      hitChance: 0.04
+    visibility: known
+
+  - id: memory-ward
+    name: 记忆抗性
+    tags: [excellent, buff]
+    description: 有人试过改你的记忆，翻到一半发现里面上了锁。锁是谁装的说不上来。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { intellect: 2 }
+    visibility: known
+
+  - id: multi-soul
+    name: 多重灵魂
+    tags: [epic, buff]
+    description: 这具身体里不止一个意识在看着外面。多数时候它们很安静，偶尔会替你做一个决定。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 3, intellect: 1 }
+    visibility: known
+
+  - id: mahoraga-fit
+    name: 魔虚罗适配
+    tags: [epic, buff]
+    description: 「适应」这种机制落到你身上会慢半拍。别人被整个改写，你只是被磨掉一层。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { physique: 3 }
+    visibility: known
+
+  # 双面：combat 面是一次爆发，simulation 面是持续付出的身体代价。
+  - id: self-binding
+    name: 自缚束缚
+    tags: [epic, neutral]
+    description: 你给自己立过一条规矩，并且真的在守。守约时咒力更利，代价是每天都比昨天沉一点。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { physique: -2, agility: -2 }
+    combat:
+      damageDealt: 0.1
+    visibility: known
+
+  - id: resolved
+    name: 觉悟
+    tags: [excellent, buff]
+    description: 你已经想清楚要为什么而战。咒力因此凝实。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { cursedEnergy: 5 }
+    visibility: known
+
+  # ══════════════ 负面状态 ══════════════
+
+  - id: curse-poison
+    name: 咒毒
+    tags: [abnormal]
+    description: 咒灵的毒素侵蚀身体。
+    duration: { turns: 3 }
+    stacking: refresh
+    simulation:
+      attributeModifiers: { physique: -2 }
+      moodDeltaPerTurn: -1
+      eventConditionTag: curse-poisoned
+    combat:
+      onRoundEnd:
+        - { damage: { preset: fixed, value: 3 } }
+    cureConditions:
+      - { item: item-antidote }
+    visibility: known
+
+  - id: cursed-burn
+    name: 咒火
+    tags: [abnormal]
+    description: 被咒力灼烧，持续受损。
+    duration: { turns: 2 }
+    stacking: refresh
+    simulation:
+      attributeModifiers: { physique: -1 }
+      moodDeltaPerTurn: -1
+    combat:
+      onRoundEnd:
+        - { damage: { preset: fixed, value: 4 } }
+      battleRounds: 2
+    visibility: known
+
+  - id: injured-sim
+    name: 重伤
+    tags: [abnormal]
+    description: 骨头裂了，咒力回路也在漏。再挨一次，就真的站不起来了。
+    # 品级 + 正负都靠标签：史诗（金）+ 减益（红）。
+    duration: { turns: 3 }
+    stacking: refresh
+    simulation:
+      attributeModifiers: { agility: -3, physique: -2 }
+      moodDeltaPerTurn: -2
+    cureConditions:
+      - { restTurns: 2 }
+    visibility: known
+
+  - id: exhausted
+    name: 力竭
+    tags: [abnormal]
+    description: 咒力见底，连抬手都费劲。
+    duration: { turns: 2 }
+    stacking: refresh
+    simulation:
+      attributeModifiers: { agility: -3, physique: -2 }
+      moodDeltaPerTurn: -1
+    visibility: known
+
+  - id: grief
+    name: 丧失
+    tags: [abnormal]
+    description: 有人死了，而你还活着。这件事会跟着你很久。
+    duration: { turns: 8 }
+    stacking: stack
+    simulation:
+      attributeModifiers: { intellect: -1 }
+      moodDeltaPerTurn: -2
+    visibility: known
+
+  - id: doubt
+    name: 动摇
+    tags: [abnormal]
+    description: 你开始怀疑「保护非术师」这条准则是否站得住脚。
+    duration: { turns: 6 }
+    stacking: stack
+    simulation:
+      attributeModifiers: { intellect: -1 }
+      moodDeltaPerTurn: -1
+    visibility: known
+
+  - id: cursed-mark
+    name: 厄运缠身
+    tags: [abnormal]
+    description: 转盘的大凶格留下了印记。走路都会踩到咒灵的巢。
+    duration: { untilCured: true }
+    stacking: unique
+    simulation:
+      attributeModifiers: { luck: -4 }
+      moodDeltaPerTurn: -1
+    visibility: known
+
+  - id: blessed
+    name: 大吉
+    tags: [buff]
+    description: 转盘停在最吉利的一格。今天做什么都顺手。
+    duration: { turns: 3 }
+    stacking: refresh
+    simulation:
+      attributeModifiers: { luck: 3 }
+      moodDeltaPerTurn: 1
+    visibility: known
+
+  # ══════════════ 战斗控制类（战斗结束自动清除） ══════════════
+
+  - id: stun
+    name: 眩晕
+    tags: [abnormal]
+    description: 无法行动。
+    duration: { turns: 2 }
+    stacking: refresh
+    combat:
+      control: [cannot_act]
+      battleRounds: 1
+    visibility: known
+
+  - id: seal
+    name: 封印
+    tags: [abnormal]
+    description: 咒力被封锁，无法使用技能。
+    duration: { turns: 2 }
+    stacking: refresh
+    combat:
+      control: [cannot_use_skills]
+      battleRounds: 2
+    visibility: known
+
+  - id: bind
+    name: 束缚
+    tags: [abnormal]
+    description: 行动被咒力拘束。
+    duration: { turns: 2 }
+    stacking: refresh
+    combat:
+      control: [cannot_flee, cannot_use_items]
+      battleRounds: 2
+    visibility: known
+
+  - id: veil
+    name: 帐护
+    tags: [buff]
+    description: 一层薄薄的咒力帐裹住身体，攻击会被挡掉一部分。
+    duration: { turns: 2 }
+    stacking: refresh
+    combat:
+      damageTaken: -0.3
+      battleRounds: 2
+    visibility: known
+
+  # 高阶技巧的短时增益（2026-11-19）：术式公开 / 自缚束缚 / 咒力视觉都是**战斗内的一次性窗口**，
+  # 不能借用 `self-binding`（那是 untilCured 的长期代价）或 `black-flash`（那是黑闪的会心窗口）。
+  - id: disclosure
+    name: 术式公开
+    tags: [rare, buff]
+    description: 你把术式的规则讲给对手听。情报收不回来，咒力的运转却因此顺滑了一次。
+    duration: { turns: 3 }
+    stacking: refresh
+    combat:
+      damageDealt: 0.25
+      battleRounds: 3
+    visibility: known
+
+  - id: vow-boost
+    name: 束缚·一掷
+    tags: [excellent, buff]
+    description: 你给自己加了一条限制，换这一次必定成。手不抖了，眼睛也不眨。
+    duration: { turns: 1 }
+    stacking: refresh
+    combat:
+      damageDealt: 0.4
+      hitChance: 0.15
+      battleRounds: 1
+    visibility: known
+
+  - id: curse-sight
+    name: 咒力视觉
+    tags: [rare, buff]
+    description: 看得见咒力的流向，就等于看见对手准备往哪儿动。闪避不是快，是提前半步。
+    duration: { turns: 3 }
+    stacking: refresh
+    combat:
+      hitChance: 0.12
+      damageTaken: -0.1
+      battleRounds: 3
+    visibility: known
+
+  - id: absorbed-curses
+    name: 收集咒灵
+    tags: [buff]
+    description: 已吞下的咒灵储备。数量越多，旋涡的献祭威力越大。
+    duration: { turns: 5 }
+    stacking: stack
+    combat: {}
+    visibility: known
+
+  - id: enrage
+    name: 狂化
+    tags: [buff]
+    description: 咒灵被激怒，攻击性暴增。
+    duration: { turns: 2 }
+    stacking: refresh
+    combat:
+      damageDealt: 0.3
+      battleRounds: 2
+    visibility: hidden

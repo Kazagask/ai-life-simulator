@@ -14,6 +14,9 @@ meta:
   description: 2018 年 12 月 24 日，新宿。五条悟与两面宿傩的「最强对最强」把这座城市打成了废墟。你可以选他，去赌能不能改写那道斩断世界的刀；也可以选虎杖，从五条倒下之后的残局里，把宿傩从伏黑体内拽出来。同一夜，两条命。
   startYear: 2018
   engineProtocol: v2
+  # 待删除（2026-11-20）：这个模板已经过时，用户要求删掉。
+  # 目录删除被沙箱拦住了，先按「隐藏模板」处理 —— 选模板界面看不到，按 id 仍可建局。
+  hidden: true
 
 # 亲缘称谓由 `family` 扩展提供（推导逻辑在 extensions/family，不在内核）。
 # 这里走**指针模式**：characters.yaml 只写 fatherId/motherId，不写任何亲属边
@@ -112,11 +115,16 @@ actions:
 # 钉崎野蔷薇在「记忆回廊」之后苏醒、回到战场。kugisakiReady 一立，下一轮 tail 自动把她拉上场；
 # 缺省 when ⇒ 永不自动，只能显式 spawnNpc（不影响其它模板）。
 npcSpawnRules:
-  - id: rule-kugisaki-awaken
-    characterRef: npc-kugisaki
-    age: 16
-    when:
-      - { flag: kugisakiReady, eq: true }
+  - { id: rule-kugisaki-awaken, characterRef: npc-kugisaki, age: 16 }
+
+# 登场时点走世界时间表（ADR-007 D1）：`when` 不再挂在刷新规则上，而是写成一条事实。
+# 这里不是时间条件而是剧情条件——那就等旗标，效果一样。
+scheduledFacts:
+  - id: fact-kugisaki-awaken
+    note: 钉崎觉醒后登场
+    when: [{ flag: kugisakiReady, eq: true }]
+    effects:
+      - { type: spawnNpc, ruleId: rule-kugisaki-awaken }
 
 # playerTemplate：中性基线。技能留空 —— 由两个开局各自 unlockSkill 授予，避免「两条线都带五条的术式」。
 playerTemplate:

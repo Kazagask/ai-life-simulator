@@ -1,10 +1,12 @@
 import { z } from "zod";
+import { AttributeValueSchema } from "./attribute.js";
+import { CombatRegenSchema } from "./common.js";
 import { RelationDeclSchema } from "./relation.js";
 
 /**
  * 角色 Schema：玩家初始模板 / NPC / 敌人角色共用。
  * 性别取值来自 world.genders 自定义枚举（引用完整性在 world.ts 顶层校验）。
- * 心情为角色计量条（非补正）；public/private 资料分层支撑信息可见性。
+ * 心情为角色计量条（非状态）；public/private 资料分层支撑信息可见性。
  */
 
 export const GenderDefSchema = z
@@ -33,7 +35,7 @@ export const CharacterSchema = z
      * 战斗只按 `settle.combat.enemies[].ref` 直接引用它。
      *
      * 代价（2026-11-16 用户裁决接受）：敌人不能当关系边的端点 —— 它不在实例表里。
-     * 「惠 ↔ 甚尔」这类跨敌我关系要靠**关系投影与 NPC 投影解耦**来表达（见 projection.ts）。
+     * 「某人与他的父亲」这类跨敌我关系要靠**关系投影与 NPC 投影解耦**来表达（见 projection.ts）。
      */
     isEnemy: z.boolean(),
     identity: IdentitySchema,
@@ -51,11 +53,44 @@ export const CharacterSchema = z
       .strict()
       .optional(),
     mood: MoodValueSchema,
-    attributes: z.record(z.string(), z.number()),
+    /**
+     * 初始属性（ADR-003）：数值属性写 number，`enum` 属性写选项 id 字符串。
+     * 值的合法性（文本是否在 `defs[id].values` 内）由 `world.ts` 顶层交叉校验。
+     */
+    attributes: z.record(z.string(), AttributeValueSchema),
     /** 角色初始持有的技能（NPC/敌人同样适用；引用完整性在 world.ts 顶层校验） */
     skills: z.array(z.string().min(1)).optional(),
-    /** 角色初始携带的补正（如五条的六眼；NPC/敌人同样适用，引用完整性在 world.ts 顶层校验） */
+    /** 角色初始携带的状态（如某个角色天生自带的特质；NPC/敌人同样适用，引用完整性在 world.ts 顶层校验） */
     statuses: z.array(z.string().min(1)).optional(),
+    /**
+     * 初始装备（ADR-010 D3）：物品 id 列表，实例化时转成 `EquipmentInstance`。
+     *
+     * 词条走与玩家完全相同的 `effectiveAttributes` 链（`dynamicModifier`），所以
+     * 「甚尔拿着天逆鉾」终于是装备，而不是手改 `attributes` 凑出来的数字。
+     * 槽位取物品自身的 `slot`（缺省 weapon）；引用完整性在 world.ts 顶层校验。
+     */
+    equipment: z.array(z.string().min(1)).optional(),
+    /**
+     * **专属资源池**（ADR-012 D9）：自带上限，只有声明过的角色才有这条。
+     *
+     * 为什么不写进 `world.resources`：那是模板全局池，一写就是「人人都有」——
+     * 「咒灵数量」挂在夏油杰身上成立，挂在伏黑惠身上就是 bug。地图键是资源 id，
+     * 值是 `{ value, max }`；只实例化到**战斗单位**（以及玩家以该角色开局时的 `player.resources`）。
+     *
+     * `label` 是这条槽在界面上叫什么（缺省就用键名，中文界面会很怪），
+     * 也是「玩家以该角色开局时，这条槽能被投影到状态栏」的唯一来源。
+     */
+    resources: z
+      .record(
+        z.string(),
+        z.object({ value: z.number(), max: z.number().nonnegative(), label: z.string().min(1).optional() }).strict(),
+      )
+      .optional(),
+    /**
+     * ADR-003 D12：该单位在**战斗内每回合结束**回复多少资源（任意已声明资源，缺键 = 0）。
+     * 玩家侧写在 `world.yaml regen.combat`；这里是敌人 / 友军版本，语义完全相同。
+     */
+    combatRegen: CombatRegenSchema.optional(),
     public: z
       .object({
         personality: z.string().optional(),

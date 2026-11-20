@@ -616,6 +616,30 @@
 /* 静虹：同一套渐变，静止在最美的一帧。 */
 .ls-style--rainbow-static { background-position: var(--ls-rainbow-rest); }
 
+/*
+ * 四档光谱（2026-11-19）：十四档阶梯里的四档 —— 超凡·卓越 / 稀世·珍宝 /
+ * 绝世·史诗 / 旷古·传说。
+ *
+ * 它们与上面单色预设是**同一套渲染路径**，只是把「一个色值」换成「一段渐变」：
+ * 字用 clip-text，框用遮罩掏空（见下面的 .ls-box--*）。不做动画——这四档要的是
+ * 与同色系那一档拉开距离，不是「会动」。
+ */
+.ls-style--indigo,
+.ls-style--magenta,
+.ls-style--ember,
+.ls-style--aurum {
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+.ls-style--indigo { background-image: linear-gradient(100deg, #5289ec 0%, #7774e9 45%, #b07be8 100%); }
+.ls-style--magenta { background-image: linear-gradient(100deg, #e98ab9 0%, #e64ba7 45%, #c64bbd 100%); }
+.ls-style--ember { background-image: linear-gradient(100deg, #f0a34e 0%, #ed7547 45%, #d94d4d 100%); }
+.ls-style--aurum {
+  background-image: linear-gradient(100deg, #a96508 0%, #d99112 20%, #ffd02f 42%, #ffe878 55%, #f6b91d 75%, #c77c0a 100%);
+}
+
 .ls-anim--rainbow-flow { animation: ls-rainbow-flow var(--ls-rainbow-duration) linear infinite; }
 .ls-anim--pulse { animation: ls-pulse 2.4s ease-in-out infinite; }
 .ls-anim--glow { text-shadow: 0 0 10px currentColor; }
@@ -687,12 +711,52 @@
 }
 .ls-box--rainbow-static::before { background-position: var(--ls-rainbow-rest); }
 
+/*
+ * 四档光谱的描边：与彩虹同一套「遮罩掏空」做法，但**静止**，且渐变按档位取
+ * `--ls-chip-gradient`（每个类名只声明自己的那段，规则只写一遍）。
+ */
+.ls-box--indigo,
+.ls-box--magenta,
+.ls-box--ember,
+.ls-box--aurum { border-color: transparent; }
+.ls-box--indigo::before,
+.ls-box--magenta::before,
+.ls-box--ember::before,
+.ls-box--aurum::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  border-radius: inherit;
+  padding: 1px;
+  background-image: var(--ls-chip-gradient);
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+.ls-box--indigo { --ls-chip-gradient: linear-gradient(100deg, #5289ec 0%, #7774e9 45%, #b07be8 100%); }
+.ls-box--magenta { --ls-chip-gradient: linear-gradient(100deg, #e98ab9 0%, #e64ba7 45%, #c64bbd 100%); }
+.ls-box--ember { --ls-chip-gradient: linear-gradient(100deg, #f0a34e 0%, #ed7547 45%, #d94d4d 100%); }
+.ls-box--aurum {
+  --ls-chip-gradient: linear-gradient(100deg, #a96508 0%, #d99112 20%, #ffd02f 42%, #ffe878 55%, #f6b91d 75%, #c77c0a 100%);
+}
+
 /* 不支持遮罩合成的旧内核：退回静态紫色描边（宁可不动，也不要露出一整块渐变挡住文字）。 */
 @supports not ((mask-composite: exclude) or (-webkit-mask-composite: xor)) {
   .ls-box--rainbow::before,
-  .ls-box--rainbow-static::before { display: none; }
+  .ls-box--rainbow-static::before,
+  .ls-box--indigo::before,
+  .ls-box--magenta::before,
+  .ls-box--ember::before,
+  .ls-box--aurum::before { display: none; }
   .ls-box--rainbow,
   .ls-box--rainbow-static { border-color: #c084fc; }
+  .ls-box--indigo { border-color: #7774e9; }
+  .ls-box--magenta { border-color: #e64ba7; }
+  .ls-box--ember { border-color: #ed7547; }
+  .ls-box--aurum { border-color: #d99112; }
 }
 
 /* ---------- 效果列表 ---------- */
@@ -722,6 +786,17 @@
 }
 .status-chip--action:active { opacity: 0.75; }
 
+/*
+ * 正负一等字段（2026-11-20）：战斗芯片与技能描述共用同一套语义色。
+ * 补正的正负由模板显式声明（`polarity`），不再从 tags 推断。
+ */
+.ls-tone--positive { color: #4fd1a5; }
+.ls-tone--negative { color: #ff7a7a; }
+.ls-tone--neutral { color: var(--ls-text-dim); }
+.ls-battle-status.ls-tone--positive { border-color: rgba(79, 209, 165, 0.45); }
+.ls-battle-status.ls-tone--negative { border-color: rgba(255, 122, 122, 0.45); }
+.ls-battle-status.ls-tone--neutral { border-color: var(--ls-border); }
+
 .ls-effect--buff { color: #4fd1a5; }
 .ls-effect--debuff { color: #ff7a7a; }
 .ls-effect--neutral { color: var(--ls-text-dim); }
@@ -736,9 +811,13 @@
   color: var(--ls-text);
 }
 
-.ls-effect__ref { text-decoration: underline dotted; text-underline-offset: 3px; }
 .ls-effect__note { margin-left: 4px; font-size: 12px; color: var(--ls-text-dim); }
 
+/*
+ * 可点的引用条目（「施加 束缚」）。**下划线只落在名字上**（2026-11-20 用户裁决）：
+ * 整颗按钮带下划线时，「施加」「（2 回合）」这些叙述词也会被读成链接的一部分 ——
+ * 与召唤链接同一条口径：可点的是实体名，不是整句话。
+ */
 .ls-effect__link {
   background: none;
   border: 0;
@@ -746,6 +825,10 @@
   font: inherit;
   color: inherit;
   cursor: pointer;
+  text-decoration: none;
+}
+/* 名字一定是 `EffectText` 里那个直接子 span；没有样式（无标签补正）时也要有下划线。 */
+.ls-effect__link > span {
   text-decoration: underline dotted;
   text-underline-offset: 3px;
 }
@@ -907,6 +990,32 @@
 .ls-skill-card__name { font-size: 14px; line-height: 1.35; }
 .ls-skill-card__meta { font-size: 11px; color: var(--ls-text-dim); }
 
+/*
+ * 封印（ADR-015）：卡还在，但这一招以现状用不了。虚线框 + 一枚「封印」角标，
+ * 详情里给原因。**不做成半透明不可点**：点开详情看原因正是这张卡存在的意义。
+ */
+.ls-skill-card.is-sealed {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--ls-hp, #c0392b) 45%, var(--ls-border));
+}
+.ls-skill-card__seal {
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--ls-hp, #c0392b) 55%, transparent);
+  color: color-mix(in srgb, var(--ls-hp, #c0392b) 80%, var(--ls-text));
+}
+.ls-skill-detail__seal {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: color-mix(in srgb, var(--ls-hp, #c0392b) 80%, var(--ls-text));
+  border: 1px dashed color-mix(in srgb, var(--ls-hp, #c0392b) 45%, var(--ls-border));
+  background: color-mix(in srgb, var(--ls-hp, #c0392b) 8%, transparent);
+}
+
 .ls-skill-detail {
   margin-top: 12px;
   padding: 12px;
@@ -998,3 +1107,442 @@
 :where(.ls-tag, .ls-battle-status) {
   border-color: var(--ls-border);
 }
+
+/* ---------- 属性类型（ADR-003）：文本 / 复合 / 阶梯 ---------- */
+
+.stat-sources {
+  flex-basis: 100%;
+  width: 100%;
+  font-size: 10px;
+  color: var(--ls-text-dim);
+  letter-spacing: 0.04em;
+}
+
+/* 文本 / 复合属性给两格宽：中文属性名 + 称号在小格子里会把字竖着排。 */
+.stat--enum,
+.stat--composite {
+  grid-column: span 2;
+  flex-wrap: wrap;
+}
+
+.stat--enum strong,
+.stat--composite strong {
+  white-space: nowrap;
+}
+
+.ls-ladders {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--ls-border);
+}
+
+.ls-ladders__title {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--ls-text-dim);
+}
+
+.ls-ladder {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ls-ladder__top {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ls-text-dim);
+}
+
+.ls-ladder__name {
+  min-width: 3em;
+}
+
+.ls-ladder__tier {
+  flex: 1;
+}
+
+.ls-ladder__value {
+  font-variant-numeric: tabular-nums;
+  color: var(--ls-text);
+}
+
+.ls-ladder__track {
+  /* 宿主 `.bar` 是 `flex: 1`（为横向行设计）；在纵向成长列表里必须关掉 flex 才拿得到高度。 */
+  flex: none;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.bar-fill.ladder,
+.ls-ladder__track .bar-fill {
+  background: linear-gradient(90deg, var(--ls-gold), #f0d78c);
+  transition: width 0.35s ease;
+}
+
+/* ---------- 刻度资源（ADR-003 D10） ---------- */
+
+.ls-bar__pips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /* 与 `.bar` 同宽同增：刻度条不该比血条短一截（用户 2026-11-19 反馈）。 */
+  flex: 1 1 0;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.ls-pip {
+  flex: 1 1 0;
+  /* 不再限宽：N 个刻度平分整条轨道，5 个豆就和血条一样长。 */
+  min-width: 0;
+  height: 8px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--ls-border);
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.ls-pip.is-filled {
+  background: linear-gradient(90deg, var(--ls-gold), #f0d78c);
+  border-color: transparent;
+}
+
+.ls-bar[data-tone="danger"] .ls-pip.is-filled {
+  background: linear-gradient(90deg, var(--ls-hp), #ff9a76);
+}
+
+/* ---------- 加点面板（ADR-004 D6） ---------- */
+
+.ls-alloc {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.ls-alloc__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--ls-text-dim);
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--ls-border);
+}
+
+.ls-alloc__remaining strong {
+  font-size: 17px;
+  color: var(--ls-gold);
+  font-variant-numeric: tabular-nums;
+  margin: 0 2px;
+}
+
+.ls-alloc__remaining.is-done strong {
+  color: #6ee7b7;
+}
+
+.ls-alloc__budget {
+  flex: 1;
+  letter-spacing: 0.04em;
+}
+
+.ls-alloc__quick {
+  border: 1px solid var(--ls-border);
+  background: transparent;
+  color: var(--ls-text-dim);
+  border-radius: 999px;
+  font-size: 11px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+
+.ls-alloc__quick:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.ls-alloc__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ls-alloc__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--ls-border);
+  border-radius: var(--ls-radius);
+  background: var(--ls-surface-2);
+}
+
+.ls-alloc__label {
+  flex: 1;
+  font-size: 14px;
+}
+
+.ls-alloc__hint {
+  font-size: 11px;
+  color: var(--ls-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.ls-alloc__stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ls-alloc__btn {
+  width: 26px;
+  height: 26px;
+  line-height: 1;
+  border-radius: 8px;
+  border: 1px solid var(--ls-border);
+  background: transparent;
+  color: var(--ls-text);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.ls-alloc__btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.ls-alloc__value {
+  min-width: 2.4em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--ls-text-dim);
+  font-size: 14px;
+}
+
+.ls-alloc__value.is-positive {
+  color: var(--ls-gold);
+}
+
+.ls-alloc__confirm {
+  margin-top: 4px;
+}
+
+.ls-alloc__max {
+  border: 1px solid var(--ls-border);
+  background: transparent;
+  color: var(--ls-text-dim);
+  border-radius: 8px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding: 3px 6px;
+  cursor: pointer;
+}
+
+.ls-alloc__max:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* 余额未分完时的二次确认（要覆盖整张卡，避免误触旁边的按钮） */
+.ls-alloc__confirm-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(8, 6, 4, 0.62);
+  backdrop-filter: blur(6px);
+}
+
+.ls-alloc__confirm-box {
+  width: min(340px, 100%);
+  border-radius: var(--ls-radius);
+  border: 1px solid var(--ls-border);
+  background: var(--ls-surface);
+  padding: 18px 18px 14px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+.ls-alloc__confirm-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  color: var(--ls-text);
+}
+
+.ls-alloc__confirm-text {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ls-text-dim);
+}
+
+.ls-alloc__confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* 两个按钮等宽：原来只按内容排，「继续分配」在窄屏会被挤成两行。 */
+.ls-alloc__confirm-actions button {
+  flex: 1 1 0;
+  white-space: nowrap;
+  padding: 10px 12px;
+}
+
+/* ---------- 人生页人物卡：属性区（2026-11-19 用户裁决：不要胶囊） ----------
+ *
+ * 为什么不做胶囊：下面紧跟着补正芯片（`.status-chip`），两者都是圆角描边小药丸，
+ * 视觉上会被读成同一类东西。这里改成**纯文字**：
+ *   - 数值 / 枚举 / 复合：三列网格（标签淡色、值正常色或模板样式）；
+ *   - `ladder` / 进度：整行一条，档位 + 进度条 + 本档值。
+ * 展示哪些属性由 `ui.yaml playerCard.attributes` 声明（不进指纹）。
+ */
+
+.ls-sheet-attrs {
+  display: grid;
+  /* 一行两个（2026-11-19 用户裁决）：文本属性（等级 / 生得术式）在三列里会被截断。 */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+  margin: 8px 0 10px;
+}
+
+.ls-sheet-attr {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.ls-sheet-attr__label {
+  color: var(--ls-text-dim);
+  flex-shrink: 0;
+}
+
+.ls-sheet-attr__value {
+  color: var(--ls-text);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 进度类：占满整行 */
+.ls-sheet-attr--row {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: max-content max-content minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 8px;
+}
+
+.ls-sheet-attr__track {
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.ls-sheet-attr__num {
+  font-size: 11.5px;
+  color: var(--ls-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 战斗：召唤物信息与详情（2026-11-20） */
+.unit-wrap { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.unit-summon-label { color: var(--ls-gold); font-size: 11px; }
+.unit-death-reason { color: var(--ls-text-dim); font-size: 11px; }
+.unit-detail-btn {
+  align-self: flex-start; padding: 2px 8px; border: 1px solid var(--ls-border);
+  border-radius: 6px; background: var(--ls-surface-2); color: var(--ls-text-dim); font-size: 11px;
+}
+.action-summon { color: var(--ls-gold); font-weight: 500; }
+.action-cost-note { color: var(--ls-text-dim); font-size: 10px; }
+.unit-detail-panel {
+  margin-top: 10px; padding: 10px 12px; border: 1px solid var(--ls-border);
+  border-radius: var(--ls-radius); background: var(--ls-surface-2);
+  font-size: 12px; color: var(--ls-text-dim); line-height: 1.7;
+}
+.unit-detail-head { display: flex; align-items: center; justify-content: space-between; }
+.unit-detail-close {
+  padding: 2px 8px; border: 1px solid var(--ls-border); border-radius: 6px;
+  background: var(--ls-surface); color: var(--ls-text); font-size: 11px;
+}
+.fallen-list { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; opacity: 0.75; }
+.unit-summoner { color: var(--ls-text-dim); font-size: 11px; }
+.ls-skill-summon-link {
+  padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer;
+  /* 下划线只给名字（2026-11-20）：整颗按钮带下划线时，「召唤 3 只 ·」也会被读成链接的一部分。 */
+  text-decoration: none;
+}
+.ls-skill-summon-link strong { text-decoration: underline; text-underline-offset: 3px; }
+
+/*
+ * 浮层分节（召唤物的技能表，2026-11-20）：
+ * 一行一个技能 —— 技能名在左，效果沿着同一行往后排（`ls-effects--inline`）；
+ * 排不下就换行，但**不会**把技能名和它的效果拆成两段。
+ */
+.ls-sheet__group {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ls-border);
+}
+.ls-sheet__group-head {
+  /* 网格而不是 flex：效果换行时对齐到效果列，不会缩回技能名下面。 */
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 2px 10px;
+}
+.ls-sheet__group-head h4 {
+  flex: 0 0 auto;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ls-effects--inline {
+  flex: 1 1 auto;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: 0;
+  min-width: 0;
+}
+.ls-effects--inline .ls-effect { font-size: 12.5px; }
+
+/* 浮层里的常驻补正行（召唤物的被动，如法轮）：与个人页芯片同款。 */
+.ls-sheet__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+.ls-sheet__chips-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--ls-text-dim);
+}
+.ls-sheet__chips .status-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+
+/* 天赋是身份（实线），状态与战斗态会掉（虚线）——滚动之后分组标题不在屏里也分得开 */
+.status-chip--modifier,
+.status-chip--battle { border-style: dashed; }
+
+/* 实线 = 天赋（身份），虚线 = 修正 / 战斗状态（会掉）——与个人页同一套语言 */
+.ls-battle-status--modifier,
+.ls-battle-status--battle { border-style: dashed; }

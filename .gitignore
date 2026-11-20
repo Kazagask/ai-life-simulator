@@ -31,3 +31,6 @@ specs/data/references/*.wheel.json
 .tmp-*
 .rpa-*.mjs
 .llm-run.mjs
+
+# 管理后台战斗演练的打包产物（pnpm build:admin 生成）
+apps/admin/battle.js

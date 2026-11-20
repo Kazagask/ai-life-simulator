@@ -210,7 +210,13 @@ function toCanonicalEffects(
         fromId: from,
         toId: to,
         kind: effect.relationEdge.kind,
-        visibility: effect.relationEdge.visibility,
+        // ADR-017 D1：知情人范围只认 `scope`；旧 `visibility` 留着是为了旧调用方，
+        // 两者同时给时 scope 优先（引擎侧 `relationScopeOf` 的同一口径）。
+        ...(effect.relationEdge.scope !== undefined ? { scope: effect.relationEdge.scope } : {}),
+        ...(effect.relationEdge.knownBy !== undefined ? { knownBy: [...effect.relationEdge.knownBy] } : {}),
+        ...(effect.relationEdge.scope === undefined && effect.relationEdge.visibility !== undefined
+          ? { visibility: effect.relationEdge.visibility }
+          : {}),
       };
     }
     if ("secret" in effect) {
