@@ -9,3 +9,4 @@ export * from "./v2-command.js";
 export * from "./v2-state.js";
 export * from "./contract/index.js";
 export * from "./template-source.js";
+export * from "./world-store.js";

@@ -1,15 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { fileURLToPath } from "node:url";
+import { appendFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import type { ContentBlock, LlmTrace, OpeningTemplate, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
 import { LlmTraceSchema, WorldStateV2Schema } from "@life-sim/shared";
@@ -24,6 +14,7 @@ import {
   type OpeningRunnerContext,
 } from "@life-sim/game-core";
 import type { ReadyTemplateEntry, TemplateRegistry } from "./templates.js";
+import { assertWorldId, dataDir, FsWorldStore } from "./world-store-fs.js";
 
 /**
  * 世界仓储（R-PS-01..06 / ADR-0007 / ADR-0029）：
@@ -112,30 +103,18 @@ export interface WorldRecord {
   entry: ReadyTemplateEntry;
 }
 
-export function dataDir(): string {
-  const override = process.env.LIFE_SIM_DATA_DIR;
-  if (override && override.trim() !== "") return path.resolve(override);
-  // apps/server/src → 仓库根/data/worlds（与 templates.ts 的仓库根解析一致，不依赖 cwd）
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../data/worlds");
-}
+/** 存档存储实现（本地化迁移第一期：接口在 `@life-sim/shared`，fs 适配器在同名 `world-store-fs.ts`）。 */
+const envelopeStore = new FsWorldStore();
 
-function worldFile(id: string): string {
-  // id 为 randomUUID，无路径分隔符风险；防御性校验兜底
-  if (id.includes("/") || id.includes("\\") || id.includes("..")) {
-    throw new Error(`invalid_world_id: ${id}`);
-  }
-  return path.join(dataDir(), `${id}.json`);
-}
+/** 兼容旧调用点：数据目录（admin / narrative 仍按路径定位 trace）。 */
+export { dataDir };
 
 /**
  * F3 / T-07：叙事正文 append-only trace 文件路径（`data/worlds/<worldId>.trace.jsonl`），
  * 与存档同目录；随 `worldStore.delete` 一并清理。正文写入见 `appendTrace`（同一文件下方）。
  */
 export function traceFile(worldId: string): string {
-  // 与 worldFile 同一口径的防御性校验，避免 worldId 里夹路径分隔符读到目录外
-  if (worldId.includes("/") || worldId.includes("\\") || worldId.includes("..")) {
-    throw new Error(`invalid_world_id: ${worldId}`);
-  }
+  assertWorldId(worldId);
   return path.join(dataDir(), `${worldId}.trace.jsonl`);
 }
 
@@ -207,21 +186,9 @@ export function traceExists(worldId: string): boolean {
   return existsSync(traceFile(worldId));
 }
 
-/** 信封原子写（R-PS-03）：tmp → rename；失败删 tmp 并把错误抛给调用方。 */
-function writeEnvelopeAtomic(target: string, envelope: StoreEnvelope): void {
-  mkdirSync(path.dirname(target), { recursive: true });
-  const tmp = `${target}.tmp`;
-  try {
-    writeFileSync(tmp, JSON.stringify(envelope, null, 2), "utf-8");
-    renameSync(tmp, target); // 同分区原子替换
-  } catch (error) {
-    try {
-      if (existsSync(tmp)) unlinkSync(tmp);
-    } catch {
-      // 清理失败不掩盖原错误
-    }
-    throw error;
-  }
+/** 信封序列化（格式不变：缩进 2 的 JSON，便于人眼排查坏档）。 */
+function serializeEnvelope(envelope: StoreEnvelope): string {
+  return JSON.stringify(envelope, null, 2);
 }
 
 /**
@@ -249,7 +216,7 @@ function persist(state: WorldStateV2): void {
       : {}),
     state,
   };
-  writeEnvelopeAtomic(worldFile(state.id), envelope);
+  envelopeStore.write(state.id, serializeEnvelope(envelope));
   savedAtById.set(state.id, savedAt);
 }
 
@@ -269,16 +236,14 @@ export function loadPersistedWorlds(registry: TemplateRegistry): {
   loaded: WorldRecord[];
   unloadable: UnloadableWorld[];
 } {
-  const dir = dataDir();
   const loaded: WorldRecord[] = [];
   const unloadable: UnloadableWorld[] = [];
   unloadableById.clear();
-  if (!existsSync(dir)) return { loaded, unloadable };
+  // 目录不存在时 `list()` 返回空数组（存储实现自己处理），这里不再单独判存在。
 
-  for (const fileName of readdirSync(dir)) {
-    if (!fileName.endsWith(".json")) continue; // 跳过 <id>.json.tmp 等中间文件
-    const file = path.join(dir, fileName);
-    const worldId = fileName.slice(0, -".json".length);
+  for (const stored of envelopeStore.list()) {
+    const worldId = stored.id;
+    const file = envelopeStore.fileOf(worldId);
 
     const reject = (
       reason: UnloadableReason,
@@ -292,7 +257,7 @@ export function loadPersistedWorlds(registry: TemplateRegistry): {
 
     let envelope: StoreEnvelope;
     try {
-      envelope = JSON.parse(readFileSync(file, "utf-8")) as StoreEnvelope;
+      envelope = JSON.parse(stored.raw) as StoreEnvelope;
     } catch (error) {
       reject("envelope_json_invalid", `${file}: ${error instanceof Error ? error.message : String(error)}`);
       continue;
@@ -396,20 +361,23 @@ export function loadPersistedWorlds(registry: TemplateRegistry): {
     // 回填（C-2）：唯一性推断成功且信封缺 templateVersion ⇒ 原子重写**只加这一个字段**。
     // 不走 save()——这是信封迁移，不是状态写入；不动 state、不动 archived。
     if (envelopeVersion === undefined) {
-      writeEnvelopeAtomic(file, {
-        schemaVersion: envelope.schemaVersion,
-        savedAt: envelope.savedAt,
-        templateId: envelope.templateId,
-        templateVersion: version,
-        templateFingerprint: envelope.templateFingerprint,
-        // 迁移只补 `templateVersion`：F3 引用锚 / 展示锚逐字段保留。
-        ...(envelope.traceRef !== undefined ? { traceRef: envelope.traceRef } : {}),
-        ...(envelope.contentRef !== undefined ? { contentRef: envelope.contentRef } : {}),
-        ...(envelope.assetFingerprint !== undefined
-          ? { assetFingerprint: envelope.assetFingerprint }
-          : {}),
-        state: envelope.state,
-      });
+      envelopeStore.write(
+        worldId,
+        serializeEnvelope({
+          schemaVersion: envelope.schemaVersion,
+          savedAt: envelope.savedAt,
+          templateId: envelope.templateId,
+          templateVersion: version,
+          templateFingerprint: envelope.templateFingerprint,
+          // 迁移只补 `templateVersion`：F3 引用锚 / 展示锚逐字段保留。
+          ...(envelope.traceRef !== undefined ? { traceRef: envelope.traceRef } : {}),
+          ...(envelope.contentRef !== undefined ? { contentRef: envelope.contentRef } : {}),
+          ...(envelope.assetFingerprint !== undefined
+            ? { assetFingerprint: envelope.assetFingerprint }
+            : {}),
+          state: envelope.state,
+        }),
+      );
     }
 
     loaded.push({ state: parsed.data as WorldStateV2, entry });
@@ -540,13 +508,12 @@ export const worldStore = {
    * R-TG-10 AC①：**不可载的档同样允许删除**，否则坏档永久滞留。
    */
   delete(id: string): void {
-    const file = worldFile(id);
-    const hasFile = existsSync(file);
+    const hasFile = envelopeStore.has(id);
     if (!worlds.has(id) && !hasFile) throw new Error("world_not_found");
     worlds.delete(id);
     savedAtById.delete(id);
     unloadableById.delete(id);
-    if (hasFile) unlinkSync(file);
+    if (hasFile) envelopeStore.remove(id);
     // F3：一并清理 append-only trace 文件（找不到 / 读不了都忽略，不影响删除结果）。
     try {
       const trace = traceFile(id);
