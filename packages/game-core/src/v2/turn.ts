@@ -1243,11 +1243,20 @@ export interface TurnPipelineConfig {
 /**
  * 引擎侧设定筛选（agent-runtime 不做匹配，这条边界与 F4 一致）。
  *
- * 语料 = 当前槽事件 title+narrative + 最近 8 条非 hidden 的 history.summary
- *      + 本次 contextHints 字符串值。
+ * 语料 = 当前槽事件 title+narrative + 最近 `LORE_CORPUS_HISTORY` 条非 hidden 的
+ *      history.summary + 本次 contextHints 字符串值。
  * 常驻条目全进；关键词条目只要任一 key 出现在语料里就进。
- * 排序 p 降序 → id 升序；最多 6 条 / 总字符 6000（按排序截断）。
+ * 排序 p 降序 → id 升序；按 `LORE_MAX_ENTRIES` / `LORE_MAX_CHARS` 截断。
  */
+
+/**
+ * 设定注入的三个额度（**命名常量**：注释里写「6 条 / 6000 字」而代码里散着字面量，
+ * 改一处就漂）。它们决定模型每次看到多少设定，属于引擎策略，不是模板配置。
+ */
+const LORE_CORPUS_HISTORY = 8;
+const LORE_MAX_ENTRIES = 6;
+const LORE_MAX_CHARS = 6_000;
+
 export function selectInvocationLore(
   state: WorldStateV2,
   lookup: TemplateLookup,
@@ -1260,7 +1269,7 @@ export function selectInvocationLore(
     slot?.title ?? "",
     slot?.narrative ?? "",
     ...state.history
-      .slice(-8)
+      .slice(-LORE_CORPUS_HISTORY)
       .filter((entry) => entry.visibility !== "hidden")
       .map((entry) => entry.summary),
     ...(contextHints ?? []),
@@ -1278,8 +1287,8 @@ export function selectInvocationLore(
   const out: LoreEntry[] = [];
   let chars = 0;
   for (const entry of picked) {
-    if (out.length >= 6) break;
-    if (chars + entry.text.length > 6_000) break;
+    if (out.length >= LORE_MAX_ENTRIES) break;
+    if (chars + entry.text.length > LORE_MAX_CHARS) break;
     out.push({
       id: entry.id,
       title: entry.title,

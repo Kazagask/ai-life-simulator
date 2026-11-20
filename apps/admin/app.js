@@ -1226,7 +1226,9 @@
       case "adjustAttribute":
         return `${esc(attrLabel(e.attribute))} ${sign(e.value)}`;
       case "adjustResource":
-        return `${e.resource === "hp" ? "生命" : "咒力"} ${sign(e.value)}`;
+        // 资源名从编排数据的 `resources` 映射取（模板 statusBar 的 label）；
+        // 缺省印协议键（hp / mp），不替某个世界叫它「生命 / 咒力」。
+        return `${esc(state.orch?.resources?.[e.resource] ?? e.resource)} ${sign(e.value)}`;
       case "adjustMood":
         return `心情 ${sign(e.value)}`;
       case "grantItem":

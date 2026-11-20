@@ -1014,7 +1014,10 @@ function renderSim(ctx: Ctx, args: Args): void {
   console.log(`回合   平均 ${report.avgRounds.toFixed(1)}（上限 ${args.maxRounds}）`);
   console.log(`输出   每回合 ${report.dpr.toFixed(1)}   承伤 ${report.takenPerRound.toFixed(1)}`);
   console.log(`命中   ${ratioPct(report.hitRate)}（攻击性施放里有伤害落地）`);
-  console.log(`咒力   每局 ${report.mpSpentPerDuel.toFixed(0)}   收场血线 ${ratioPct(report.endHpRatio)}`);
+  // 资源名归模板（`statusBar[].label`）：同一个仪表换一个世界，mp 可能叫「能量」。
+  const mpLabel =
+    entry.template.statusBar.find((s) => s.source === "resource" && s.key === "mp")?.label ?? "MP";
+  console.log(`${mpLabel}   每局 ${report.mpSpentPerDuel.toFixed(0)}   收场血线 ${ratioPct(report.endHpRatio)}`);
   if (report.summonsPerDuel > 0) {
     console.log(`召唤   每局峰值 ${report.summonsPerDuel.toFixed(1)} 个在场`);
   }

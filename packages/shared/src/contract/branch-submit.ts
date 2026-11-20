@@ -3,6 +3,28 @@ import { TimeSpecSchema } from "../schema/common.js";
 import { RelationKindSchema, RelationScopeSchema, RelationVisibilitySchema } from "../schema/relation.js";
 
 /**
+ * 提交分支的形状上限（2026-11-21）。
+ *
+ * **一份定义、三处引用**：schema 校验、工具描述里的「1..12 个事件块」、工具表的
+ * `maxItems`。以前这三处各写各的数字，改一处就漂：模型按描述写 12 个、schema 只收 8 个
+ * 时，整轮作废且没人知道为什么。
+ */
+export const BRANCH_MAX_NODES = 12;
+/** 单个选项最多几条效果（`effects` 也用它做 `maxItems`）。 */
+export const BRANCH_MAX_EFFECTS_PER_OPTION = 4;
+/** 单个节点最多几个选项。 */
+export const BRANCH_MAX_OPTIONS_PER_NODE = 4;
+/** 一次提交最多新造几个 NPC。 */
+export const BRANCH_MAX_GENERATED_NPCS = 4;
+/**
+ * 生成 NPC 的初始属性上限（引擎按此钳位）。
+ *
+ * 与模板的 `attributes.caps` 不同：这是**协议级**的可信边界（模型给的数字不可信），
+ * 工具描述里的「钳到 [0,20]」也从这里取。
+ */
+export const GENERATED_NPC_ATTRIBUTE_MAX = 20;
+
+/**
  * `story.submitBranch` 的入参（AGENTIC-GM 重构 · 设计 §4.2）。
  *
  * LLM 只表达三件事：**怎么触发、事件是什么、整条编排是什么**。
@@ -164,7 +186,7 @@ export const SubmitBranchOptionSchema = z
      * 都不发生 —— 看起来就是坏事件。省略仍然允许（旧存档 / 纯叙事选项的兼容路径），
      * 但一旦写了就必须至少一条：整条分支会被拒、模型在本轮内重试。
      */
-    effects: z.array(BranchEffectSchema).min(1).max(4).optional(),
+    effects: z.array(BranchEffectSchema).min(1).max(BRANCH_MAX_EFFECTS_PER_OPTION).optional(),
     /** 指向**本次提交内**的另一个 node；缺省 = 到此为止 */
     goto: BranchGotoSchema.optional(),
   })
@@ -193,7 +215,7 @@ export const SubmitBranchNodeSchema = z
      * 的"必须在场"语义正交 —— 只拉上场，不额外判活。
      */
     npcs: z.array(z.string().min(1)).max(6).optional(),
-    options: z.array(SubmitBranchOptionSchema).min(1).max(4),
+    options: z.array(SubmitBranchOptionSchema).min(1).max(BRANCH_MAX_OPTIONS_PER_NODE),
   })
   .strict();
 
@@ -223,9 +245,9 @@ export const SubmitBranchArgsSchema = z
       })
       .strict(),
     /** 本次提交**新造**的 NPC（模板里没有的人）；上限 4 个，避免一次灌一堆。 */
-    npcs: z.array(GeneratedNpcSchema).max(4).optional(),
+    npcs: z.array(GeneratedNpcSchema).max(BRANCH_MAX_GENERATED_NPCS).optional(),
     /** 整条编排：1..12 个事件块。单事件是 N=1 的退化形态。 */
-    branch: z.array(SubmitBranchNodeSchema).min(1).max(12),
+    branch: z.array(SubmitBranchNodeSchema).min(1).max(BRANCH_MAX_NODES),
   })
   .strict();
 

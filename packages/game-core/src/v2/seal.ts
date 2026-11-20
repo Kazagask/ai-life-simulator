@@ -45,7 +45,8 @@ function sealTextOf(
     case "recall_empty":
       return "场上没有可以收回的召唤物";
     case "not_enough_mp":
-      return "咒力不足";
+      // 资源名归模板（`statusBar[].label`）：引擎不替某个世界把它叫「咒力」。
+      return `${lookup.resourceLabel("mp")}不足`;
     case "cannot_attack":
       return "现在做不出攻击";
     case "cannot_use_skills":

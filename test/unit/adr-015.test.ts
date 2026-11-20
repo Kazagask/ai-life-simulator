@@ -3,6 +3,7 @@ import {
   applyStatusToPlayer,
   battleSealOf,
   createBattle,
+  createLookup,
   createWorldV2,
   performBattleAction,
   projectSnapshotV2,
@@ -203,6 +204,23 @@ describe("ADR-015 D3 · 封印：技能还在，说明为什么用不了", () =>
     // 消耗判定在祭品判定之前（引擎顺序），所以这里拿到的一定是「不够钱」，不是「没祭品」。
     const seal = battleSealOf(state, battle, state.player.id, "sk-uzumaki", entry.lookup);
     expect(seal?.code).toBe("not_enough_mp");
-    expect(seal?.text).toBe("咒力不足");
+    // 资源名归模板（`statusBar[].label`）：引擎不再写死「咒力」这个词。
+    const mpLabel = entry.lookup.resourceLabel("mp");
+    expect(mpLabel).toBe("咒力");
+    expect(seal?.text).toBe(`${mpLabel}不足`);
+  });
+
+  it("换个世界就换叫法：mp 叫「能量」时封的是「能量不足」", () => {
+    const { state, entry } = getoWorld();
+    const battle = dummyBattle(state, entry);
+    battle.player.mp = 0;
+
+    // 只改称呼，不改数值：证明这句话是查模板得来的，不是常量。
+    const renamed = structuredClone(entry.template);
+    for (const section of renamed.statusBar) {
+      if (section.key === "mp") section.label = "能量";
+    }
+    const seal = battleSealOf(state, battle, state.player.id, "sk-uzumaki", createLookup(renamed));
+    expect(seal?.text).toBe("能量不足");
   });
 });

@@ -48,15 +48,21 @@ export interface NarrativeRequest {
   instruction?: string;
 }
 
-/** 结局收尾的写作指令（默认值；调用方可覆写）。 */
-const ENDING_INSTRUCTION =
+/**
+ * 结局收尾的写作指令（**默认值**）。
+ *
+ * 字数写在这里是「通用写作要求」，不是某个世界的事实 —— 但也不是不可改：
+ * `buildEndingNarrativeRequest` 的 `instruction` 可整体覆写（章节体 / 短句体由模板决定）。
+ * 导出它，是为了让「默认是什么」只有一处定义，不在调用点再抄一遍数字。
+ */
+export const DEFAULT_ENDING_INSTRUCTION =
   "你是一部人生模拟器的收尾作者。依据 templateSummary（模板结局）与 facts.history（本局真实发生过的经历）" +
   "写一段 250–450 字的收尾：先写这一天怎么结束，再写这一年把「你」变成了谁。第二人称，具体、克制；" +
   "不要复述模板句子，不要写 history 里没有的人与事。evidenceIds 只能从 allowedEvidenceIds 里选 3–6 条" +
   "真正支撑这段收尾的经历。只输出 JSON：{\"title\": string, \"summary\": string, \"evidenceIds\": string[]}。";
 
-/** 人生总结的写作指令（默认值；调用方可覆写）。 */
-const EVALUATION_INSTRUCTION =
+/** 人生总结的写作指令（默认值；`buildEvaluationSummaryRequest` 可覆写）。 */
+export const DEFAULT_EVALUATION_INSTRUCTION =
   "写 150–300 字的人生总结（第二人称）：这一年你换到了什么、付出了什么代价。facts.dimensionSummaries 是" +
   "已经定好的评分维度与分数，不要重述分数、不要提结局名、不要写 facts.history 之外的事。" +
   "只输出 JSON：{\"summary\": string}。";
@@ -75,7 +81,7 @@ export type NarrativeAdapter = (request: NarrativeRequest) => unknown;
 export function buildEvaluationSummaryRequest(
   record: EvaluationRecord,
   history?: ReadonlyArray<HistoryDigestEntry>,
-  instruction: string = EVALUATION_INSTRUCTION,
+  instruction: string = DEFAULT_EVALUATION_INSTRUCTION,
 ): NarrativeRequest {
   const allowed = new Set<string>();
   for (const d of record.dimensions) {
@@ -115,7 +121,7 @@ export function buildEndingNarrativeRequest(
       dimensionSummaries: [...(input.dimensionSummaries ?? [])],
       ...(input.history !== undefined ? { history: [...input.history] } : {}),
     },
-    instruction: input.instruction ?? ENDING_INSTRUCTION,
+    instruction: input.instruction ?? DEFAULT_ENDING_INSTRUCTION,
   };
 }
 
@@ -178,6 +184,13 @@ export interface OpeningPrologueRequestInput {
   choices: ReadonlyArray<{ step: string; choice: string }>;
   /** 世界设定条目（模板 `lore.md` 的 always 段；只读，供模型对齐世界观）。 */
   setting: readonly string[];
+  /**
+   * 覆盖默认写作指令（可选的模板级定制）。
+   *
+   * 默认指令里的字数（开场白 180–260 字）是**通用要求**，不是世界事实；某个世界想写
+   * 短句体 / 章回体时在这里换一整句，而不是去改引擎里的常量。
+   */
+  instruction?: string;
 }
 
 export interface OpeningPrologueRequest {
@@ -192,7 +205,7 @@ export interface OpeningPrologueRequest {
   readonly constraints: readonly string[];
 }
 
-const PROLOGUE_INSTRUCTION =
+export const DEFAULT_PROLOGUE_INSTRUCTION =
   "你是这个世界的叙述者。下面是一份开局档案：玩家刚刚落定此身，故事还没有开始。" +
   "请用第二人称「你」写一段中文开场白（180–260 字），交代此刻的场合、身体的感觉、以及你为什么会站在这里。" +
   "只写此刻，不预告未来，不复述属性数值，不出现档案里没有的专名。" +
@@ -211,7 +224,7 @@ export function buildOpeningPrologueRequest(
 ): OpeningPrologueRequest {
   return Object.freeze({
     task: "opening.prologue" as const,
-    instruction: PROLOGUE_INSTRUCTION,
+    instruction: input.instruction ?? DEFAULT_PROLOGUE_INSTRUCTION,
     world: Object.freeze({ title: input.worldTitle, summary: input.worldSummary }),
     player: Object.freeze({ ...input.player }),
     attributes: Object.freeze(input.attributes.map((a) => Object.freeze({ ...a }))),

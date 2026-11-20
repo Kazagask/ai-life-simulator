@@ -50,7 +50,8 @@ function viewOf(session: LiveSession) {
     template: { id: template.meta.id, version: session.version },
     resourceLabels: {
       hp: (template.statusBar?.find((s) => s.key === "hp")?.label ?? "生命"),
-      mp: (template.statusBar?.find((s) => s.key === "mp")?.label ?? "咒力"),
+      // 兜底用协议字段名（`MP`），不替某个世界写成「咒力」：管理端也会开别的模板。
+      mp: (template.statusBar?.find((s) => s.key === "mp")?.label ?? "MP"),
     },
   };
 }

@@ -1,10 +1,20 @@
 import {
+  BRANCH_MAX_EFFECTS_PER_OPTION,
+  BRANCH_MAX_GENERATED_NPCS,
+  BRANCH_MAX_NODES,
+  BRANCH_MAX_OPTIONS_PER_NODE,
+  GENERATED_NPC_ATTRIBUTE_MAX,
   SubmitBranchArgsSchema,
   type ApiCall,
   type RulesTemplate,
   type ToolDescriptor,
 } from "@life-sim/shared";
-import { READ_TOOL_NAMES, isReadTool } from "./read-tools.js";
+import {
+  EFFECT_SHAPE_COUNT,
+  HISTORY_HARD_CAP,
+  READ_TOOL_NAMES,
+  isReadTool,
+} from "./read-tools.js";
 
 /**
  * T-03：能力画像 → 工具描述（OpenAI `tools` 结构）+ 第 1 层参数校验 + ApiCall 翻译。
@@ -138,7 +148,7 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
     name: "rule.lexicon",
     description:
       "查词表。**写 story.submitBranch 的 effects 之前必须先查 effects**（凭空编字段名会被整条拒绝）。" +
-      "不带 section 返回目录；section=effects 给 9 种效果形状 + 可引用的属性/资源/关系 kind/在场角色，" +
+      `不带 section 返回目录；section=effects 给 ${EFFECT_SHAPE_COUNT} 种效果形状 + 可引用的属性/资源/关系 kind/在场角色，` +
       "items 给物品词表，statuses 给状态词表。",
     parameters: schemaOf(
       {
@@ -161,11 +171,11 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
   "world.history": {
     name: "world.history",
     description:
-      "查最近发生过什么（按轮次倒序取最近 N 条，默认与上限都是 50）。" +
+      `查最近发生过什么（按轮次倒序取最近 N 条，默认与上限都是 ${HISTORY_HARD_CAP}）。` +
       "返回里带 total / truncated：**必须看 truncated** —— 它告诉你还有更早的历史没返回，" +
-      "不要把「只看到 50 条」误当成「世界只发生过 50 件事」。",
+      `不要把「只看到 ${HISTORY_HARD_CAP} 条」误当成「世界只发生过 ${HISTORY_HARD_CAP} 件事」。`,
     parameters: schemaOf(
-      { limit: { type: "integer", minimum: 1, description: "要几条，默认 50（上限 50）" } },
+      { limit: { type: "integer", minimum: 1, description: `要几条，默认 ${HISTORY_HARD_CAP}（上限 ${HISTORY_HARD_CAP}）` } },
       [],
     ),
   },
@@ -186,7 +196,7 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
   "story.submitBranch": {
     name: "story.submitBranch",
     description:
-      "提交一整条独立的分支（1..12 个事件块）。你只表达三件事：这条分支**怎么触发**、" +
+      `提交一整条独立的分支（1..${BRANCH_MAX_NODES} 个事件块）。你只表达三件事：这条分支**怎么触发**、` +
       "每个事件**是什么**、整条**编排**是什么。引擎会校验后按触发方式调度，你不需要也不允许" +
       "直接让事件上桌或占槽。**写 effects 之前先调 rule.lexicon（section=effects）**核对形状与 id。" +
       "要点：① `goto` 只能指向本次提交内的 `node`，跨提交接续既有剧情会被拒；" +
@@ -214,7 +224,7 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
       " —— 照下面这个例子写。effects 只有三种扁平形状：{\"flag\":\"名字\",\"value\":true} 置旗标、" +
       "{\"mood\":3} 调心情、{\"hp\":-5}/{\"mp\":-5} 调资源；**不要写 type/op 字段**。" +
       '{"trigger":{"mode":"certain","after":{"value":2,"unit":"day"}},' +
-      '"branch":[{"node":"s1","title":"路口","text":"……","actors":["npc-yuji"],' +
+      '"branch":[{"node":"s1","title":"路口","text":"……","actors":["<角色id>"],' +
       '"options":[{"text":"推进","effects":[{"flag":"swept","value":true},{"mood":-2}],' +
       '"goto":{"node":"s2","after":{"value":1,"unit":"hour"}}}]},' +
       '{"node":"s2","title":"残渣","text":"……","options":[{"text":"绕开","effects":[{"hp":-3}]}]}]}',
@@ -239,7 +249,7 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
         },
         npcs: {
           type: "array",
-          maxItems: 4,
+          maxItems: BRANCH_MAX_GENERATED_NPCS,
           description: "本次提交新造的角色（模板里没有的人）。定义了 ≠ 登场了：登场要用 effect spawn。",
           items: {
             type: "object",
@@ -250,7 +260,7 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
               gender: { type: "string" },
               personality: { type: "string" },
               knownGoals: { type: "array", items: { type: "string" } },
-              attributes: { type: "object", description: "只采纳模板声明的属性键，值钳到 [0,20]" },
+              attributes: { type: "object", description: `只采纳模板声明的属性键，值钳到 [0,${GENERATED_NPC_ATTRIBUTE_MAX}]` },
             },
             required: ["alias", "name"],
           },
@@ -258,7 +268,7 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
         branch: {
           type: "array",
           minItems: 1,
-          maxItems: 12,
+          maxItems: BRANCH_MAX_NODES,
           items: {
             type: "object",
             properties: {
@@ -277,6 +287,8 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
               },
               options: {
                 type: "array",
+                minItems: 1,
+                maxItems: BRANCH_MAX_OPTIONS_PER_NODE,
                 items: {
                   type: "object",
                   properties: {
@@ -284,7 +296,7 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
                     effects: {
                       type: "array",
                       minItems: 1,
-                      maxItems: 4,
+                      maxItems: BRANCH_MAX_EFFECTS_PER_OPTION,
                       description:
                         "至少一条，且**至少一条改数值**（mood / hp / mp）；旗标只作你自己的后续引用，" +
                         "模板不会读。三种扁平形状：{flag,value} / {mood} / {hp}或{mp}",

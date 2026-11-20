@@ -1,5 +1,6 @@
 import {
   DIAGNOSTIC_CODES,
+  GENERATED_NPC_ATTRIBUTE_MAX,
   CharacterSchema,
   EventV2Schema,
   SubmitBranchArgsSchema,
@@ -235,7 +236,8 @@ function toCanonicalEffects(
  * - **id 由引擎分配**（`gennpc:<invocationId>:<alias>`），模型只给本次提交的局部别名；
  * - 只采纳展示与基础规则需要的字段：`isEnemy` / `combatHints` / `knowledge` 这类
  *   **会影响规则判定**的东西一律引擎缺省，不接受模型指定；
- * - 属性值钳到 `[0, 20]`（与模板属性量级同阶），超出即钳，不信任入参；
+ * - 属性值钳到 `[0, GENERATED_NPC_ATTRIBUTE_MAX]`（与模板属性量级同阶），超出即钳，
+ *   不信任入参（上限是协议常量，工具描述里的数字从同一处来）；
  * - 实例以 `unspawned` 落表 —— "定义了" ≠ "登场了"，登场由选项效果 `{spawn}` 激活。
  */
 function buildGeneratedNpc(
@@ -245,7 +247,7 @@ function buildGeneratedNpc(
   const id = `gennpc:${invocationId}:${npc.alias}`;
   const attributes: Record<string, number> = {};
   for (const [key, raw] of Object.entries(npc.attributes ?? {})) {
-    attributes[key] = Math.max(0, Math.min(20, Math.round(raw)));
+    attributes[key] = Math.max(0, Math.min(GENERATED_NPC_ATTRIBUTE_MAX, Math.round(raw)));
   }
   const character: Character = {
     id,

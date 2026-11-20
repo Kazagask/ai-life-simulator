@@ -20,7 +20,7 @@ export const READ_TOOL_NAMES = [
   /**
    * 词表（2026-11-21）：**渐进披露**的入口。
    *
-   * 为什么不在 invocation 里直接塞一份词表：它有几 KB（8 种效果形状 + 属性/资源/关系 kind +
+   * 为什么不在 invocation 里直接塞一份词表：它有几 KB（全部效果形状 + 属性/资源/关系 kind +
    * 几十件物品 + 几十条状态），每轮都塞进 prompt 既贵又挤掉叙事素材。做成按需查询后，
    * 模型只在「要写效果」的那一步取一次，而且可以只看需要的一节。
    */
@@ -33,8 +33,13 @@ export function isReadTool(name: string): name is ReadToolName {
   return (READ_TOOL_NAMES as readonly string[]).includes(name);
 }
 
-/** 历史默认条上限：防止一次查询把上下文撑爆。 */
-const HISTORY_HARD_CAP = 50;
+/**
+ * 历史默认条上限：防止一次查询把上下文撑爆。
+ *
+ * **导出**：`tool-registry` 的工具描述里要写「默认与上限都是 N」——同一个数只能有一处，
+ * 否则改常量不改描述，模型会按错的条数规划查询（以前就是描述里写死 50）。
+ */
+export const HISTORY_HARD_CAP = 50;
 
 export interface ReadToolDeps {
   /** 已按 invocation 视角裁好的快照（player 窗口）。 */
@@ -72,60 +77,84 @@ const LEXICON_SECTIONS: LexiconSection[] = ["index", "effects", "items", "status
 /** 关系 kind 的取值（与 `relationEdge.kind` 同一份枚举，不从模板猜）。 */
 const RELATION_KINDS = [...KinshipKindSchema.options, ...SocialKindSchema.options];
 
-/** 效果形状的词表：**与 `BranchEffectSchema` 一一对应**，多一种少一种都是 bug。 */
-const EFFECT_SHAPES = [
-  {
-    name: "flag",
-    shape: { flag: "<旗标名>", value: "true | 数字 | 字符串" },
-    when: "要让之后的条件 / 分支记住「这件事发生过」",
-    caveat: "模板不读的旗标对玩家零效果（它是作者记号，不是分数）",
-  },
-  {
-    name: "mood",
-    shape: { mood: -3 },
-    when: "这件事让主角心里舒服 / 不舒服",
-    caveat: "建议 ±1..10；心情是 0..100 的条",
-  },
-  {
-    name: "hp",
-    shape: { hp: -5 },
-    when: "受伤 / 被治好了",
-    caveat: "负数是伤害；别用它直接判死（死亡只走战斗或模板旗标）",
-  },
-  {
-    name: "mp",
-    shape: { mp: -5 },
-    when: "消耗 / 恢复咒力",
-  },
-  {
-    name: "spawn",
-    shape: { spawn: "<alias | 角色id | 刷新规则id>" },
-    when: "这一幕要把某个人拉上场（本次提交新造的人用 alias）",
-  },
-  {
-    name: "relation",
-    shape: { relation: { with: "<角色id>", to: 12 } },
-    when: "他对你的态度变了",
-    caveat: "改的是「他→你」的标量，建议 ±1..10",
-  },
-  {
-    name: "relationEdge",
-    shape: {
-      relationEdge: { from: "<角色id|player>", to: "<角色id|player>", kind: "<关系 kind>", scope: "public | limited | private" },
+/**
+ * 效果形状的词表：**与 `BranchEffectSchema` 一一对应**，多一种少一种都是 bug。
+ *
+ * 为什么是函数而不是常量：`mp` 的叫法与 `mood` 的上下界都是**世界事实**（有的模板里
+ * mp 叫「能量」、心情条是 0..10）。写死在提示词里等于把咒术世界的叫法塞进通用运行时，
+ * 模型照着写「恢复咒力」，换一个世界就全错。
+ */
+function effectShapesOf(template: WorldTemplateV2 | undefined) {
+  const mpLabel =
+    template?.statusBar?.find((s) => s.key === "mp")?.label ??
+    template?.resources?.mp?.label ??
+    "mp";
+  const moodMin = template?.mood?.min ?? 0;
+  const moodMax = template?.mood?.max ?? 100;
+  // 「一次挪多少」按量程的 1/10 给（0..100 ⇒ 10；0..10 ⇒ 1）：写死 10 在窄量程的世界里
+  // 就是「一句话把心情顶到上限」。
+  const moodStep = Math.max(1, Math.round((moodMax - moodMin) / 10));
+  return [
+    {
+      name: "flag",
+      shape: { flag: "<旗标名>", value: "true | 数字 | 字符串" },
+      when: "要让之后的条件 / 分支记住「这件事发生过」",
+      caveat: "模板不读的旗标对玩家零效果（它是作者记号，不是分数）",
     },
-    when: "建立一条有向关系（拜师 / 结仇 / 亲缘）；scope=limited 必须给 knownBy",
-  },
-  {
-    name: "secret",
-    shape: { secret: { npc: "<角色id>", text: "<秘密内容>" } },
-    when: "有人多了一个把柄 / 隐秘",
-  },
-  {
-    name: "lifecycle",
-    shape: { lifecycle: { npc: "<角色id>", state: "alive | inactive | unspawned" } },
-    when: "让某人登场 / 离场（不用于死亡）",
-  },
-] as const;
+    {
+      name: "mood",
+      shape: { mood: -3 },
+      when: "这件事让主角心里舒服 / 不舒服",
+      caveat: `建议 ±1..${moodStep}；心情是 ${moodMin}..${moodMax} 的条`,
+    },
+    {
+      name: "hp",
+      shape: { hp: -5 },
+      when: "受伤 / 被治好了",
+      caveat: "负数是伤害；别用它直接判死（死亡只走战斗或模板旗标）",
+    },
+    {
+      name: "mp",
+      shape: { mp: -5 },
+      when: `消耗 / 恢复${mpLabel}`,
+    },
+    {
+      name: "spawn",
+      shape: { spawn: "<alias | 角色id | 刷新规则id>" },
+      when: "这一幕要把某个人拉上场（本次提交新造的人用 alias）",
+    },
+    {
+      name: "relation",
+      shape: { relation: { with: "<角色id>", to: 12 } },
+      when: "他对你的态度变了",
+      caveat: "改的是「他→你」的标量，建议 ±1..10",
+    },
+    {
+      name: "relationEdge",
+      shape: {
+        relationEdge: { from: "<角色id|player>", to: "<角色id|player>", kind: "<关系 kind>", scope: "public | limited | private" },
+      },
+      when: "建立一条有向关系（拜师 / 结仇 / 亲缘）；scope=limited 必须给 knownBy",
+    },
+    {
+      name: "secret",
+      shape: { secret: { npc: "<角色id>", text: "<秘密内容>" } },
+      when: "有人多了一个把柄 / 隐秘",
+    },
+    {
+      name: "lifecycle",
+      shape: { lifecycle: { npc: "<角色id>", state: "alive | inactive | unspawned" } },
+      when: "让某人登场 / 离场（不用于死亡）",
+    },
+  ] as const;
+}
+
+/**
+ * 效果形状的**条数**（协议级，与模板无关）。
+ *
+ * 工具描述里要写「给 N 种形状」——写死数字就会在加形状时漂，所以从同一份定义算。
+ */
+export const EFFECT_SHAPE_COUNT = effectShapesOf(undefined).length;
 
 /** 词表的一节。`section` 缺省 = 目录（渐进披露的第一跳）。 */
 function lexiconOf(section: LexiconSection, deps: ReadToolDeps): unknown {
@@ -137,7 +166,8 @@ function lexiconOf(section: LexiconSection, deps: ReadToolDeps): unknown {
       sections: [
         {
           id: "effects",
-          what: "写选项效果前必看：9 种扁平形状 + 可引用的属性 / 资源 / 关系 kind / 在场角色",
+          // 形状数量从同一份定义算（加一种形状不用回来改这句话）。
+          what: `写选项效果前必看：${effectShapesOf(template).length} 种扁平形状 + 可引用的属性 / 资源 / 关系 kind / 在场角色`,
         },
         { id: "items", what: "物品词表（id / 名字 / 类型 / 槽位），写「他递给你 X」时对齐名字" },
         { id: "statuses", what: "状态词表（id / 名字 / 三类生命周期），叙述里提到状态时对齐名字" },
@@ -156,7 +186,7 @@ function lexiconOf(section: LexiconSection, deps: ReadToolDeps): unknown {
     return {
       section: "effects",
       rule: "每个选项至少一条效果，且至少一条改数值（mood / hp / mp）；只写 flag 对玩家零效果。",
-      shapes: EFFECT_SHAPES,
+      shapes: effectShapesOf(template),
       attributes: attrs.order.map((id) => ({
         id,
         label: attrs.labels?.[id] ?? id,
@@ -184,8 +214,6 @@ function lexiconOf(section: LexiconSection, deps: ReadToolDeps): unknown {
   }
 
   if (section === "items") {
-    const rawLimit = asRecord(deps as unknown)?.limit;
-    void rawLimit;
     return {
       section: "items",
       items: template.items.map((item) => ({
