@@ -117,3 +117,29 @@ export function decorateEndingView(snapshot: V2Snapshot, outcome: NarrativeOutco
   const summary = typeof rawSummary === "string" && rawSummary.length > 0 ? rawSummary : ending.summary;
   return { ...snapshot, ending: { ...ending, title, summary, narrativeSource: "llm" } };
 }
+
+/**
+ * **评价总结的响应层装饰**：只替换 `evaluation.summary` 与 `summarySource`，
+ * 分项分数 / 等级 / 解释 / overall 一律原样（分数是内核的事实，叙事不能改）。
+ *
+ * - template ⇒ 原样（保留引擎拼的模板总结）；
+ * - llm ⇒ 覆盖 summary，来源置 `llm`（前端据此显示「AI 叙事」标记）；
+ * - fallback ⇒ 保留模板总结，只把来源置 `fallback`（可诊断，不静默）。
+ *
+ * 与 `decorateEndingView` 同一条红线：隐藏结局在服务端已短路（`masked`），这里再挡一次
+ * 也没有坏处 —— 宁可少写一段，也不让隐藏结局的暗示从评价里漏出来。
+ */
+export function decorateEvaluationView(snapshot: V2Snapshot, outcome: NarrativeOutcome): V2Snapshot {
+  if (snapshot.ending?.visibility === "hidden") return snapshot;
+  const evaluation = snapshot.evaluation;
+  if (!evaluation) return snapshot;
+  if (outcome.source === "template") return snapshot;
+  if (outcome.source === "fallback") {
+    return { ...snapshot, evaluation: { ...evaluation, summarySource: "fallback" } };
+  }
+  const data = asRecord(outcome.data);
+  const rawSummary: unknown = data === null ? undefined : data.summary;
+  const summary =
+    typeof rawSummary === "string" && rawSummary.length > 0 ? rawSummary : evaluation.summary;
+  return { ...snapshot, evaluation: { ...evaluation, summary, summarySource: "llm" } };
+}

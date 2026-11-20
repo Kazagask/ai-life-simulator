@@ -620,6 +620,7 @@ function toEvaluationVM(snapshot: V2Snapshot): EvaluationVM {
   const ended = snapshot.status === "terminated" || snapshot.status === "archived";
   return {
     summary: ev.summary,
+    ...(ev.summarySource !== undefined ? { summarySource: ev.summarySource } : {}),
     ...(ev.dimensions !== undefined
       ? {
           dimensions: ev.dimensions.map((d) => ({

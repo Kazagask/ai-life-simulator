@@ -1499,6 +1499,26 @@ details.llm-config .llm-saved {
   font-size: 14px;
   line-height: 1.7;
   color: var(--text);
+  /* LLM 收尾是分段写的（「这一天 / 这一年 / 后来」）：保留换行，否则会被折成一大段。 */
+  white-space: pre-wrap;
+}
+
+/* 结局卡里的评价块：与结局正文同卡，但用一条分隔线说明「这是另一件事」。 */
+.ending-eval {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.ending-eval-summary {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text);
+  white-space: pre-wrap;
 }
 
 .ending-meta {

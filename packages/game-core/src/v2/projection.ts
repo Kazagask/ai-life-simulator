@@ -584,6 +584,7 @@ export function projectSnapshotV2(
       // 五维分项（ADR-0016）：评价只读过程信号，不含结局类型 ⇒ 提前展示不泄露结局
       ...(evaluation
         ? {
+            summarySource: evaluation.summarySource,
             dimensions: evaluation.dimensions.map((d) => ({
               id: d.id,
               ...(d.label !== undefined ? { label: d.label } : {}),

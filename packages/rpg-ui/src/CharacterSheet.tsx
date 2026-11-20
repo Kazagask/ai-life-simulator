@@ -7,8 +7,14 @@ import { AttributeValue } from "./AttributeList.js";
 export interface CharacterSheetProps {
   /** 玩家卡投影（属性条已按模板顺序排好、`proficiency*` 已剔除）。 */
   player: PlayerVM;
-  /** 人生评价；总结行与分项都从这里取。 */
-  evaluation: EvaluationVM;
+  /**
+   * 人生评价；**收束后由结局卡统一展示**（2026-11-21），这里默认不传。
+   *
+   * 为什么从卡面搬走：结局卡就在同一屏下方，卡面再画一遍五维分项 + 总评，
+   * 等于同一份数据上下各出现一次（实机截图上相隔不到 100px）。传了仍然渲染，
+   * 供没有结局卡的宿主复用。
+   */
+  evaluation?: EvaluationVM;
   /**
    * @deprecated 2026-11-18：卡面**不再显示**总结行（「本局共记录 N 条经历，M 项维度已评分」
    * 占位太多且信息密度低，用户要求移除）。字段保留只为兼容宿主调用方，传了也不渲染。
@@ -138,7 +144,8 @@ export function CharacterSheet({ player, evaluation, onSelectStatus }: Character
       </div>
       {/* 首页只列「有什么」：天赋与修正的名片，不摊合计数字（那属于个人页）。 */}
       <StatusBoard statuses={player.statuses} showLedger={false} onSelectStatus={onSelectStatus} />
-      <EvaluationPanel evaluation={evaluation} />
+      {/* 评价默认不传：收束后由结局卡统一展示（见 props 注释）。 */}
+      {evaluation && <EvaluationPanel evaluation={evaluation} />}
     </section>
   );
 }

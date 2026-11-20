@@ -495,6 +495,11 @@ export type EvaluationDimensionVM = z.infer<typeof EvaluationDimensionVMSchema>;
 export const EvaluationVMSchema = z
   .object({
     summary: z.string(),
+    /**
+     * 追加：这段总结由谁写的（`template` / `llm` / `fallback`）。
+     * 缺省 = 旧快照 / 未生成；展示层据此决定是否打「AI 叙事」标，不反推内容。
+     */
+    summarySource: z.enum(["template", "llm", "fallback"]).optional(),
     /** 追加：五维分项；评价尚未生成时缺省（此时整块不渲染）。 */
     dimensions: z.array(EvaluationDimensionVMSchema).optional(),
     /** 追加：加权总分（与分项同时给出，不取代分项）。 */

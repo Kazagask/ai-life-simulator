@@ -68,6 +68,7 @@ import {
   AiNarrativeTag,
   DetailSheet,
   TurnGainsCard,
+  EvaluationPanel,
   statusToDetail,
   WheelPanel,
   interactionMode,
@@ -2085,9 +2086,7 @@ function LifeTab({
       <div className="stack">
         <CharacterSheet
           player={view.player}
-          evaluation={view.evaluation}
-          summary={platformSummary ?? undefined}
-          summaryFromAi={summarySource === "llm" || platformSummary !== null}
+          /* 评价不在卡面重复：结局卡（同屏下方）统一展示五维与总评。 */
           onSelectStatus={(status) => openStatus(status.id)}
         />
 
@@ -2113,6 +2112,9 @@ function LifeTab({
         {ended && snapshot.ending && (
           <EndingPanel
             ending={snapshot.ending}
+            evaluation={view.evaluation}
+            /* 后端没出 LLM 时，平台免密通道补写的总结（失败为 null，保持模板总结）。 */
+            evaluationSummary={platformSummary ?? undefined}
             archived={snapshot.status === "archived"}
             busy={busy}
             signedIn={signedIn}
@@ -2179,12 +2181,18 @@ const SOURCE_LABELS: Record<string, string> = {
 
 function EndingPanel({
   ending,
+  evaluation,
+  evaluationSummary,
   archived,
   busy,
   signedIn,
   onArchive,
 }: {
   ending: EndingView;
+  /** 五维评价（同一次投影）：跑动中不渲染，收束后与结局同屏给出。 */
+  evaluation: ViewModel["evaluation"];
+  /** 平台免密通道补写的总结（后端未出 LLM 时才有值）。 */
+  evaluationSummary?: string;
   archived: boolean;
   busy: boolean;
   signedIn: boolean;
@@ -2192,6 +2200,7 @@ function EndingPanel({
 }) {
   // 后端已出 LLM 结局 / 隐藏结局 / 已配自带 key ⇒ 不触发；否则补一次，失败保持模板结局。
   const platformEnding = usePlatformEnding(ending);
+  const dims = evaluation.dimensions ?? [];
   return (
     <section className={`card ending-card ${ending.visibility === "hidden" ? "ending-hidden" : ""}`}>
       <span className="tag">{archived ? "本局已封存" : "本局已结束"}</span>
@@ -2205,6 +2214,27 @@ function EndingPanel({
         {ending.visibility === "hidden" ? " · 隐藏结局" : ""}
         {(ending.narrativeSource === "llm" || platformEnding !== null) && <AiNarrativeTag />}
       </p>
+
+      {/*
+        评价（ADR-0016）：只复述服务端投影的分数与总结，不重算、不排序、不补维度。
+        `summarySource === "llm"` 才打 AI 标（模板 / 回退不标，避免把引擎文案说成模型写的）。
+      */}
+      {dims.length > 0 && (
+        <div className="ending-eval">
+          <div className="row">
+            <h3 className="panel-title">这一生的评价</h3>
+            {typeof evaluation.overall === "number" && (
+              <span className="chip">总评 {evaluation.overall}</span>
+            )}
+          </div>
+          <p className="ending-eval-summary">
+            {evaluationSummary ?? evaluation.summary}
+            {(evaluation.summarySource === "llm" || evaluationSummary !== undefined) && <AiNarrativeTag />}
+          </p>
+          <EvaluationPanel evaluation={evaluation} />
+        </div>
+      )}
+
       {!archived && (
         <button className="ghost" disabled={busy} onClick={onArchive}>
           {busy ? "封存中…" : "封存这一生"}

@@ -15,6 +15,18 @@ import {
  * 失败/虚构事实/试图写状态一律回退模板文本。
  */
 
+/**
+ * 本局可引用的经历（**只有玩家可见条目**，`isPlayerVisible` 过滤后截断）。
+ *
+ * 为什么要把正文交给 LLM：只给模板结局 + 维度名时，模型没有本局的任何事实可写，
+ * 只能把模板句子改写一遍 —— 那不是「收尾」，是复述。给出经历摘要后，收尾才有据可依；
+ * 而 `evidenceIds` 白名单仍然限制它**只能引用**这些 id（不能凭空造事实）。
+ */
+export interface HistoryDigestEntry {
+  id: string;
+  text: string;
+}
+
 /** 只读请求：不含可写世界状态，adapter 无法借此改写权威状态。 */
 export interface NarrativeRequest {
   templateTitle: string;
@@ -23,8 +35,31 @@ export interface NarrativeRequest {
   allowedEvidenceIds: readonly string[];
   facts: {
     dimensionSummaries: ReadonlyArray<{ id: string; score: number; level: string }>;
+    /** 可引用的经历摘要（缺省 ⇒ 模型只有模板文案可依据） */
+    history?: ReadonlyArray<HistoryDigestEntry>;
   };
+  /**
+   * 写作指令（纯文本，随请求一起发给模型）。
+   *
+   * 为什么不放在 system prompt：provider 是通用通道（结局 / 总结 / 事件 flavor 共用），
+   * 「写多少字、写什么口吻」属于**这一次请求的语义**，应该跟着请求走，而不是让通用
+   * provider 去猜当前是哪一种。指令不参与校验，模型违反它顶多写得不好，不会污染状态。
+   */
+  instruction?: string;
 }
+
+/** 结局收尾的写作指令（默认值；调用方可覆写）。 */
+const ENDING_INSTRUCTION =
+  "你是一部人生模拟器的收尾作者。依据 templateSummary（模板结局）与 facts.history（本局真实发生过的经历）" +
+  "写一段 250–450 字的收尾：先写这一天怎么结束，再写这一年把「你」变成了谁。第二人称，具体、克制；" +
+  "不要复述模板句子，不要写 history 里没有的人与事。evidenceIds 只能从 allowedEvidenceIds 里选 3–6 条" +
+  "真正支撑这段收尾的经历。只输出 JSON：{\"title\": string, \"summary\": string, \"evidenceIds\": string[]}。";
+
+/** 人生总结的写作指令（默认值；调用方可覆写）。 */
+const EVALUATION_INSTRUCTION =
+  "写 150–300 字的人生总结（第二人称）：这一年你换到了什么、付出了什么代价。facts.dimensionSummaries 是" +
+  "已经定好的评分维度与分数，不要重述分数、不要提结局名、不要写 facts.history 之外的事。" +
+  "只输出 JSON：{\"summary\": string}。";
 
 /** 可注入的叙事函数：返回值是未校验候选，由调用方经本模块校验。 */
 export type NarrativeAdapter = (request: NarrativeRequest) => unknown;
@@ -34,8 +69,14 @@ export type NarrativeAdapter = (request: NarrativeRequest) => unknown;
 /**
  * 人生总结请求的唯一构造入口（原先为私有 `summaryRequest`）。
  * 逐字段只读：不修改入参 `record`，每次返回全新对象；证据集合由维度证据去重得到。
+ *
+ * `history` 是**可选的只读素材**：给了就能写出具体的一年，不给则退回模板总结。
  */
-export function buildEvaluationSummaryRequest(record: EvaluationRecord): NarrativeRequest {
+export function buildEvaluationSummaryRequest(
+  record: EvaluationRecord,
+  history?: ReadonlyArray<HistoryDigestEntry>,
+  instruction: string = EVALUATION_INSTRUCTION,
+): NarrativeRequest {
   const allowed = new Set<string>();
   for (const d of record.dimensions) {
     for (const id of d.evidenceIds) allowed.add(id);
@@ -46,7 +87,9 @@ export function buildEvaluationSummaryRequest(record: EvaluationRecord): Narrati
     allowedEvidenceIds: [...allowed],
     facts: {
       dimensionSummaries: record.dimensions.map((d) => ({ id: d.id, score: d.score, level: d.level })),
+      ...(history !== undefined ? { history: [...history] } : {}),
     },
+    instruction,
   };
 }
 
@@ -55,9 +98,12 @@ export interface BuildEndingNarrativeRequestInput {
   templateSummary: string;
   allowedEvidenceIds: readonly string[];
   dimensionSummaries?: ReadonlyArray<{ id: string; score: number; level: string }>;
+  /** 本局可引用的经历摘要（玩家可见）。缺省 ⇒ 只有模板文案。 */
+  history?: ReadonlyArray<HistoryDigestEntry>;
+  instruction?: string;
 }
 
-/** 结局叙事请求：模板文本 + 本局证据白名单（+ 可选维度摘要），不含任何可写状态。 */
+/** 结局叙事请求：模板文本 + 本局证据白名单 +（可选）维度摘要与经历摘要，不含任何可写状态。 */
 export function buildEndingNarrativeRequest(
   input: BuildEndingNarrativeRequestInput,
 ): NarrativeRequest {
@@ -65,7 +111,11 @@ export function buildEndingNarrativeRequest(
     templateTitle: input.templateTitle,
     templateSummary: input.templateSummary,
     allowedEvidenceIds: [...input.allowedEvidenceIds],
-    facts: { dimensionSummaries: [...(input.dimensionSummaries ?? [])] },
+    facts: {
+      dimensionSummaries: [...(input.dimensionSummaries ?? [])],
+      ...(input.history !== undefined ? { history: [...input.history] } : {}),
+    },
+    instruction: input.instruction ?? ENDING_INSTRUCTION,
   };
 }
 

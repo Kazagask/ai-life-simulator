@@ -23,6 +23,7 @@ import {
   equipV2,
   evaluateLifeV2,
   finalizeEvaluationSummary,
+  historyDigestOf,
   normalizeAllocation,
   playerVisibleEntries,
   projectArchiveForPlayer,
@@ -67,6 +68,7 @@ import { probeLlmConnectivity } from "./llm/probe.js";
 import {
   adapterFromOutcome,
   decorateEndingView,
+  decorateEvaluationView,
   generateNarrative,
   type NarrativeOutcome,
 } from "./narrative/generate.js";
@@ -207,11 +209,17 @@ function getWorld(id: string): { world: WorldStateV2; entry: ReadyTemplateEntry 
  * 一次 `world` 窗口取的 outcome 会被后续 `player` 请求命中（跨窗口串味，P0）。
  */
 const endingOutcomeCache = new Map<string, NarrativeOutcome>();
+const evaluationOutcomeCache = new Map<string, NarrativeOutcome>();
 const TEMPLATE_OUTCOME: NarrativeOutcome = { source: "template", data: null, diagnostic: null };
 
 /** 装饰缓存键：`worldId:turnIndex:perspective`（视角是第一等维度）。 */
 function narrativeCacheKey(worldId: string, turnIndex: number, perspective: Perspective): string {
   return `${worldId}:${turnIndex}:${perspective}`;
+}
+
+/** 评价总结与结局同轮生成，但**不是**同一份 outcome：键加后缀，互不覆盖。 */
+function evaluationCacheKey(worldId: string, turnIndex: number, perspective: Perspective): string {
+  return `${narrativeCacheKey(worldId, turnIndex, perspective)}:evaluation`;
 }
 
 /** diagnostic 只写服务端日志（可诊断、不静默）；绝不含 apiKey / token / session。 */
@@ -274,17 +282,50 @@ async function endingOutcomeFor(
   const resolution = resolveEndingBase(world, entry.lookup, entry.pipeline);
   // Axis 1（F4 保留）：隐藏结局绝不把原文交给 LLM。判据由模板 masked 声明 + 决胜结果得出。
   if (isMaskedEnding(resolution)) return TEMPLATE_OUTCOME;
+  const evaluation = evaluateLifeV2(world, entry.evaluationConfig);
   const outcome = await generateNarrative(
     buildEndingNarrativeRequest({
       templateTitle: resolution.base.title,
       templateSummary: resolution.base.summary,
       allowedEvidenceIds: resolution.base.evidenceIds,
+      // 只读素材：本局玩家可见经历（hidden 已被 `historyDigestOf` 滤掉）+ 维度摘要。
+      // 没有这两样，模型只能复述模板句 —— 那不是收尾。
+      history: historyDigestOf(world),
+      dimensionSummaries: evaluation.dimensions.map((d) => ({ id: d.id, score: d.score, level: d.level })),
     }),
     EndingNarrativeOutputSchema,
     provider,
   );
   logNarrativeDiagnostic(outcome.diagnostic);
   recordEndingNarrative(world, entry, resolution, outcome);
+  return outcome;
+}
+
+/**
+ * 人生总结 outcome：**只在该局已收束时**生成（跑动中不调 LLM）。
+ *
+ * 与结局叙事同一套纪律：非权威、按 `worldId:turn:perspective` 缓存、落 trace 供刷新读回。
+ * 隐藏结局（`masked`）一并短路 —— 总结里不得夹带隐藏结局的原文或暗示。
+ *
+ * 为什么结局时就要跑：归档只是「盖棺」，玩家在结局卡上就该看到评价；否则
+ * `evaluation.summary` 会一直是引擎拼的「本局共记录 N 条经历」，看起来像没接线。
+ */
+async function evaluationOutcomeFor(
+  world: WorldStateV2,
+  entry: ReadyTemplateEntry,
+  provider: LLMProvider = llmProvider,
+): Promise<NarrativeOutcome> {
+  if (world.termination === null) return TEMPLATE_OUTCOME;
+  const resolution = resolveEndingBase(world, entry.lookup, entry.pipeline);
+  if (isMaskedEnding(resolution)) return TEMPLATE_OUTCOME;
+  const evaluation = evaluateLifeV2(world, entry.evaluationConfig);
+  const outcome = await generateNarrative(
+    buildEvaluationSummaryRequest(evaluation, historyDigestOf(world)),
+    EvaluationSummaryOutputSchema,
+    provider,
+  );
+  logNarrativeDiagnostic(outcome.diagnostic);
+  recordEvaluationNarrative(world, entry, outcome);
   return outcome;
 }
 
@@ -397,16 +438,33 @@ async function decorateSnapshot(
 ): Promise<DecoratedSnapshot> {
   const withUi = (value: V2Snapshot): DecoratedSnapshot =>
     entry.ui === undefined ? value : { ...value, ui: entry.ui };
-  const ending = snapshot.ending;
-  if (!ending) return withUi(snapshot);
-  if (!endingVisibleInWindow(world, ending, perspective)) return withUi(snapshot);
-  const key = narrativeCacheKey(world.id, snapshot.turnIndex, perspective);
-  let outcome = endingOutcomeCache.get(key);
-  if (outcome === undefined) {
-    outcome = await endingOutcomeFor(world, entry, perspective, provider);
-    endingOutcomeCache.set(key, outcome);
+
+  let decorated = snapshot;
+
+  // ① 结局收尾：只在结局对该窗口可见时装饰（隐藏结局由 core 判 visibility）。
+  const ending = decorated.ending;
+  if (ending !== undefined && ending !== null && endingVisibleInWindow(world, ending, perspective)) {
+    const key = narrativeCacheKey(world.id, snapshot.turnIndex, perspective);
+    let outcome = endingOutcomeCache.get(key);
+    if (outcome === undefined) {
+      outcome = await endingOutcomeFor(world, entry, perspective, provider);
+      endingOutcomeCache.set(key, outcome);
+    }
+    decorated = decorateEndingView(decorated, outcome);
   }
-  return withUi(decorateEndingView(snapshot, outcome));
+
+  // ② 人生评价：收束后才有意义（跑动中不调 LLM，保持模板占位）。与结局同轮、同一份缓存纪律。
+  if (world.termination !== null) {
+    const key = evaluationCacheKey(world.id, snapshot.turnIndex, perspective);
+    let outcome = evaluationOutcomeCache.get(key);
+    if (outcome === undefined) {
+      outcome = await evaluationOutcomeFor(world, entry, provider);
+      evaluationOutcomeCache.set(key, outcome);
+    }
+    decorated = decorateEvaluationView(decorated, outcome);
+  }
+
+  return withUi(decorated);
 }
 
 /**
@@ -1380,16 +1438,15 @@ app.post("/api/worlds/:id/archive", async (request, reply) => {
   // R2.7 · T-S2：人生总结接真实 LLM。只经 finalizeEvaluationSummary 替换 summary / summarySource；
   // dimensions / evidenceIds / overall 逐字段不变（strict schema 拒任何篡改）。
   // 隐藏结局同裁决 6：一并跳过 LLM 装饰与 adapter 注入，保留模板文案。
-  const summaryOutcome = masked
-    ? TEMPLATE_OUTCOME
-    : await generateNarrative(
-        buildEvaluationSummaryRequest(evaluation),
-        EvaluationSummaryOutputSchema,
-        request.llmProvider,
-      );
-  logNarrativeDiagnostic(summaryOutcome.diagnostic);
-  // F3 写入侧②：人生总结同样落 trace（刷新后归档页仍能看到 LLM 文案）。
-  recordEvaluationNarrative(found.world, found.entry, summaryOutcome);
+  //
+  // 2026-11-21：改成走 `evaluationOutcomeFor`（与结局同一条路径）——结局卡在**终止那一刻**
+  // 就已经生成过一次，归档再调一次既浪费钱、又可能给出两份不同的总结。这里只取缓存。
+  const evaluationKey = evaluationCacheKey(found.world.id, found.world.turnIndex, "player");
+  let summaryOutcome = evaluationOutcomeCache.get(evaluationKey);
+  if (summaryOutcome === undefined) {
+    summaryOutcome = await evaluationOutcomeFor(found.world, found.entry, request.llmProvider);
+    evaluationOutcomeCache.set(evaluationKey, summaryOutcome);
+  }
   const finalEvaluation = masked
     ? evaluation
     : finalizeEvaluationSummary(evaluation, adapterFromOutcome(summaryOutcome));
@@ -1397,9 +1454,15 @@ app.post("/api/worlds/:id/archive", async (request, reply) => {
   // R2.7 · T-S1：结局叙事接真实 LLM。outcome 同时用于响应层装饰
   // `snapshot.ending.narrativeSource`（主理人裁决 3：玩家可见准绳）。
   // F3 写入侧③：结局正文在 `endingOutcomeFor` 内即落 trace（与装饰同源，不重复生成）。
-  const endingOutcome = masked
-    ? TEMPLATE_OUTCOME
-    : await endingOutcomeFor(found.world, found.entry, "player", request.llmProvider);
+  //
+  // 2026-11-21：先查缓存 —— 终止那一刻的响应已经生成过一次，归档时再调一次等于让模型
+  // 把同一段收尾写两遍（既烧钱，也可能给出两份不同的「盖棺」文案）。
+  const endingKey = narrativeCacheKey(found.world.id, found.world.turnIndex, "player");
+  let endingOutcome = endingOutcomeCache.get(endingKey);
+  if (endingOutcome === undefined) {
+    endingOutcome = await endingOutcomeFor(found.world, found.entry, "player", request.llmProvider);
+    endingOutcomeCache.set(endingKey, endingOutcome);
+  }
   const endingAdapter = masked ? undefined : adapterFromOutcome(endingOutcome);
   const ending = resolveEnding(
     found.world,

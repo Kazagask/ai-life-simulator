@@ -1137,6 +1137,8 @@ export interface V2Snapshot {
     label: string;
     maxCount: number;
     allowedCategories: string[];
+    /** 追加（2026-11-21）：`allowedCategories` 的显示名，同序一一对应。 */
+    allowedCategoryLabels?: string[];
     panelSide: "left" | "right" | "bottom";
   }>;
   npcs: Array<{
@@ -1221,6 +1223,11 @@ export interface V2Snapshot {
   evaluation: {
     summary: string;
     canonDeviation: number;
+    /**
+     * 追加（2026-11-21）：这段总结的来源。`llm` 是响应层装饰后的结果（非权威），
+     * `template` 是引擎拼的总结；缺省 = 旧快照 / 尚未生成。
+     */
+    summarySource?: "template" | "llm" | "fallback";
     /**
      * R2.6 / ADR-0016：五维分项评价（成长/羁绊/功绩/真相/自由等，取自模板
      * `evaluation.yaml`）。只读过程信号，不含结局类型 ⇒ 不泄露结局。

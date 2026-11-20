@@ -19,6 +19,25 @@ export function playerVisibleHistory(state: WorldStateV2, limit: number): Histor
 }
 
 /**
+ * 叙事素材：把玩家可见经历压成「id + 摘要」，供结局收尾 / 人生总结的 LLM 请求使用。
+ *
+ * - **只取 public**（与玩家端出口同一判据 `isPlayerVisible`），hidden 经历绝不外泄；
+ * - 保留**最后** `max` 条（近期经历对「这一年怎么过完的」更有解释力）；
+ * - 单条截断到 `maxChars`：模型不需要全文，长文会把请求撑爆、也更容易被无关细节带偏。
+ * - id 原样保留：这些 id 同时是 `evidenceIds` 白名单的来源，模型引用时不会对不上。
+ */
+export function historyDigestOf(
+  state: WorldStateV2,
+  max = 80,
+  maxChars = 140,
+): Array<{ id: string; text: string }> {
+  return playerVisibleHistory(state, max).map((entry) => ({
+    id: entry.id,
+    text: entry.summary.length > maxChars ? `${entry.summary.slice(0, maxChars)}…` : entry.summary,
+  }));
+}
+
+/**
  * 归档响应的玩家投影（R-VS-04 / design §2.4）：public 记录 + hiddenHistoryCount 计数。
  * ArchiveRecord 本体（服务端存档事实）仍保留全量，不受本函数影响。
  */
