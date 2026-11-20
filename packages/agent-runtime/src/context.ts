@@ -90,6 +90,7 @@ export function buildOutputContract(
     "**只写正文时不要调用任何工具**：输出 `<narrative-content>` 就完成了，不调工具同样算完成。",
     "**只有要新增一条支线时**才调用 `story.submitBranch`；调用它就必须给全参数，空参数会整条被拒。",
     "只写简体中文散文。禁止任何 markdown / 格式符号（# * - ` >、列表、编号、代码块、英文引号）；除对话外不用括号，不写“（此处……）”式旁注，不写标题。",
+    "**正文里不许出现系统标识符**：角色 / 事件 / 物品 / 状态的内部 id（`npc-…`、`ev-…`、`gen:…` 这类）、字段名、英文枚举值（`npc_action`、`heavenly` 这类）都不许写进正文；提到人一律用姓名或称谓。",
     "禁止只转述现状：不要复述状态数字、线索数量、属性值、轮次。必须写这一刻具体的感官、动作、环境或对话片段，至少包含一个可被摄像机拍到的细节。",
     mode === "recap" ? RECAP_SCOPE : NARRATION_ONE_SHOT,
     mode === "recap" ? RECAP_SHAPE : NARRATION_CONTINUE,
@@ -213,6 +214,11 @@ export function buildLlmContext(inv: LlmInvocation, deps: LlmContextDeps): Built
     // 只有「白名单不同、其余全同」的两次调用才暴露，单测各自过、合起来才红。
     ...(inv.context.branchEventIds !== undefined
       ? { branchEventIds: [...inv.context.branchEventIds] }
+      : {}),
+    // 白名单的可读版（id + title）与 `branchEventIds` 同源同序：漏了它，
+    // 模型只拿得到一串变量名，`contextHash` 也会和 core 那份分叉。
+    ...(inv.context.branchEvents !== undefined
+      ? { branchEvents: inv.context.branchEvents.map((event) => ({ ...event })) }
       : {}),
   };
   return { context, contextHash: sha256(stableStringify(context)) };

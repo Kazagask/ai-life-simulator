@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildToolDescriptors } from "@life-sim/agent-runtime";
-import { buildOpeningPrologueRequest, createWorldV2 } from "@life-sim/game-core";
+import { branchInstructionOf, buildToolDescriptors } from "@life-sim/agent-runtime";
+import {
+  buildOpeningPrologueRequest,
+  createConditionRegistry,
+  createWorldV2,
+  evaluateTriggersEdge,
+  projectSnapshotV2,
+} from "@life-sim/game-core";
 import {
   BRANCH_MAX_EFFECTS_PER_OPTION,
   BRANCH_MAX_NODES,
@@ -8,6 +14,7 @@ import {
   type WorldTemplateV2,
 } from "@life-sim/shared";
 import { HISTORY_HARD_CAP, runReadTool } from "../../packages/agent-runtime/src/read-tools.ts";
+import { worldSkeletonOf } from "../../apps/server/src/agent/pipeline.ts";
 import { registerServerExtensions } from "../../apps/server/src/extensions.ts";
 import { loadTemplates } from "../../apps/server/src/templates.ts";
 
@@ -172,5 +179,93 @@ describe("提示词卫生：通用运行时里不许有世界事实", () => {
       });
     expect(parse(BRANCH_MAX_EFFECTS_PER_OPTION).success).toBe(true);
     expect(parse(BRANCH_MAX_EFFECTS_PER_OPTION + 1).success).toBe(false);
+  });
+});
+
+describe("提示词里的世界事实：要么给名字，要么给人话", () => {
+  /** 一个会触发 `jjk.hv.departure` 的世界（怀玉出发前那一晚）。 */
+  function invocationOf(rules?: ReturnType<typeof jjk>["rules"]) {
+    const entry = jjk();
+    const state = createWorldV2(
+      { templateId: entry.ref.id, playerName: "甲", seed: 5 },
+      entry.template,
+      "w-hygiene-inv",
+    );
+    state.openingCompleted = true;
+    state.flags.spJoined = true;
+    state.history.push({
+      id: "h1",
+      type: "event",
+      summary: "你在训练场待到很晚。",
+      turnIndex: state.turnIndex,
+      worldTime: state.worldTime,
+      formattedTime: "2006年4月6日",
+      visibility: "public",
+    } as never);
+    const { invocations } = evaluateTriggersEdge(state, rules ?? entry.rules, createConditionRegistry(), {
+      seed: state.seed,
+      turnIndex: state.turnIndex,
+      template: entry.template,
+    });
+    const inv = invocations.find((item) => item.reason === "jjk.hv.departure");
+    if (inv === undefined) throw new Error("jjk.hv.departure 没触发");
+    return { state, entry, inv };
+  }
+
+  it("世界骨架是模板名 + 年代 + 设定，不是 id@version", () => {
+    const skeleton = worldSkeletonOf(jjk().template);
+    expect(skeleton).toContain("咒术回战");
+    expect(skeleton).toContain("2006 年");
+    expect(skeleton).not.toContain("jjk-2006@");
+  });
+
+  it("滚动历史带中文 kindLabel（不只给 `event` 这种枚举）", () => {
+    const { inv } = invocationOf();
+    const turns = inv.context.recentTurns as Array<{ kind: string; kindLabel?: string }>;
+    expect(turns.length).toBeGreaterThan(0);
+    expect(turns[0]!.kind).toBe("event");
+    expect(turns[0]!.kindLabel).toBe("事件");
+    expect(turns[0]!.kindLabel).not.toBe(turns[0]!.kind);
+  });
+
+  it("白名单带标题：模型看到「ev-hv-04（…）」，不是裸 id", () => {
+    const entry = jjk();
+    const rules = structuredClone(entry.rules);
+    const trigger = rules.llmTriggers.find((item) => item.invoke.reason === "jjk.hv.departure");
+    if (trigger === undefined) throw new Error("触发点不在");
+    trigger.invoke.branchEventIds = ["ev-hv-04"];
+    const { inv } = invocationOf(rules);
+
+    const expectedTitle = entry.template.events.find((event) => event.id === "ev-hv-04")?.title;
+    expect(expectedTitle).toBeDefined();
+    expect(inv.context.branchEvents).toEqual([{ id: "ev-hv-04", title: expectedTitle }]);
+
+    const line = branchInstructionOf(inv.context);
+    expect(line).toContain(`ev-hv-04（${expectedTitle}）`);
+  });
+
+  it("查不到标题就退回 id，不在渲染层猜", () => {
+    const line = branchInstructionOf({
+      branchEventIds: ["gen:unknown"],
+      branchEvents: [{ id: "gen:unknown", title: "gen:unknown" }],
+    });
+    expect(line).toContain("gen:unknown");
+    expect(line).not.toContain("（");
+  });
+
+  it("world.history 带 typeLabel：枚举与人话并列", () => {
+    const { state, entry } = invocationOf();
+    const out = runReadTool(
+      "world.history",
+      {},
+      {
+        snapshot: projectSnapshotV2(state, entry.template, entry.lookup),
+        state,
+        template: entry.template,
+        perspective: "player",
+      },
+    ) as { entries: Array<{ type: string; typeLabel?: string }> };
+    expect(out.entries.at(-1)?.type).toBe("event");
+    expect(out.entries.at(-1)?.typeLabel).toBe("事件");
   });
 });

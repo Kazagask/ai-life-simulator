@@ -41,7 +41,7 @@ export type {
   ToolCallRequest,
 } from "./tool-registry.js";
 
-export { runAgentLoop, traceRefFor } from "./loop.js";
+export { branchInstructionOf, BRANCH_PROMPT_LEAD, runAgentLoop, traceRefFor } from "./loop.js";
 export type { AgentLoopDeps, LoopEndReason } from "./loop.js";
 
 export { AgentGateway } from "./gateway.js";

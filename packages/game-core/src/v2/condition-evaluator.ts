@@ -8,7 +8,13 @@ import type {
   WorldStateV2,
   WorldTemplateV2,
 } from "@life-sim/shared";
-import { DEFAULT_LLM_BUDGET, isPlayerVisible, numericAttr, PLAYER_ID } from "@life-sim/shared";
+import {
+  DEFAULT_LLM_BUDGET,
+  HISTORY_TYPE_LABELS,
+  isPlayerVisible,
+  numericAttr,
+  PLAYER_ID,
+} from "@life-sim/shared";
 import { createRng, deriveTurnSeed, type Rng } from "../rng.js";
 import { buildFacts } from "../api/perspective.js";
 import { evaluateAttributeCondition } from "./attribute-rules.js";
@@ -430,8 +436,24 @@ function buildTriggerInvocation(
       turnIndex: entry.turnIndex,
       time: entry.formattedTime,
       kind: entry.type,
+      // 机器枚举旁边给人话：模型会把 `npc_action` 直接写进正文，读不懂时又只会绕开。
+      kindLabel: HISTORY_TYPE_LABELS[entry.type] ?? entry.type,
       summary: entry.summary,
     }));
+  /**
+   * 白名单的可读版：`branchEventIds` 是闸门，但只给 id 等于只给了变量名。
+   * 标题从模板事件 / LLM 生成事件里取（同一份来源，生成事件也能解析）；都没有就回退 id。
+   */
+  const branchEvents =
+    trigger.invoke.branchEventIds === undefined
+      ? undefined
+      : trigger.invoke.branchEventIds.map((id) => ({
+          id,
+          title:
+            opts.template?.events.find((event) => event.id === id)?.title ??
+            state.generatedEvents?.find((event) => event.id === id)?.title ??
+            id,
+        }));
   const perspective = opts.perspective ?? trigger.invoke.perspective;
   const targetPerspective = opts.targetPerspective ?? trigger.invoke.targetPerspective;
   // LlmContext（v2 §6.1 分层）：facts 段由 core 的 buildFacts(inv.perspective) 投影，
@@ -455,6 +477,7 @@ function buildTriggerInvocation(
       ...(trigger.invoke.branchEventIds !== undefined
         ? { branchEventIds: [...trigger.invoke.branchEventIds] }
         : {}),
+      ...(branchEvents !== undefined ? { branchEvents } : {}),
     },
     tools,
     // 画像名必须随 invocation 下传，runtime 才能重建**带参数 schema** 的工具表。

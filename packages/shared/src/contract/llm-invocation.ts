@@ -100,6 +100,16 @@ export const LlmContextSchema = z
      *    两次只有白名单不同的 invocation 必然得到不同哈希，回放归因才成立。
      */
     branchEventIds: z.array(z.string().min(1)).optional(),
+    /**
+     * 白名单的**可读版**：`id` + `title`（2026-11-21）。
+     *
+     * `branchEventIds` 是闸门（精确匹配），但只把 id 交给模型等于给了一串变量名 ——
+     * 真实模型会照着 `ev-hv-04` 编内容，或者干脆不敢用。两者同源同序，`title` 缺失时
+     * 回退成 id（运行时的渲染只做「id（title）」，不再猜）。
+     */
+    branchEvents: z
+      .array(z.object({ id: z.string().min(1), title: z.string().min(1) }).strict())
+      .optional(),
   })
   .strict();
 export type LlmContext = z.infer<typeof LlmContextSchema>;

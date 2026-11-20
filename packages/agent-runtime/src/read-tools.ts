@@ -1,5 +1,5 @@
 import type { V2Snapshot, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
-import { KinshipKindSchema, SocialKindSchema } from "@life-sim/shared";
+import { HISTORY_TYPE_LABELS, KinshipKindSchema, SocialKindSchema } from "@life-sim/shared";
 
 /**
  * GM 的**只读**工具（AGENTIC-GM 重构 · 设计 §3）。
@@ -71,6 +71,20 @@ const asRecord = (v: unknown): Record<string, unknown> | null =>
 // ---------- rule.lexicon：词表（渐进披露） ----------
 
 type LexiconSection = "index" | "effects" | "items" | "statuses";
+
+/**
+ * 槽的来源（`SlotScene.from`）的人话标签。
+ *
+ * 枚举值是机器记号（`queueTake` 这类），直接给模型等于让它读代码；这里只做翻译，
+ * 不改变判定。
+ */
+const SLOT_FROM_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  successor: "承接上一幕",
+  opening: "开局",
+  death: "死亡结算",
+  hook: "伏笔推进",
+  queueTake: "排队到期",
+});
 
 const LEXICON_SECTIONS: LexiconSection[] = ["index", "effects", "items", "statuses"];
 
@@ -262,6 +276,7 @@ export function runReadTool(name: string, rawArgs: unknown, deps: ReadToolDeps):
                 title: slot.title,
                 kind: slot.kind,
                 from: slot.from,
+                fromLabel: SLOT_FROM_LABELS[slot.from] ?? slot.from,
                 // 玩家此刻能点的选项（与事件面板一致，不含隐藏选项）
                 options: (slot.options ?? []).map((option) => ({ id: option.id, text: option.text })),
               },
@@ -282,6 +297,8 @@ export function runReadTool(name: string, rawArgs: unknown, deps: ReadToolDeps):
         turnIndex: entry.turnIndex,
         time: entry.formattedTime,
         type: entry.type,
+        // 与人话并列，不替换：模型既要知道"这是谁的行动"，也不该把枚举写进正文。
+        typeLabel: HISTORY_TYPE_LABELS[entry.type] ?? entry.type,
         summary: entry.summary,
       }));
       return {

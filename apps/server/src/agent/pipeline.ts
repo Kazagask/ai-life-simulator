@@ -1,7 +1,7 @@
 import type { TurnPipelineConfig } from "@life-sim/game-core";
 import { RpgEngineAPI, projectSnapshotV2 } from "@life-sim/game-core";
 import { AgentGateway, createAgentProvider } from "@life-sim/agent-runtime";
-import type { WorldStateV2 } from "@life-sim/shared";
+import type { WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
 import { DEFAULT_OPENAI_BASE_URL, type UserCredentials } from "../llm/credentials.js";
 import type { LLMConfig } from "../llm/provider.js";
 import type { ReadyTemplateEntry } from "../templates.js";
@@ -78,6 +78,20 @@ export function engineApiForTurn(world: WorldStateV2, entry: ReadyTemplateEntry)
  * - 规则（`rules.yaml`）同时作为触发器与工具画像来源传入；
  * - `config` 缺省 ⇒ `createAgentProvider({})` 返回 mock（零 key demo 路径：无网络、确定性）。
  */
+/**
+ * 给模型看的「世界骨架」（stablePrefix 的第一段）。
+ *
+ * 以前这里缺省成 `模板：jjk-2006@3.0.0` —— 一个内部 id。模型拿它当世界名，
+ * 写出来的东西自然带代号。现在用模板自己的名字 + 年代 + 一句话设定（自然语言），
+ * 这段仍然**每轮字节相同**（prompt cache 的前缀不受影响）。
+ */
+export function worldSkeletonOf(template: WorldTemplateV2): string {
+  const meta = template.meta;
+  return [`${meta.name}（${meta.startYear} 年）`, meta.description]
+    .filter((line) => line.trim() !== "")
+    .join("\n");
+}
+
 export function pipelineForTurn(
   world: WorldStateV2,
   entry: ReadyTemplateEntry,
@@ -97,6 +111,8 @@ export function pipelineForTurn(
     templateRef: `${entry.ref.id}@${entry.ref.version}`,
     // 词表（rule.lexicon）的唯一来源：属性 / 资源 / 物品 / 状态 / 关系 kind 都从这里读。
     template: entry.template,
+    // 模型看到的第一个名字：模板名 + 年代 + 设定摘要，而不是 `id@version`。
+    worldSkeleton: worldSkeletonOf(entry.template),
     onTrace: (trace) => {
       appendTrace(world.id, trace);
       narrativeStream.done(trace);

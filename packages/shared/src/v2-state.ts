@@ -235,6 +235,24 @@ const BattleStateSchema = z
   })
   .strict();
 
+/**
+ * 历史条目的**人话**标签（2026-11-21）。
+ *
+ * `type` 是机器枚举（`npc_action` 这类），直接丢给模型会让它把枚举写进正文，
+ * 或者读不懂"最近发生了什么"。凡是给模型看的窗口一律带 `kindLabel`。
+ *
+ * 与前端「行 / 人 / 事 / 战 / 碑 / 世」的单字标记**不是同一套**：那是版面宽度受限的缩写，
+ * 这里是完整说法。两处都从这一个枚举派生，改枚举时一起看。
+ */
+export const HISTORY_TYPE_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  player_action: "主角行动",
+  npc_action: "他人动向",
+  event: "事件",
+  battle: "战斗",
+  milestone: "里程碑",
+  world: "世界动态",
+});
+
 const HistoryEntryV2Schema = z
   .object({
     id: z.string().min(1),

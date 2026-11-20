@@ -11,6 +11,7 @@ import {
   type DispatchContext,
   type EngineApiHandle,
   type LlmBudget,
+  type LlmContext,
   type LlmInvocation,
   type LlmOutcome,
   type LlmTrace,
@@ -125,9 +126,24 @@ export const BRANCH_WORKFLOW = [
  * `branchEventIds` 额外渲染成一句固定引导语：真实模型必须知道「本轮可以摆什么」，
  * 否则白名单只是锁住能力却不给钥匙 —— 只有 mock 能演。
  */
+/**
+ * 白名单的提示句：`本轮你最多可以把下列事件之一摆上桌：ev-hv-04（本殿）、…`。
+ *
+ * 抽成纯函数是为了可测：这句话是模型唯一能看到的白名单，写成裸 id 时它只能靠猜
+ * （或者把 id 抄进正文）。`title` 缺省回退 id，不在渲染层猜标题。
+ */
+export function branchInstructionOf(
+  context: Pick<LlmContext, "branchEventIds" | "branchEvents">,
+): string | undefined {
+  const branchList = (context.branchEvents ?? context.branchEventIds?.map((id) => ({ id, title: id })) ?? [])
+    .map((event) => (event.title !== event.id ? `${event.id}（${event.title}）` : event.id))
+    .join("、");
+  return branchList.length > 0 ? `${BRANCH_PROMPT_LEAD}：${branchList}；不在列表内的一律被拒绝。` : undefined;
+}
+
 function buildInitialMessages(inv: LlmInvocation): AgentMessage[] {
   const { stablePrefix: _stablePrefix, ...rest } = inv.context;
-  const branchEventIds = inv.context.branchEventIds;
+  const branchInstruction = branchInstructionOf(inv.context);
   const hasBranchTool = inv.tools.some((tool) => tool.name === "story.submitBranch");
   const payload = {
     invocationId: inv.invocationId,
@@ -135,11 +151,7 @@ function buildInitialMessages(inv: LlmInvocation): AgentMessage[] {
     perspective: inv.perspective,
     targetPerspective: inv.targetPerspective,
     ...rest,
-    ...(branchEventIds !== undefined && branchEventIds.length > 0
-      ? {
-          branchInstruction: `${BRANCH_PROMPT_LEAD}：${branchEventIds.join("、")}；不在列表内的一律被拒绝。`,
-        }
-      : {}),
+    ...(branchInstruction !== undefined ? { branchInstruction } : {}),
     // 只在真能提交分支的画像里给「怎么想」的流程；否则模型会幻觉一个不存在的工具。
     ...(hasBranchTool ? { workflow: [...BRANCH_WORKFLOW] } : {}),
   };
