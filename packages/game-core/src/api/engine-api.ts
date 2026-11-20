@@ -436,11 +436,15 @@ const submitBranch: ToolHandler = {
               ? {
                   source: "schedule",
                   /**
-                   * 入口延迟：`trigger.after` 缺省 1 分钟 —— 相对入队时刻换算 ⇒
-                   * 下一轮扫描即到期（不是"世界时间 0"）。`TimeAmountSchema` 要求
-                   * `value` 是正整数，`value: 0` 会被拒；1 分钟已小于任何一轮默认步长。
+                   * 入口延迟：**声明了 `after` 才排队**，没写就是「立刻」。
+                   *
+                   * 以前这里缺省填 1 分钟，配合「tail 在 invoke 之前跑完」⇒ 模型这一轮写的
+                   * 分支要等下一轮扫描才到期、再下一轮才上桌，玩家体感是卡了两回合。
+                   * 现在省略 `after` ⇒ 编译成**没有 window**，`enqueueGeneratedCertain` 用
+                   * `absoluteStart = worldTime` 入队 ⇒ 当轮就能被 `presentNewlyGeneratedV2`
+                   * 请上桌（槽没被占的前提下）。
                    */
-                  window: { start: trigger.after ?? { value: 1, unit: "minute" } },
+                  ...(trigger.after !== undefined ? { window: { start: trigger.after } } : {}),
                 }
               : {
                   source: "pool",

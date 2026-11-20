@@ -1117,6 +1117,50 @@ export function presentQueuedEventV2(
   return result;
 }
 
+/**
+ * **LLM 刚提交完分支，趁同一个响应把它请上桌**（2026-11-21）。
+ *
+ * 为什么需要：`advanceTurnV2` 的 tail 在**执行 invocation 之前**就跑完了（ADR-0035 的事务
+ * 边界是「先结算、再 invoke」）。所以模型这一轮写进 `generatedEvents` 的分支要等下一次
+ * `advanceTurnV2` 才会入队、再等下一次才上桌 —— 玩家体感是「卡了半天无事发生」。
+ *
+ * 这里只补两件在 tail 里做过、但此刻已经过时的事：
+ * 1. `enqueueGeneratedCertain`：新提交的 `certain` 分支入队（窗口缺省 = 立刻到期）；
+ * 2. 槽空则 `nextTurn` 把到期的那条摆上来（内部含前提复核 / 拉人 / 战斗建场）。
+ *
+ * 槽已被占 ⇒ 什么都不做（排队等下一位）——「下一个槽没被占就立即触发」是作者口径。
+ * 不推进 `turnIndex` / 世界时间：这不是新的一轮，只是把本轮写下的东西立刻兑现。
+ */
+export function presentNewlyGeneratedV2(
+  state: WorldStateV2,
+  template: WorldTemplateV2,
+  lookup: TemplateLookup,
+): TriggerResult {
+  const result: TriggerResult = { triggered: [], wheelResult: null };
+  if (state.termination !== null) return result;
+  enqueueGeneratedCertain(state, lookup, scanStream(state));
+  if (state.slot === null) {
+    nextTurn(state, template, lookup, scanStream(state), result);
+    /**
+     * `nextTurn` 的「队列取出」分支只写槽，不往 `triggered` 里塞 —— 那是结算路径的账。
+     * 这里补一条：本轮确实**新上桌**了一个事件，响应里的 `triggeredEvents`（flavor / 收获卡）
+     * 需要看见它，否则正文写了、事件也上了，前端却当这一轮什么都没发生。
+     */
+    const presentedId = (state.slot as WorldStateV2["slot"])?.eventId ?? null;
+    if (presentedId !== null) {
+      const def = lookup.event(presentedId);
+      if (def !== undefined) {
+        result.triggered.push({
+          id: def.id,
+          title: def.title,
+          narrative: def.narrative ?? def.title,
+        });
+      }
+    }
+  }
+  return result;
+}
+
 /** 投影 + 评价：评价是唯一事实来源（T4-04），每次投影按当前状态重算。 */
 function projectWithConfig(
   state: WorldStateV2,

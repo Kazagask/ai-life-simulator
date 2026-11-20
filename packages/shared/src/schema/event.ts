@@ -76,13 +76,16 @@ export const EventTriggerSchema = z
     if (t.source === "pool" && t.probability === undefined && t.weight === undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["source"], message: "池事件需要 probability 或 weight" });
     }
-    if (t.source === "schedule" && t.window === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["window"],
-        message: "schedule 事件需要 window.start（TimeSpec，默认相对入队时刻；替代已退役的 atTurn/atWorldTime）",
-      });
-    }
+    /**
+     * 2026-11-21：`schedule` **不再要求** `window` —— 省略 = 入队即到期（"尽快"）。
+     *
+     * 起因：LLM 提交的分支要求「写了就演」，而 `after` 省略只能编译成「没有窗口」；
+     * 以前为了满足校验会硬塞 1 分钟，配合「结算 tail 在 invoke 之前跑完」，玩家要等
+     * 两轮才看见。`enqueueCandidate` / `enqueueGeneratedCertain` 本来就支持缺省
+     * （换算成 `absoluteStart = worldTime`），所以只需把校验放宽。
+     *
+     * 模板里显式写了 `window.start` 的仍然照旧（章节门这类"第 N 天才开"不受影响）。
+     */
     if (t.source === "action-hook" && t.onActionId === undefined) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["source"], message: "action-hook 事件需要 onActionId" });
     }

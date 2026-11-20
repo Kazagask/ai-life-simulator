@@ -157,8 +157,14 @@ export const SubmitBranchOptionSchema = z
   .object({
     /** 选项文案（第二人称、动词开头） */
     text: z.string().min(1).max(120),
-    /** 该选项的效果（走模板同一套 effect 白名单校验） */
-    effects: z.array(BranchEffectSchema).max(4).optional(),
+    /**
+     * 该选项的效果（走模板同一套 effect 白名单校验）。
+     *
+     * 2026-11-21：空数组**不再是合法值**。实测模型会写 `effects: []`，玩家点下去什么
+     * 都不发生 —— 看起来就是坏事件。省略仍然允许（旧存档 / 纯叙事选项的兼容路径），
+     * 但一旦写了就必须至少一条：整条分支会被拒、模型在本轮内重试。
+     */
+    effects: z.array(BranchEffectSchema).min(1).max(4).optional(),
     /** 指向**本次提交内**的另一个 node；缺省 = 到此为止 */
     goto: BranchGotoSchema.optional(),
   })

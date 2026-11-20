@@ -33,6 +33,7 @@ import {
   captureGainBaseline,
   diffGains,
   pushHistory,
+  presentNewlyGeneratedV2,
   presentQueuedEventV2,
   useItemV2,
   visibleFactRefs,
@@ -988,7 +989,24 @@ async function runWorldTransaction(
     if (inv !== undefined && pipeline.gateway !== undefined) {
       const savepoint = captureStructuralSavepoint(res.state);
       const outcome = await pipeline.gateway.invoke(inv);
-      if (outcome.outcome !== "committed") restoreStructuralSavepoint(res.state, savepoint);
+      if (outcome.outcome !== "committed") {
+        restoreStructuralSavepoint(res.state, savepoint);
+      } else {
+        /**
+         * 本轮刚提交的分支立刻兑现（2026-11-21 用户实测「卡了半天无事发生」）。
+         *
+         * `advanceTurnV2` 的结算 tail 在 invoke **之前**就跑完了，模型这一轮写进
+         * `generatedEvents` 的分支本来要等下一轮入队、再下一轮上桌。这里补上
+         * 「入队 + 槽空就摆上来」，不推进 turnIndex / 世界时间 —— 只是把本轮写下的东西
+         * 当场兑现。槽已被占 ⇒ 内部什么都不做（排队等下一位）。
+         */
+        const presented = presentNewlyGeneratedV2(
+          res.state,
+          entry.template,
+          entry.lookup.withGenerated(res.state.generatedEvents),
+        );
+        res.triggeredEvents.push(...presented.triggered);
+      }
     }
 
     const fresh = projectWorld(res.state, entry);

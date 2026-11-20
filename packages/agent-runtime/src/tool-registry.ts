@@ -183,14 +183,18 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
       '`{"lifecycle":{"npc":"<alias或npcId>","state":"alive|inactive"}}`。' +
       "⑥ 标记 `mode: \"certain\"` 表示条件满足即发生，`random` 表示有机会发生。" +
       "⑦ 延迟是**相对量**：`trigger.after` 表示「提交后过多久开演」（如 {value:2,unit:\"day\"}），" +
-      "不是绝对日期；`goto` 可写字符串，也可写 {node,after} 表示「上一幕之后过多久再进入下一幕」。" +
+      "不是绝对日期；**省略 `after` = 立刻上演**（槽空就当场播，别为了「快一点」写 1 分钟）；" +
+      "`goto` 可写字符串，也可写 {node,after} 表示「上一幕之后过多久再进入下一幕」。" +
+      "⑧ **每个选项都必须有效果，且至少要有一条改数值的**（mood / hp / mp）——" +
+      "玩家点了就要有代价或所得；只写旗标不算：旗标是留给你自己后续引用的记号，模板不会读它，" +
+      "对玩家等于什么都没发生。" +
       " —— 照下面这个例子写。effects 只有三种扁平形状：{\"flag\":\"名字\",\"value\":true} 置旗标、" +
       "{\"mood\":3} 调心情、{\"hp\":-5}/{\"mp\":-5} 调资源；**不要写 type/op 字段**。" +
       '{"trigger":{"mode":"certain","after":{"value":2,"unit":"day"}},' +
       '"branch":[{"node":"s1","title":"路口","text":"……","actors":["npc-yuji"],' +
-      '"options":[{"text":"推进","effects":[{"flag":"swept","value":true}],' +
+      '"options":[{"text":"推进","effects":[{"flag":"swept","value":true},{"mood":-2}],' +
       '"goto":{"node":"s2","after":{"value":1,"unit":"hour"}}}]},' +
-      '{"node":"s2","title":"残渣","text":"……","options":[{"text":"绕开"}]}]}',
+      '{"node":"s2","title":"残渣","text":"……","options":[{"text":"绕开","effects":[{"hp":-3}]}]}]}',
     parameters: schemaOf(
       {
         trigger: {
@@ -256,9 +260,11 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
                     text: { type: "string" },
                     effects: {
                       type: "array",
+                      minItems: 1,
                       maxItems: 4,
                       description:
-                        "三种扁平形状之一：{flag,value} 置旗标 / {mood} 调心情 / {hp}或{mp} 调资源",
+                        "至少一条，且**至少一条改数值**（mood / hp / mp）；旗标只作你自己的后续引用，" +
+                        "模板不会读。三种扁平形状：{flag,value} / {mood} / {hp}或{mp}",
                       items: { type: "object" },
                     },
                     goto: {
@@ -287,7 +293,7 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
                       ],
                     },
                   },
-                  required: ["text"],
+                  required: ["text", "effects"],
                 },
               },
             },
