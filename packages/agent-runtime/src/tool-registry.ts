@@ -128,6 +128,29 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
    * 视角在调用时固定（player 窗口），**不接受 perspective 参数** —— 看不到的东西
    * 在数据源上就不存在，不是靠过滤。
    */
+  /**
+   * 词表（2026-11-21）：**渐进披露**的第二跳。
+   *
+   * 描述刻意短：先给「什么时候该查」，不把 9 种形状全写进工具表 ——
+   * 那会挤掉叙事素材，模型也不会看。真正的内容在调用结果里。
+   */
+  "rule.lexicon": {
+    name: "rule.lexicon",
+    description:
+      "查词表。**写 story.submitBranch 的 effects 之前必须先查 effects**（凭空编字段名会被整条拒绝）。" +
+      "不带 section 返回目录；section=effects 给 9 种效果形状 + 可引用的属性/资源/关系 kind/在场角色，" +
+      "items 给物品词表，statuses 给状态词表。",
+    parameters: schemaOf(
+      {
+        section: {
+          type: "string",
+          enum: ["index", "effects", "items", "statuses"],
+          description: "要哪一节；缺省 = 目录",
+        },
+      },
+      [],
+    ),
+  },
   "world.now": {
     name: "world.now",
     description:
@@ -165,7 +188,7 @@ const FACT_DESCRIPTORS: Record<string, ToolDescriptor> = {
     description:
       "提交一整条独立的分支（1..12 个事件块）。你只表达三件事：这条分支**怎么触发**、" +
       "每个事件**是什么**、整条**编排**是什么。引擎会校验后按触发方式调度，你不需要也不允许" +
-      "直接让事件上桌或占槽。" +
+      "直接让事件上桌或占槽。**写 effects 之前先调 rule.lexicon（section=effects）**核对形状与 id。" +
       "要点：① `goto` 只能指向本次提交内的 `node`，跨提交接续既有剧情会被拒；" +
       "①′ **多个选项指向同一个 `node` 时，它们的 `after` 必须一致**（延迟属于节点，不属于选项），" +
       "不一致会整条被拒——想表达「先扫一遍再走要多花时间」，就把它写成两个不同 node；" +

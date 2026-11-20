@@ -95,6 +95,8 @@ export function pipelineForTurn(
     provider: createAgentProvider(config ?? {}),
     engineApi,
     templateRef: `${entry.ref.id}@${entry.ref.version}`,
+    // 词表（rule.lexicon）的唯一来源：属性 / 资源 / 物品 / 状态 / 关系 kind 都从这里读。
+    template: entry.template,
     onTrace: (trace) => {
       appendTrace(world.id, trace);
       narrativeStream.done(trace);

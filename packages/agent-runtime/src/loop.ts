@@ -97,6 +97,25 @@ interface EndState {
 export const BRANCH_PROMPT_LEAD = "本轮你最多可以把下列事件之一摆上桌";
 
 /**
+ * 写分支的固定工作顺序（2026-11-21）。
+ *
+ * 用户口径：**先交代任务 → 查必要信息 → 梳理剧情走向 → 生成大致剧情 → 定选项效果 →
+ * 最后查词表调工具**。这是一条 ReAct 轨迹，写死在运行时而不是模板里：
+ * 每个世界都需要它，模板只该决定「写什么」，不该重写「怎么想」。
+ *
+ * 只在工具面上真的有 `story.submitBranch` 时才注入（没有这个工具的世界不该看到
+ * 「怎么提交分支」的说明，否则它会把不存在的工具幻觉出来）。
+ */
+export const BRANCH_WORKFLOW = [
+  "1. 先确认此刻：world.now 看轮次 / 世界时间 / 槽位；world.history 看最近发生了什么。",
+  "2. 梳理走向：这一轮该推进什么？是平淡日常，还是该有人找上门？",
+  "3. 想清楚再写：如果要提交分支，先定这一幕怎么演、玩家有哪些选择、每个选择改变什么。",
+  "4. 查词表再写效果：调 rule.lexicon（section=effects）核对可用的效果形状与可引用 id，",
+  "   每个选项至少一条效果，且至少一条改数值（mood / hp / mp）。",
+  "5. 最后提交：story.submitBranch 写整条分支；不需要分支就只写正文，不调用任何写工具。",
+] as const;
+
+/**
  * 初始消息：system = stablePrefix（字节稳定），user = 结构化可见上下文。
  *
  * ADR-0038 R8：user 段用 spread 展开整个 `LlmContext`（**挖掉 `stablePrefix`**，
@@ -109,6 +128,7 @@ export const BRANCH_PROMPT_LEAD = "本轮你最多可以把下列事件之一摆
 function buildInitialMessages(inv: LlmInvocation): AgentMessage[] {
   const { stablePrefix: _stablePrefix, ...rest } = inv.context;
   const branchEventIds = inv.context.branchEventIds;
+  const hasBranchTool = inv.tools.some((tool) => tool.name === "story.submitBranch");
   const payload = {
     invocationId: inv.invocationId,
     reason: inv.reason,
@@ -120,6 +140,8 @@ function buildInitialMessages(inv: LlmInvocation): AgentMessage[] {
           branchInstruction: `${BRANCH_PROMPT_LEAD}：${branchEventIds.join("、")}；不在列表内的一律被拒绝。`,
         }
       : {}),
+    // 只在真能提交分支的画像里给「怎么想」的流程；否则模型会幻觉一个不存在的工具。
+    ...(hasBranchTool ? { workflow: [...BRANCH_WORKFLOW] } : {}),
   };
   return [
     { role: "system", content: inv.context.stablePrefix },

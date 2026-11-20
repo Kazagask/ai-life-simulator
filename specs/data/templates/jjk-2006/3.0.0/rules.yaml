@@ -126,14 +126,17 @@ toolProfile:
     - world.history
     - world.present
     - world.self
-  # 可写分支的画像（2026-11-21）：与 narrative 的差别只有最后一行。
+  # 可写分支的画像（2026-11-21）：与 narrative 的差别是最后两行。
   # 以前模板里没有任何画像列出 `story.submitBranch` ⇒ 模型手里根本没有这个工具，
   # 提交事件这条线等于没接（生成的池事件也抽不到，见 `resolvePoolV2`）。
+  # `rule.lexicon` 是**渐进披露**的词表入口：写 effects 之前按需查一节，
+  # 而不是把 9 种形状 + 几十件物品塞进每一轮 prompt。
   story:
     - world.now
     - world.history
     - world.present
     - world.self
+    - rule.lexicon
     - story.submitBranch
 
 knowledgeGrants: []

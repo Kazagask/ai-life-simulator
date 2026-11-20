@@ -7,6 +7,7 @@ import {
   type LlmOutcome,
   type LlmTrace,
   type RulesTemplate,
+  type WorldTemplateV2,
 } from "@life-sim/shared";
 import { buildLlmContext } from "./context.js";
 import { runReadTool } from "./read-tools.js";
@@ -28,6 +29,11 @@ export interface AgentGatewayDeps {
   engineApi: EngineApiHandle;
   budget?: LlmBudget;
   templateRef?: string;
+  /**
+   * 模板（只读）：`rule.lexicon` 的词表来源（属性 / 资源 / 物品 / 状态 / 关系 kind）。
+   * 缺省 ⇒ 词表工具只返回效果形状，不臆造可引用清单。
+   */
+  template?: WorldTemplateV2;
   /** 由 apps/server 提供：同步追加 trace 到 *.trace.jsonl。 */
   onTrace?: (trace: LlmTrace) => void;
   /** 滚动历史（上次调用方维护）；本类只取末尾 `budget.recentTurns` 条。 */
@@ -116,6 +122,8 @@ export class AgentGateway implements LlmGateway {
             ...(this.deps.engineApi.state !== undefined
               ? { state: this.deps.engineApi.state }
               : { state: { history: [] } as never }),
+            // 词表工具需要模板：缺省时它只给效果形状，不臆造可引用清单。
+            ...(this.deps.template !== undefined ? { template: this.deps.template } : {}),
           }),
         budget,
         ...(this.deps.templateRef !== undefined ? { templateRef: this.deps.templateRef } : {}),
