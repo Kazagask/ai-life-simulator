@@ -18,6 +18,34 @@ import {
  * 不另立第三套语法、引擎不 switch on op（ConditionRegistry 仅作前向 seam）。
  */
 
+/**
+ * `instruction` 的一个**条件变体**（2026-11-21）。
+ *
+ * 为什么需要：同一章下面会有不同分支（玩家是星浆体本人，还是护卫她的人），
+ * 一句写死的「本幕要求」要么把两条线写成同一条，要么谁都不像。
+ *
+ * - `when`：条件数组（与触发器同一个 DSL，AND）；缺省 / 空数组 = **兜底**，
+ *   按声明序第一个命中的变体生效；
+ * - `as`：**身份 / 人称**（用户裁决）。只影响给模型的那句话（渲染成
+ *   「以「星浆体」的身份：…」），**不参与判定** —— 选哪一条永远由 `when` 说了算；
+ * - `text`：本幕要求本体（与单字符串写法同一个上限 300 字）。
+ */
+export const InstructionVariantSchema = z
+  .object({
+    when: z.array(TaskConditionSchema).optional(),
+    as: z.string().min(1).max(40).optional(),
+    text: z.string().min(1).max(300),
+  })
+  .strict();
+export type InstructionVariant = z.infer<typeof InstructionVariantSchema>;
+
+/** 条件 instruction：单字符串（旧写法）或变体数组（按 `when` 取第一条命中的）。 */
+export const InstructionSchema = z.union([
+  z.string().min(1).max(300),
+  z.array(InstructionVariantSchema).min(1).max(12),
+]);
+export type Instruction = z.infer<typeof InstructionSchema>;
+
 /** 触发时构造的 LLM invocation 规格（v2 §3.5 :264-269）。 */
 export const InvokeSchema = z
   .object({
@@ -31,8 +59,11 @@ export const InvokeSchema = z
      * 与 `contextHints` 的分工：hints 只是**标签**（引擎完全不解释，只当上下文记号），
      * instruction 是**给模型看的话**。上限 300 字——它是"一句话"，不是第二个设定集；
      * 需要长篇设定就写 `lore.md`（按 keys 命中，不占每次调用）。
+     *
+     * 2026-11-21：也接受**条件变体数组**（`InstructionVariant[]`）——同一章的不同分支
+     * 各写一句，由 `when` 选第一条命中的；单字符串等价于「只有一个兜底变体」。
      */
-    instruction: z.string().min(1).max(300).optional(),
+    instruction: InstructionSchema.optional(),
     /**
      * 叙事体裁（2026-11-19）：
      * - `narration`（缺省）：逐拍旁白——写「这一回合主角经历的一小段」，紧接上一轮往下写；

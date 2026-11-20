@@ -842,30 +842,33 @@ function App() {
           ))}
       </nav>
       {/*
-        跨页签的「有东西待处理」浮标。`life` 页不挂：事件区就在这一页的最前面，
-        浮标反而会盖住战斗面板底部的技能按钮（RPA `ui-6-battle.png`：胶囊压住
-        「术式顺转·苍 / 反转·赫」的点击区，且 `pointer-events: none` 让误触直接落到按钮上）。
+        底部的「有东西待处理」浮标（2026-11-21 用户裁决：两件事**可以同时**提示）。
+        - 事件浮标：阻塞流程，`life` 页不挂（事件区就在这一页最前面，浮标会压住战斗面板
+          底部的技能按钮）；
+        - 加点浮标：不阻塞，可点，直接切到个人页「角色」页顶部；战斗中不挂（不能加）。
+        两条挤在同一个 fixed 位置上会互相盖住，所以由 `.hint-stack` 统一收口成竖排。
       */}
-      {interacting && tab !== "life" && (
-        <div className="interact-hint">
-          {slot?.kind === "combat" ? "⚔ 战斗进行中" : slot?.kind === "random" ? "⚄ 命运待确认" : "⚡ 事件待决"}
+      {((interacting && tab !== "life") ||
+        (hasAllocation && slot?.kind !== "combat" && !(tab === "personal" && personalSub === "character"))) && (
+        <div className="hint-stack">
+          {interacting && tab !== "life" && (
+            <div className="interact-hint">
+              {slot?.kind === "combat" ? "⚔ 战斗进行中" : slot?.kind === "random" ? "⚄ 命运待确认" : "⚡ 事件待决"}
+            </div>
+          )}
+          {hasAllocation && slot?.kind !== "combat" && !(tab === "personal" && personalSub === "character") && (
+            <button
+              type="button"
+              className="interact-hint interact-hint--action"
+              onClick={() => {
+                setTab("personal");
+                setPersonalSub("character");
+              }}
+            >
+              ＋ 有可用加点
+            </button>
+          )}
         </div>
-      )}
-      {/*
-        加点浮标（2026-11-21）：不阻塞，所以「事件在等」时让位给事件浮标。
-        可点：直接切到个人页的「加点」子页签 —— 只提示不给入口，等于让玩家自己找。
-      */}
-      {!interacting && hasAllocation && !(tab === "personal" && personalSub === "allocate") && (
-        <button
-          type="button"
-          className="interact-hint interact-hint--action"
-          onClick={() => {
-            setTab("personal");
-            setPersonalSub("allocate");
-          }}
-        >
-          ＋ 有可用加点
-        </button>
       )}
     </div>
   );
@@ -2296,7 +2299,7 @@ function ActionPanel({
 
 // ---------- 个人 Tab（人物面板 / 背包分区 / 技能） ----------
 
-type PersonalSubTab = "character" | "bag" | "skills" | "relations" | "allocate";
+type PersonalSubTab = "character" | "bag" | "skills" | "relations";
 
 /**
  * 个人页子页签 = 宿主内建能力位（`ui.yaml` 可以把任意一个 `off` 掉）。
@@ -2304,8 +2307,9 @@ type PersonalSubTab = "character" | "bag" | "skills" | "relations" | "allocate";
  * `relations` 与世界的 `npcList` 上的 `relations` **不是一个能力**：前者是
  * 「我的人际关系图」（`playerRelations`），后者是 NPC 卡上的关系行。
  *
- * `allocate`（加点）**不在**这张表里：它不是常驻能力位，只在 `pendingAllocation`
- * 存在时临时长出来一个页签（2026-11-21 用户裁决：加点搬到 tab 下面，不再悬在页首）。
+ * 加点**不是页签**（2026-11-21 用户裁决）：页签已经够多了，而加点是一件
+ * 「等着你处理」的事，藏进页签反而看不见。它固定挂在「角色」页顶部
+ * （`pendingAllocation` 存在时才出现），不在个人页时由底部浮标提示。
  */
 const PERSONAL_SUBTABS: Array<{ key: PersonalSubTab; label: string; capability: string }> = [
   { key: "character", label: "角色", capability: "character" },
@@ -2373,14 +2377,6 @@ function PersonalTab({
     setAllocDraft({});
   }, [pending?.id]);
 
-  /**
-   * 提交完（或请求被别处清掉）后 `pending` 会消失：这时「加点」页签也没了，
-   * 停在 `allocate` 会渲染出一片空白 —— 退回角色页。
-   */
-  useEffect(() => {
-    if (sub === "allocate" && pending === undefined) onSubChange("character");
-  }, [sub, pending, onSubChange]);
-
   const slots = view.equipmentSlots ?? [];
   // 人生总结的平台补写仍归宿主（它要读快照状态 + 发请求），组件只接收结果。
   const platformSummary = usePlatformSummary(snapshot, summarySource);
@@ -2420,66 +2416,46 @@ function PersonalTab({
             {entry.label}
           </button>
         ))}
-        {/*
-          加点（ADR-019，2026-11-21 用户裁决）：不常驻 —— 只有 `pendingAllocation`
-          存在时才长出来一个页签。这样它不会把人物面板挤下去，也不会「藏起来」：
-          不在这一页时由底部浮标提示（宿主层 `interact-hint--action`）。
-        */}
-        {pending !== undefined && (
-          <button
-            role="tab"
-            aria-selected={sub === "allocate"}
-            className={`subtab ${sub === "allocate" ? "active" : ""}`}
-            onClick={() => {
-              onSubChange("allocate");
-              setSelection(null);
-            }}
-          >
-            加点
-            <span className="subtab__badge">{pending.budget}</span>
-          </button>
-        )}
       </div>
 
       {/*
-        加点面板：**在 tab 下面**，与其它子页签同一层。
-        校验与落点都在服务端（与开局同一个校验器），这里只负责收集点数。
+        加点（ADR-019）：**角色页最上面**，不是页签（2026-11-21 用户裁决）。
+        它是一件「等着你处理」的事 —— 放在角色页顶部，一进个人页就看得见；
+        不在个人页时由底部浮标提示；事件待决时两条提示并存，互不挤占。
 
         战斗中只显示一句说明、不渲染分配器：战斗单位在开打那一刻就把属性快照走了，
         这时加点对**这一场**没有任何作用（HP 条不会动，伤害也不会变）。给一组
         按得动却没效果的控件，比直接说「打完再分」更糟。
       */}
-      {sub === "allocate" && pending !== undefined && (
-        <section className="card">
-          <div className="row">
-            <h3 className="panel-title">加点</h3>
-            <span className="muted equip-count">{pending.reason ?? "攒下的长进"}</span>
-          </div>
-          {inBattle ? (
-            <p className="muted allocation-locked">
-              战斗结束后再分配 —— 这一场开打时，你的数值就已经定下来了。
-              <br />
-              还有 <strong>{pending.budget}</strong> 点没分。
-            </p>
-          ) : (
-            <PointsAllocator
-              key={pending.id}
-              budget={pending.budget}
-              targets={pending.targets}
-              value={allocDraft}
-              onChange={setAllocDraft}
-              onConfirm={() => {
-                void onSubmitAllocation?.(pending.id, allocDraft);
-              }}
-              confirmLabel="就这样"
-              disabled={busy}
-            />
-          )}
-        </section>
-      )}
-
       {sub === "character" && (
         <>
+          {pending !== undefined && (
+            <section className="card allocation-card">
+              <div className="row">
+                <h3 className="panel-title">加点</h3>
+                <span className="chip">可分配 {pending.budget}</span>
+              </div>
+              {pending.reason !== undefined && <p className="muted allocation-reason">{pending.reason}</p>}
+              {inBattle ? (
+                <p className="muted allocation-locked">
+                  战斗结束后再分配 —— 这一场开打时，你的数值就已经定下来了。
+                </p>
+              ) : (
+                <PointsAllocator
+                  key={pending.id}
+                  budget={pending.budget}
+                  targets={pending.targets}
+                  value={allocDraft}
+                  onChange={setAllocDraft}
+                  onConfirm={() => {
+                    void onSubmitAllocation?.(pending.id, allocDraft);
+                  }}
+                  confirmLabel="就这样"
+                  disabled={busy}
+                />
+              )}
+            </section>
+          )}
           <CharacterPanel player={player} slots={slots} selection={active} onSelect={setSelection} />
           <StatsPanel
             player={player}

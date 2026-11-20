@@ -796,10 +796,28 @@ function resolvePoolV2(
 
   const ctx: ConditionContext = { state, lookup, rng };
   const calendar = createTimeAdapter(template);
-  const pool = template.events
+  /**
+   * 候选池 = 模板事件 ∪ **LLM 提交的生成事件**（2026-11-21）。
+   *
+   * 生成事件以前只有 `certain` 那条路（`enqueueGeneratedCertain`）；`mode: "random"`
+   * 提交的分支会静默死在 `state.generatedEvents` 里 —— 模型写了、存档里有、永远不上桌。
+   * 那正是「前面修炼几十天都无敌」的一半原因：GM 想加戏，但没有入口。
+   *
+   * 生成分支是**一次性内容**：结算过就不该再被抽中（它们的 `trigger` 没有 `once`，
+   * 靠这里的 `generatedIds + hasFired` 收敛）；已经排队等着的也不重复入队。
+   */
+  const generated = state.generatedEvents ?? [];
+  const generatedIds = new Set(generated.map((event) => event.id));
+  const waiting = new Set(
+    state.delayQueue.filter((inst) => inst.status === "waiting").map((inst) => inst.definitionId),
+  );
+  const pool = [...template.events, ...generated]
     .filter((e) => e.trigger.source === "pool")
     .filter((e) => e.kind !== "combat") // 加载期已拒，抽取期防御
-    .filter((e) => !(e.trigger.once && hasFired(state, e.id)))
+    .filter((e) => {
+      if (generatedIds.has(e.id)) return !hasFired(state, e.id) && !waiting.has(e.id);
+      return !(e.trigger.once && hasFired(state, e.id));
+    })
     .filter((e) => !onCooldown(state, e.id, e.trigger.cooldown, calendar))
     .filter((e) => checkAllConditions(e.trigger.conditions, ctx))
     .sort((a, b) => (b.trigger.priority ?? 0) - (a.trigger.priority ?? 0));

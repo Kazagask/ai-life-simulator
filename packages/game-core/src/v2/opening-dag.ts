@@ -473,11 +473,20 @@ export function collectOpeningGains(
         ...(def !== undefined
           ? {
               effects: statusEffectSummaries(def, lookup, ui),
-              // 开局挂上的特质默认永久（ADR-009 D5）；参数显式给了时长才照实说。
-              durationLabel: (() => {
-                const parsed = SimulationDurationSchema.safeParse(asRecord(spec)?.duration);
-                return parsed.success ? durationLabel(parsed.data) : "直到被移除";
-              })(),
+              /**
+               * 开局挂上的特质默认永久（ADR-009 D5）；参数显式给了时长才照实说。
+               *
+               * 天赋**整行都不给**（ADR-018 D1）：它没有时钟，开局罗盘上写「持续：直到
+               * 被移除」等于给一个不存在的问题配了个答案 —— 同理个人页与详情页。
+               */
+              ...(def.kind === "talent"
+                ? {}
+                : {
+                    durationLabel: (() => {
+                      const parsed = SimulationDurationSchema.safeParse(asRecord(spec)?.duration);
+                      return parsed.success ? durationLabel(parsed.data) : "直到被移除";
+                    })(),
+                  }),
             }
           : {}),
       });

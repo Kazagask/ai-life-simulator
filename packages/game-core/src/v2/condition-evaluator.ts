@@ -4,13 +4,17 @@ import type {
   Perspective,
   Rules,
   TaskCondition,
+  TimeAmount,
   WorldStateV2,
   WorldTemplateV2,
 } from "@life-sim/shared";
-import { DEFAULT_LLM_BUDGET, isPlayerVisible, numericAttr } from "@life-sim/shared";
+import { DEFAULT_LLM_BUDGET, isPlayerVisible, numericAttr, PLAYER_ID } from "@life-sim/shared";
 import { createRng, deriveTurnSeed, type Rng } from "../rng.js";
 import { buildFacts } from "../api/perspective.js";
 import { evaluateAttributeCondition } from "./attribute-rules.js";
+import { selfIdOf } from "./actors.js";
+import { normalizeRelationEndpoint } from "./relations.js";
+import { amountToMinutes } from "./time.js";
 
 /**
  * 条件求值器（T-02，纯函数）。
@@ -114,9 +118,12 @@ const FLAT_EVALUATORS: readonly FlatEvaluator[] = [
     eval: (c, ctx) => {
       const f = c as { flag: string; eq?: unknown; ne?: unknown };
       const value = ctx.state.flags[f.flag];
+      // 与 `engine.checkCondition` 同一口径：旗标不存在就是假，**不**先过 eq/ne
+      // （否则 `{flag: 未发生过的事, ne: 1}` 会被判真，与引擎相反）。
+      if (value === undefined) return false;
       if (f.ne !== undefined) return value !== f.ne;
       if (f.eq !== undefined) return value === f.eq;
-      return value !== undefined;
+      return true;
     },
   },
   {
@@ -162,10 +169,12 @@ const FLAT_EVALUATORS: readonly FlatEvaluator[] = [
   },
   {
     probe: (c) => "status" in c,
-    eval: (c, ctx) =>
-      ctx.state.player.statuses.some(
-        (s) => s.statusId === (c as { status: string }).status,
-      ),
+    eval: (c, ctx) => {
+      const cond = c as { status: string; present?: boolean; stacksGte?: number };
+      const inst = ctx.state.player.statuses.find((s) => s.statusId === cond.status);
+      if (cond.present !== undefined) return cond.present ? inst !== undefined : inst === undefined;
+      return inst !== undefined && (inst.stacks ?? 1) >= (cond.stacksGte ?? 1);
+    },
   },
   {
     probe: (c) => "inventory" in c,
@@ -175,8 +184,73 @@ const FLAT_EVALUATORS: readonly FlatEvaluator[] = [
     },
   },
   {
+    probe: (c) => "mood" in c,
+    eval: (c, ctx) => {
+      const cond = (c as { mood: { gte?: number; lte?: number } }).mood;
+      if (cond.gte !== undefined && ctx.state.player.mood < cond.gte) return false;
+      if (cond.lte !== undefined && ctx.state.player.mood > cond.lte) return false;
+      return true;
+    },
+  },
+  {
+    probe: (c) => "relation" in c,
+    eval: (c, ctx) => {
+      /**
+       * 与 `engine.checkCondition` 逐行同义（两边都读同一个数）：
+       * - 声明 `kind` ⇒ 读**关系边**；端点缺省是当前 self（不是字面量 `player`）；
+       * - 未声明 `kind` ⇒ 读 `npc.relationship` 标量（「他视你如何」）。
+       *
+       * 触发器以前**整支缺失**：`relation` 条件在 rules.yaml 里恒为假，且不报诊断。
+       */
+      const cond = c as { relation: string; kind?: string; to?: string; gte?: number; lte?: number };
+      const selfId = selfIdOf(ctx.state);
+      if (cond.kind !== undefined) {
+        const to = normalizeRelationEndpoint(cond.to ?? PLAYER_ID, selfId);
+        const value =
+          to === selfId
+            ? (ctx.state.npcs.find((n) => n.id === cond.relation)?.relationship ?? 0)
+            : (ctx.state.relations.find(
+                (e) => e.from === cond.relation && e.to === to && e.kind === cond.kind,
+              )?.value ?? 0);
+        if (cond.gte !== undefined && value < cond.gte) return false;
+        if (cond.lte !== undefined && value > cond.lte) return false;
+        return true;
+      }
+      const npc = ctx.state.npcs.find((n) => n.id === cond.relation);
+      if (npc === undefined) return false;
+      if (cond.gte !== undefined && npc.relationship < cond.gte) return false;
+      if (cond.lte !== undefined && npc.relationship > cond.lte) return false;
+      return true;
+    },
+  },
+  {
+    probe: (c) => "selfIs" in c,
+    eval: (c, ctx) => selfIdOf(ctx.state) === (c as { selfIs: string }).selfIs,
+  },
+  {
+    probe: (c) => "selfIsNot" in c,
+    eval: (c, ctx) => selfIdOf(ctx.state) !== (c as { selfIsNot: string }).selfIsNot,
+  },
+  {
+    probe: (c) => "npcState" in c,
+    eval: (c, ctx) => {
+      const cond = (c as { npcState: { npcId: string; state: string } }).npcState;
+      const npc = ctx.state.npcs.find((n) => n.id === cond.npcId);
+      return npc !== undefined && npc.lifecycle.state === cond.state;
+    },
+  },
+  {
     probe: (c) => "time" in c,
-    eval: (_c, ctx) => ctx.state.worldTime >= 0,
+    eval: (c, ctx) => {
+      // 以前这里是 `worldTime >= 0` 的占位（永远为真）⇒ 时间条件在触发器上静默失效。
+      const cond = (c as { time: { gte?: TimeAmount; lte?: TimeAmount; gt?: TimeAmount; lt?: TimeAmount } }).time;
+      const minutes = ctx.state.worldTime;
+      if (cond.gte !== undefined && minutes < amountToMinutes(cond.gte)) return false;
+      if (cond.lte !== undefined && minutes > amountToMinutes(cond.lte)) return false;
+      if (cond.gt !== undefined && minutes <= amountToMinutes(cond.gt)) return false;
+      if (cond.lt !== undefined && minutes >= amountToMinutes(cond.lt)) return false;
+      return true;
+    },
   },
 ];
 
@@ -266,7 +340,7 @@ export function evaluateTriggers(
   const out: LlmInvocation[] = [];
   rules.llmTriggers.forEach((trigger, i) => {
     if (!evaluateAll(trigger.when, ctx, registry)) return;
-    out.push(buildTriggerInvocation(state, rules, trigger, i, opts));
+    out.push(buildTriggerInvocation(state, rules, trigger, i, opts, registry));
   });
   return out;
 }
@@ -285,6 +359,32 @@ function createTriggerContext(
   };
 }
 
+/**
+ * 条件 instruction 的解析（2026-11-21）：单字符串原样返回；变体数组取**声明序第一条命中**的。
+ *
+ * 两条规矩：
+ * - `when` 缺省 / 空数组 = 兜底变体（该作者就负责"其余情况"）；
+ * - `as` 是身份 / 人称（用户裁决）：只拼进给模型的那句话，**不参与判定**。
+ *   渲染成「以「星浆体」的身份：……」—— 不写成「你是星浆体。你是…」，
+ *   因为 instruction 本身常以「你」开头，拼起来会重复。
+ */
+function resolveInstruction(
+  instruction: Rules["llmTriggers"][number]["invoke"]["instruction"],
+  ctx: ConditionEvalContext,
+  registry: ConditionRegistry,
+): string | undefined {
+  if (instruction === undefined) return undefined;
+  if (typeof instruction === "string") return instruction;
+  const variant = instruction.find(
+    (candidate) =>
+      candidate.when === undefined ||
+      candidate.when.length === 0 ||
+      evaluateAll(candidate.when, ctx, registry),
+  );
+  if (variant === undefined) return undefined;
+  return variant.as !== undefined ? `以「${variant.as}」的身份：${variant.text}` : variant.text;
+}
+
 /** 把一条命中的触发器规格构造为 `LlmInvocation`（invocationId 格式 = `inv-${turn}-${index}`）。 */
 function buildTriggerInvocation(
   state: WorldStateV2,
@@ -292,11 +392,24 @@ function buildTriggerInvocation(
   trigger: Rules["llmTriggers"][number],
   index: number,
   opts: TriggerOptions,
+  registry: ConditionRegistry,
 ): LlmInvocation {
   // 只传工具**名**：参数 schema 归 agent-runtime（`buildToolDescriptors`）。
   // 曾在 core 侧造过 `{ name }` 这种"空 schema"的工具表，导致模型收到 `parameters: {}`
   // 只能瞎猜参数（真实模型实测直接发空对象 ⇒ 整轮作废）。
   const tools = (rules.toolProfile[trigger.invoke.toolProfile] ?? []).map((name) => ({ name }));
+  /**
+   * 条件 instruction（2026-11-21）：按 `when` 选第一条命中的变体。
+   *
+   * 用**独立派生流**（salt 53 + 触发器下标）而不是 `createTriggerContext` 的那条：
+   * 变体条件里可能写 `random`，共用一条流会让"选哪句提示词"偷偷改变触发器本身的
+   * 随机序列（同一 seed 的既有对局会漂）。分开之后，instruction 的选择只影响它自己。
+   */
+  const instruction = resolveInstruction(
+    trigger.invoke.instruction,
+    { ...createTriggerContext(state, opts), rng: derivedTriggerRng(opts.seed + 53 + index, opts.turnIndex) },
+    registry,
+  );
   /**
    * 滚动历史（v2 §6.1 的 `[4] recentTurns`）：**玩家可见的历史摘要**。
    *
@@ -331,9 +444,7 @@ function buildTriggerInvocation(
       ...(trigger.invoke.contextHints !== undefined
         ? { contextHints: trigger.invoke.contextHints }
         : {}),
-      ...(trigger.invoke.instruction !== undefined
-        ? { instruction: trigger.invoke.instruction }
-        : {}),
+      ...(instruction !== undefined ? { instruction } : {}),
       ...(trigger.invoke.mode !== undefined ? { narrativeMode: trigger.invoke.mode } : {}),
       ...(trigger.invoke.length !== undefined ? { narrativeLength: trigger.invoke.length } : {}),
       // ADR-0038：白名单随 invocation 一起快照 —— 规则在 invocation 存续期间被改，
@@ -439,7 +550,7 @@ export function evaluateTriggersEdge(
     fireLedger[key] = { turnIndex: opts.turnIndex, hit };
     if (!hit) return;
     if ((trigger.fireMode ?? "edge") === "level") {
-      invocations.push(buildTriggerInvocation(state, rules, trigger, i, opts));
+      invocations.push(buildTriggerInvocation(state, rules, trigger, i, opts, registry));
       return;
     }
     // edge：上一轮已为真 ⇒ 不是边沿，抑制（不执行、也不重复落账之外的任何动作）。
@@ -447,7 +558,7 @@ export function evaluateTriggersEdge(
       suppressed.push(key);
       return;
     }
-    invocations.push(buildTriggerInvocation(state, rules, trigger, i, opts));
+    invocations.push(buildTriggerInvocation(state, rules, trigger, i, opts, registry));
   });
   return { invocations, fireLedger, suppressed };
 }

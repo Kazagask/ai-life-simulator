@@ -144,7 +144,11 @@ export function diffGains(
         ? {
             effects: statusEffectSummaries(def, lookup, ui),
             // 时长只能从**实例**读（ADR-009）：定义上已经没有「多久」这回事了。
-            ...(instance !== undefined ? { durationLabel: remainingLabel(instance, after.worldTime) } : {}),
+            // 天赋没有时钟（ADR-018 D1）⇒ 连这一行都不下发，否则「持续：直到被移除」
+            // 会让玩家以为它会掉。
+            ...(instance !== undefined && def.kind !== "talent"
+              ? { durationLabel: remainingLabel(instance, after.worldTime) }
+              : {}),
           }
         : {}),
     });

@@ -1095,11 +1095,25 @@ button.ally.dead { cursor: default; }
 
 .inventory h4 { margin: 14px 0 6px; }
 
-.interact-hint {
+/*
+ * 底部浮标容器（2026-11-21）：事件提示与加点提示可以**同时**存在，
+ * 各自 fixed 到同一位置会叠在一起；由容器统一竖排，浮标本身退回静态流。
+ * 内容区底部余量（`--content-safe-bottom` 的 48px）按「两条浮标」仍然够用：
+ * 每条约 26px + 6px 间距 ≈ 58px，滚到底时末行被压住的概率很低，且浮标可点穿到内容。
+ */
+.hint-stack {
   position: fixed;
   bottom: calc(var(--tabbar-h) + 8px);
   left: 50%;
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  z-index: 30;
+}
+
+.interact-hint {
   background: var(--accent);
   color: #fff;
   font-size: 12px;
@@ -1416,6 +1430,12 @@ button.ally.dead { cursor: default; }
   margin: 4px 0 0;
   font-size: 13px;
   line-height: 1.7;
+}
+
+/* 加点卡（角色页顶部）：来源一句话，不与标题抢行。 */
+.allocation-card .allocation-reason {
+  margin: 0 0 6px;
+  font-size: 12px;
 }
 
 /* R2.8 / FE-01：登录页「自定义 LLM 凭证」可折叠配置，复用 .card 外观 */

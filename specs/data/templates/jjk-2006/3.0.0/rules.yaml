@@ -34,9 +34,17 @@ llmTriggers:
       contextHints: [facts, history]
       length: { minChars: 200, maxChars: 520, minParagraphs: 2, maxParagraphs: 4 }
       historyTurns: 12
-      instruction: >-
-        写「出发前那一晚」。主角刚决定跟着去护卫星浆体，理子还没有正式出场。
-        写他/她收拾东西、走神、听见走廊尽头有人说话这类小事；不要预告薨星宫、不要提甚尔的名字、不要替玩家做决定。
+      # 条件 instruction（2026-11-21）：同一幕分两条线 —— 玩家是星浆体本人，还是护送她的人。
+      # 写死一句会让理子线读成「护卫理子」。`as` 是身份 / 人称，只影响这句话的口吻。
+      instruction:
+        - when: [{ selfIs: npc-riko }]
+          as: 星浆体
+          text: >-
+            写「出发前那一晚」，你是被护送的那个人。你收拾的是自己的东西，要去的地方没人跟你说清楚；
+            写你听见走廊尽头有人低声商量、写你想问又没问出口的那句话。不要预告薨星宫、不要提甚尔的名字。
+        - text: >-
+            写「出发前那一晚」，你是被派去护卫星浆体的人。理子还没有正式出场。
+            写你收拾东西、走神、听见走廊尽头有人说话这类小事；不要预告薨星宫、不要提甚尔的名字、不要替玩家做决定。
       toolProfile: narrative
   - id: lt.hv-toji
     when:
@@ -64,10 +72,16 @@ llmTriggers:
       mode: recap
       length: { minChars: 320, maxChars: 760, minParagraphs: 3, maxParagraphs: 6 }
       historyTurns: 40
-      instruction: >-
-        收束怀玉：从任务下达到薨星宫之后，按时间顺序把这一段拢成一次完整的经历。
-        写清主角做了什么、选了哪一边、付出了什么、谁因此活着或死去；
-        用具体的场景、动作和对话推进，不要罗列流程，不要点评或讲道理。
+      instruction:
+        - when: [{ selfIs: npc-riko }]
+          as: 星浆体
+          text: >-
+            收束怀玉：你是那个被带进薨星宫的人，从任务开始写到本殿之后。写清你被谁护送、在哪一刻明白
+            自己只是一个位置、最后走进了哪一边；用具体的场景与对话推进，不要罗列流程，不要点评或讲道理。
+        - text: >-
+            收束怀玉：从任务下达到薨星宫之后，按时间顺序把这一段拢成一次完整的经历。
+            写清主角做了什么、选了哪一边、付出了什么、谁因此活着或死去；
+            用具体的场景、动作和对话推进，不要罗列流程，不要点评或讲道理。
       toolProfile: narrative
   - id: lt.year-end
     when:
@@ -84,12 +98,44 @@ llmTriggers:
         写这一年最后的几天。夏天已经过去四个月，活着的人各自回到日常，死去的人不再有新的消息。
         不要总结「这一年教会了你什么」，只写一个具体的傍晚：谁在场、说了什么、天气怎么样。
       toolProfile: narrative
+  # ── GM 插曲（2026-11-21）──────────────────────────────────────────
+  # 为什么需要：日常事件全部 `once`，跑完之后世界只剩「自由行动」——玩家可以连着几十天
+  # 修炼／休息把属性堆满，没有任何人和事来打断。这条触发点给模型一个**定期开口**的机会：
+  # 它可以只写一段日常，也可以在觉得该出事的时候用 `story.submitBranch` 提交一条分支。
+  #
+  # `fireMode: level` + `random: 0.08` ≈ 每 12 轮一次（不是每轮）：`edge` 语义在随机条件上
+  # 会被压到 0.08×0.92，反而不直观；这里显式用 level，频率就写在条件里。
+  - id: lt.gm.interlude
+    fireMode: level
+    when:
+      - { random: 0.08 }
+    invoke:
+      reason: jjk.gm.interlude
+      perspective: player
+      targetPerspective: player
+      contextHints: [facts, history]
+      length: { minChars: 160, maxChars: 420, minParagraphs: 1, maxParagraphs: 3 }
+      historyTurns: 8
+      instruction: >-
+        写这一轮的一小段日常。如果玩家已经连着好些天只做修炼、休息这类事，用一个具体的变故把平静打断：
+        有人找上门、旧账被翻出、上面派下麻烦的任务。这种时候可以用 story.submitBranch 提交一条 1–3 幕的分支
+        （mode: certain，让它尽快上演）；没有把握就只写正文，不要提交。
+      toolProfile: story
 toolProfile:
   narrative:
     - world.now
     - world.history
     - world.present
     - world.self
+  # 可写分支的画像（2026-11-21）：与 narrative 的差别只有最后一行。
+  # 以前模板里没有任何画像列出 `story.submitBranch` ⇒ 模型手里根本没有这个工具，
+  # 提交事件这条线等于没接（生成的池事件也抽不到，见 `resolvePoolV2`）。
+  story:
+    - world.now
+    - world.history
+    - world.present
+    - world.self
+    - story.submitBranch
 
 knowledgeGrants: []
 inferenceRules: []
