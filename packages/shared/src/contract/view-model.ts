@@ -53,6 +53,14 @@ export const EquipmentSlotVMSchema = z
     label: z.string(),
     maxCount: z.number(),
     allowedCategories: z.array(z.string()),
+    /**
+     * `allowedCategories` 的显示名（同序一一对应；缺省时展示层回退 id）。
+     *
+     * 2026-11-21 用户截图反馈：空槽位那行「此槽位接受类别：ring / charm / cursed-tool」
+     * 直接印了判定词。类别 id 是给 `allowedCategories` 匹配用的，玩家该看到的是
+     * `equipment.categories[].label`（与背包里的 `categoryLabel` 同一份映射）。
+     */
+    allowedCategoryLabels: z.array(z.string()).optional(),
     panelSide: z.enum(["left", "right", "bottom"]),
   })
   .strict();

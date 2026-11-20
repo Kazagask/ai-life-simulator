@@ -261,9 +261,33 @@ export function projectSnapshotV2(
   };
 
 
-  const statuses = player.statuses
-    .map((inst) => toStatusView(inst, lookup, ui, state.worldTime))
-    .filter((s): s is StatusView => s !== null);
+  /**
+   * 玩家状态 = **战斗镜像优先 + 世界层补齐**（2026-11-21）。
+   *
+   * 以前这里只读 `player.statuses`（世界层），于是战斗中挂上的 `black-flash` 这类
+   * 战斗态在个人页一个字都看不到 —— 而战斗面板看得见，两处自相矛盾。
+   * 与 `battleView` 同一份合并口径：镜像里的实例更「新鲜」（层数/剩余回合都在上面），
+   * 世界层只补镜像缺的那些（旧档 / 手工构造）。
+   *
+   * 排序与战斗面板一致：战斗态 → 修正 → 天赋。
+   */
+  const playerStatusViews = ((): StatusView[] => {
+    const activeBattle =
+      state.battle !== null && state.battle !== undefined && !state.battle.over ? state.battle : undefined;
+    const merged = activeBattle
+      ? activeBattle.player.statuses
+          .map((inst) => toStatusView(inst, lookup, ui, state.worldTime, true))
+          .filter((s): s is StatusView => s !== null)
+      : [];
+    for (const inst of player.statuses) {
+      if (merged.some((s) => s.id === inst.statusId)) continue;
+      const view = toStatusView(inst, lookup, ui, state.worldTime);
+      if (view !== null) merged.push(view);
+    }
+    return merged.sort((a, b) => statusKindRank(a.kind) - statusKindRank(b.kind));
+  })();
+
+  const statuses = playerStatusViews;
 
   const skills = player.skills.map((id) => {
     const def = lookup.skill(id);
@@ -452,6 +476,8 @@ export function projectSnapshotV2(
       label: s.label,
       maxCount: s.maxCount,
       allowedCategories: [...s.allowedCategories],
+      // 判定用 id 与展示用 label 同序下发：前端不做 id→词的查表（词表在模板里）。
+      allowedCategoryLabels: s.allowedCategories.map((id) => categoryLabelOf(id) ?? id),
       panelSide: s.panelSide ?? "bottom",
     })),
     // ADR-0022：unspawned（尚未出生/登场）的角色不上屏——实例存在是为了让模板能用
@@ -1154,6 +1180,14 @@ function statusViewOfDefinition(def: StatusEffect, lookup: TemplateLookup, ui: U
   return statusViewOf(def, 1, lookup, ui);
 }
 
+/**
+ * 状态展示排序：战斗态（这一场会掉）→ 修正（战后还挂着）→ 天赋（身份）。
+ * 投影里两处（个人页 / 战斗面板）共用，避免两套顺序各排各的。
+ */
+function statusKindRank(kind: StatusView["kind"]): number {
+  return kind === "battle" ? 0 : kind === "modifier" ? 1 : 2;
+}
+
 function toStatusView(
   inst: StatusInstance,
   lookup: TemplateLookup,
@@ -1203,7 +1237,7 @@ function battleView(
    * 排序按紧迫度：战斗状态（这一场会掉）→ 修正（战后还挂着）→ 天赋（身份）。
    * 这条排序同时是展示层的分组依据，所以放在投影里做一次，前端不再各排各的。
    */
-  const kindRank = (kind: StatusView["kind"]): number => (kind === "battle" ? 0 : kind === "modifier" ? 1 : 2);
+  const kindRank = statusKindRank;
   const statusViews = (instances: StatusInstance[]) =>
     instances
       .map((inst) => toStatusView(inst, lookup, ui, state.worldTime, true))

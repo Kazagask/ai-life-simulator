@@ -670,6 +670,10 @@ export function toViewModel({ snapshot, content, media, ui }: ToViewModelInput):
             label: sl.label,
             maxCount: sl.maxCount,
             allowedCategories: [...sl.allowedCategories],
+            // 2026-11-21：漏映射就界面上消失（第二张皮的老坑）——空槽位那行会退回印 id。
+            ...(sl.allowedCategoryLabels !== undefined
+              ? { allowedCategoryLabels: [...sl.allowedCategoryLabels] }
+              : {}),
             panelSide: sl.panelSide,
           })),
         }

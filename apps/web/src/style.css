@@ -1108,6 +1108,22 @@ button.ally.dead { cursor: default; }
   pointer-events: none;
 }
 
+/*
+ * 可点的浮标（2026-11-21：有可用加点）。与「事件待决」区分两点：
+ * ① 必须能点（`pointer-events: auto` + 按钮归属样式）；② 用金色而不是强调蓝 ——
+ * 它不阻塞流程，是「有空可以去做」，和「有东西在等你」不是同一种急迫度。
+ */
+.interact-hint--action {
+  pointer-events: auto;
+  cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--gold) 55%, transparent);
+  background: color-mix(in srgb, var(--gold) 22%, var(--bg-card));
+  color: var(--gold);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 /* ---------- 物品页签 / 战斗我方资源 / 转盘动画 ---------- */
 
 .item-card .item-desc { color: var(--muted); font-size: 14px; margin: 6px 0 10px; }
@@ -1382,6 +1398,17 @@ button.ally.dead { cursor: default; }
   background: color-mix(in srgb, var(--accent) 18%, var(--bg-card));
   color: var(--text);
   font-weight: 600;
+}
+
+/* 点数角标：一眼看出「还剩几点」，不用点进去。 */
+.subtab__badge {
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gold) 26%, transparent);
+  color: var(--gold);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* R2.8 / FE-01：登录页「自定义 LLM 凭证」可折叠配置，复用 .card 外观 */

@@ -214,6 +214,11 @@ function App() {
    * 裸 id 相等时 `useEffect` 不会再跑。
    */
   const [npcJump, setNpcJump] = useState<{ id: string; seq: number } | null>(null);
+  /**
+   * 个人页子页签提到宿主（2026-11-21）：底部「有可用加点」浮标要能一键跳到加点页，
+   * 状态留在 `PersonalTab` 内部就没有这条通道。
+   */
+  const [personalSub, setPersonalSub] = useState<PersonalSubTab>("character");
   const openNpc = useCallback((npcId: string) => {
     setNpcJump((prev) => ({ id: npcId, seq: (prev?.seq ?? 0) + 1 }));
     setTab("world");
@@ -731,6 +736,11 @@ function App() {
    * 页面组件从此只吃 ViewModel 派生的数据，不再把 V2Snapshot 传进叙事 / 立绘组件。
    */
   const view: ViewModel = toViewModel({ snapshot, content: narrative, ui: snapshot.ui });
+  /**
+   * 有可用加点（ADR-019）：**不阻塞**，不与事件浮标抢位置 ——
+   * 事件在等时先提示事件；没有事件时才亮加点，且可点（跳个人页 · 加点）。
+   */
+  const hasAllocation = view.player.pendingAllocation !== undefined;
 
   return (
     <div className="shell">
@@ -788,6 +798,8 @@ function App() {
             view={view}
             busy={busy}
             summarySource={summarySource}
+            sub={personalSub}
+            onSubChange={setPersonalSub}
             onUseItem={useItem}
             onEquip={equip}
             onUnequip={unequip}
@@ -836,6 +848,22 @@ function App() {
         <div className="interact-hint">
           {slot?.kind === "combat" ? "⚔ 战斗进行中" : slot?.kind === "random" ? "⚄ 命运待确认" : "⚡ 事件待决"}
         </div>
+      )}
+      {/*
+        加点浮标（2026-11-21）：不阻塞，所以「事件在等」时让位给事件浮标。
+        可点：直接切到个人页的「加点」子页签 —— 只提示不给入口，等于让玩家自己找。
+      */}
+      {!interacting && hasAllocation && !(tab === "personal" && personalSub === "allocate") && (
+        <button
+          type="button"
+          className="interact-hint interact-hint--action"
+          onClick={() => {
+            setTab("personal");
+            setPersonalSub("allocate");
+          }}
+        >
+          ＋ 有可用加点
+        </button>
       )}
     </div>
   );
@@ -2237,13 +2265,16 @@ function ActionPanel({
 
 // ---------- 个人 Tab（人物面板 / 背包分区 / 技能） ----------
 
-type PersonalSubTab = "character" | "bag" | "skills" | "relations";
+type PersonalSubTab = "character" | "bag" | "skills" | "relations" | "allocate";
 
 /**
  * 个人页子页签 = 宿主内建能力位（`ui.yaml` 可以把任意一个 `off` 掉）。
  *
  * `relations` 与世界的 `npcList` 上的 `relations` **不是一个能力**：前者是
  * 「我的人际关系图」（`playerRelations`），后者是 NPC 卡上的关系行。
+ *
+ * `allocate`（加点）**不在**这张表里：它不是常驻能力位，只在 `pendingAllocation`
+ * 存在时临时长出来一个页签（2026-11-21 用户裁决：加点搬到 tab 下面，不再悬在页首）。
  */
 const PERSONAL_SUBTABS: Array<{ key: PersonalSubTab; label: string; capability: string }> = [
   { key: "character", label: "角色", capability: "character" },
@@ -2258,6 +2289,8 @@ function PersonalTab({
   view,
   busy,
   summarySource,
+  sub,
+  onSubChange,
   onUseItem,
   onEquip,
   onUnequip,
@@ -2270,6 +2303,12 @@ function PersonalTab({
   busy: boolean;
   /** R2.7 / T-S2：归档响应的人生总结来源；缺省 / 非 llm 时展示与改前逐字一致 */
   summarySource?: NarrativeSource;
+  /**
+   * 子页签由**宿主**持有：底部「有可用加点」浮标要能直接跳过来，
+   * 状态留在组件内部就得再开一条跨层通道（2026-11-21）。
+   */
+  sub: PersonalSubTab;
+  onSubChange: (next: PersonalSubTab) => void;
   onUseItem: (itemId: string) => void;
   onEquip: (itemId: string) => void;
   onUnequip: (instanceId: string) => void;
@@ -2278,10 +2317,9 @@ function PersonalTab({
   /** 世界内加点（ADR-019）：轮外提交，不推进回合。 */
   onSubmitAllocation?: (allocationId: string, points: Record<string, number>) => Promise<void> | undefined;
 }) {
-  // 子页签 / 背包分区 / 选中项都是纯展示状态，但**选中项跨组件协调**（选中格 → 详情区显示什么），
+  // 背包分区 / 选中项是纯展示状态，但**选中项跨组件协调**（选中格 → 详情区显示什么），
   // 还会和「刷新后选中失效」这类业务判断绑在一起，所以状态留在宿主：
   // rpg-ui 的组件只接受受控的 `selection` + `onSelect`（不传则视为未选中）。
-  const [sub, setSub] = useState<PersonalSubTab>("character");
   const [partition, setPartition] = useState<BagPartition>("equipment");
   const [selection, setSelection] = useState<PersonalSelection>(null);
   /** 技能详情里点「施加 X」时打开的状态浮层（栈）。 */
@@ -2297,6 +2335,14 @@ function PersonalTab({
   useEffect(() => {
     setAllocDraft({});
   }, [pending?.id]);
+
+  /**
+   * 提交完（或请求被别处清掉）后 `pending` 会消失：这时「加点」页签也没了，
+   * 停在 `allocate` 会渲染出一片空白 —— 退回角色页。
+   */
+  useEffect(() => {
+    if (sub === "allocate" && pending === undefined) onSubChange("character");
+  }, [sub, pending, onSubChange]);
 
   const slots = view.equipmentSlots ?? [];
   // 人生总结的平台补写仍归宿主（它要读快照状态 + 发请求），组件只接收结果。
@@ -2322,12 +2368,47 @@ function PersonalTab({
 
   return (
     <div className="stack">
+      <div className="subtabbar" role="tablist" aria-label="个人子页签">
+        {PERSONAL_SUBTABS.filter((entry) => hasSubtabEntry(ui, entry.capability)).map((entry) => (
+          <button
+            key={entry.key}
+            role="tab"
+            aria-selected={sub === entry.key}
+            className={`subtab ${sub === entry.key ? "active" : ""}`}
+            onClick={() => {
+              onSubChange(entry.key);
+              setSelection(null);
+            }}
+          >
+            {entry.label}
+          </button>
+        ))}
+        {/*
+          加点（ADR-019，2026-11-21 用户裁决）：不常驻 —— 只有 `pendingAllocation`
+          存在时才长出来一个页签。这样它不会把人物面板挤下去，也不会「藏起来」：
+          不在这一页时由底部浮标提示（宿主层 `interact-hint--action`）。
+        */}
+        {pending !== undefined && (
+          <button
+            role="tab"
+            aria-selected={sub === "allocate"}
+            className={`subtab ${sub === "allocate" ? "active" : ""}`}
+            onClick={() => {
+              onSubChange("allocate");
+              setSelection(null);
+            }}
+          >
+            加点
+            <span className="subtab__badge">{pending.budget}</span>
+          </button>
+        )}
+      </div>
+
       {/*
-        世界内加点（ADR-019）：挂在个人页顶部，跟着三档子页签一起可见 ——
-        这是一件「等着你处理」的事，藏在某个子页签里等于没有提示。
+        加点面板：**在 tab 下面**，与其它子页签同一层。
         校验与落点都在服务端（与开局同一个校验器），这里只负责收集点数。
       */}
-      {pending !== undefined && (
+      {sub === "allocate" && pending !== undefined && (
         <section className="card">
           <div className="row">
             <h3 className="panel-title">加点</h3>
@@ -2347,22 +2428,6 @@ function PersonalTab({
           />
         </section>
       )}
-      <div className="subtabbar" role="tablist" aria-label="个人子页签">
-        {PERSONAL_SUBTABS.filter((entry) => hasSubtabEntry(ui, entry.capability)).map((entry) => (
-          <button
-            key={entry.key}
-            role="tab"
-            aria-selected={sub === entry.key}
-            className={`subtab ${sub === entry.key ? "active" : ""}`}
-            onClick={() => {
-              setSub(entry.key);
-              setSelection(null);
-            }}
-          >
-            {entry.label}
-          </button>
-        ))}
-      </div>
 
       {sub === "character" && (
         <>

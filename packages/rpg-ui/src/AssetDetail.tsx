@@ -93,6 +93,11 @@ export function AssetDetail({
       );
     }
     const allowed = slot?.allowedCategories ?? [];
+    // 显示名与 id 同序下发；旧投影没有这一列时回退 id（不猜词表）。
+    const allowedLabels =
+      slot?.allowedCategoryLabels !== undefined && slot.allowedCategoryLabels.length === allowed.length
+        ? slot.allowedCategoryLabels
+        : allowed;
     const candidates = inventory.filter((i) => i.type === "equipment" && allowed.includes(i.category ?? ""));
     return (
       <section className="card detail-card">
@@ -101,7 +106,7 @@ export function AssetDetail({
           <span className="tag">可装备 {candidates.length}</span>
         </div>
         <p className="muted">
-          {allowed.length > 0 ? `此槽位接受类别：${allowed.join(" / ")}` : "槽位未声明允许类别。"}
+          {allowed.length > 0 ? `此槽位接受类别：${allowedLabels.join(" / ")}` : "槽位未声明允许类别。"}
         </p>
         {candidates.length === 0 ? (
           <p className="muted">背包里没有可放进这个槽位的装备。</p>

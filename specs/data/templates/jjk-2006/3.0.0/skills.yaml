@@ -82,7 +82,12 @@ skills:
     damage:
       - { preset: scaled, base: 16, scaleBy: cursedEnergy, multiplier: 1.4 }
     applyStatus:
-      - { status: black-flash, chance: 1.0, stacks: 1, target: self, duration: { rounds: 1 } }
+      # 2026-11-21：原来写 `rounds: 1`，结果这条「会心窗口」在**当回合末**就被清掉 ——
+      # 玩家一次都没看到它（投影发生在回合结算之后），下一击也没吃到增幅。
+      # 战斗态的倒计时是「每次回合末 -1」，所以「撑到你的下一击」要写 2：
+      # 本回合末 2→1，下一回合行动时还在，那回合末 1→0 清掉。
+      # 不要为此改引擎：`stun` 那类 debuff 正是靠 `{ rounds: 1 }` =「只封本回合」。
+      - { status: black-flash, chance: 1.0, stacks: 1, target: self, duration: { rounds: 2 } }
     cooldownTurns: 4
     usableInBattle: true
 
