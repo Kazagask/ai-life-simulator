@@ -221,6 +221,9 @@ extensions/family/
    `extensions/<id>/src/ui/`。`packages/rpg-ui` 只剩**通用组件**与**槽**。
 3. **加载是编译期的**：前端在 `apps/web/src/extensions.ts` 里静态 `registerExtensionUi(familyUi)`，
    和内核一样不做热加载。加扩展 = 加一行注册 + 重新构建。
+   2026-11-21（ADR-070 D2）：扩展**只以编进 bundle 的形态存在**，模板包里不带代码；
+   前后端两份清单由 `test/unit/extension-build.test.ts` 守（id 必须一致，且覆盖所有模板的
+   `extensions:` 声明）。
 
 ### 7.2 槽（slot）契约（`packages/rpg-ui/src/extension-slots.ts`）
 

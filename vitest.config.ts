@@ -11,6 +11,7 @@ export default defineConfig({
       "@life-sim/game-core": `${root}packages/game-core/src/index.ts`,
       "@life-sim/agent-runtime": `${root}packages/agent-runtime/src/index.ts`,
       "@life-sim/rpg-ui": `${root}packages/rpg-ui/src/index.ts`,
+      "@life-sim/ext-family/ui": `${root}extensions/family/src/ui/index.ts`,
       "@life-sim/ext-family": `${root}extensions/family/src/index.ts`,
     },
   },

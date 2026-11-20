@@ -39,9 +39,9 @@
   - 其中「多 Agent / 观察者切换」与 LLM 无关，它缺的是**存储**（`selfId` 只做了关系缝，见 ADR-010），
     客户端迁移反而让这件事更容易。
 - **两个必须在第 1 期之前定的前置决定**：
-  1. **L2 扩展的运行时**。`registerServerExtensions()` 在服务端启动时注册 TS 模块，浏览器 / Service Worker
-     跑不了下载来的任意 TS。三选一：编进 web bundle（白名单）／L2 降级为纯 yaml／保留一个薄扩展 host
-     （那就没去干净）。它决定**模板包里要不要带代码**，所以拖不到第 2 期再定。
+  1. **L2 扩展的运行时 —— 已裁决（2026-11-21）：编进 web bundle 白名单**（用户：「加扩展就重新构建
+     编进去就行了」）。模板包里**不带代码**；未编入的 id ⇒ 加载期 `unknown_extension`。
+     守卫：`test/unit/extension-build.test.ts`（前后端 id 一致 + 模板声明都已编入）。详见 ADR-070 D2。
   2. **拒载在客户端的表达**。`template_content_drift` / `schema_version_mismatch` 今天只是服务端日志里的
      `save_skipped`；客户端自己持有模板后，这变成玩家眼前的一屏错误 —— 需要 UI 兜底 + 「保留旧模板版本」策略。
 - **已经能用的地基（别重造）**：`semanticFingerprint` 覆盖 15 个声明式文件里除 `ui.yaml` 外的 14 个
