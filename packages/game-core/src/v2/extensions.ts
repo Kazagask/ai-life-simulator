@@ -384,6 +384,11 @@ export function resetExtensionRuntimes(): void {
   syncStateSliceValidators();
 }
 
+/** 模板加载期用：已注册的扩展 id（错误信息里列给作者看；与 `hasExtensionRuntime` 同源）。 */
+export function installedExtensionIds(): string[] {
+  return [...RUNTIMES.keys()].sort();
+}
+
 /** 模板加载期用：某个 id 有没有装包（`unknown_extension` 拒载的判据）。 */
 export function hasExtensionRuntime(id: string): boolean {
   return RUNTIMES.has(id);

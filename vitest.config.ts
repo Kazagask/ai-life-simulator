@@ -9,6 +9,7 @@ export default defineConfig({
     alias: {
       "@life-sim/shared": `${root}packages/shared/src/index.ts`,
       "@life-sim/game-core": `${root}packages/game-core/src/index.ts`,
+      "@life-sim/template-loader": `${root}packages/template-loader/src/index.ts`,
       "@life-sim/agent-runtime": `${root}packages/agent-runtime/src/index.ts`,
       "@life-sim/rpg-ui": `${root}packages/rpg-ui/src/index.ts`,
       "@life-sim/ext-family/ui": `${root}extensions/family/src/ui/index.ts`,
