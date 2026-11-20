@@ -24,25 +24,44 @@ import {
  * 为什么需要：同一章下面会有不同分支（玩家是星浆体本人，还是护卫她的人），
  * 一句写死的「本幕要求」要么把两条线写成同一条，要么谁都不像。
  *
- * - `when`：条件数组（与触发器同一个 DSL，AND）；缺省 / 空数组 = **兜底**，
- *   按声明序第一个命中的变体生效；
- * - `as`：**身份 / 人称**（用户裁决）。只影响给模型的那句话（渲染成
- *   「以「星浆体」的身份：…」），**不参与判定** —— 选哪一条永远由 `when` 说了算；
+ * - `as`：**当前 self 是谁**的快捷写法（与事件节点级的 `as` 同一套语义）：
+ *   `as: npc-riko` ⇔ `when: [{ selfIs: npc-riko }]`。加载期不展开，求值时等价判断；
+ *   可与 `when` 叠加（AND），用旗标进一步收窄。
+ * - `when`：条件数组（与触发器同一个 DSL，AND）；缺省 / 空数组 = 兜底。
+ *   按声明序取第一条命中的；**有 as 变体时，必须留一条无 as 的兜底**（与 ADR-010 D4 同规）。
  * - `text`：本幕要求本体（与单字符串写法同一个上限 300 字）。
  */
 export const InstructionVariantSchema = z
   .object({
+    as: z.string().min(1).optional(),
     when: z.array(TaskConditionSchema).optional(),
-    as: z.string().min(1).max(40).optional(),
     text: z.string().min(1).max(300),
   })
   .strict();
 export type InstructionVariant = z.infer<typeof InstructionVariantSchema>;
 
-/** 条件 instruction：单字符串（旧写法）或变体数组（按 `when` 取第一条命中的）。 */
+/** 条件 instruction：单字符串（旧写法）或变体数组（按 as / when 取第一条命中的）。 */
 export const InstructionSchema = z.union([
   z.string().min(1).max(300),
-  z.array(InstructionVariantSchema).min(1).max(12),
+  z
+    .array(InstructionVariantSchema)
+    .min(1)
+    .max(12)
+    /**
+     * 「多变体必须有一份无 `as` 的兜底」（ADR-010 D4 的同一条规矩）：
+     * 否则「玩家既不是 A 也不是 B」这类局面会连一句本幕要求都拿不到，
+     * 而且这种缺口在运行期完全静默。加载期直接拒。
+     */
+    .superRefine((variants, ctx) => {
+      const hasAs = variants.some((variant) => variant.as !== undefined);
+      const hasFallback = variants.some((variant) => variant.as === undefined);
+      if (hasAs && !hasFallback) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "as 变体必须留一条无 as 的兜底（否则其它 self 拿不到 instruction）",
+        });
+      }
+    }),
 ]);
 export type Instruction = z.infer<typeof InstructionSchema>;
 

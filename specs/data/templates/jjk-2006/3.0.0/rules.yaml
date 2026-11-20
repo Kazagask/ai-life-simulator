@@ -34,11 +34,11 @@ llmTriggers:
       contextHints: [facts, history]
       length: { minChars: 200, maxChars: 520, minParagraphs: 2, maxParagraphs: 4 }
       historyTurns: 12
-      # 条件 instruction（2026-11-21）：同一幕分两条线 —— 玩家是星浆体本人，还是护送她的人。
-      # 写死一句会让理子线读成「护卫理子」。`as` 是身份 / 人称，只影响这句话的口吻。
+      # 条件 instruction（2026-11-21）：`as` 是「当前 self 是谁」的快捷写法
+      # （`as: npc-riko` ⇔ `when: [{ selfIs: npc-riko }]`，与事件节点级的 as 同一套语义）。
+      # 同一幕两条线：玩家是星浆体本人，还是护送她的人。
       instruction:
-        - when: [{ selfIs: npc-riko }]
-          as: 星浆体
+        - as: npc-riko
           text: >-
             写「出发前那一晚」，你是被护送的那个人。你收拾的是自己的东西，要去的地方没人跟你说清楚；
             写你听见走廊尽头有人低声商量、写你想问又没问出口的那句话。不要预告薨星宫、不要提甚尔的名字。
@@ -73,8 +73,7 @@ llmTriggers:
       length: { minChars: 320, maxChars: 760, minParagraphs: 3, maxParagraphs: 6 }
       historyTurns: 40
       instruction:
-        - when: [{ selfIs: npc-riko }]
-          as: 星浆体
+        - as: npc-riko
           text: >-
             收束怀玉：你是那个被带进薨星宫的人，从任务开始写到本殿之后。写清你被谁护送、在哪一刻明白
             自己只是一个位置、最后走进了哪一边；用具体的场景与对话推进，不要罗列流程，不要点评或讲道理。

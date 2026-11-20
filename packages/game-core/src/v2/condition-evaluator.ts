@@ -362,11 +362,13 @@ function createTriggerContext(
 /**
  * 条件 instruction 的解析（2026-11-21）：单字符串原样返回；变体数组取**声明序第一条命中**的。
  *
- * 两条规矩：
- * - `when` 缺省 / 空数组 = 兜底变体（该作者就负责"其余情况"）；
- * - `as` 是身份 / 人称（用户裁决）：只拼进给模型的那句话，**不参与判定**。
- *   渲染成「以「星浆体」的身份：……」—— 不写成「你是星浆体。你是…」，
- *   因为 instruction 本身常以「你」开头，拼起来会重复。
+ * 命中 = `as`（当前 self 是不是这个人）+ `when`（条件数组）**同时**成立。
+ * `as` 是**快捷写法**，与事件节点级的同名语法同一套语义：
+ * `as: npc-riko` ⇔ `when: [{ selfIs: npc-riko }]`，不渲染成任何身份前缀 ——
+ * 它只决定「这句话给谁看」，不改变句子本身。
+ *
+ * 有 `as` 变体却没有兜底 ⇒ 加载期已拒（`InstructionSchema` 的 superRefine），
+ * 所以这里 `find` 不到只可能是"条件变体都不满足且无兜底"的旧档，返回 undefined 即可。
  */
 function resolveInstruction(
   instruction: Rules["llmTriggers"][number]["invoke"]["instruction"],
@@ -375,14 +377,15 @@ function resolveInstruction(
 ): string | undefined {
   if (instruction === undefined) return undefined;
   if (typeof instruction === "string") return instruction;
+  const selfId = selfIdOf(ctx.state);
   const variant = instruction.find(
     (candidate) =>
-      candidate.when === undefined ||
-      candidate.when.length === 0 ||
-      evaluateAll(candidate.when, ctx, registry),
+      (candidate.as === undefined || candidate.as === selfId) &&
+      (candidate.when === undefined ||
+        candidate.when.length === 0 ||
+        evaluateAll(candidate.when, ctx, registry)),
   );
-  if (variant === undefined) return undefined;
-  return variant.as !== undefined ? `以「${variant.as}」的身份：${variant.text}` : variant.text;
+  return variant?.text;
 }
 
 /** 把一条命中的触发器规格构造为 `LlmInvocation`（invocationId 格式 = `inv-${turn}-${index}`）。 */

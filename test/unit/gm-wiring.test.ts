@@ -9,6 +9,7 @@ import {
   historyDigestOf,
   type WorldStateV2,
 } from "@life-sim/game-core";
+import { RulesSchema } from "@life-sim/shared";
 import { loadTemplates } from "../../apps/server/src/templates.ts";
 
 const silent = { warn: () => {}, error: () => {}, info: () => {} };
@@ -44,27 +45,48 @@ function invocationsOf(state: WorldStateV2, entry: ReturnType<typeof loadEntry>)
 }
 
 describe("条件 instruction（2026-11-21）", () => {
-  it("同一幕按 selfIs 分两条线：理子本人写「被护送」，其他人写「护送」", () => {
+  it("同一幕用 `as` 分两条线：理子本人写「被护送」，其他人写「护送」", () => {
     const { state, entry } = newWorld();
     state.flags.spJoined = true;
 
-    // ① 玩家自己就是星浆体：取 `as: 星浆体` 那一条，并带身份前缀。
+    // ① `as: npc-riko`（⇔ selfIs）命中：取第一条，正文原样，不加任何前缀。
     state.selfId = "npc-riko";
     const asRiko = invocationsOf(state, entry).get("jjk.hv.departure");
     expect(asRiko).toBeDefined();
-    expect(asRiko!.context.instruction).toContain("以「星浆体」的身份：");
     expect(asRiko!.context.instruction).toContain("你是被护送的那个人");
+    expect(asRiko!.context.instruction).not.toContain("身份");
 
-    // ② 普通线（护卫）：兜底变体，不带身份前缀。
+    // ② 普通线（护卫）：兜底变体。
     delete state.selfId;
     const asGuard = invocationsOf(state, entry).get("jjk.hv.departure");
-    expect(asGuard!.context.instruction).not.toContain("以「");
     expect(asGuard!.context.instruction).toContain("你是被派去护卫星浆体的人");
   });
 
   it("条件变体不影响触发器本身的判定（没写旗标就不发）", () => {
     const { state, entry } = newWorld();
     expect(invocationsOf(state, entry).get("jjk.hv.departure")).toBeUndefined();
+  });
+
+  it("as 变体必须留一条无 as 的兜底（加载期拒）", () => {
+    const bad = {
+      id: "x",
+      when: [],
+      invoke: {
+        reason: "x",
+        perspective: "player",
+        targetPerspective: "player",
+        toolProfile: "narrative",
+        instruction: [{ as: "npc-riko", text: "只给理子" }],
+      },
+    };
+    // 直接用 schema 校验一条只有 as 变体的触发点。
+    const parsed = RulesSchema.safeParse({
+      llmTriggers: [bad],
+      toolProfile: { narrative: [] },
+      knowledgeGrants: [],
+      inferenceRules: [],
+    });
+    expect(parsed.success).toBe(false);
   });
 
   it("instruction 仍然受 300 字上限约束（变体与单字符串同一口径）", () => {
