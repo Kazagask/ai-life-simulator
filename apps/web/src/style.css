@@ -1411,6 +1411,13 @@ button.ally.dead { cursor: default; }
   font-variant-numeric: tabular-nums;
 }
 
+/* 战斗中禁止加点：替代分配器的一段说明（不渲染按钮，避免「按了没反应」）。 */
+.allocation-locked {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
 /* R2.8 / FE-01：登录页「自定义 LLM 凭证」可折叠配置，复用 .card 外观 */
 details.llm-config {
   display: block;

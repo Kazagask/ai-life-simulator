@@ -551,6 +551,7 @@ function App() {
    */
   const ALLOCATION_ERROR_TEXT: Record<string, string> = {
     no_pending_allocation: "这笔加点已经提交过了",
+    allocation_in_battle: "战斗结束之后再分配点数",
     allocation_mismatch: "待办的加点换了，请刷新后再分",
     allocation_over_budget: "分超了预算",
     allocation_above_max: "某一项超过了这次的上限",
@@ -2358,6 +2359,12 @@ function PersonalTab({
   const player = view.player;
   const pending = player.pendingAllocation;
   /**
+   * 战斗中（2026-11-21）：加点是「战后的事」——战斗单位在开打那一刻就快照了属性，
+   * 这时分配对当前这一场没有任何作用。服务端也会 409（`allocation_in_battle`），
+   * 这里只负责别给出一组按得动却没效果的控件。
+   */
+  const inBattle = snapshot.slotEvent?.kind === "combat";
+  /**
    * 加点草稿（ADR-019）：**不落任何地方**，提交前只在内存里。
    * 换了一笔请求就清空 —— 上一笔剩下的分配带进来会让「剩余 N 点」直接算错。
    */
@@ -2437,6 +2444,10 @@ function PersonalTab({
       {/*
         加点面板：**在 tab 下面**，与其它子页签同一层。
         校验与落点都在服务端（与开局同一个校验器），这里只负责收集点数。
+
+        战斗中只显示一句说明、不渲染分配器：战斗单位在开打那一刻就把属性快照走了，
+        这时加点对**这一场**没有任何作用（HP 条不会动，伤害也不会变）。给一组
+        按得动却没效果的控件，比直接说「打完再分」更糟。
       */}
       {sub === "allocate" && pending !== undefined && (
         <section className="card">
@@ -2444,18 +2455,26 @@ function PersonalTab({
             <h3 className="panel-title">加点</h3>
             <span className="muted equip-count">{pending.reason ?? "攒下的长进"}</span>
           </div>
-          <PointsAllocator
-            key={pending.id}
-            budget={pending.budget}
-            targets={pending.targets}
-            value={allocDraft}
-            onChange={setAllocDraft}
-            onConfirm={() => {
-              void onSubmitAllocation?.(pending.id, allocDraft);
-            }}
-            confirmLabel="就这样"
-            disabled={busy}
-          />
+          {inBattle ? (
+            <p className="muted allocation-locked">
+              战斗结束后再分配 —— 这一场开打时，你的数值就已经定下来了。
+              <br />
+              还有 <strong>{pending.budget}</strong> 点没分。
+            </p>
+          ) : (
+            <PointsAllocator
+              key={pending.id}
+              budget={pending.budget}
+              targets={pending.targets}
+              value={allocDraft}
+              onChange={setAllocDraft}
+              onConfirm={() => {
+                void onSubmitAllocation?.(pending.id, allocDraft);
+              }}
+              confirmLabel="就这样"
+              disabled={busy}
+            />
+          )}
         </section>
       )}
 

@@ -82,6 +82,7 @@ import {
   restoreStructuralSavepoint,
   withWorldLock,
 } from "./world-lock.js";
+import { allocationBlockedReason } from "./allocation-guard.js";
 import {
   getFlavors,
   getFlavorsForEvents,
@@ -1378,47 +1379,67 @@ const allocationSchema = z
 
 app.post("/api/worlds/:id/allocation", async (request, reply) => {
   const { id } = request.params as { id: string };
-  const found = getWorld(id);
-  if (!found) return reply.code(404).send({ error: "world_not_found" });
+  if (!getWorld(id)) return reply.code(404).send({ error: "world_not_found" });
   const parsed = allocationSchema.safeParse(request.body);
   if (!parsed.success) return reply.code(400).send({ error: "invalid_body", detail: parsed.error.flatten() });
 
-  const pending = found.world.pendingAllocation;
-  if (pending === undefined) return reply.code(409).send({ error: "no_pending_allocation" });
-  if (pending.id !== parsed.data.allocationId) {
-    // 带上请求里的 id 与当前请求的 id 才查得动：两笔加点不会同时存在，但玩家可能开着旧页面。
-    return reply
-      .code(409)
-      .send({ error: "allocation_mismatch", detail: `当前待办是 ${pending.id}` });
-  }
+  // 与其它会写世界的接口共用同一把串行锁：加点虽然是轮外操作，但它与战斗指令
+  // 都会改 `state.player`，不排队就可能出现「一边结算战斗、一边改基础属性」。
+  // 锁内必须重取世界（锁只保证串行，不保证进临界区前读到的引用是新的）。
+  return withWorldLock(id, async () => {
+    const found = getWorld(id);
+    if (!found) return reply.code(404).send({ error: "world_not_found" });
 
-  const checked = normalizeAllocation(parsed.data.points, {
-    budget: pending.budget,
-    targets: pending.targets,
+    /**
+     * 战斗中禁止加点（2026-11-21 用户裁定）。
+     *
+     * 战斗单位在开打那一刻就把属性快照进了 `Combatant`（`buildUnit`），之后加点
+     * **不会**改变这一场的任何数值：面板上写着「+2 体质」，HP 条却一动不动。
+     * 与其让玩家以为它生效了，不如明确拒绝 —— 与「战斗中不能换装」同一条纪律：
+     * 这些都是战后的动作。
+     */
+    if (allocationBlockedReason(found.world) === "battle") {
+      return reply.code(409).send({ error: "allocation_in_battle", hint: "战斗结束之后再分配点数" });
+    }
+
+    const pending = found.world.pendingAllocation;
+    if (pending === undefined) return reply.code(409).send({ error: "no_pending_allocation" });
+    if (pending.id !== parsed.data.allocationId) {
+      // 带上请求里的 id 与当前请求的 id 才查得动：两笔加点不会同时存在，但玩家可能开着旧页面。
+      return reply
+        .code(409)
+        .send({ error: "allocation_mismatch", detail: `当前待办是 ${pending.id}` });
+    }
+
+    const checked = normalizeAllocation(parsed.data.points, {
+      budget: pending.budget,
+      targets: pending.targets,
+    });
+    if (!checked.ok) {
+      return reply.code(400).send({ error: `allocation_${checked.code}`, detail: checked.detail });
+    }
+
+    // 落点 = 基础属性（与开局同一口径，ADR-004 D5「叠加不覆盖」），上限按模板 caps 夹。
+    const caps = found.entry.template.attributes.caps;
+    for (const [attribute, amount] of Object.entries(checked.points)) {
+      if (amount <= 0) continue;
+      const current = found.world.player.attributes[attribute];
+      if (typeof current !== "number") continue;
+      const cap = caps?.[attribute];
+      found.world.player.attributes[attribute] =
+        cap !== undefined ? Math.min(cap, current + amount) : current + amount;
+    }
+    delete found.world.pendingAllocation;
+    worldStore.save(found.world);
+    const snapshot = await decorateSnapshot(
+      projectWorld(found.world, found.entry),
+      found.world,
+      found.entry,
+      "player",
+      request.llmProvider,
+    );
+    return { worldId: id, snapshot, spent: checked.spent };
   });
-  if (!checked.ok) {
-    return reply.code(400).send({ error: `allocation_${checked.code}`, detail: checked.detail });
-  }
-
-  // 落点 = 基础属性（与开局同一口径，ADR-004 D5「叠加不覆盖」），上限按模板 caps 夹。
-  const caps = found.entry.template.attributes.caps;
-  for (const [attribute, amount] of Object.entries(checked.points)) {
-    if (amount <= 0) continue;
-    const current = found.world.player.attributes[attribute];
-    if (typeof current !== "number") continue;
-    const cap = caps?.[attribute];
-    found.world.player.attributes[attribute] = cap !== undefined ? Math.min(cap, current + amount) : current + amount;
-  }
-  delete found.world.pendingAllocation;
-  worldStore.save(found.world);
-  const snapshot = await decorateSnapshot(
-    projectWorld(found.world, found.entry),
-    found.world,
-    found.entry,
-    "player",
-    request.llmProvider,
-  );
-  return { worldId: id, snapshot, spent: checked.spent };
 });
 
 app.post("/api/worlds/:id/archive", async (request, reply) => {
