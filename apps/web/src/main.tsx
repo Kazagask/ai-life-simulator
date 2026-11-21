@@ -237,10 +237,8 @@ function App() {
   const runTemplateCheck = useCallback(async () => {
     setTemplateChecking(true);
     try {
-      const issues = await checkVisibleTemplates();
-      setTemplateIssues(issues);
-      if (issues.length === 0) console.info("[template] 客户端模板校验通过");
-      else console.warn("[template] 客户端模板校验未通过", issues);
+      // 每条模板的结果由 `checkVisibleTemplates` 自己打日志（缓存 / 下载 / 失败原因）。
+      setTemplateIssues(await checkVisibleTemplates());
     } catch (error) {
       setTemplateIssues([
         {

@@ -255,6 +255,11 @@ export type TemplateVersionSummary =
       openings: Array<{ id: string; name: string; description: string }>;
       /** ADR-001：该版本使用前实例化开局向导；存在即前端走 /api/openings 流程。 */
       openingDag?: { openingId: string; name: string; description?: string };
+      /**
+       * 语义指纹（`sha256:…`）：客户端下载模板包后拿它做「该不该重新下载」的判据
+       * （缓存里的包与当前指纹不同 ⇒ 模板变过，重下）。只对 ready 版本有。
+       */
+      fingerprint: string;
       assetCount: number;
       assetFingerprint: string;
       /** T-06：从 assetManifest 派生的 assetId 列表（无 path / 无二进制）。 */
@@ -933,6 +938,7 @@ function createRegistry(dir: string, result: ScanResult, logger: TemplateScanLog
                     },
                   }
                 : {}),
+              fingerprint: entry.semanticFingerprint,
               assetCount: entry.assetCount,
               assetFingerprint: entry.assetFingerprint,
               // T-06：assetId 列表 + kind + characterRef；不下发 path / 二进制。
