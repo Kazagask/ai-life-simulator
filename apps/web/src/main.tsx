@@ -22,6 +22,7 @@ import {
   submitLlmCredentials,
   testLlmCredentials,
 } from "./api";
+import { runLocalEngineSelfCheck } from "./localEngine";
 import { checkVisibleTemplates, type TemplateCheckFailure } from "./templateClient";
 import type { EffectSummaryVM, TurnGainVM, DetailSheetData } from "@life-sim/rpg-ui";
 import type {
@@ -229,6 +230,8 @@ function App() {
    */
   const [templateIssues, setTemplateIssues] = useState<TemplateCheckFailure[]>([]);
   const [templateChecking, setTemplateChecking] = useState(false);
+  /** 本地引擎自检失败原因（成功时保持 null，只留一条 console）。 */
+  const [engineIssue, setEngineIssue] = useState<string | null>(null);
   const openNpc = useCallback((npcId: string) => {
     setNpcJump((prev) => ({ id: npcId, seq: (prev?.seq ?? 0) + 1 }));
     setTab("world");
@@ -238,7 +241,22 @@ function App() {
     setTemplateChecking(true);
     try {
       // 每条模板的结果由 `checkVisibleTemplates` 自己打日志（缓存 / 下载 / 失败原因）。
-      setTemplateIssues(await checkVisibleTemplates());
+      const scan = await checkVisibleTemplates();
+      setTemplateIssues(scan.failures);
+      const first = scan.results.find((result) => result.ok);
+      if (first !== undefined && first.ok) {
+        // 客户端化的第一颗钉子：在浏览器里起世界 + 推一轮 + 进 IndexedDB 再读回。
+        const check = await runLocalEngineSelfCheck(first.template, first.fingerprint, first.ref.version);
+        if (check.ok) {
+          console.info(
+            `[local-engine] 自检通过 turn=${check.turnIndex} digest=${check.digest} 持久化=${check.persisted ? "是" : "否"}`,
+          );
+          setEngineIssue(check.persisted ? null : "本地世界写入 IndexedDB 失败（刷新后不会保留）");
+        } else {
+          console.warn("[local-engine] 自检失败", check.message);
+          setEngineIssue(check.message ?? "本地引擎自检失败");
+        }
+      }
     } catch (error) {
       setTemplateIssues([
         {
@@ -709,6 +727,7 @@ function App() {
       <>
         <TemplateCheckBanner
           issues={templateIssues}
+          engineIssue={engineIssue}
           checking={templateChecking}
           onRetry={() => void runTemplateCheck()}
         />
@@ -726,6 +745,7 @@ function App() {
       <>
         <TemplateCheckBanner
           issues={templateIssues}
+          engineIssue={engineIssue}
           checking={templateChecking}
           onRetry={() => void runTemplateCheck()}
         />
@@ -815,6 +835,7 @@ function App() {
       )}
       <TemplateCheckBanner
         issues={templateIssues}
+        engineIssue={engineIssue}
         checking={templateChecking}
         onRetry={() => void runTemplateCheck()}
       />
@@ -931,14 +952,16 @@ function App() {
  */
 function TemplateCheckBanner({
   issues,
+  engineIssue,
   checking,
   onRetry,
 }: {
   issues: TemplateCheckFailure[];
+  engineIssue?: string | null;
   checking: boolean;
   onRetry: () => void;
 }) {
-  if (issues.length === 0) return null;
+  if (issues.length === 0 && !engineIssue) return null;
   return (
     <div className="banner template-check" role="alert">
       <div className="template-check__head">
@@ -953,6 +976,7 @@ function TemplateCheckBanner({
             {issue.ref.id}@{issue.ref.version}：{issue.message}
           </li>
         ))}
+        {engineIssue && <li>本地引擎自检：{engineIssue}</li>}
       </ul>
       <span className="muted">世界仍由服务端提供；这是「客户端自己载入模板」的预检（ADR-070 第二期）。</span>
     </div>

@@ -34,3 +34,6 @@ specs/data/references/*.wheel.json
 
 # 管理后台战斗演练的打包产物（pnpm build:admin 生成）
 apps/admin/battle.js
+
+# 本地工具（cloudflared 等），不进仓库
+.tools/

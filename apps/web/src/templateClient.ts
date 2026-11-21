@@ -1,4 +1,5 @@
 import { loadTemplatePackage } from "@life-sim/template-loader";
+import type { WorldTemplateV2 } from "@life-sim/shared";
 import { createIndexedDbStore, STORE_TEMPLATE_PACKAGES, type KeyValueStore } from "./idb";
 
 /**
@@ -27,7 +28,7 @@ export type TemplateCheckCode =
   | "fingerprint_mismatch";
 
 export type TemplateCheck =
-  | { ok: true; ref: TemplateRefLite; fingerprint: string; fromCache: boolean }
+  | { ok: true; ref: TemplateRefLite; fingerprint: string; fromCache: boolean; template: WorldTemplateV2 }
   | { ok: false; ref: TemplateRefLite; code: TemplateCheckCode; message: string };
 
 /** 只保留失败分支（界面只渲染失败）。 */
@@ -78,7 +79,7 @@ export async function checkTemplate(
       const result = loadTemplatePackage(cached);
       // 能自洽加载 + 与当前指纹一致 ⇒ 直接用；模板改过（指纹不同）就当缓存作废。
       if (result.ok && (expected === undefined || result.fingerprint === expected)) {
-        return { ok: true, ref, fingerprint: result.fingerprint, fromCache: true };
+        return { ok: true, ref, fingerprint: result.fingerprint, fromCache: true, template: result.template };
       }
     }
   }
@@ -104,7 +105,7 @@ export async function checkTemplate(
     // 写缓存失败不影响本次结果：下次再下就是。
     await cache.put(key, pkg).catch(() => {});
   }
-  return { ok: true, ref, fingerprint: result.fingerprint, fromCache: false };
+  return { ok: true, ref, fingerprint: result.fingerprint, fromCache: false, template: result.template };
 }
 
 /**
@@ -113,20 +114,24 @@ export async function checkTemplate(
  * 失败不是「世界不能玩」——服务端仍然可用；它是「客户端自己载入这条路径还不通」，
  * 界面按预检结果提示，不拦操作。
  */
+export interface TemplateScanResult {
+  results: TemplateCheck[];
+  failures: TemplateCheckFailure[];
+}
+
 export async function checkVisibleTemplates(
   options: TemplateCheckOptions = {},
-): Promise<TemplateCheckFailure[]> {
+): Promise<TemplateScanResult> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const res = await fetchImpl("/api/templates");
   if (!res.ok) {
-    return [
-      {
-        ok: false,
-        ref: { id: "?", version: "?" },
-        code: "network",
-        message: `模板列表请求失败（${res.status}）`,
-      },
-    ];
+    const failure: TemplateCheckFailure = {
+      ok: false,
+      ref: { id: "?", version: "?" },
+      code: "network",
+      message: `模板列表请求失败（${res.status}）`,
+    };
+    return { results: [failure], failures: [failure] };
   }
   const payload = (await res.json()) as {
     templates?: Array<{
@@ -157,5 +162,8 @@ export async function checkVisibleTemplates(
       console.warn(`[template] ${result.ref.id}@${result.ref.version} 校验失败`, result);
     }
   }
-  return results.filter((result): result is TemplateCheckFailure => !result.ok);
+  return {
+    results,
+    failures: results.filter((result): result is TemplateCheckFailure => !result.ok),
+  };
 }

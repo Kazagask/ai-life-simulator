@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { stableStringify } from "@life-sim/shared";
 import type {
   EngineApiHandle,
   LlmContext,
@@ -105,20 +106,11 @@ export function buildOutputContract(
 /** 缺省契约（逐拍旁白）。保留具名导出：既有引用点与断言零回归。 */
 export const OUTPUT_CONTRACT = buildOutputContract();
 
-/** 递归键排序的稳定序列化（同一对象 ⇒ 同一字符串）。 */
-export function stableStringify(value: unknown): string {
-  const walk = (node: unknown): unknown => {
-    if (Array.isArray(node)) return node.map(walk);
-    if (node !== null && typeof node === "object") {
-      const record = node as Record<string, unknown>;
-      const out: Record<string, unknown> = {};
-      for (const key of Object.keys(record).sort()) out[key] = walk(record[key]);
-      return out;
-    }
-    return node;
-  };
-  return JSON.stringify(walk(value));
-}
+/**
+ * 稳定序列化已搬到 `@life-sim/shared`（web 侧本地引擎自检也要它，不能为此把编排层拉进前端包）。
+ * 这里保留同名导出，既有 import 点零改动。
+ */
+export { stableStringify };
 
 export function sha256(text: string): string {
   return `sha256:${createHash("sha256").update(text, "utf8").digest("hex")}`;
