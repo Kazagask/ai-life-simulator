@@ -243,6 +243,37 @@ button {
   margin: 4px 16px;
 }
 
+/* 客户端模板预检（ADR-070 第二期）：只在校验失败时出现，不拦操作。 */
+.banner.template-check {
+  display: grid;
+  gap: 4px;
+  background: color-mix(in srgb, var(--gold) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--gold) 38%, transparent);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin: 4px 16px;
+}
+
+.template-check__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.banner.template-check ul {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.banner.template-check .muted {
+  font-size: 11px;
+}
+
 /* ---------- 属性条 ---------- */
 
 .attrs {

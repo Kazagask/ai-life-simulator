@@ -51,6 +51,7 @@ import {
   loadTemplate,
   loadUi,
   readAssetEntries,
+  semanticFingerprintOf,
   type TemplateLoadReasonCode,
 } from "@life-sim/template-loader";
 import { FsTemplateSource } from "./template-source-fs.js";
@@ -587,21 +588,11 @@ function scanVersion(
     // 扩展版本也进指纹：模板里的 `extensions:` 只写 id + config，同样的 yaml 配上
     // 改过规则的扩展代码仍会算出不同结果 ⇒ 旧档必须拒载。`version` 缺省按 "*"，
     // 但扩展包改了行为就必须升版本，这是扩展作者的责任（见 SPEC §1.6 / §2.6）。
-    const extensionPairs = resolveExtensionRuntimes(template)
-      .slice()
-      .sort((a, b) => a.id.localeCompare(b.id))
-      .map((resolved) => ({
-        name: `extension:${resolved.id}`,
-        content: resolved.runtime.version ?? "*",
-      }));
-    const semanticFingerprint = fingerprintOfPairs(
-      [
-        ...[...declarative]
-          .filter((file) => file !== "ui.yaml")
-          .sort()
-          .map((file) => ({ name: file, content: source.read(file) })),
-        ...extensionPairs,
-      ],
+    // 指纹的组合规则（14 个文件 + 扩展版本）在加载器包里 —— 客户端下载模板后要算同一个数，
+    // 两边各写一份迟早漂；`semanticFingerprintOf` 是唯一实现。
+    const semanticFingerprint = semanticFingerprintOf(
+      [...declarative].map((file) => ({ rel: file, content: source.read(file) })),
+      template,
     );
     const entry: ReadyTemplateEntry = {
       ref,
@@ -1000,6 +991,22 @@ function createRegistry(dir: string, result: ScanResult, logger: TemplateScanLog
  * 版本校验失败 / `meta.id` ≠ 目录名 ⇒ 抛错（进程退出）；整个目录零模板 ⇒ 抛错。
  * 之后的变更由 `registry.ensureFresh()` 在请求驱动下增量换入（T-TG-11）。
  */
+/**
+ * 读取一个版本的**声明式文件正文**（模板包端点用）。
+ *
+ * 只读白名单里的文本文件（含 `assets/manifest.yaml`），不含资产二进制：
+ * 包回答的是「这个世界能不能起来」，二进制仍走按 assetId 的下载端点。
+ * 与 `scanVersion` 用同一个 `FsTemplateSource`，不另写一套读取逻辑。
+ */
+export function readDeclarativeFiles(ref: TemplateRef): Record<string, string> {
+  const source = new FsTemplateSource(path.join(templatesDir(), ref.id, ref.version));
+  const files: Record<string, string> = {};
+  for (const rel of DECLARATIVE_FILES) {
+    if (source.exists(rel)) files[rel] = source.read(rel);
+  }
+  return files;
+}
+
 export function loadTemplates(logger: TemplateScanLogger): TemplateRegistry {
   const dir = templatesDir();
   const result = scanAll(dir, logger, true);

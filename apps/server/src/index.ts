@@ -59,7 +59,13 @@ import type {
   V2TurnResult,
   WorldStateV2,
 } from "@life-sim/shared";
-import { compareVersions, loadTemplates, readAssetEntries, type ReadyTemplateEntry } from "./templates.js";
+import {
+  compareVersions,
+  loadTemplates,
+  readAssetEntries,
+  readDeclarativeFiles,
+  type ReadyTemplateEntry,
+} from "./templates.js";
 import { registerServerExtensions } from "./extensions.js";
 import { dataDir, hydrate, loadPersistedWorlds, worldStore } from "./store.js";
 import { createLLMProvider, readLLMConfig, resolveProviderForRequest, type LLMProvider } from "./llm/provider.js";
@@ -614,6 +620,27 @@ const ASSET_CONTENT_TYPES: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".webp": "image/webp",
 };
+
+/**
+ * 模板包（ADR-070 第二期）：把一个版本的**声明式文件正文**与语义指纹一起下发。
+ *
+ * 客户端拿到后：`loadTemplateFromSource(MemorySource)` 重跑一遍加载与校验、
+ * 自己算一次指纹并与 `fingerprint` 比对 —— 对不上就拒载（sha 不一致 / 文件缺页）。
+ * 资产二进制不在包里（仍走 `/assets/:assetId`），这一步只解决「世界能不能起来」。
+ */
+app.get("/api/templates/:id/:version/package", async (request, reply) => {
+  const { id, version } = request.params as { id: string; version: string };
+  const entry = registry.resolve({ id, version });
+  if (!entry) {
+    return reply.code(404).send({ error: "template_version_missing", templateId: id, version });
+  }
+  return {
+    templateId: entry.ref.id,
+    version: entry.ref.version,
+    fingerprint: entry.semanticFingerprint,
+    files: readDeclarativeFiles(entry.ref),
+  };
+});
 
 /**
  * T-06 · 静态资源下发（分叉③ A）：**只按 assetId 查 manifest 表定位路径，绝不接受客户端路径**。

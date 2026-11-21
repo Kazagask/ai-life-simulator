@@ -22,6 +22,7 @@ import {
   submitLlmCredentials,
   testLlmCredentials,
 } from "./api";
+import { checkVisibleTemplates, type TemplateCheckFailure } from "./templateClient";
 import type { EffectSummaryVM, TurnGainVM, DetailSheetData } from "@life-sim/rpg-ui";
 import type {
   BattleCommand,
@@ -220,10 +221,43 @@ function App() {
    * 状态留在 `PersonalTab` 内部就没有这条通道。
    */
   const [personalSub, setPersonalSub] = useState<PersonalSubTab>("character");
+  /**
+   * 客户端模板预检（ADR-070 第二期）：下载模板包 → 用同一套加载器校验 → 比指纹。
+   *
+   * 失败**不拦操作**（世界仍由服务端提供），只在顶上挂一条可重试的提示；
+   * 它是「客户端自己载入世界」这条路径的体检，不是玩家的错误。
+   */
+  const [templateIssues, setTemplateIssues] = useState<TemplateCheckFailure[]>([]);
+  const [templateChecking, setTemplateChecking] = useState(false);
   const openNpc = useCallback((npcId: string) => {
     setNpcJump((prev) => ({ id: npcId, seq: (prev?.seq ?? 0) + 1 }));
     setTab("world");
   }, []);
+
+  const runTemplateCheck = useCallback(async () => {
+    setTemplateChecking(true);
+    try {
+      const issues = await checkVisibleTemplates();
+      setTemplateIssues(issues);
+      if (issues.length === 0) console.info("[template] 客户端模板校验通过");
+      else console.warn("[template] 客户端模板校验未通过", issues);
+    } catch (error) {
+      setTemplateIssues([
+        {
+          ok: false,
+          ref: { id: "?", version: "?" },
+          code: "network",
+          message: error instanceof Error ? error.message : String(error),
+        },
+      ]);
+    } finally {
+      setTemplateChecking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void runTemplateCheck();
+  }, [runTemplateCheck]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -674,17 +708,29 @@ function App() {
   // ADR-001：版本声明了 openingDag 时先跑前实例化向导；这里不建世界、不实例化 NPC。
   if (openingLaunch !== null) {
     return (
-      <OpeningWizard
-        launch={openingLaunch}
-        onCreated={handleCreated}
-        onCancel={() => setOpeningLaunch(null)}
-      />
+      <>
+        <TemplateCheckBanner
+          issues={templateIssues}
+          checking={templateChecking}
+          onRetry={() => void runTemplateCheck()}
+        />
+        <OpeningWizard
+          launch={openingLaunch}
+          onCreated={handleCreated}
+          onCancel={() => setOpeningLaunch(null)}
+        />
+      </>
     );
   }
 
   if (!worldId || !snapshot) {
     return (
       <>
+        <TemplateCheckBanner
+          issues={templateIssues}
+          checking={templateChecking}
+          onRetry={() => void runTemplateCheck()}
+        />
         {notice && (
           <div className="banner info" onClick={() => setNotice(null)}>
             {notice}
@@ -769,6 +815,11 @@ function App() {
           关系与可见性按他算，你自己的人和数值没变
         </div>
       )}
+      <TemplateCheckBanner
+        issues={templateIssues}
+        checking={templateChecking}
+        onRetry={() => void runTemplateCheck()}
+      />
       {error && <div className="banner error" onClick={() => setError(null)}>{error}</div>}
       {authNotice && <div className="banner info" onClick={() => setAuthNotice(null)}>{authNotice}</div>}
 
@@ -870,6 +921,42 @@ function App() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * 客户端模板预检的提示条（ADR-070 第二期）。
+ *
+ * 三个早期 return（落地页 / 开局向导 / 主界面）都要挂同一个组件：预检结果是 App 级状态，
+ * 换屏不该重新下载一遍模板包。只在失败时渲染，成功时保持安静（控制台留一条 info）。
+ */
+function TemplateCheckBanner({
+  issues,
+  checking,
+  onRetry,
+}: {
+  issues: TemplateCheckFailure[];
+  checking: boolean;
+  onRetry: () => void;
+}) {
+  if (issues.length === 0) return null;
+  return (
+    <div className="banner template-check" role="alert">
+      <div className="template-check__head">
+        <strong>客户端模板校验未通过</strong>
+        <button className="ghost" disabled={checking} onClick={onRetry}>
+          {checking ? "校验中…" : "重试"}
+        </button>
+      </div>
+      <ul>
+        {issues.map((issue) => (
+          <li key={`${issue.ref.id}@${issue.ref.version}`}>
+            {issue.ref.id}@{issue.ref.version}：{issue.message}
+          </li>
+        ))}
+      </ul>
+      <span className="muted">世界仍由服务端提供；这是「客户端自己载入模板」的预检（ADR-070 第二期）。</span>
     </div>
   );
 }

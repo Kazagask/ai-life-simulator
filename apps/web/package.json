@@ -13,7 +13,9 @@
     "@life-sim/rpg-ui": "workspace:*",
     "@tencent-ai/workbuddy-cloud-sdk": "dev",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "@life-sim/template-loader": "workspace:*",
+    "@life-sim/game-core": "workspace:*"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.4.0",

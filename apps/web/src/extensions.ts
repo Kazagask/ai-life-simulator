@@ -1,5 +1,7 @@
-import { registerExtensionUi, type ExtensionUiRuntime } from "@life-sim/rpg-ui";
+import { registerExtensionRuntime } from "@life-sim/game-core";
+import { familyExtension } from "@life-sim/ext-family";
 import { familyUi } from "@life-sim/ext-family/ui";
+import { registerExtensionUi, type ExtensionUiRuntime } from "@life-sim/rpg-ui";
 
 /**
  * 扩展前端的**编译期**注册表（`docs/EXTENSIONS.md` §7.1 第 3 条）。
@@ -16,6 +18,19 @@ import { familyUi } from "@life-sim/ext-family/ui";
 const WEB_EXTENSION_UI: readonly ExtensionUiRuntime[] = [familyUi];
 
 for (const ui of WEB_EXTENSION_UI) registerExtensionUi(ui);
+
+/**
+ * 内核侧也注册一份（2026-11-21 第二期，原计划「等浏览器跑引擎时再挂」提前了）。
+ *
+ * 原因不是引擎进了浏览器，而是**指纹**：模板的语义指纹包含扩展运行时版本，
+ * 客户端要自己校验下载来的模板包，就必须能 `resolveExtensionRuntimes(template)`；
+ * 不注册 family，同一份文件算出的指纹会少一对 `extension:family`，永远对不上。
+ *
+ * 代价：family 的运行时代码进了 web bundle（本来就已带它的 UI 层）。
+ */
+const WEB_EXTENSION_RUNTIME = [familyExtension];
+
+for (const runtime of WEB_EXTENSION_RUNTIME) registerExtensionRuntime(runtime);
 
 /** 本前端构建里编入的扩展 id（排序后）。只给构建期守卫用，运行期判定仍走 game-core 的注册表。 */
 export const webExtensionIds: readonly string[] = WEB_EXTENSION_UI.map((ui) => ui.id).sort();

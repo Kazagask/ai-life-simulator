@@ -69,12 +69,18 @@ importers:
       '@life-sim/ext-family':
         specifier: workspace:*
         version: link:../../extensions/family
+      '@life-sim/game-core':
+        specifier: workspace:*
+        version: link:../../packages/game-core
       '@life-sim/rpg-ui':
         specifier: workspace:*
         version: link:../../packages/rpg-ui
       '@life-sim/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@life-sim/template-loader':
+        specifier: workspace:*
+        version: link:../../packages/template-loader
       '@tencent-ai/workbuddy-cloud-sdk':
         specifier: dev
         version: 0.1.4-dev.ca27990.202610161713

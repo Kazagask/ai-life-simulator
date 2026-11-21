@@ -35,6 +35,7 @@ import {
   type OpeningBranchDag,
   type OpeningTemplate,
   type Rules,
+  MemoryTemplateSource,
   type TemplateSource,
   type TimeSpec,
   type UiConfig,
@@ -355,6 +356,34 @@ export function fingerprintOfPairs(
   pairs: ReadonlyArray<{ name: string; content: string }>,
 ): string {
   return `sha256:${sha256Hex(pairs.map((pair) => `${pair.name}\u0000${pair.content}`).join(""))}`;
+}
+
+/**
+ * 模板的**语义指纹**：14 个声明式文件（`ui.yaml` 除外）+ 扩展运行时版本。
+ *
+ * 这份组合规则以前只写在服务端 `scanVersion` 里；客户端要自己校验下载来的模板，
+ * 所以必须同源 —— 两边各算一次、算错了就是「下载成功但永远拒载」。
+ *
+ * 扩展版本进指纹的理由：同样的 yaml 配上改过行为的扩展，结果不同 ⇒ 旧档必须拒载。
+ * 未注册的扩展由 `resolveExtensionRuntimes` 跳过（与加载期 `unknown_extension` 是两件事：
+ * 一个管「能不能算指纹」，一个管「能不能载入」）。
+ */
+export function semanticFingerprintOf(
+  files: ReadonlyArray<{ rel: string; content: string }>,
+  template: WorldTemplateV2,
+): string {
+  const extensionPairs = resolveExtensionRuntimes(template)
+    .slice()
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((resolved) => ({
+      name: `extension:${resolved.id}`,
+      content: resolved.runtime.version ?? "*",
+    }));
+  const declarative = [...files]
+    .filter((file) => file.rel !== "ui.yaml")
+    .sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0))
+    .map((file) => ({ name: file.rel, content: file.content }));
+  return fingerprintOfPairs([...declarative, ...extensionPairs]);
 }
 
 export function firstIssue(error: unknown): string {
@@ -1001,4 +1030,82 @@ export function readAssetEntries(assetManifest: AssetManifest | undefined): Asse
     kind: asset.kind,
     ...(asset.characterRef !== undefined ? { characterRef: asset.characterRef } : {}),
   }));
+}
+
+// ---------- 模板包（第二期：下载 → 校验） ----------
+
+/**
+ * 模板包：客户端从服务端拿到的**全部声明式文件正文** + 服务端算出的语义指纹。
+ *
+ * 刻意不含资产二进制（第二期后半段再接）：`assets/**` 现在仍由服务端按 assetId 下发，
+ * 包只负责「世界能不能起来」这件事。
+ */
+export const TemplatePackageSchema = z
+  .object({
+    templateId: z.string().min(1),
+    version: z.string().min(1),
+    fingerprint: z.string().min(1),
+    /** 相对路径 → 文件正文。必须是**文本**声明式文件（yaml / md）。 */
+    files: z.record(z.string(), z.string()),
+  })
+  .strict();
+export type TemplatePackage = z.infer<typeof TemplatePackageSchema>;
+
+export type TemplatePackageLoadResult =
+  | {
+      ok: true;
+      template: WorldTemplateV2;
+      /** 客户端自己算出来的指纹（与 `declaredFingerprint` 相等才会走到这里）。 */
+      fingerprint: string;
+      declaredFingerprint: string;
+    }
+  | {
+      ok: false;
+      code: "package_invalid" | "template_invalid" | "fingerprint_mismatch";
+      message: string;
+    };
+
+/**
+ * 校验一个模板包并加载出模板（**纯函数**，不发网络）。
+ *
+ * 三步：形状 → 真加载（与磁盘同一套 schema / 跨文件校验）→ 指纹比对。
+ * 任何一步失败都返回结构化结果而不是抛错：客户端要把它渲染成「哪个世界、为什么打不开」。
+ */
+export function loadTemplatePackage(input: unknown): TemplatePackageLoadResult {
+  const parsed = TemplatePackageSchema.safeParse(input);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return {
+      ok: false,
+      code: "package_invalid",
+      message: issue === undefined ? "模板包形状不对" : `${issue.path.join(".") || "<root>"}: ${issue.message}`,
+    };
+  }
+  const pkg = parsed.data;
+  let template: WorldTemplateV2;
+  try {
+    template = loadTemplateFromSource(new MemoryTemplateSource(pkg.files));
+  } catch (error) {
+    return { ok: false, code: "template_invalid", message: firstIssue(error) };
+  }
+  // 包封面与内容必须自洽：否则把 A 的文件装进 B 的封套，客户端会以为自己在载 B。
+  if (template.meta.id !== pkg.templateId) {
+    return {
+      ok: false,
+      code: "package_invalid",
+      message: `包声明的是 ${pkg.templateId}，内容却是 ${template.meta.id}`,
+    };
+  }
+  const computed = semanticFingerprintOf(
+    Object.entries(pkg.files).map(([rel, content]) => ({ rel, content })),
+    template,
+  );
+  if (computed !== pkg.fingerprint) {
+    return {
+      ok: false,
+      code: "fingerprint_mismatch",
+      message: `包内声明的指纹与按文件算出的不一致（声明 ${pkg.fingerprint.slice(0, 23)}…，实算 ${computed.slice(0, 23)}…）`,
+    };
+  }
+  return { ok: true, template, fingerprint: computed, declaredFingerprint: pkg.fingerprint };
 }
