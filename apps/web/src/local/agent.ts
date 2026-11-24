@@ -35,8 +35,14 @@ export function createClientGateway(
   const lookup = createLookup(bundle.template).withGenerated(state.generatedEvents);
   const engineApi = new RpgEngineAPI({
     state,
-    // GM 看到的 facts / 槽位描述也要能读到生成事件（与投影同一份查表）。
-    projectSnapshot: (s) => projectSnapshotV2(s, bundle.template, lookup.withGenerated(s.generatedEvents)),
+    /**
+     * GM 看到的 facts / 槽位描述也要能读到生成事件（与投影同一份查表）。
+     *
+     * **必须带 `bundle.ui`**：这份快照不只是给模型看，回合结束后前端也可能直接用它渲染。
+     * 少了 ui，`qualityStyles` / `presentation` 都解析不出来 —— 表现就是「过一回合，
+     * 天赋的阶色掉了、特效没了」（2026-11-24 用户两次报障的真因）。
+     */
+    projectSnapshot: (s) => projectSnapshotV2(s, bundle.template, lookup.withGenerated(s.generatedEvents), undefined, undefined, bundle.ui),
     lookup,
   });
   return new AgentGateway({

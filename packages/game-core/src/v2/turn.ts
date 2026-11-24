@@ -1,3 +1,4 @@
+import type { UiConfig } from "@life-sim/shared";
 import type {
   AttributeValue,
   BattleCommand,
@@ -1179,7 +1180,7 @@ function projectWithConfig(
   pipeline: TurnPipelineConfig | undefined,
 ): V2Snapshot {
   const evaluation = evaluateLifeV2(state, pipeline?.evaluationConfig);
-  return projectSnapshotV2(state, template, lookup, evaluation, pipeline?.endingConfig?.endings);
+  return projectSnapshotV2(state, template, lookup, evaluation, pipeline?.endingConfig?.endings, pipeline?.ui);
 }
 
 /** 任何返回给玩家的 `snapshot` 之前复核一次槽前提（ADR-0034 §3-4），保证响应里没有幽灵场景。 */
@@ -1208,6 +1209,13 @@ function revalidateThenProject(
 export interface TurnPipelineConfig {
   endingConfig?: EndingConfig;
   evaluationConfig?: EvaluationConfig;
+  /**
+   * 展示域（`ui.yaml`）：**回合返回的快照必须带上**。
+   *
+   * 少了它，`qualityStyles`（天赋阶色）与 `presentation`（战斗特效）都解析不出来 ——
+   * 表现就是「开局天赋是紫的，过一回合变绿；技能一开始有特效，过一回合就没了」。
+   */
+  ui?: UiConfig;
   // ---- 阶段 B / LLM 稀疏参与注入位（不传 gateway ⇒ 行为与改前逐字段一致，零回归）----
   /** LLM 网关：core → llm 回调；invoke 异步只在网关 / agent-runtime，内核不 await。 */
   gateway?: LlmGateway;

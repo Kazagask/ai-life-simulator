@@ -62,8 +62,9 @@ export function engineApiForTurn(world: WorldStateV2, entry: ReadyTemplateEntry)
   return new RpgEngineAPI({
     state: world,
     // 同上：GM 看到的 facts / 槽位描述也必须能读到生成事件。
+    // 同样必须带 `entry.ui`：这份快照会被回合结果带回前端渲染（少了它就掉样式 / 掉特效）。
     projectSnapshot: (s) =>
-      projectSnapshotV2(s, entry.template, entry.lookup.withGenerated(s.generatedEvents)),
+      projectSnapshotV2(s, entry.template, entry.lookup.withGenerated(s.generatedEvents), undefined, undefined, entry.ui),
     // 带 generatedEvents：分支里现造的 NPC 也要能被后续解析（与 projectSnapshot 同一份查表）。
     lookup: entry.lookup.withGenerated(world.generatedEvents),
   });

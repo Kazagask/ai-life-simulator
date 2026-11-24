@@ -1,3 +1,4 @@
+import type { UiConfig } from "@life-sim/shared";
 import type { V2Snapshot, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
 import type { TemplateLookup } from "./lookup.js";
 import { assertActive } from "./ending.js";
@@ -38,8 +39,10 @@ function projectWithEvaluation(
   state: WorldStateV2,
   template: WorldTemplateV2,
   lookup: TemplateLookup,
+  /** 展示域：不传 ⇒ 快照里没有样式（装备后界面会「掉色」） */
+  ui?: UiConfig,
 ): V2Snapshot {
-  return projectSnapshotV2(state, template, lookup, evaluateLifeV2(state));
+  return projectSnapshotV2(state, template, lookup, evaluateLifeV2(state), undefined, ui);
 }
 
 export function equipV2(
@@ -47,6 +50,7 @@ export function equipV2(
   command: EquipCommandV2,
   template: WorldTemplateV2,
   lookup: TemplateLookup,
+  ui?: UiConfig,
 ): { state: WorldStateV2; snapshot: V2Snapshot } {
   assertActive(state);
   const result = equipItem(
@@ -65,7 +69,7 @@ export function equipV2(
     summary: `装备了「${item?.name ?? command.itemId}」`,
     visibility: "public",
   });
-  return { state: next, snapshot: projectWithEvaluation(next, template, lookup) };
+  return { state: next, snapshot: projectWithEvaluation(next, template, lookup, ui) };
 }
 
 export function unequipV2(
@@ -73,6 +77,7 @@ export function unequipV2(
   command: UnequipCommandV2,
   template: WorldTemplateV2,
   lookup: TemplateLookup,
+  ui?: UiConfig,
 ): { state: WorldStateV2; snapshot: V2Snapshot } {
   assertActive(state);
   const result = unequipItem(
@@ -92,5 +97,5 @@ export function unequipV2(
     summary: `卸下了「${item?.name ?? command.instanceId}」`,
     visibility: "public",
   });
-  return { state: next, snapshot: projectWithEvaluation(next, template, lookup) };
+  return { state: next, snapshot: projectWithEvaluation(next, template, lookup, ui) };
 }

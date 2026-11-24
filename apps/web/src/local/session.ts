@@ -89,6 +89,8 @@ export function pipelineOf(bundle: TemplateBundle): TurnPipelineConfig {
     ...(bundle.endingConfig !== undefined ? { endingConfig: bundle.endingConfig } : {}),
     ...(bundle.evaluationConfig !== undefined ? { evaluationConfig: bundle.evaluationConfig } : {}),
     ...(bundle.lore !== undefined ? { lore: bundle.lore } : {}),
+    // 回合返回的快照也带 ui：少了它，过一回合天赋阶色与战斗特效就全掉（2026-11-24 报障）。
+    ...(bundle.ui !== undefined ? { ui: bundle.ui } : {}),
   };
 }
 
@@ -367,7 +369,7 @@ export class LocalSession {
 
   async equip(itemId: string): Promise<LocalTurnResponse> {
     try {
-      return await this.settle(() => equipV2(this.state, { itemId }, this.bundle.template, this.lookup()));
+      return await this.settle(() => equipV2(this.state, { itemId }, this.bundle.template, this.lookup(), this.bundle.ui));
     } catch (error) {
       throw equipErrorOf(error);
     }
@@ -375,7 +377,7 @@ export class LocalSession {
 
   async unequip(instanceId: string): Promise<LocalTurnResponse> {
     try {
-      return await this.settle(() => unequipV2(this.state, { instanceId }, this.bundle.template, this.lookup()));
+      return await this.settle(() => unequipV2(this.state, { instanceId }, this.bundle.template, this.lookup(), this.bundle.ui));
     } catch (error) {
       throw equipErrorOf(error);
     }

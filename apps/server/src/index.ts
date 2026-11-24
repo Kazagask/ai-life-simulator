@@ -1287,7 +1287,7 @@ app.post("/api/worlds/:id/equipment/equip", async (request, reply) => {
   }
 
   try {
-    const res = equipV2(found.world, parsed.data, found.entry.template, found.entry.lookup.withGenerated(found.world.generatedEvents));
+    const res = equipV2(found.world, parsed.data, found.entry.template, found.entry.lookup.withGenerated(found.world.generatedEvents), found.entry.ui);
     worldStore.save(res.state);
     const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, "player", request.llmProvider);
     return { worldId: found.world.id, snapshot };
@@ -1307,7 +1307,7 @@ app.post("/api/worlds/:id/equipment/unequip", async (request, reply) => {
   }
 
   try {
-    const res = unequipV2(found.world, parsed.data, found.entry.template, found.entry.lookup.withGenerated(found.world.generatedEvents));
+    const res = unequipV2(found.world, parsed.data, found.entry.template, found.entry.lookup.withGenerated(found.world.generatedEvents), found.entry.ui);
     worldStore.save(res.state);
     const snapshot = await decorateSnapshot(res.snapshot, res.state, found.entry, "player", request.llmProvider);
     return { worldId: found.world.id, snapshot };
