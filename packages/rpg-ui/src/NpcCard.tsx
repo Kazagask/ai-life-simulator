@@ -1,8 +1,14 @@
 import type { ComponentType } from "react";
-import type { NpcVM, StatusVM } from "@life-sim/shared";
+import { Portrait } from "./Portrait";
+import type { MediaVM, NpcVM, StatusVM } from "@life-sim/shared";
 import { NpcDetails, type NpcDetailsProps } from "./NpcDetails.js";
 
 export interface NpcCardProps {
+  /**
+   * 头像（2026-11-24 · 角色媒体）：由投影按皮肤解析，宿主只负责传。
+   * 不传 = 没有素材（老模板 / 未配置）⇒ 卡面不出现头像位，布局与以前一致。
+   */
+  avatar?: MediaVM;
   /** NPC 卡投影（属性已带标签、关系已只留出边、生命周期文案已翻译）。 */
   npc: NpcVM;
   /**
@@ -21,10 +27,15 @@ export interface NpcCardProps {
  * 所有数值与文案都来自投影：好感条长只是视觉辅助（-100..100 映射到 0..100%），
  * 属性值原样展示（0 也是有效值），关系句由 `RelationList` 统一拼。
  */
-export function NpcCard({ npc, Details = NpcDetails, onSelectStatus }: NpcCardProps) {
+export function NpcCard({ npc, avatar, Details = NpcDetails, onSelectStatus }: NpcCardProps) {
   return (
     <section className={`card npc-card${npc.alive ? "" : " npc-card-inactive"}`}>
       <div className="row">
+        {avatar !== undefined && (
+          <span className="npc-avatar" aria-hidden="true">
+            <Portrait media={avatar} />
+          </span>
+        )}
         <h2>{npc.name}</h2>
         <span className="tag">
           {npc.age} 岁 · {npc.genderLabel}

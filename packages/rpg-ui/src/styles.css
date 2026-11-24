@@ -1901,3 +1901,32 @@
 }
 
 .battle-leave:disabled { opacity: 0.5; cursor: default; }
+
+/* ── 人物头像（2026-11-24 · 角色媒体）─────────────────────────────
+ *
+ * 卡面左侧的圆头像位。宽高固定 ⇒ **有图没图都不改变布局**（设计：缺失立绘保持原布局，
+ * 不新增大面积剪影占位）。图片本身由 `Portrait` 负责，失败时它自己退回文字首字。
+ */
+.npc-card > .row > .npc-avatar {
+  flex: 0 0 auto;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.npc-avatar .ls-portrait,
+.npc-avatar .ls-portrait__fallback {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+.npc-avatar .ls-portrait__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 22%;
+}

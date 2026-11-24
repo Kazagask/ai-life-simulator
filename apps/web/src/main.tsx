@@ -118,6 +118,7 @@ const localEngine = createLocalEngine({
   },
 });
 import { checkCachedTemplates, checkVisibleTemplates, type TemplateCheckFailure, type TemplateScanResult } from "./templateClient";
+import { mediaOfActor, withAssetUrls } from "./assets";
 import { applyPwaUpdate, registerPwa } from "./pwa";
 import type { EffectSummaryVM, TurnGainVM, DetailSheetData } from "@life-sim/rpg-ui";
 import type {
@@ -362,6 +363,11 @@ function App() {
   const [snapshot, setSnapshot] = useState<WorldSnapshot | null>(null);
   const [templates, setTemplates] = useState<TemplateSummary[]>([]);
   const [worlds, setWorlds] = useState<WorldSummary[]>([]);
+  /**
+   * `模板id@版本 → assetFingerprint`（2026-11-24 · 角色媒体）：媒体 URL 的 `?v=` 用它。
+   * 拿不到就为空 —— 那种情况下不加版本参数，宁可少一层缓存失效，也不拼错的地址。
+   */
+  const [templateAssetFingerprints, setTemplateAssetFingerprints] = useState<Record<string, string>>({});
   const [tab, setTab] = useState<Tab>("life");
   /**
    * 跨页签的「跳到某个人」请求（2026-11-20）：关系图在**个人页**，卡片在**世界页**。
@@ -732,7 +738,21 @@ function App() {
   useEffect(() => {
     if (worldId) return;
     // 列表失败不弹错误：离线时由模板校验的缓存回退补上 `templates`（见 runTemplateCheck）。
-    api.listTemplates().then((res) => setTemplates(res.templates)).catch(() => undefined);
+    api
+      .listTemplates()
+      .then((res) => {
+        setTemplates(res.templates);
+        setTemplateAssetFingerprints((prev) => {
+          const next = { ...prev };
+          for (const template of res.templates) {
+            for (const version of template.versions) {
+              if (version.loadable) next[`${version.id}@${version.version}`] = version.assetFingerprint;
+            }
+          }
+          return next;
+        });
+      })
+      .catch(() => undefined);
     api
       .listWorlds((merged) => setWorlds(merged))
       .then((res) => setWorlds(res.worlds))
@@ -1118,7 +1138,31 @@ function App() {
    * 展示层唯一输入：引擎快照 + trace 叙事 → ViewModel（`@life-sim/rpg-ui` 的适配器）。
    * 页面组件从此只吃 ViewModel 派生的数据，不再把 V2Snapshot 传进叙事 / 立绘组件。
    */
-  const view: ViewModel = toViewModel({ snapshot, content: narrative, ui: snapshot.ui });
+  /**
+   * 媒体槽 → 可访问 URL（2026-11-24 · 迭代 character-media）。
+   *
+   * 引擎只给 `assetId`；版本号来自当前世界 / 上次启动的模板，`?v=` 用服务端下发的
+   * `assetFingerprint`（换图即换 URL）。拿不到版本就不拼 —— 宁可没有图，不要拼错的地址。
+   */
+  const currentTemplateVersion =
+    worlds.find((w) => w.id === worldId)?.templateVersion ??
+    (readLastTemplate()?.id === snapshot.templateId ? readLastTemplate()?.version : undefined);
+  const assetFingerprint = worlds.length > 0
+    ? templateAssetFingerprints[`${snapshot.templateId}@${currentTemplateVersion ?? ""}`]
+    : undefined;
+  const mediaVm =
+    currentTemplateVersion === undefined
+      ? []
+      : withAssetUrls(snapshot.media, { id: snapshot.templateId, version: currentTemplateVersion }, assetFingerprint, (actorId) => {
+          if (actorId === snapshot.player.id) return snapshot.player.name;
+          return snapshot.npcs.find((n) => n.id === actorId)?.name;
+        });
+  const view: ViewModel = toViewModel({
+    snapshot,
+    content: narrative,
+    ui: snapshot.ui,
+    ...(mediaVm.length > 0 ? { media: mediaVm } : {}),
+  });
   /**
    * 有可用加点（ADR-019）：**不阻塞**，不与事件浮标抢位置 ——
    * 事件在等时先提示事件；没有事件时才亮加点，且可点（跳个人页 · 加点）。
@@ -3204,6 +3248,10 @@ function WorldTab({
                 npc={npc}
                 Details={NpcDetailsImpl}
                 onSelectStatus={(status) => pushDetail(statusToDetail(status))}
+                {...(() => {
+                  const avatar = mediaOfActor(vm.media, npc.id, "avatar");
+                  return avatar !== undefined ? { avatar } : {};
+                })()}
               />
             </div>
           ))}
