@@ -746,7 +746,7 @@ function poolDrawConfig(template: WorldTemplateV2): { skipWhenSlotOccupied: bool
   const cfg = template.eventFlow?.poolDraw;
   return {
     skipWhenSlotOccupied: cfg?.skipWhenSlotOccupied ?? true,
-    maxQueueLength: cfg?.maxQueueLength ?? 3,
+    maxQueueLength: cfg?.maxQueueLength ?? 1000,
   };
 }
 

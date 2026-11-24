@@ -110,6 +110,17 @@ export interface EnqueueScheduledInput {
  */
 export function enqueueScheduled(input: EnqueueScheduledInput): ScheduledEventInstance {
   const { state } = input;
+  /**
+   * **同名不重复入队**（2026-11-24 用户裁决）。
+   *
+   * 同一个事件在队里已经有一条等着了，再入队只会得到两条一模一样的候选 ——
+   * 抽中了也分不清是哪一条；一次性事件还会因此把 `once` 用掉两次。
+   * 这里直接返回队里那条（调用方拿到的仍是「这个事件的一条实例」）。
+   */
+  const queued = state.delayQueue.find(
+    (inst) => inst.definitionId === input.definitionId && inst.status === "waiting",
+  );
+  if (queued !== undefined) return queued;
   const now = state.worldTime;
   const start = input.absoluteStart ?? resolveTimeSpec(input.start ?? ZERO_SPEC, now, input.calendar);
   const end = input.end === undefined ? undefined : resolveTimeSpec(input.end, now, input.calendar);
