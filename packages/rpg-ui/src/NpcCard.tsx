@@ -1,12 +1,12 @@
 import type { ComponentType } from "react";
-import { Portrait } from "./Portrait";
+import { CharacterAvatar } from "./CharacterAvatar";
 import type { MediaVM, NpcVM, StatusVM } from "@life-sim/shared";
 import { NpcDetails, type NpcDetailsProps } from "./NpcDetails.js";
 
 export interface NpcCardProps {
   /**
    * 头像（2026-11-24 · 角色媒体）：由投影按皮肤解析，宿主只负责传。
-   * 不传 = 没有素材（老模板 / 未配置）⇒ 卡面不出现头像位，布局与以前一致。
+   * **不传也有头像位**（名字首字 + 主题底色）—— 有图没图布局必须一样。
    */
   avatar?: MediaVM;
   /** NPC 卡投影（属性已带标签、关系已只留出边、生命周期文案已翻译）。 */
@@ -21,8 +21,13 @@ export interface NpcCardProps {
 }
 
 /**
- * NPC 卡（世界页「人物」子页签）。默认收起详情：卡面只给身份 + 好感 + 已知目标，
- * 展开后是关系 / 状态 / 属性 / 生命周期四块（拆分到 `NpcDetails`，可独立覆盖）。
+ * NPC 卡（世界页「人物」子页签）。
+ *
+ * 版式（2026-11-24 · UI Polish 1.0）：
+ * - **左对齐标题区**：头像 + 姓名 + 次要信息（年龄 · 性别 · 人生阶段）竖排，关系档位靠右；
+ * - 关系档位**只出现一次**（右上标签），不再重复一颗「关系 深厚」的胶囊；
+ * - 已知目标从行内文字换成**轻量强调块**（左侧细条 + 淡底），扫读时能一眼分开「性格」与「目标」；
+ * - 头像位恒定 56px ⇒ 有图 / 无图 / 加载失败三态高度一致，列表不会跳。
  *
  * 所有数值与文案都来自投影：好感条长只是视觉辅助（-100..100 映射到 0..100%），
  * 属性值原样展示（0 也是有效值），关系句由 `RelationList` 统一拼。
@@ -30,27 +35,23 @@ export interface NpcCardProps {
 export function NpcCard({ npc, avatar, Details = NpcDetails, onSelectStatus }: NpcCardProps) {
   return (
     <section className={`card npc-card${npc.alive ? "" : " npc-card-inactive"}`}>
-      <div className="row">
-        {avatar !== undefined && (
-          <span className="npc-avatar" aria-hidden="true">
-            <Portrait media={avatar} />
-          </span>
-        )}
-        <h2>{npc.name}</h2>
-        <span className="tag">
-          {npc.age} 岁 · {npc.genderLabel}
+      <header className="npc-head">
+        <CharacterAvatar media={avatar} name={npc.name} size="sm" tone={npc.alive ? "muted" : "muted"} />
+        <div className="npc-head__text">
+          <h2 className="npc-head__name">{npc.name}</h2>
+          <p className="npc-head__meta">
+            {npc.age} 岁 · {npc.genderLabel} · {npc.lifeStageLabel}
+            {!npc.alive && <span className="npc-head__dead"> · {npc.lifeText}</span>}
+          </p>
+        </div>
+        <span className="npc-head__rel" title={`关系值 ${npc.relationship}`}>
+          {npc.relationshipLabel}
         </span>
-      </div>
-      <div className="chip-row npc-meta">
-        <span className="chip">{npc.lifeStageLabel}</span>
-        {/* 档位而不是裸数值（2026-11-19）：`关系 10` 没有参照系，玩家要的是"这一档算近还是远"。 */}
-        <span className="chip" title={`关系值 ${npc.relationship}`}>
-          关系 {npc.relationshipLabel}
-        </span>
-        {!npc.alive && <span className="chip npc-life-chip">{npc.lifeText}</span>}
-      </div>
-      <p className="muted">{npc.personality}</p>
-      <div className="attr">
+      </header>
+
+      <p className="npc-persona">{npc.personality}</p>
+
+      <div className="attr npc-affinity">
         <span className="attr-name">好感</span>
         <div className="bar">
           <div className="bar-fill relation" style={{ width: `${((npc.relationship + 100) / 200) * 100}%` }} />
@@ -59,7 +60,14 @@ export function NpcCard({ npc, avatar, Details = NpcDetails, onSelectStatus }: N
           {npc.relationshipLabel}
         </span>
       </div>
-      {npc.knownGoals.length > 0 && <p className="known-goals">已知目标：{npc.knownGoals.join("；")}</p>}
+
+      {npc.knownGoals.length > 0 && (
+        <div className="npc-goal">
+          <span className="npc-goal__label">已知目标</span>
+          <span className="npc-goal__text">{npc.knownGoals.join("；")}</span>
+        </div>
+      )}
+
       <Details npc={npc} {...(onSelectStatus !== undefined ? { onSelectStatus } : {})} />
     </section>
   );

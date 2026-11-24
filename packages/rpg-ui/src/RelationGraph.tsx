@@ -5,6 +5,13 @@ export interface RelationGraphProps {
   /** 中心节点名（玩家自己）。 */
   selfName: string;
   /**
+   * 头像（2026-11-24 · UI Polish 1.0）：**包括 Self**，按当前皮肤解析。
+   * 缺省 ⇒ 每个节点都退成名字首字，布局不变（有图 / 无图 / 加载失败同形）。
+   */
+  avatarOf?: (actorId: string) => { url: string; alt: string } | undefined;
+  /** 中心的 actorId（= 玩家自己），用来取 Self 的头像。 */
+  selfId?: string;
+  /**
    * 当前观察者的关系（**两个方向都下发**，`direction` 区分；投影已按观察者收敛过可见性）。
    * 组件只画出边 —— 入边在 NPC 卡那边写着。
    */
@@ -30,7 +37,7 @@ export interface RelationGraphProps {
  * 颜色只用来区分**边类型**（父亲 / 妻子 / 主君…），不代表亲密程度：亲密度在档位文案里
  * （`valueLabel`），用颜色再编码一次会让两条不同含义的轴互相污染。
  */
-export function RelationGraph({ selfName, relations, onSelectActor }: RelationGraphProps) {
+export function RelationGraph({ selfName, relations, onSelectActor, avatarOf, selfId }: RelationGraphProps) {
   /** 被关掉的边类型（缺省全开：进页面先看到全景，再按需筛）。 */
   const [mutedKinds, setMutedKinds] = useState<ReadonlySet<string>>(new Set());
 
@@ -64,6 +71,8 @@ export function RelationGraph({ selfName, relations, onSelectActor }: RelationGr
     /** 一个对端一个节点；同一对端的多条边挂在同一个节点上（只画边，不复制节点）。 */
     const byActor = new Map<string, { id: string; name: string; edges: NpcRelationVM[] }>();
     for (const rel of visibleEdges) {
+      // 指向自己的边不画节点：reuse 开局时 self 就是一个角色，它的关系里可能有自己。
+      if (selfId !== undefined && rel.withId === selfId) continue;
       const hit = byActor.get(rel.withId);
       if (hit === undefined) {
         byActor.set(rel.withId, {
@@ -80,7 +89,11 @@ export function RelationGraph({ selfName, relations, onSelectActor }: RelationGr
      * 与其把 30 个名字挤成一团，不如承认这一屏只画得下前 26 个（模板里没有这种量级）。
      */
     const CAPS = [12, 8, 6];
-    const RADII = [96, 68, 46];
+    /**
+     * 环半径（2026-11-24）：节点从「小圆点」换成 44px 头像后，环要往外推一档，
+     * 否则相邻头像会互相咬边（ring0 12 个节点时弦长 2·R·sin15° 要 > 44）。
+     */
+    const RADII = [118, 86, 56];
     const placed: Array<{
       id: string;
       name: string;
@@ -112,7 +125,7 @@ export function RelationGraph({ selfName, relations, onSelectActor }: RelationGr
       cursor += take;
     }
     return { placed, overflow: Math.max(0, nodes.length - placed.length) };
-  }, [visibleEdges]);
+  }, [visibleEdges, selfId]);
 
   if (relations.length === 0) {
     return <p className="muted">尚无已知的人际关系。</p>;
@@ -161,6 +174,14 @@ export function RelationGraph({ selfName, relations, onSelectActor }: RelationGr
         aria-label={`${selfName}的关系图，共 ${visibleEdges.length} 条关系`}
       >
         <defs>
+          <clipPath id="relgraph-clip-self">
+            <circle cx={CX} cy={CY} r={CENTER_R} />
+          </clipPath>
+          {layout.placed.map((node) => (
+            <clipPath key={`clip-${node.id}`} id={`relgraph-clip-${node.id}`}>
+              <circle cx={node.x} cy={node.y} r={NODE_R} />
+            </clipPath>
+          ))}
           {KIND_COLORS.map((color, i) => (
             <marker
               key={color}
@@ -211,21 +232,50 @@ export function RelationGraph({ selfName, relations, onSelectActor }: RelationGr
           }),
         )}
 
-        {/* 圆心：玩家自己 */}
+        {/* 圆心：玩家自己 —— 与普通节点同一套头像规则，只是更大、描边走主题色 */}
         <g className="relgraph-self">
-          <circle cx={CX} cy={CY} r={CENTER_R} />
-          <text x={CX} y={CY + 4} textAnchor="middle" className="relgraph-self__text">
-            {selfName.length <= 4 ? selfName : `${selfName.slice(0, 3)}…`}
+          <circle cx={CX} cy={CY} r={CENTER_R} className="relgraph-self__ring" />
+          <text x={CX} y={CY + 5} textAnchor="middle" className="relgraph-self__initial">
+            {selfName.slice(0, 1)}
+          </text>
+          {(() => {
+            const av = selfId === undefined ? undefined : avatarOf?.(selfId);
+            if (av === undefined || av.url === "") return null;
+            return (
+              <image
+                href={av.url}
+                x={CX - CENTER_R}
+                y={CY - CENTER_R}
+                width={CENTER_R * 2}
+                height={CENTER_R * 2}
+                clipPath="url(#relgraph-clip-self)"
+                preserveAspectRatio="xMidYMid slice"
+              />
+            );
+          })()}
+          <text x={CX} y={CY + CENTER_R + 18} textAnchor="middle" className="relgraph-self__text">
+            {selfName.length <= 5 ? selfName : `${selfName.slice(0, 4)}…`}
           </text>
         </g>
 
         {layout.placed.map((node) => {
-          const outward = 18;
-          const lx = node.x + Math.cos(node.angle) * outward;
-          const ly = node.y + Math.sin(node.angle) * outward + 4;
-          const anchor = Math.cos(node.angle) > 0.35 ? "start" : Math.cos(node.angle) < -0.35 ? "end" : "middle";
+          /**
+           * 名字一律**放在节点下方**（2026-11-24）：环形排布时「外侧 + 居中」会让左右两侧的
+           * 标签斜着漂、和邻节点互相压；统一下方至少保证标签基线一致。
+           */
+          const lx = node.x;
+          const ly = node.y + NODE_R + 14;
+          const anchor = "middle";
           const clickable = node.visible && onSelectActor !== undefined;
           const stateLabel = node.stateLabel ?? (node.visible ? undefined : "尚未登场");
+          const kindIndex = kinds.findIndex((k) => k.kind === node.edges[0]?.kind);
+          const ringColor = KIND_COLORS[(kindIndex >= 0 ? kindIndex : 0) % KIND_COLORS.length];
+          const edgeColors = node.edges.map((edge) => {
+            const i = kinds.findIndex((k) => k.kind === edge.kind);
+            return KIND_COLORS[(i >= 0 ? i : 0) % KIND_COLORS.length];
+          });
+          const circumference = 2 * Math.PI * NODE_R;
+          const avatar = avatarOf?.(node.id);
           return (
             <g
               key={node.id}
@@ -244,7 +294,41 @@ export function RelationGraph({ selfName, relations, onSelectActor }: RelationGr
                   }
                 : {})}
             >
-              <circle cx={node.x} cy={node.y} r={NODE_R} />
+              {/* 底圈：关系色描边。多重关系时分段上色，一眼看出「这人不只一种关系」。 */}
+              {edgeColors.length <= 1 ? (
+                <circle cx={node.x} cy={node.y} r={NODE_R + 2} className="relgraph-node__ring" stroke={ringColor} />
+              ) : (
+                edgeColors.map((color, i) => {
+                  const seg = circumference / edgeColors.length;
+                  return (
+                    <circle
+                      key={`${node.id}-seg-${i}`}
+                      cx={node.x}
+                      cy={node.y}
+                      r={NODE_R + 2}
+                      className="relgraph-node__ring"
+                      stroke={color}
+                      strokeDasharray={`${Math.max(1, seg - 3)} ${circumference}`}
+                      strokeDashoffset={-i * seg}
+                    />
+                  );
+                })
+              )}
+              {/* 首字垫在底下：图 404 时自然露出它，不需要额外的错误态分支。 */}
+              <text x={node.x} y={node.y + 5} textAnchor="middle" className="relgraph-node__initial">
+                {node.name.slice(0, 1)}
+              </text>
+              {avatar !== undefined && avatar.url !== "" && (
+                <image
+                  href={avatar.url}
+                  x={node.x - NODE_R}
+                  y={node.y - NODE_R}
+                  width={NODE_R * 2}
+                  height={NODE_R * 2}
+                  clipPath={`url(#relgraph-clip-${node.id})`}
+                  preserveAspectRatio="xMidYMid slice"
+                />
+              )}
               <text x={lx} y={ly} textAnchor={anchor} className="relgraph-node__name">
                 {node.name}
               </text>
@@ -273,11 +357,12 @@ export function RelationGraph({ selfName, relations, onSelectActor }: RelationGr
 
 /** 画布尺寸与半径集中在这里：布局是确定性的，同一份数据每次落在同一处。 */
 const WIDTH = 340;
-const HEIGHT = 330;
+const HEIGHT = 380;
 const CX = WIDTH / 2;
-const CY = 168;
-const CENTER_R = 26;
-const NODE_R = 9;
+const CY = 180;
+/** 中心 68px（用户：64–72），普通节点 44px（44–48）。 */
+const CENTER_R = 34;
+const NODE_R = 22;
 
 /**
  * 边类型调色板：只区分类型，不代表亲疏。

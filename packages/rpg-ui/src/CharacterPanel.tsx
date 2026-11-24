@@ -1,4 +1,5 @@
-import type { EquipmentSlotVM, PlayerVM } from "@life-sim/shared";
+import { CharacterAvatar } from "./CharacterAvatar";
+import type { EquipmentSlotVM, MediaVM, PlayerVM } from "@life-sim/shared";
 import { StyledName } from "./StyledName.js";
 import { isSlotSelected } from "./personal.js";
 import type { PersonalSelection, SlotCell } from "./personal.js";
@@ -57,6 +58,12 @@ export interface CharacterPanelProps {
   player: PlayerVM;
   /** 槽位定义（模板投影）；空数组 ⇒ 面板给「没有配置装备槽位」。 */
   slots: EquipmentSlotVM[];
+  /**
+   * 中央人物槽的头像（2026-11-24 · UI Polish 1.0）。
+   * 不传也有头像位（名字首字）；**不展示全身立绘** —— 装备槽两侧挤不下立绘，
+   * 立绘留给人物档案 / 故事区（那里有完整的一屏）。
+   */
+  avatar?: MediaVM;
   /** 受控选中态；不传则视为「未选中」（纯展示）。 */
   selection?: PersonalSelection;
   onSelect?: (next: PersonalSelection) => void;
@@ -70,7 +77,7 @@ export interface CharacterPanelProps {
  * 选中态由宿主持有（跨组件协调），这里只负责「高亮哪一格」与把点击回传上去；
  * `onSelect` 缺省时格子仍可点，但不会有人接收 —— 纯展示前端传 `undefined` 即可。
  */
-export function CharacterPanel({ player, slots, selection = null, onSelect }: CharacterPanelProps) {
+export function CharacterPanel({ player, avatar, slots, selection = null, onSelect }: CharacterPanelProps) {
   const cells = buildSlotCells(slots, player.equipment);
   const sideOf = (side: SlotCell["side"]) => cells.filter((c) => c.side === side);
   const left = sideOf("left");
@@ -110,12 +117,12 @@ export function CharacterPanel({ player, slots, selection = null, onSelect }: Ch
             </div>
 
             <div className="paperdoll-figure">
-              <div className="figure-avatar" aria-hidden="true">
-                ◈
-              </div>
+              <CharacterAvatar media={avatar} name={player.name} size="lg" tone="theme" className="figure-avatar" />
               <strong className="figure-name">{player.name}</strong>
               <span className="figure-sub">
                 {player.age} 岁 · {player.genderLabel}
+                {/* 模板没给阶段文案时适配器给空串 ⇒ 不渲染，绝不把 `adulthood` 这种 id 印出来。 */}
+                {player.lifeStageLabel !== "" ? ` · ${player.lifeStageLabel}` : ""}
               </span>
               <div className="figure-bars">
                 {/* ADR-003：模板声明的资源（hp/mp + 自定义）都要在人物图上可见。 */}
@@ -129,8 +136,6 @@ export function CharacterPanel({ player, slots, selection = null, onSelect }: Ch
                   />
                 ))}
               </div>
-              {/* 模板没给阶段文案时适配器给空串 ⇒ 不渲染，绝不把 `adulthood` 这种 id 印出来。 */}
-              {player.lifeStageLabel !== "" && <span className="figure-sub">{player.lifeStageLabel}</span>}
             </div>
 
             <div className="paperdoll-col right">

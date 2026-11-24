@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { CharacterAvatar } from "./CharacterAvatar";
 import type { BattleCommand } from "@life-sim/shared";
 import { BattleFxLayer } from "./BattleFxLayer.js";
-import type { BattleVM, StatusVM } from "@life-sim/shared";
+import type { BattleVM, MediaVM, StatusVM } from "@life-sim/shared";
 
 export interface BattleBoardProps {
   /** 战斗展示模型（来自 `toBattleVM`，不含引擎规则细节）。 */
@@ -10,6 +11,11 @@ export interface BattleBoardProps {
   labels?: { hp?: string; mp?: string };
   /** 请求在飞：所有按钮置灰（引擎侧 busy 锁兜底，视觉也要一致）。 */
   busy?: boolean;
+  /**
+   * 单位头像（2026-11-24 · UI Polish 1.0）：按**战斗单位 id** 取。
+   * 敌人 / 召唤物没有 NPC 实例，宿主用 `characterId` 解析出媒体后在这里返回即可。
+   */
+  avatarOf?: (unitId: string) => MediaVM | undefined;
   /** 战斗命令（技能 / 道具 / 逃跑 / 空过），组件内部不发请求。 */
   onCommand: (command: BattleCommand) => void;
   /**
@@ -121,12 +127,15 @@ function UnitCard({
   unit,
   kind,
   selected,
+  avatar,
   onSelect,
   onSelectStatus,
 }: {
   unit: BattleVM["enemies"][number];
   kind: "enemy" | "ally" | "neutral";
   selected?: boolean;
+  /** 头像（2026-11-24 · UI Polish 1.0）：召唤物 / 小怪拿不到就是首字，尺寸也更小。 */
+  avatar?: MediaVM;
   onSelect?: (id: string) => void;
   onSelectStatus?: (status: StatusVM) => void;
 }) {
@@ -139,12 +148,21 @@ function UnitCard({
   ]
     .filter(Boolean)
     .join(" ");
+  const isMinion = unit.tier === "minion";
   const body = (
     <>
-      <strong>{unit.name}</strong>
-      {unit.summonerName !== undefined && (
-        <span className="unit-summoner">召唤者：{unit.summonerName}</span>
-      )}
+      {/* 紧凑头像标题区：头像 + 名字 + 阵营/召唤者。战败时头像灰度（见 styles.css）。 */}
+      <div className="unit-head">
+        <CharacterAvatar media={avatar} name={unit.name} size={isMinion ? "xs" : "sm"} tone={unit.alive ? "muted" : "muted"} />
+        <div className="unit-head__text">
+          <strong className="unit-head__name">{unit.name}</strong>
+          <span className="unit-head__meta">
+            {kind === "enemy" ? "敌对" : kind === "ally" ? "友方" : "中立"}
+            {unit.summonerName !== undefined ? ` · 召唤者 ${unit.summonerName}` : ""}
+            {!unit.alive && unit.deathReason === undefined ? " · 已倒下" : ""}
+          </span>
+        </div>
+      </div>
       {unit.deathReason !== undefined && <span className="unit-death-reason">{unit.deathReason}</span>}
       {unit.departed === true && <span className="unit-departed">已离场</span>}
       <div className="bar">
@@ -186,6 +204,7 @@ export function BattleBoard({
   busy = false,
   onCommand,
   onSelectStatus,
+  avatarOf,
 }: BattleBoardProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   const [target, setTarget] = useState<string>("");
@@ -299,6 +318,7 @@ export function BattleBoard({
               <UnitCard
                 key={a.id}
                 unit={a}
+                {...(avatarOf?.(a.id) !== undefined ? { avatar: avatarOf?.(a.id) } : {})}
                 kind="ally"
                 selected={needsAlly && a.departed !== true && effectiveAlly === a.id}
                 {...(needsAlly && a.departed !== true ? { onSelect: toggleAllyTarget } : {})}
@@ -313,6 +333,7 @@ export function BattleBoard({
                   <UnitCard
                     key={a.id}
                     unit={a}
+                {...(avatarOf?.(a.id) !== undefined ? { avatar: avatarOf?.(a.id) } : {})}
                     kind="ally"
                     selected={needsAlly && effectiveAlly === a.id}
                     {...(needsAlly ? { onSelect: toggleAllyTarget } : {})}

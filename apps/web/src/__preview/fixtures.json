@@ -1,0 +1,1680 @@
+{
+  "view": {
+    "player": {
+      "id": "player",
+      "name": "五条悟",
+      "age": 15,
+      "genderLabel": "女",
+      "hp": 105,
+      "maxHp": 105,
+      "mp": 10,
+      "maxMp": 10,
+      "mood": 60,
+      "moodBandLabel": "平静",
+      "labels": {
+        "hp": "生命",
+        "mp": "咒力",
+        "mood": "心情"
+      },
+      "attributes": [
+        {
+          "key": "cursedEnergyTotal",
+          "label": "咒力总量",
+          "kind": "number",
+          "value": 5,
+          "display": "5"
+        },
+        {
+          "key": "cursedEnergyOutput",
+          "label": "咒力输出",
+          "kind": "number",
+          "value": 5,
+          "display": "5"
+        },
+        {
+          "key": "cursedEnergyControl",
+          "label": "咒力操作",
+          "kind": "number",
+          "value": 2,
+          "display": "2"
+        },
+        {
+          "key": "cursedEnergyEfficiency",
+          "label": "咒力效率",
+          "kind": "number",
+          "value": 2.5,
+          "display": "2.5"
+        },
+        {
+          "key": "critRate",
+          "label": "暴击率",
+          "kind": "number",
+          "value": 3.4,
+          "display": "3.4"
+        },
+        {
+          "key": "evadeRate",
+          "label": "闪避率",
+          "kind": "number",
+          "value": 5,
+          "display": "5"
+        },
+        {
+          "key": "mpCostRate",
+          "label": "咒力消耗",
+          "kind": "number",
+          "value": -1.5,
+          "display": "-1.5"
+        },
+        {
+          "key": "physique",
+          "label": "体术",
+          "kind": "number",
+          "value": 5,
+          "display": "5"
+        },
+        {
+          "key": "agility",
+          "label": "敏捷",
+          "kind": "number",
+          "value": 5,
+          "display": "5"
+        },
+        {
+          "key": "intellect",
+          "label": "智力",
+          "kind": "number",
+          "value": 6,
+          "display": "6"
+        },
+        {
+          "key": "luck",
+          "label": "幸运",
+          "kind": "number",
+          "value": 5,
+          "display": "5"
+        },
+        {
+          "key": "reputation",
+          "label": "声望",
+          "kind": "number",
+          "value": 0,
+          "display": "0"
+        },
+        {
+          "key": "grade",
+          "label": "等级",
+          "kind": "enum",
+          "value": "grade-4",
+          "display": "四级",
+          "style": {
+            "preset": "gray"
+          }
+        },
+        {
+          "key": "innateTechnique",
+          "label": "生得术式",
+          "kind": "enum",
+          "value": "none",
+          "display": "无术式",
+          "style": {
+            "preset": "gray"
+          }
+        },
+        {
+          "key": "fame",
+          "label": "名誉",
+          "kind": "composite",
+          "display": "默默无闻",
+          "style": {
+            "preset": "gray"
+          },
+          "sources": [
+            {
+              "key": "infamy",
+              "label": "恶名",
+              "display": "—"
+            },
+            {
+              "key": "virtue",
+              "label": "善名",
+              "display": "—"
+            }
+          ]
+        }
+      ],
+      "cardAttributes": [
+        {
+          "key": "grade",
+          "label": "等级",
+          "kind": "enum",
+          "value": "grade-4",
+          "display": "四级",
+          "style": {
+            "preset": "gray"
+          }
+        },
+        {
+          "key": "innateTechnique",
+          "label": "生得术式",
+          "kind": "enum",
+          "value": "none",
+          "display": "无术式",
+          "style": {
+            "preset": "gray"
+          }
+        },
+        {
+          "key": "fame",
+          "label": "名誉",
+          "kind": "composite",
+          "display": "默默无闻",
+          "style": {
+            "preset": "gray"
+          },
+          "sources": [
+            {
+              "key": "infamy",
+              "label": "恶名",
+              "display": "—"
+            },
+            {
+              "key": "virtue",
+              "label": "善名",
+              "display": "—"
+            }
+          ]
+        },
+        {
+          "key": "cursedEnergyTotal",
+          "label": "咒力总量",
+          "kind": "number",
+          "value": 5,
+          "display": "5"
+        },
+        {
+          "key": "physique",
+          "label": "体术",
+          "kind": "number",
+          "value": 5,
+          "display": "5"
+        },
+        {
+          "key": "agility",
+          "label": "敏捷",
+          "kind": "number",
+          "value": 5,
+          "display": "5"
+        }
+      ],
+      "resources": [
+        {
+          "key": "hp",
+          "label": "生命",
+          "value": 105,
+          "max": 105,
+          "display": "bar",
+          "dangerAt": 0.25
+        },
+        {
+          "key": "mp",
+          "label": "咒力",
+          "value": 10,
+          "max": 10,
+          "display": "bar",
+          "dangerAt": 0.25
+        }
+      ],
+      "statuses": [],
+      "relations": [
+        {
+          "withId": "npc-yaga",
+          "withName": "夜蛾正道",
+          "kind": "disciple",
+          "kindLabel": "弟子",
+          "typeLabel": "弟子",
+          "direction": "in",
+          "scope": "public",
+          "scopeLabel": "公开",
+          "counterpartVisible": true
+        },
+        {
+          "withId": "npc-gojo",
+          "withName": "五条悟",
+          "kind": "disciple",
+          "kindLabel": "弟子",
+          "typeLabel": "弟子",
+          "direction": "in",
+          "scope": "public",
+          "scopeLabel": "公开",
+          "counterpartVisible": true
+        },
+        {
+          "withId": "npc-geto",
+          "withName": "夏油杰",
+          "kind": "friend",
+          "kindLabel": "朋友",
+          "typeLabel": "朋友",
+          "direction": "in",
+          "scope": "public",
+          "scopeLabel": "公开",
+          "counterpartVisible": true
+        },
+        {
+          "withId": "npc-shoko",
+          "withName": "家入硝子",
+          "kind": "colleague",
+          "kindLabel": "同僚",
+          "typeLabel": "同僚",
+          "direction": "in",
+          "scope": "public",
+          "scopeLabel": "公开",
+          "counterpartVisible": true
+        },
+        {
+          "withId": "npc-nanami",
+          "withName": "七海建人",
+          "kind": "colleague",
+          "kindLabel": "同僚",
+          "typeLabel": "同僚",
+          "direction": "in",
+          "scope": "public",
+          "scopeLabel": "公开",
+          "counterpartVisible": true
+        },
+        {
+          "withId": "npc-haibara",
+          "withName": "灰原雄",
+          "kind": "friend",
+          "kindLabel": "朋友",
+          "typeLabel": "朋友",
+          "direction": "in",
+          "scope": "public",
+          "scopeLabel": "公开",
+          "counterpartVisible": true
+        },
+        {
+          "withId": "npc-yaga",
+          "withName": "夜蛾正道",
+          "kind": "mentor",
+          "kindLabel": "师父",
+          "typeLabel": "师父",
+          "direction": "out",
+          "scope": "public",
+          "scopeLabel": "公开",
+          "counterpartVisible": true
+        },
+        {
+          "withId": "npc-gojo",
+          "withName": "五条悟",
+          "kind": "mentor",
+          "kindLabel": "师父",
+          "typeLabel": "师父",
+          "direction": "out",
+          "scope": "public",
+          "scopeLabel": "公开",
+          "counterpartVisible": true
+        },
+        {
+          "withId": "npc-geto",
+          "withName": "夏油杰",
+          "kind": "friend",
+          "kindLabel": "朋友",
+          "typeLabel": "朋友",
+          "direction": "out",
+          "scope": "public",
+          "scopeLabel": "公开",
+          "counterpartVisible": true
+        },
+        {
+          "withId": "npc-shoko",
+          "withName": "家入硝子",
+          "kind": "colleague",
+          "kindLabel": "同僚",
+          "typeLabel": "同僚",
+          "direction": "out",
+          "scope": "public",
+          "scopeLabel": "公开",
+          "counterpartVisible": true
+        },
+        {
+          "withId": "npc-nanami",
+          "withName": "七海建人",
+          "kind": "colleague",
+          "kindLabel": "同僚",
+          "typeLabel": "同僚",
+          "direction": "out",
+          "scope": "public",
+          "scopeLabel": "公开",
+          "counterpartVisible": true
+        },
+        {
+          "withId": "npc-haibara",
+          "withName": "灰原雄",
+          "kind": "friend",
+          "kindLabel": "朋友",
+          "typeLabel": "朋友",
+          "direction": "out",
+          "scope": "public",
+          "scopeLabel": "公开",
+          "counterpartVisible": true
+        }
+      ],
+      "statusTotals": [],
+      "lifeStage": "youth",
+      "lifeStageLabel": "青年",
+      "equipment": [],
+      "inventory": [
+        {
+          "itemId": "item-first-aid",
+          "name": "急救包",
+          "description": "高专配发的基础医疗包。纱布、止血带、一颗止痛药。",
+          "count": 1,
+          "usableOutsideBattle": true,
+          "usableInBattle": true,
+          "type": "consumable",
+          "effects": [
+            {
+              "text": "恢复 30 生命",
+              "kind": "attr",
+              "tone": "buff"
+            }
+          ]
+        }
+      ],
+      "skills": [
+        {
+          "id": "sk-basic-strike",
+          "name": "体术打击",
+          "description": "不依赖咒力的基础体术。任何一个咒术师的第一课。",
+          "kind": "combat",
+          "effects": [
+            {
+              "text": "无消耗",
+              "kind": "cost"
+            },
+            {
+              "text": "目标：单个敌人",
+              "kind": "note"
+            },
+            {
+              "text": "命中判定：基础 70%",
+              "kind": "formula"
+            },
+            {
+              "text": "伤害 8",
+              "kind": "formula"
+            }
+          ]
+        }
+      ]
+    },
+    "npcs": [
+      {
+        "id": "npc-yaga",
+        "name": "夜蛾正道",
+        "age": 34,
+        "genderLabel": "男",
+        "lifeStageLabel": "壮年",
+        "relationship": 55,
+        "relationshipLabel": "亲近",
+        "personality": "轻浮、自大、随时在开玩笑。真的危险时，他会站在最前面。",
+        "knownGoals": [
+          "把咒术界翻过来"
+        ],
+        "statuses": [],
+        "attributes": [
+          {
+            "key": "cursedEnergyTotal",
+            "label": "咒力总量",
+            "kind": "number",
+            "value": 30,
+            "display": "30"
+          },
+          {
+            "key": "cursedEnergyOutput",
+            "label": "咒力输出",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "cursedEnergyControl",
+            "label": "咒力操作",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "cursedEnergyEfficiency",
+            "label": "咒力效率",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "critRate",
+            "label": "暴击率",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "evadeRate",
+            "label": "闪避率",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "mpCostRate",
+            "label": "咒力消耗",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "physique",
+            "label": "体术",
+            "kind": "number",
+            "value": 8,
+            "display": "8"
+          },
+          {
+            "key": "agility",
+            "label": "敏捷",
+            "kind": "number",
+            "value": 6,
+            "display": "6"
+          },
+          {
+            "key": "intellect",
+            "label": "智力",
+            "kind": "number",
+            "value": 9,
+            "display": "9"
+          },
+          {
+            "key": "luck",
+            "label": "幸运",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "reputation",
+            "label": "声望",
+            "kind": "number",
+            "value": 35,
+            "display": "35"
+          },
+          {
+            "key": "grade",
+            "label": "等级",
+            "kind": "enum",
+            "display": "—"
+          },
+          {
+            "key": "innateTechnique",
+            "label": "生得术式",
+            "kind": "enum",
+            "display": "—"
+          },
+          {
+            "key": "fame",
+            "label": "名誉",
+            "kind": "composite",
+            "display": "默默无闻",
+            "style": {
+              "preset": "gray"
+            },
+            "sources": [
+              {
+                "key": "infamy",
+                "label": "恶名",
+                "display": "—"
+              },
+              {
+                "key": "virtue",
+                "label": "善名",
+                "display": "—"
+              }
+            ]
+          }
+        ],
+        "alive": true,
+        "lifeState": "alive",
+        "lifeText": "在世",
+        "relations": [
+          {
+            "withId": "npc-gojo",
+            "withName": "五条悟",
+            "kind": "disciple",
+            "kindLabel": "弟子",
+            "typeLabel": "弟子",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "value": 80,
+            "valueLabel": "深厚",
+            "counterpartVisible": true
+          },
+          {
+            "withId": "npc-nanami",
+            "withName": "七海建人",
+            "kind": "disciple",
+            "kindLabel": "弟子",
+            "typeLabel": "弟子",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "value": 70,
+            "valueLabel": "深厚",
+            "counterpartVisible": true
+          },
+          {
+            "withId": "player",
+            "withName": "五条悟",
+            "kind": "disciple",
+            "kindLabel": "弟子",
+            "typeLabel": "弟子",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "counterpartVisible": true
+          }
+        ]
+      },
+      {
+        "id": "npc-gojo",
+        "name": "五条悟",
+        "age": 17,
+        "genderLabel": "男",
+        "lifeStageLabel": "青年",
+        "relationship": 55,
+        "relationshipLabel": "亲近",
+        "personality": "轻浮、自大、随时在开玩笑。真的危险时，他会站在最前面。",
+        "knownGoals": [
+          "把咒术界翻过来"
+        ],
+        "statuses": [
+          {
+            "id": "six-eyes",
+            "name": "六眼",
+            "stacks": 1,
+            "description": "「天上天下，唯我独尊。」——《长阿含经》 五条家数百年一现的至高天赋，承佛教「五眼」之意，穷尽咒力之相，洞悉术式之理， 令咒力运转臻于无漏之境。与天元、星浆体同系于命运，纵历生死，因果不绝。",
+            "quality": "mythic-unique",
+            "style": {
+              "preset": "rainbow",
+              "animation": "rainbow-flow"
+            },
+            "polarity": "positive",
+            "kind": "talent",
+            "tags": [
+              {
+                "id": "mythic-unique",
+                "name": "唯一·神话",
+                "style": {
+                  "preset": "rainbow",
+                  "animation": "rainbow-flow"
+                }
+              }
+            ],
+            "effects": [
+              {
+                "text": "咒力操作 +30",
+                "kind": "attr",
+                "tone": "buff"
+              },
+              {
+                "text": "咒力效率 +90",
+                "kind": "attr",
+                "tone": "buff"
+              },
+              {
+                "text": "敏捷 +10",
+                "kind": "attr",
+                "tone": "buff"
+              },
+              {
+                "text": "智力 +10",
+                "kind": "attr",
+                "tone": "buff"
+              },
+              {
+                "text": "战斗中造成伤害 +30%",
+                "kind": "combat",
+                "tone": "buff"
+              },
+              {
+                "text": "战斗中命中 +20%",
+                "kind": "combat",
+                "tone": "buff"
+              }
+            ]
+          },
+          {
+            "id": "t-black-flash",
+            "name": "黑闪",
+            "stacks": 1,
+            "description": "打击与咒力在百万分之一秒的误差内重合，误差小到连世界都来不及反应。 不是技巧，是资质——有人一辈子碰不到那一下，有人碰上一次就再也忘不掉。",
+            "quality": "purple",
+            "style": {
+              "preset": "purple"
+            },
+            "polarity": "positive",
+            "kind": "talent",
+            "effects": [
+              {
+                "text": "咒力操作 +4",
+                "kind": "attr",
+                "tone": "buff"
+              }
+            ]
+          }
+        ],
+        "attributes": [
+          {
+            "key": "cursedEnergyTotal",
+            "label": "咒力总量",
+            "kind": "number",
+            "value": 120,
+            "display": "120"
+          },
+          {
+            "key": "cursedEnergyOutput",
+            "label": "咒力输出",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "cursedEnergyControl",
+            "label": "咒力操作",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "cursedEnergyEfficiency",
+            "label": "咒力效率",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "critRate",
+            "label": "暴击率",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "evadeRate",
+            "label": "闪避率",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "mpCostRate",
+            "label": "咒力消耗",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "physique",
+            "label": "体术",
+            "kind": "number",
+            "value": 9,
+            "display": "9"
+          },
+          {
+            "key": "agility",
+            "label": "敏捷",
+            "kind": "number",
+            "value": 11,
+            "display": "11"
+          },
+          {
+            "key": "intellect",
+            "label": "智力",
+            "kind": "number",
+            "value": 10,
+            "display": "10"
+          },
+          {
+            "key": "luck",
+            "label": "幸运",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "reputation",
+            "label": "声望",
+            "kind": "number",
+            "value": 60,
+            "display": "60"
+          },
+          {
+            "key": "grade",
+            "label": "等级",
+            "kind": "enum",
+            "value": "special",
+            "display": "特级",
+            "style": {
+              "preset": "gold"
+            }
+          },
+          {
+            "key": "innateTechnique",
+            "label": "生得术式",
+            "kind": "enum",
+            "value": "limitless",
+            "display": "无下限术式",
+            "style": {
+              "preset": "rainbow",
+              "animation": "rainbow-flow"
+            }
+          },
+          {
+            "key": "fame",
+            "label": "名誉",
+            "kind": "composite",
+            "display": "默默无闻",
+            "style": {
+              "preset": "gray"
+            },
+            "sources": [
+              {
+                "key": "infamy",
+                "label": "恶名",
+                "display": "—"
+              },
+              {
+                "key": "virtue",
+                "label": "善名",
+                "display": "—"
+              }
+            ]
+          }
+        ],
+        "alive": true,
+        "lifeState": "alive",
+        "lifeText": "在世",
+        "relations": [
+          {
+            "withId": "npc-geto",
+            "withName": "夏油杰",
+            "kind": "friend",
+            "kindLabel": "朋友",
+            "typeLabel": "朋友",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "value": 70,
+            "valueLabel": "深厚",
+            "counterpartVisible": true
+          },
+          {
+            "withId": "npc-shoko",
+            "withName": "家入硝子",
+            "kind": "colleague",
+            "kindLabel": "同僚",
+            "typeLabel": "同僚",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "value": 60,
+            "valueLabel": "深厚",
+            "counterpartVisible": true
+          },
+          {
+            "withId": "npc-yaga",
+            "withName": "夜蛾正道",
+            "kind": "mentor",
+            "kindLabel": "师父",
+            "typeLabel": "师父",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "value": 80,
+            "valueLabel": "深厚",
+            "counterpartVisible": true
+          },
+          {
+            "withId": "npc-yuta",
+            "withName": "乙骨忧太",
+            "kind": "relative",
+            "kindLabel": "亲戚",
+            "typeLabel": "亲戚",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "value": 20,
+            "valueLabel": "亲近",
+            "counterpartVisible": false,
+            "counterpartState": "unspawned",
+            "counterpartStateLabel": "尚未登场"
+          },
+          {
+            "withId": "player",
+            "withName": "五条悟",
+            "kind": "disciple",
+            "kindLabel": "弟子",
+            "typeLabel": "弟子",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "counterpartVisible": true
+          }
+        ]
+      },
+      {
+        "id": "npc-geto",
+        "name": "夏油杰",
+        "age": 17,
+        "genderLabel": "男",
+        "lifeStageLabel": "青年",
+        "relationship": 55,
+        "relationshipLabel": "亲近",
+        "personality": "轻浮、自大、随时在开玩笑。真的危险时，他会站在最前面。",
+        "knownGoals": [
+          "把咒术界翻过来"
+        ],
+        "statuses": [],
+        "attributes": [
+          {
+            "key": "cursedEnergyTotal",
+            "label": "咒力总量",
+            "kind": "number",
+            "value": 48,
+            "display": "48"
+          },
+          {
+            "key": "cursedEnergyOutput",
+            "label": "咒力输出",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "cursedEnergyControl",
+            "label": "咒力操作",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "cursedEnergyEfficiency",
+            "label": "咒力效率",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "critRate",
+            "label": "暴击率",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "evadeRate",
+            "label": "闪避率",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "mpCostRate",
+            "label": "咒力消耗",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "physique",
+            "label": "体术",
+            "kind": "number",
+            "value": 8,
+            "display": "8"
+          },
+          {
+            "key": "agility",
+            "label": "敏捷",
+            "kind": "number",
+            "value": 7,
+            "display": "7"
+          },
+          {
+            "key": "intellect",
+            "label": "智力",
+            "kind": "number",
+            "value": 10,
+            "display": "10"
+          },
+          {
+            "key": "luck",
+            "label": "幸运",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "reputation",
+            "label": "声望",
+            "kind": "number",
+            "value": 40,
+            "display": "40"
+          },
+          {
+            "key": "grade",
+            "label": "等级",
+            "kind": "enum",
+            "value": "special",
+            "display": "特级",
+            "style": {
+              "preset": "gold"
+            }
+          },
+          {
+            "key": "innateTechnique",
+            "label": "生得术式",
+            "kind": "enum",
+            "value": "cursed-spirits",
+            "display": "咒灵操术",
+            "style": {
+              "preset": "purple"
+            }
+          },
+          {
+            "key": "fame",
+            "label": "名誉",
+            "kind": "composite",
+            "display": "默默无闻",
+            "style": {
+              "preset": "gray"
+            },
+            "sources": [
+              {
+                "key": "infamy",
+                "label": "恶名",
+                "display": "—"
+              },
+              {
+                "key": "virtue",
+                "label": "善名",
+                "display": "—"
+              }
+            ]
+          }
+        ],
+        "alive": true,
+        "lifeState": "alive",
+        "lifeText": "在世",
+        "relations": [
+          {
+            "withId": "npc-gojo",
+            "withName": "五条悟",
+            "kind": "friend",
+            "kindLabel": "朋友",
+            "typeLabel": "朋友",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "value": 70,
+            "valueLabel": "深厚",
+            "counterpartVisible": true
+          },
+          {
+            "withId": "npc-shoko",
+            "withName": "家入硝子",
+            "kind": "colleague",
+            "kindLabel": "同僚",
+            "typeLabel": "同僚",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "value": 60,
+            "valueLabel": "深厚",
+            "counterpartVisible": true
+          },
+          {
+            "withId": "player",
+            "withName": "五条悟",
+            "kind": "friend",
+            "kindLabel": "朋友",
+            "typeLabel": "朋友",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "counterpartVisible": true
+          }
+        ]
+      },
+      {
+        "id": "npc-shoko",
+        "name": "家入硝子",
+        "age": 17,
+        "genderLabel": "女",
+        "lifeStageLabel": "青年",
+        "relationship": 55,
+        "relationshipLabel": "亲近",
+        "personality": "轻浮、自大、随时在开玩笑。真的危险时，他会站在最前面。",
+        "knownGoals": [
+          "把咒术界翻过来"
+        ],
+        "statuses": [],
+        "attributes": [
+          {
+            "key": "cursedEnergyTotal",
+            "label": "咒力总量",
+            "kind": "number",
+            "value": 26,
+            "display": "26"
+          },
+          {
+            "key": "cursedEnergyOutput",
+            "label": "咒力输出",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "cursedEnergyControl",
+            "label": "咒力操作",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "cursedEnergyEfficiency",
+            "label": "咒力效率",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "critRate",
+            "label": "暴击率",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "evadeRate",
+            "label": "闪避率",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "mpCostRate",
+            "label": "咒力消耗",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "physique",
+            "label": "体术",
+            "kind": "number",
+            "value": 5,
+            "display": "5"
+          },
+          {
+            "key": "agility",
+            "label": "敏捷",
+            "kind": "number",
+            "value": 6,
+            "display": "6"
+          },
+          {
+            "key": "intellect",
+            "label": "智力",
+            "kind": "number",
+            "value": 9,
+            "display": "9"
+          },
+          {
+            "key": "luck",
+            "label": "幸运",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "reputation",
+            "label": "声望",
+            "kind": "number",
+            "value": 30,
+            "display": "30"
+          },
+          {
+            "key": "grade",
+            "label": "等级",
+            "kind": "enum",
+            "display": "—"
+          },
+          {
+            "key": "innateTechnique",
+            "label": "生得术式",
+            "kind": "enum",
+            "display": "—"
+          },
+          {
+            "key": "fame",
+            "label": "名誉",
+            "kind": "composite",
+            "display": "默默无闻",
+            "style": {
+              "preset": "gray"
+            },
+            "sources": [
+              {
+                "key": "infamy",
+                "label": "恶名",
+                "display": "—"
+              },
+              {
+                "key": "virtue",
+                "label": "善名",
+                "display": "—"
+              }
+            ]
+          }
+        ],
+        "alive": true,
+        "lifeState": "alive",
+        "lifeText": "在世",
+        "relations": [
+          {
+            "withId": "npc-gojo",
+            "withName": "五条悟",
+            "kind": "colleague",
+            "kindLabel": "同僚",
+            "typeLabel": "同僚",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "value": 60,
+            "valueLabel": "深厚",
+            "counterpartVisible": true
+          },
+          {
+            "withId": "npc-geto",
+            "withName": "夏油杰",
+            "kind": "colleague",
+            "kindLabel": "同僚",
+            "typeLabel": "同僚",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "value": 60,
+            "valueLabel": "深厚",
+            "counterpartVisible": true
+          },
+          {
+            "withId": "player",
+            "withName": "五条悟",
+            "kind": "colleague",
+            "kindLabel": "同僚",
+            "typeLabel": "同僚",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "counterpartVisible": true
+          }
+        ]
+      },
+      {
+        "id": "npc-nanami",
+        "name": "七海建人",
+        "age": 15,
+        "genderLabel": "男",
+        "lifeStageLabel": "青年",
+        "relationship": 12,
+        "relationshipLabel": "平常",
+        "personality": "克制、讲规则，会在你乱来之后冷静地把你骂一顿。",
+        "knownGoals": [
+          "毕业，然后想清楚要不要继续当术师"
+        ],
+        "statuses": [],
+        "attributes": [
+          {
+            "key": "cursedEnergyTotal",
+            "label": "咒力总量",
+            "kind": "number",
+            "value": 26,
+            "display": "26"
+          },
+          {
+            "key": "cursedEnergyOutput",
+            "label": "咒力输出",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "cursedEnergyControl",
+            "label": "咒力操作",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "cursedEnergyEfficiency",
+            "label": "咒力效率",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "critRate",
+            "label": "暴击率",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "evadeRate",
+            "label": "闪避率",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "mpCostRate",
+            "label": "咒力消耗",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "physique",
+            "label": "体术",
+            "kind": "number",
+            "value": 7,
+            "display": "7"
+          },
+          {
+            "key": "agility",
+            "label": "敏捷",
+            "kind": "number",
+            "value": 7,
+            "display": "7"
+          },
+          {
+            "key": "intellect",
+            "label": "智力",
+            "kind": "number",
+            "value": 9,
+            "display": "9"
+          },
+          {
+            "key": "luck",
+            "label": "幸运",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "reputation",
+            "label": "声望",
+            "kind": "number",
+            "value": 15,
+            "display": "15"
+          },
+          {
+            "key": "grade",
+            "label": "等级",
+            "kind": "enum",
+            "display": "—"
+          },
+          {
+            "key": "innateTechnique",
+            "label": "生得术式",
+            "kind": "enum",
+            "display": "—"
+          },
+          {
+            "key": "fame",
+            "label": "名誉",
+            "kind": "composite",
+            "display": "默默无闻",
+            "style": {
+              "preset": "gray"
+            },
+            "sources": [
+              {
+                "key": "infamy",
+                "label": "恶名",
+                "display": "—"
+              },
+              {
+                "key": "virtue",
+                "label": "善名",
+                "display": "—"
+              }
+            ]
+          }
+        ],
+        "alive": true,
+        "lifeState": "alive",
+        "lifeText": "在世",
+        "relations": [
+          {
+            "withId": "npc-haibara",
+            "withName": "灰原雄",
+            "kind": "friend",
+            "kindLabel": "朋友",
+            "typeLabel": "朋友",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "value": 75,
+            "valueLabel": "深厚",
+            "counterpartVisible": true
+          },
+          {
+            "withId": "npc-yaga",
+            "withName": "夜蛾正道",
+            "kind": "mentor",
+            "kindLabel": "师父",
+            "typeLabel": "师父",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "value": 70,
+            "valueLabel": "深厚",
+            "counterpartVisible": true
+          },
+          {
+            "withId": "player",
+            "withName": "五条悟",
+            "kind": "colleague",
+            "kindLabel": "同僚",
+            "typeLabel": "同僚",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "counterpartVisible": true
+          }
+        ]
+      },
+      {
+        "id": "npc-haibara",
+        "name": "灰原雄",
+        "age": 15,
+        "genderLabel": "男",
+        "lifeStageLabel": "青年",
+        "relationship": 15,
+        "relationshipLabel": "平常",
+        "personality": "直率、热血，把「术师要保护人」当成理所当然的事。",
+        "knownGoals": [
+          "成为能独当一面的术师"
+        ],
+        "statuses": [],
+        "attributes": [
+          {
+            "key": "cursedEnergyTotal",
+            "label": "咒力总量",
+            "kind": "number",
+            "value": 20,
+            "display": "20"
+          },
+          {
+            "key": "cursedEnergyOutput",
+            "label": "咒力输出",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "cursedEnergyControl",
+            "label": "咒力操作",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "cursedEnergyEfficiency",
+            "label": "咒力效率",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "critRate",
+            "label": "暴击率",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "evadeRate",
+            "label": "闪避率",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "mpCostRate",
+            "label": "咒力消耗",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "physique",
+            "label": "体术",
+            "kind": "number",
+            "value": 8,
+            "display": "8"
+          },
+          {
+            "key": "agility",
+            "label": "敏捷",
+            "kind": "number",
+            "value": 6,
+            "display": "6"
+          },
+          {
+            "key": "intellect",
+            "label": "智力",
+            "kind": "number",
+            "value": 6,
+            "display": "6"
+          },
+          {
+            "key": "luck",
+            "label": "幸运",
+            "kind": "number",
+            "value": 0,
+            "display": "0"
+          },
+          {
+            "key": "reputation",
+            "label": "声望",
+            "kind": "number",
+            "value": 10,
+            "display": "10"
+          },
+          {
+            "key": "grade",
+            "label": "等级",
+            "kind": "enum",
+            "display": "—"
+          },
+          {
+            "key": "innateTechnique",
+            "label": "生得术式",
+            "kind": "enum",
+            "display": "—"
+          },
+          {
+            "key": "fame",
+            "label": "名誉",
+            "kind": "composite",
+            "display": "默默无闻",
+            "style": {
+              "preset": "gray"
+            },
+            "sources": [
+              {
+                "key": "infamy",
+                "label": "恶名",
+                "display": "—"
+              },
+              {
+                "key": "virtue",
+                "label": "善名",
+                "display": "—"
+              }
+            ]
+          }
+        ],
+        "alive": true,
+        "lifeState": "alive",
+        "lifeText": "在世",
+        "relations": [
+          {
+            "withId": "npc-nanami",
+            "withName": "七海建人",
+            "kind": "friend",
+            "kindLabel": "朋友",
+            "typeLabel": "朋友",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "value": 75,
+            "valueLabel": "深厚",
+            "counterpartVisible": true
+          },
+          {
+            "withId": "player",
+            "withName": "五条悟",
+            "kind": "friend",
+            "kindLabel": "朋友",
+            "typeLabel": "朋友",
+            "direction": "out",
+            "scope": "public",
+            "scopeLabel": "公开",
+            "counterpartVisible": true
+          }
+        ]
+      }
+    ],
+    "slot": null,
+    "evaluation": {
+      "summary": "本局评价尚未生成。",
+      "canonDeviation": 0,
+      "ended": false
+    },
+    "media": [
+      {
+        "slot": "avatar.npc-gojo",
+        "assetId": "gojo.student.avatar",
+        "url": "/api/templates/jjk-2006/3.0.0/assets/gojo.student.avatar",
+        "alt": "五条悟"
+      }
+    ],
+    "content": [],
+    "availableActions": [
+      {
+        "id": "train",
+        "label": "修炼",
+        "description": "打熬咒力与体术。咒力 +1，代价是耗掉一些体力。"
+      },
+      {
+        "id": "patrol",
+        "label": "巡逻",
+        "description": "在结界薄弱处巡逻——大概率遇见什么，小概率什么也没遇见。"
+      },
+      {
+        "id": "explore",
+        "label": "探索",
+        "description": "钻进废弃校舍、地下道与咒灵巢穴。风险自负。"
+      },
+      {
+        "id": "study",
+        "label": "上课",
+        "description": "高专的咒理课程。智力 +1，偶尔会被点名。"
+      },
+      {
+        "id": "socialize",
+        "label": "交往",
+        "description": "与同伴度过一天。心情与羁绊都会变好。"
+      },
+      {
+        "id": "rest",
+        "label": "休息",
+        "description": "回宿舍休整，恢复 HP/MP。"
+      },
+      {
+        "id": "recuperate",
+        "label": "疗养",
+        "description": "去医务室躺两天。治好伤势与力竭，但这两天什么也做不了。"
+      }
+    ],
+    "formattedTime": "2006年1月1日 00:00",
+    "lifeStage": "youth",
+    "lifeStageLabel": "青年",
+    "statusBar": [
+      {
+        "key": "hp",
+        "label": "生命",
+        "value": 105,
+        "max": 105,
+        "tone": "normal",
+        "display": "bar"
+      },
+      {
+        "key": "mp",
+        "label": "咒力",
+        "value": 10,
+        "max": 10,
+        "tone": "normal",
+        "display": "bar"
+      }
+    ],
+    "equipmentSlots": [
+      {
+        "id": "weapon",
+        "label": "武器",
+        "maxCount": 1,
+        "allowedCategories": [
+          "blade",
+          "cursed-tool"
+        ],
+        "allowedCategoryLabels": [
+          "刀剑",
+          "咒具"
+        ],
+        "panelSide": "left"
+      },
+      {
+        "id": "accessory",
+        "label": "饰品",
+        "maxCount": 2,
+        "allowedCategories": [
+          "ring",
+          "charm",
+          "cursed-tool"
+        ],
+        "allowedCategoryLabels": [
+          "ring",
+          "charm",
+          "咒具"
+        ],
+        "panelSide": "right"
+      }
+    ],
+    "battle": null,
+    "ending": null,
+    "turnIndex": 0
+  }
+}

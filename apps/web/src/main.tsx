@@ -2594,6 +2594,7 @@ function LifeTab({
                   battle={view.battle}
                   labels={snapshot.labels.resources}
                   busy={busy}
+                  avatarOf={(unitId) => mediaOfActor(view.media, unitId, "avatar")}
                   onCommand={onBattle}
                   onSelectStatus={(status) => pushDetail(statusToDetail(status))}
                 />
@@ -3004,7 +3005,16 @@ function PersonalTab({
               )}
             </section>
           )}
-          <CharacterPanel player={player} slots={slots} selection={active} onSelect={setSelection} />
+          <CharacterPanel
+            player={player}
+            {...(() => {
+              const avatar = mediaOfActor(view.media, player.id, "avatar");
+              return avatar !== undefined ? { avatar } : {};
+            })()}
+            slots={slots}
+            selection={active}
+            onSelect={setSelection}
+          />
           <StatsPanel
             player={player}
             evaluation={view.evaluation}
@@ -3078,6 +3088,11 @@ function PersonalTab({
           */}
           <RelationGraph
             selfName={player.relationsOwner?.name ?? player.name}
+            selfId={player.relationsOwner?.id ?? player.id}
+            avatarOf={(actorId) => {
+              const hit = mediaOfActor(view.media, actorId, "avatar");
+              return hit === undefined ? undefined : { url: hit.url, alt: hit.alt };
+            }}
             relations={player.relations}
             onSelectActor={onOpenNpc}
           />

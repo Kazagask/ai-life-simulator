@@ -156,3 +156,4 @@ export type {
   TurnGainVM,
   EffectSummaryVM,
 } from "@life-sim/shared";
+export * from "./CharacterAvatar.js";

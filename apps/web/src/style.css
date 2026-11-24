@@ -66,6 +66,16 @@ body {
   text-transform: uppercase;
 }
 
+/* 顶栏的世界名（2026-11-24）：原来是 11px 全大写 + 强调色，暗底上几乎糊成一片。
+   抬高对比、加大一档，并把「当前是哪一年」与「模板名」在视觉上分开。 */
+.topbar .eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: color-mix(in srgb, var(--text) 82%, var(--accent));
+  font-weight: 600;
+  text-transform: none;
+}
+
 .topbar h1.clock {
   margin: 2px 0 0;
   font-size: 18px;
@@ -738,7 +748,8 @@ button {
   background: color-mix(in srgb, var(--bg-card) 92%, transparent);
   backdrop-filter: blur(12px);
   border-top: 1px solid var(--border);
-  z-index: 20;
+  /* 底栏压在所有浮层之上（2026-11-24）：事件待决浮标 / 行动坞 / 加点提示都不该盖住导航。 */
+  z-index: 40;
 }
 
 .tabbar button {
