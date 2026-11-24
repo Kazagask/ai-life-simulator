@@ -56,21 +56,18 @@ events:
               - { type: setFlag, id: openPath, value: report }
               - { type: adjustRelation, npcId: npc-yaga, value: 3 }
               - { type: adjustAttribute, attribute: intellect, value: 1 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
           - id: opt-open-walk
             text: 先在城市里走一圈，认认路
             effects:
               - { type: setFlag, id: openPath, value: walk }
               - { type: adjustAttribute, attribute: luck, value: 1 }
               - { type: adjustMood, value: 4 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
           - id: opt-open-probe
             text: 把地址收起来，先找一个能问话的人
             effects:
               - { type: setFlag, id: openPath, value: probe }
               - { type: adjustAttribute, attribute: reputation, value: 2 }
               - { type: adjustMood, value: -2 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
 
   # ══════════════════════════════════════════════════════════════
   # 二、日常（按时代分段：era 1 = 2006 学生 / era 2 = 2007–2016 术师 / era 3 = 2018 东京）
@@ -967,7 +964,6 @@ events:
               - { type: adjustRelation, npcId: npc-gojo, value: 3 }
               - { type: adjustRelation, npcId: npc-geto, value: 3 }
               - { type: adjustMood, value: 3 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-hv-01b
           - id: opt-hv1-support
             text: 接受后勤。名单、路线、车，你来盯
@@ -976,7 +972,6 @@ events:
               - { type: adjustAttribute, attribute: intellect, value: 1 }
               - { type: adjustRelation, npcId: npc-yaga, value: 2 }
               - { type: adjustRelation, npcId: npc-kuroi, value: 3 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-hv-01b
           - id: opt-hv1-rogue
             text: 私下调查。你想先弄明白盘星教是怎么知道路线的
@@ -985,7 +980,6 @@ events:
               - { type: adjustAttribute, attribute: intellect, value: 2 }
               - { type: adjustFlag, id: truthBits, value: 1 }
               - { type: adjustMood, value: -2 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-hv-01b
 
   - id: ev-hv-01b
@@ -1062,7 +1056,6 @@ events:
               - { type: adjustRelation, npcId: npc-riko, value: 1 }
               - { type: adjustRelation, npcId: npc-kuroi, value: 3 }
               - { type: adjustAttribute, attribute: intellect, value: 1 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-hv-02b
           - id: opt-hv2-soft
             text: 顺着她。问她在学校过得怎么样
@@ -1070,7 +1063,6 @@ events:
               - { type: setFlag, id: hvStance, value: soft }
               - { type: adjustRelation, npcId: npc-riko, value: 6 }
               - { type: adjustMood, value: 4 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-hv-02b
           - id: opt-hv2-sharp
             text: 先不看人，先看路线。这栋楼有几个出口
@@ -1079,7 +1071,6 @@ events:
               - { type: adjustAttribute, attribute: intellect, value: 2 }
               - { type: adjustFlag, id: truthBits, value: 1 }
               - { type: adjustRelation, npcId: npc-riko, value: -2 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-hv-02b
 
   - id: ev-hv-02b
@@ -1190,7 +1181,6 @@ events:
               - { type: setFlag, id: kuroiKidnap, value: okinawa }
               - { type: adjustAttribute, attribute: agility, value: 1 }
               - { type: adjustRelation, npcId: npc-riko, value: 4 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-hv-03b
           - id: opt-hv3-investigate
             text: 留在东京查内鬼。路线只可能从里面漏出去
@@ -1198,7 +1188,6 @@ events:
               - { type: setFlag, id: kuroiKidnap, value: investigate }
               - { type: adjustAttribute, attribute: intellect, value: 2 }
               - { type: adjustFlag, id: truthBits, value: 2 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-hv-03b
           - id: opt-hv3-report
             text: 报告高层。让他们派人，你只负责说清楚
@@ -1208,7 +1197,6 @@ events:
               - { type: adjustRelation, npcId: npc-yaga, value: 2 }
               - { type: adjustRelation, npcId: npc-gojo, value: -2 }
               - { type: adjustRelation, npcId: npc-riko, value: -3 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-hv-03b
 
   - id: ev-hv-03b
@@ -1275,7 +1263,6 @@ events:
               - { type: setFlag, id: spAware, value: true }
               - { type: adjustRelation, npcId: npc-riko, value: 10 }
               - { type: adjustMood, value: 5 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-hv-04b
           - id: opt-hv4-interrogate
             text: 去审那个被抓住的绑匪
@@ -1287,7 +1274,6 @@ events:
               - { type: adjustFlag, id: truthBits, value: 2 }
               - { type: setFlag, id: knowsToji, value: true }
               - { type: adjustMood, value: -3 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-hv-04b
           - id: opt-hv4-solo
             text: 一个人去找甚尔的线索
@@ -1299,7 +1285,6 @@ events:
               - { type: adjustFlag, id: truthBits, value: 2 }
               - { type: setFlag, id: knowsToji, value: true }
               - { type: adjustMood, value: -5 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-hv-04b
           - id: opt-hv4-kuroi
             text: 陪黑井去买东西。她说理子小时候怕黑
@@ -1309,7 +1294,6 @@ events:
               - { type: adjustRelation, npcId: npc-kuroi, value: 8 }
               - { type: adjustRelation, npcId: npc-riko, value: 3 }
               - { type: adjustMood, value: 4 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-hv-04b
 
   - id: ev-hv-04b
@@ -1457,7 +1441,6 @@ events:
             effects:
               - { type: setFlag, id: hvGuard, value: true }
               - { type: adjustMood, value: -3 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-hv-06-block
           - id: opt-hv6-pull
             text: 拉住她，往侧廊跑
@@ -1468,7 +1451,6 @@ events:
             effects:
               - { type: setFlag, id: hvPull, value: true }
               - { type: adjustMood, value: -2 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-hv-06-pull
           - id: opt-hv6-merge
             text: 劝她走进本殿，接受同化
@@ -1478,14 +1460,12 @@ events:
             effects:
               - { type: setFlag, id: hvMerge, value: true }
               - { type: adjustMood, value: -6 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-hv-06-merge
           - id: opt-hv6-idle
             text: 什么都不做
             effects:
               - { type: setFlag, id: hvIdle, value: true }
               - { type: adjustMood, value: -8 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-hv-06-idle
 
   - id: ev-hv-06-block
@@ -2017,6 +1997,7 @@ events:
       七海坐在台阶上，没有哭，也没有说话。他只是把手里的罐子捏扁了。
     trigger:
       source: chain
+      delay: { value: 5, unit: day }
     kind: normal
     settle:
       normal:
@@ -2028,7 +2009,6 @@ events:
               - { type: adjustFlag, id: debtHaibara, value: 1 }
               - { type: adjustMood, value: -8 }
               - { type: adjustRelation, npcId: npc-nanami, value: 6 }
-              - { type: advanceBy, value: { value: 5, unit: day } }
             nextEventId: ev-yz-02
           - id: opt-yz1-replace
             text: 「这次我去。让他歇一天。」
@@ -2037,7 +2017,6 @@ events:
               - { type: adjustFlag, id: debtHaibara, value: 2 }
               - { type: adjustMood, value: -4 }
               - { type: adjustAttribute, attribute: reputation, value: -3 }
-              - { type: advanceBy, value: { value: 5, unit: day } }
             nextEventId: ev-yz-02
           - id: opt-yz1-stay
             text: 什么都不问。高专每年都死人
@@ -2045,7 +2024,6 @@ events:
               - { type: setFlag, id: haibaraAlive, value: false }
               - { type: adjustFlag, id: debtHaibara, value: 2 }
               - { type: adjustAttribute, attribute: intellect, value: 1 }
-              - { type: advanceBy, value: { value: 5, unit: day } }
             nextEventId: ev-yz-02
 
   - id: ev-yz-02
@@ -2057,6 +2035,7 @@ events:
       「那我到底在救谁？」
     trigger:
       source: chain
+      delay: { value: 6, unit: day }
     kind: normal
     settle:
       normal:
@@ -2067,7 +2046,6 @@ events:
               - { type: setFlag, id: getoDoubt, value: true }
               - { type: adjustRelation, npcId: npc-geto, value: 8 }
               - { type: adjustMood, value: -3 }
-              - { type: advanceBy, value: { value: 5, unit: day } }
             nextEventId: ev-yz-03
           - id: opt-yz2-argue
             text: 「救人不需要理由。你在给自己找借口。」
@@ -2075,14 +2053,12 @@ events:
               - { type: setFlag, id: getoDoubt, value: false }
               - { type: adjustRelation, npcId: npc-geto, value: -6 }
               - { type: adjustAttribute, attribute: reputation, value: 2 }
-              - { type: advanceBy, value: { value: 5, unit: day } }
             nextEventId: ev-yz-03
           - id: opt-yz2-silent
             text: 沉默。你也没有答案
             effects:
               - { type: setFlag, id: getoDoubt, value: true }
               - { type: adjustMood, value: -2 }
-              - { type: advanceBy, value: { value: 5, unit: day } }
             nextEventId: ev-yz-03
 
   - id: ev-yz-03
@@ -2094,6 +2070,7 @@ events:
       夏油站在你身后，一直没有说话。他的手在抖。
     trigger:
       source: chain
+      delay: { value: 10, unit: day }
     kind: normal
     settle:
       normal:
@@ -2105,7 +2082,6 @@ events:
               - { type: adjustRelation, npcId: npc-geto, value: 4 }
               - { type: adjustAttribute, attribute: reputation, value: 3 }
               - { type: adjustMood, value: -6 }
-              - { type: advanceBy, value: { value: 8, unit: day } }
             nextEventId: ev-yz-04
           - id: opt-yz3-geto
             text: 先看夏油。他的状态不对
@@ -2113,7 +2089,6 @@ events:
               - { type: setFlag, id: villageTruth, value: true }
               - { type: adjustRelation, npcId: npc-geto, value: 10 }
               - { type: adjustMood, value: -4 }
-              - { type: advanceBy, value: { value: 8, unit: day } }
             nextEventId: ev-yz-04
           - id: opt-yz3-report
             text: 先报高层。这种事不该由我们定性
@@ -2122,7 +2097,6 @@ events:
               - { type: adjustAttribute, attribute: reputation, value: 6 }
               - { type: adjustRelation, npcId: npc-geto, value: -8 }
               - { type: adjustRelation, npcId: npc-yaga, value: 4 }
-              - { type: advanceBy, value: { value: 8, unit: day } }
             nextEventId: ev-yz-04
 
   - id: ev-yz-04
@@ -2135,6 +2109,7 @@ events:
       「现在我想明白了。」
     trigger:
       source: chain
+      delay: { value: 1, unit: day }
     kind: normal
     settle:
       normal:
@@ -2147,7 +2122,6 @@ events:
               - { type: adjustAttribute, attribute: physique, value: -2 }
               - { type: adjustMood, value: -10 }
               - { type: adjustRelation, npcId: npc-geto, value: -20 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-yz-05
           - id: opt-yz4-help
             text: 帮他。你早就想问那个问题了
@@ -2158,7 +2132,6 @@ events:
               - { type: adjustRelation, npcId: npc-geto, value: 20 }
               - { type: adjustAttribute, attribute: infamy, value: 1 }
               - { type: adjustMood, value: -6 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-yz-05
           - id: opt-yz4-flee
             text: 转身就走。你没看见
@@ -2166,7 +2139,6 @@ events:
               - { type: setFlag, id: getoCrime, value: false }
               - { type: adjustMood, value: -8 }
               - { type: adjustRelation, npcId: npc-geto, value: -4 }
-              - { type: advanceBy, value: { value: 1, unit: day } }
             nextEventId: ev-yz-05
 
   - id: ev-yz-05
@@ -2178,6 +2150,7 @@ events:
       他在门口站了很久，然后走了进去。你没有跟进去。
     trigger:
       source: chain
+      delay: { value: 2, unit: day }
     kind: normal
     settle:
       normal:
@@ -2189,7 +2162,6 @@ events:
               - { type: adjustRelation, npcId: npc-geto, value: -10 }
               - { type: adjustAttribute, attribute: physique, value: -3 }
               - { type: adjustMood, value: -10 }
-              - { type: advanceBy, value: { value: 2, unit: day } }
             nextEventId: ev-yz-06
           - id: opt-yz5-watch
             text: 站在门外。这是他自己要走的最后一步
@@ -2197,7 +2169,6 @@ events:
               - { type: setFlag, id: getoPoint, value: true }
               - { type: adjustMood, value: -14 }
               - { type: adjustRelation, npcId: npc-geto, value: 6 }
-              - { type: advanceBy, value: { value: 2, unit: day } }
             nextEventId: ev-yz-06
           - id: opt-yz5-clean
             text: 进去，帮他处理后面的事
@@ -2207,7 +2178,6 @@ events:
               - { type: adjustRelation, npcId: npc-geto, value: 14 }
               - { type: adjustAttribute, attribute: infamy, value: 1 }
               - { type: adjustMood, value: -12 }
-              - { type: advanceBy, value: { value: 2, unit: day } }
             nextEventId: ev-yz-06
 
   - id: ev-yz-06
@@ -2220,6 +2190,7 @@ events:
       「你站哪边？」他问。
     trigger:
       source: chain
+      delay: { value: 3, unit: day }
     kind: normal
     settle:
       normal:
@@ -2232,7 +2203,6 @@ events:
               - { type: adjustRelation, npcId: npc-gojo, value: 10 }
               - { type: adjustRelation, npcId: npc-geto, value: -20 }
               - { type: adjustMood, value: -12 }
-              - { type: advanceBy, value: { value: 4, unit: day } }
             nextEventId: ev-yz-07
           - id: opt-yz6-geto
             text: 站到夏油那边
@@ -2243,7 +2213,6 @@ events:
               - { type: adjustRelation, npcId: npc-geto, value: 20 }
               - { type: adjustRelation, npcId: npc-gojo, value: -20 }
               - { type: adjustAttribute, attribute: infamy, value: 1 }
-              - { type: advanceBy, value: { value: 4, unit: day } }
             nextEventId: ev-yz-07
           - id: opt-yz6-persuade
             text: 走过去，劝他回来
@@ -2256,7 +2225,6 @@ events:
               - { type: setFlag, id: getoWanted, value: false }
               - { type: adjustRelation, npcId: npc-geto, value: 10 }
               - { type: adjustMood, value: 6 }
-              - { type: advanceBy, value: { value: 4, unit: day } }
             nextEventId: ev-yz-07
 
   - id: ev-yz-07
@@ -2267,6 +2235,7 @@ events:
       窗外有人在擦血。新宿那天的死者名单还在整理，已经到第四页了。
     trigger:
       source: chain
+      delay: { value: 5, unit: day }
     kind: normal
     settle:
       normal:
@@ -2277,14 +2246,12 @@ events:
               - { type: setFlag, id: getoWanted, value: true }
               - { type: adjustAttribute, attribute: reputation, value: 8 }
               - { type: adjustMood, value: -4 }
-              - { type: advanceBy, value: { value: 6, unit: day } }
             nextEventId: ev-yz-08
           - id: opt-yz7-silent
             text: 交白纸
             effects:
               - { type: adjustAttribute, attribute: reputation, value: -4 }
               - { type: adjustMood, value: -2 }
-              - { type: advanceBy, value: { value: 6, unit: day } }
             nextEventId: ev-yz-08
           - id: opt-yz7-hide
             text: 写一份让高层看不到他的证言
@@ -2292,7 +2259,6 @@ events:
               - { type: setFlag, id: getoWanted, value: false }
               - { type: adjustAttribute, attribute: reputation, value: -8 }
               - { type: adjustRelation, npcId: npc-geto, value: 6 }
-              - { type: advanceBy, value: { value: 6, unit: day } }
             nextEventId: ev-yz-08
 
   - id: ev-yz-08
@@ -2305,6 +2271,7 @@ events:
       他们问你今年夏天发生了什么。你想了很久，最后说：「有个人走了。剩下的都在这里。」
     trigger:
       source: chain
+      delay: { value: 13, unit: day }
     kind: normal
     settle:
       normal:

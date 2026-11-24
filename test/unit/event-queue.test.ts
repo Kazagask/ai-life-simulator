@@ -1,14 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { createLookup, createWorldV2, enqueueScheduled } from "@life-sim/game-core";
+import {
+  createLookup,
+  createTimeAdapter,
+  createWorldV2,
+  enqueueCandidate,
+  enqueueScheduled,
+  recordFire,
+} from "@life-sim/game-core";
 import { loadTemplates } from "../../apps/server/src/templates.ts";
 
 /**
- * 队列的两条硬规矩（2026-11-24 用户裁决）：
- * 1. **同名不重复入队** —— 队里已经有一条同 id 的等待实例，就不再塞第二条；
- *    这条对 `pool` 的**非一次性**事件尤其重要（`once` 事件本来就会被 `hasFired` 挡住）。
- * 2. **pool 事件仍然是一次性的** —— 模板里的日常/池事件保留 `once: true`。
- *    我一度把「pool 非一次性事件」读成「把 pool 事件改成非一次性」，删了 12 条 `once`，
- *    还顺手把冷却从 4 天拉到 30 天去补漏 —— 两处都是自说自话。这条用例就是防它再发生。
+ * 队列与池的三条口径（2026-11-24）。
+ *
+ * 1. **同名不重复入队**：队里已经有一条同 id 的等待实例，就不再塞第二条。
+ * 2. **去重按 id，不按数量**：不同 id 各入各的。
+ * 3. **`once` 是内容选择，不是引擎要求**：pool 事件可以带 `once`（本模板的日常就是
+ *    「一辈子一次」的桥段），也可以不带（可反复触发的池事件）。引擎只在**写了** `once`
+ *    时才用 `hasFired` 挡重复；没写就一直可抽。
+ *
+ * 第 3 条我一开始写反了：先以为「pool 必须是非一次性的」删了模板的 `once`，
+ * 被打回后又矫枉过正、在用例里断言「pool 事件必须带 once」——两个方向都不对，
+ * 引擎从来没有这条规矩。
  */
 
 const silent = { warn: () => {}, error: () => {}, info: () => {} };
@@ -55,12 +67,24 @@ describe("事件队列", () => {
     expect(state.delayQueue.length).toBe(before + 2);
   });
 
-  it("模板里的 pool 事件仍是**一次性**的（保留 once）", () => {
-    const { entry } = setup();
-    const pool = entry.template.events.filter((e) => e.trigger.source === "pool");
-    expect(pool.length).toBeGreaterThan(0);
-    for (const e of pool) {
-      expect(e.trigger.once).toBe(true);
-    }
+  it("once 是可选的：写了才挡重复，没写就一直可抽", () => {
+    const { entry, state, lookup } = setup();
+    state.flags.creationDone = true;
+    state.flags.era = 1;
+    state.delayQueue = [];
+    const def = entry.template.events.find((e) => e.id === "ev-d-class");
+    if (def === undefined) throw new Error("ev-d-class 不在模板里");
+    // 先让它「已经触发过」
+    recordFire(state, def.id);
+    const calendar = createTimeAdapter(entry.template);
+    const base = { state, lookup, rng: () => 0, calendar };
+
+    // 带 once：触发过就不再入队
+    expect(enqueueCandidate({ ...base, definition: def, origin: { kind: "pool", id: def.id } })).toBeUndefined();
+
+    // 去掉 once：同一个事件照样能被抽到（引擎不要求 pool 必须一次性）
+    const repeatable = { ...def, trigger: { ...def.trigger, once: undefined } };
+    state.delayQueue = [];
+    expect(enqueueCandidate({ ...base, definition: repeatable, origin: { kind: "pool", id: def.id } })).toBeDefined();
   });
 });

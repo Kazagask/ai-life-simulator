@@ -452,6 +452,11 @@ nodes:
 - 错失（append-only，进 `state.missedEvents`）只有两种原因：`window_expired`、`miss_when`；
   门控失败**不算错失**（不产生实例）。
 - `kind: "combat"` **不得**进事件池（不允许被随机抽出来直接开战）。
+- **同名不入队**（2026-11-24）：队里已有同 `definitionId` 的 `waiting` 实例时拒绝新增，
+  返回既有那条。去重按 id，不同 id 各排各的。
+- `maxQueueLength` 默认 **1000**（`eventStream.maxQueueLength`）：它是防雪崩的保险丝，
+  不是玩法旋钮 —— 设小了会让排队中的主线把池子抽干。
+- `once` **可选**：写了才在入队时用 `hasFired` 挡重复；没写就是可反复触发的池事件。
 - **队列不投影**：`delayQueue` 只存在于 `WorldStateV2`，不进 `V2Snapshot`——
   玩家看不到"下一件要发生什么"，也看不到"还差几回合"。
   进度感只能来自**已经发生过的事**，或模板自己声明的事件链类型（§4.9）；不能来自队列。
