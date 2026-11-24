@@ -87,8 +87,9 @@ events:
     trigger:
       source: pool
       probability: 0.045
+      once: true
       priority: 10
-      cooldown: { value: 30, unit: day }
+      cooldown: { value: 4, unit: day }
       conditions:
         - { flag: creationDone, eq: true }
         - { flag: era, eq: 1 }
@@ -122,8 +123,9 @@ events:
     trigger:
       source: pool
       probability: 0.05
+      once: true
       priority: 10
-      cooldown: { value: 30, unit: day }
+      cooldown: { value: 3, unit: day }
       conditions:
         - { flag: creationDone, eq: true }
         - { flag: era, eq: 1 }
@@ -163,8 +165,9 @@ events:
     trigger:
       source: pool
       probability: 0.04
+      once: true
       priority: 10
-      cooldown: { value: 30, unit: day }
+      cooldown: { value: 6, unit: day }
       conditions:
         - { flag: creationDone, eq: true }
         - { flag: era, eq: 1 }
@@ -201,8 +204,9 @@ events:
     trigger:
       source: pool
       probability: 0.045
+      once: true
       priority: 10
-      cooldown: { value: 30, unit: day }
+      cooldown: { value: 5, unit: day }
       conditions:
         - { flag: creationDone, eq: true }
         - { flag: era, eq: 1 }
@@ -239,8 +243,9 @@ events:
     trigger:
       source: pool
       probability: 0.04
+      once: true
       priority: 10
-      cooldown: { value: 30, unit: day }
+      cooldown: { value: 4, unit: day }
       conditions:
         - { flag: creationDone, eq: true }
         - { flag: era, eq: 1 }
@@ -276,8 +281,9 @@ events:
     trigger:
       source: pool
       probability: 0.05
+      once: true
       priority: 10
-      cooldown: { value: 30, unit: day }
+      cooldown: { value: 4, unit: day }
       conditions:
         - { flag: creationDone, eq: true }
         - { flag: era, eq: 1 }
@@ -321,8 +327,9 @@ events:
     trigger:
       source: pool
       probability: 0.04
+      once: true
       priority: 10
-      cooldown: { value: 30, unit: day }
+      cooldown: { value: 5, unit: day }
       conditions:
         - { flag: creationDone, eq: true }
         - { flag: era, eq: 1 }
@@ -356,8 +363,9 @@ events:
     trigger:
       source: pool
       probability: 0.04
+      once: true
       priority: 10
-      cooldown: { value: 30, unit: day }
+      cooldown: { value: 6, unit: day }
       conditions:
         - { flag: creationDone, eq: true }
         - { flag: era, eq: 1 }
@@ -380,8 +388,9 @@ events:
     trigger:
       source: pool
       probability: 0.03
+      once: true
       priority: 10
-      cooldown: { value: 30, unit: day }
+      cooldown: { value: 8, unit: day }
       conditions:
         - { flag: creationDone, eq: true }
         - { flag: era, eq: 1 }
@@ -406,8 +415,9 @@ events:
     trigger:
       source: pool
       probability: 0.03
+      once: true
       priority: 10
-      cooldown: { value: 30, unit: day }
+      cooldown: { value: 10, unit: day }
       conditions:
         - { flag: creationDone, eq: true }
         - { flag: era, eq: 1 }
@@ -863,6 +873,7 @@ events:
     trigger:
       source: pool
       probability: 0.08
+      once: true
       priority: 18
       cooldown: { value: 5, unit: day }
       conditions:
@@ -899,6 +910,7 @@ events:
     trigger:
       source: pool
       probability: 0.1
+      once: true
       priority: 18
       cooldown: { value: 5, unit: day }
       conditions:
