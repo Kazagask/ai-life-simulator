@@ -1938,3 +1938,397 @@ events:
               - { type: setFlag, id: yearEnd, value: true }
               - { type: adjustAttribute, attribute: intellect, value: 1 }
               - { type: adjustMood, value: -3 }
+
+  # ══════════════════════════════════════════════════════════════════
+  # 第二章 · 玉折（2007 夏，W2）
+  # ══════════════════════════════════════════════════════════════════
+  #
+  # 命题：当「保护」变成「供养」，你还愿意保护吗？
+  #
+  # 八幕照 `specs/iteration-2026-11-19-jjk-story-lines/design.md` §L2 落地，
+  # 四个出口（gone / stayed / dead / followed）落成四个结局。
+  #
+  # 时间口径：2006-04-03 = 第 92 天，所以 2007-06-15 ≈ 第 530 天。
+  # 2006-12 到 2007-06 之间由 `ev-yz-00` 一段蒙太奇跨过去 —— 不然玩家要空转半年日常。
+  #
+  # flag 一览（全部是布尔/计数，没有新协议）：
+  #   w2Start          第二章已经开始（2006 的结局据此不再参与）
+  #   haibaraAlive     灰原活下来了（`stayed` 的必要条件之一）
+  #   debtHaibara      你欠灰原的（0..2，只影响文本与最终评价）
+  #   getoDoubt        你察觉夏油在动摇
+  #   villageTruth     你看见了村庄的真相
+  #   getoCrime        夏油在村里动手时你在场
+  #   getoPoint        不归点：他杀了父母
+  #   getoOutcome      gone / stayed / dead —— 新宿那一晚的结果
+  #   getoWanted       高层通缉（作证 / 沉默 / 隐瞒）
+  #   playerDefected   你跟着他走了（L4 关闭，L5 开启）
+
+  - id: ev-yz-00
+    title: 第二章 · 玉折（春）
+    narrative: |
+      冬天过去了。你升上二年生，走廊上换了新的一批一年生，他们看你的眼神和你去年看五条的眼神一样。
+      四月，樱花掉在操场的水泥地上，没有人扫。
+      六月，梅雨。任务量比去年多了三成——「咒灵变多了」，夜蛾说这句话的时候没有抬头。
+      你有一种说不上来的感觉：有什么东西正在慢慢变凉。
+    trigger:
+      source: schedule
+      window: { start: { value: 276, unit: day } }
+      once: true
+      conditions:
+        # 不加 `w2Start ne true`：旗标没初始化时该判定恒假（引擎口径：不存在即假），
+        # 会把这扇门永久锁死。`once: true` 已经保证只发生一次。
+        - { flag: yearEnd, eq: true }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-yz0-train
+            text: 把这一学期都花在训练上
+            effects:
+              - { type: setFlag, id: w2Start, value: true }
+              - { type: adjustAttribute, attribute: physique, value: 2 }
+              - { type: adjustAttribute, attribute: agility, value: 1 }
+              - { type: advanceTo, value: { value: 525, unit: day } }
+            nextEventId: ev-yz-01
+          - id: opt-yz0-watch
+            text: 多接任务。钱和功劳都是真的
+            effects:
+              - { type: setFlag, id: w2Start, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 6 }
+              - { type: adjustMood, value: -2 }
+              - { type: advanceTo, value: { value: 525, unit: day } }
+            nextEventId: ev-yz-01
+          - id: opt-yz0-people
+            text: 多陪陪那几个人。夏天快到了
+            effects:
+              - { type: setFlag, id: w2Start, value: true }
+              - { type: adjustRelation, npcId: npc-haibara, value: 8 }
+              - { type: adjustRelation, npcId: npc-nanami, value: 6 }
+              - { type: adjustMood, value: 4 }
+              - { type: advanceTo, value: { value: 525, unit: day } }
+            nextEventId: ev-yz-01
+
+  - id: ev-yz-01
+    title: 第二章 · 第一幕 · 灰原
+    narrative: |
+      六月的报告是七海写的，字迹比平时用力。
+      灰原雄，二级，任务中阵亡。地点在琦玉的一栋公寓，咒灵是二级，本来不该出事。
+      「本来不该出事」——这五个字在报告里出现了两次。
+      七海坐在台阶上，没有哭，也没有说话。他只是把手里的罐子捏扁了。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-yz1-join
+            text: 「那趟我该跟着去的。」
+            effects:
+              - { type: setFlag, id: haibaraAlive, value: false }
+              - { type: adjustFlag, id: debtHaibara, value: 1 }
+              - { type: adjustMood, value: -8 }
+              - { type: adjustRelation, npcId: npc-nanami, value: 6 }
+              - { type: advanceBy, value: { value: 5, unit: day } }
+            nextEventId: ev-yz-02
+          - id: opt-yz1-replace
+            text: 「这次我去。让他歇一天。」
+            effects:
+              - { type: setFlag, id: haibaraAlive, value: true }
+              - { type: adjustFlag, id: debtHaibara, value: 2 }
+              - { type: adjustMood, value: -4 }
+              - { type: adjustAttribute, attribute: reputation, value: -3 }
+              - { type: advanceBy, value: { value: 5, unit: day } }
+            nextEventId: ev-yz-02
+          - id: opt-yz1-stay
+            text: 什么都不问。高专每年都死人
+            effects:
+              - { type: setFlag, id: haibaraAlive, value: false }
+              - { type: adjustFlag, id: debtHaibara, value: 2 }
+              - { type: adjustAttribute, attribute: intellect, value: 1 }
+              - { type: advanceBy, value: { value: 5, unit: day } }
+            nextEventId: ev-yz-02
+
+  - id: ev-yz-02
+    title: 第二章 · 第二幕 · 他的道理
+    narrative: |
+      夏油在自动贩卖机前面站了很久，最后没有买。
+      「你算过吗？」他说，「我们这个月处理了十七起。上个月十九起。去年这个时候是十一。」
+      他转过头看你，眼睛很平静：「如果我一直做下去，我能救的人会越来越多。可是被我救的人，会继续制造下一个咒灵。」
+      「那我到底在救谁？」
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-yz2-listen
+            text: 听他把话说完
+            effects:
+              - { type: setFlag, id: getoDoubt, value: true }
+              - { type: adjustRelation, npcId: npc-geto, value: 8 }
+              - { type: adjustMood, value: -3 }
+              - { type: advanceBy, value: { value: 5, unit: day } }
+            nextEventId: ev-yz-03
+          - id: opt-yz2-argue
+            text: 「救人不需要理由。你在给自己找借口。」
+            effects:
+              - { type: setFlag, id: getoDoubt, value: false }
+              - { type: adjustRelation, npcId: npc-geto, value: -6 }
+              - { type: adjustAttribute, attribute: reputation, value: 2 }
+              - { type: advanceBy, value: { value: 5, unit: day } }
+            nextEventId: ev-yz-03
+          - id: opt-yz2-silent
+            text: 沉默。你也没有答案
+            effects:
+              - { type: setFlag, id: getoDoubt, value: true }
+              - { type: adjustMood, value: -2 }
+              - { type: advanceBy, value: { value: 5, unit: day } }
+            nextEventId: ev-yz-03
+
+  - id: ev-yz-03
+    title: 第二章 · 第三幕 · 村庄
+    narrative: |
+      琦玉北部的山村，一个月里失踪了六个人。你到的时候，雨刚停。
+      村子中央的仓库上了三道锁。里面关着两个女孩，一个已经不像人了——她的手臂长成了咒力的形状。
+      村长说：「那是我们家的事。她们家的人自己愿意的。」
+      夏油站在你身后，一直没有说话。他的手在抖。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-yz3-save
+            text: 先开锁。人在里面
+            effects:
+              - { type: setFlag, id: villageTruth, value: true }
+              - { type: adjustRelation, npcId: npc-geto, value: 4 }
+              - { type: adjustAttribute, attribute: reputation, value: 3 }
+              - { type: adjustMood, value: -6 }
+              - { type: advanceBy, value: { value: 8, unit: day } }
+            nextEventId: ev-yz-04
+          - id: opt-yz3-geto
+            text: 先看夏油。他的状态不对
+            effects:
+              - { type: setFlag, id: villageTruth, value: true }
+              - { type: adjustRelation, npcId: npc-geto, value: 10 }
+              - { type: adjustMood, value: -4 }
+              - { type: advanceBy, value: { value: 8, unit: day } }
+            nextEventId: ev-yz-04
+          - id: opt-yz3-report
+            text: 先报高层。这种事不该由我们定性
+            effects:
+              - { type: setFlag, id: villageTruth, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 6 }
+              - { type: adjustRelation, npcId: npc-geto, value: -8 }
+              - { type: adjustRelation, npcId: npc-yaga, value: 4 }
+              - { type: advanceBy, value: { value: 8, unit: day } }
+            nextEventId: ev-yz-04
+
+  - id: ev-yz-04
+    title: 第二章 · 第四幕 · 猴子
+    narrative: |
+      你只离开了一刻钟。
+      回来的时候，仓库的门开着，村子安静得不像有人住过。一百二十七个人，一个都没有剩下。
+      夏油站在中间。他的袈裟上没有血——他把血都收走了。
+      「你回来了。」他说，语气和平时一样温和，「我一直在想，为什么我要保护这些东西。」
+      「现在我想明白了。」
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-yz4-stop
+            text: 动手。哪怕打不过
+            effects:
+              - { type: setFlag, id: getoCrime, value: true }
+              - { type: setFlag, id: getoOutcome, value: dead }
+              - { type: adjustAttribute, attribute: physique, value: -2 }
+              - { type: adjustMood, value: -10 }
+              - { type: adjustRelation, npcId: npc-geto, value: -20 }
+              - { type: advanceBy, value: { value: 1, unit: day } }
+            nextEventId: ev-yz-05
+          - id: opt-yz4-help
+            text: 帮他。你早就想问那个问题了
+            effects:
+              - { type: setFlag, id: getoCrime, value: true }
+              - { type: setFlag, id: getoOutcome, value: gone }
+              - { type: setFlag, id: playerDefected, value: true }
+              - { type: adjustRelation, npcId: npc-geto, value: 20 }
+              - { type: adjustAttribute, attribute: infamy, value: 1 }
+              - { type: adjustMood, value: -6 }
+              - { type: advanceBy, value: { value: 1, unit: day } }
+            nextEventId: ev-yz-05
+          - id: opt-yz4-flee
+            text: 转身就走。你没看见
+            effects:
+              - { type: setFlag, id: getoCrime, value: false }
+              - { type: adjustMood, value: -8 }
+              - { type: adjustRelation, npcId: npc-geto, value: -4 }
+              - { type: advanceBy, value: { value: 1, unit: day } }
+            nextEventId: ev-yz-05
+
+  - id: ev-yz-05
+    title: 第二章 · 第五幕 · 父母
+    narrative: |
+      你找到他的时候，他正在一家旧式公寓的门口换鞋。
+      「我回来看看。」他说得很轻，「总要有个交代。」
+      门里传来电视的声音，还有一个女人在喊他吃饭。
+      他在门口站了很久，然后走了进去。你没有跟进去。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-yz5-stop
+            text: 跟进去。拦住他
+            effects:
+              - { type: setFlag, id: getoPoint, value: false }
+              - { type: adjustRelation, npcId: npc-geto, value: -10 }
+              - { type: adjustAttribute, attribute: physique, value: -3 }
+              - { type: adjustMood, value: -10 }
+              - { type: advanceBy, value: { value: 2, unit: day } }
+            nextEventId: ev-yz-06
+          - id: opt-yz5-watch
+            text: 站在门外。这是他自己要走的最后一步
+            effects:
+              - { type: setFlag, id: getoPoint, value: true }
+              - { type: adjustMood, value: -14 }
+              - { type: adjustRelation, npcId: npc-geto, value: 6 }
+              - { type: advanceBy, value: { value: 2, unit: day } }
+            nextEventId: ev-yz-06
+          - id: opt-yz5-clean
+            text: 进去，帮他处理后面的事
+            effects:
+              - { type: setFlag, id: getoPoint, value: true }
+              - { type: setFlag, id: playerDefected, value: true }
+              - { type: adjustRelation, npcId: npc-geto, value: 14 }
+              - { type: adjustAttribute, attribute: infamy, value: 1 }
+              - { type: adjustMood, value: -12 }
+              - { type: advanceBy, value: { value: 2, unit: day } }
+            nextEventId: ev-yz-06
+
+  - id: ev-yz-06
+    title: 第二章 · 第六幕 · 新宿
+    narrative: |
+      七月。新宿的人流像一条不会停的河。
+      夏油站在街心，脚下是刚被咒灵撕开的柏油。他身后跟着两只你没见过的咒灵。
+      「我宣布一件事。」他说，声音不大，但整条街都听见了，「从今天起，我要创造一个只有术师的世界。」
+      五条落在你旁边。他没有笑。
+      「你站哪边？」他问。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-yz6-gojo
+            text: 站在五条这边
+            effects:
+              - { type: setFlag, id: getoOutcome, value: dead }
+              - { type: setFlag, id: getoWanted, value: false }
+              - { type: adjustRelation, npcId: npc-gojo, value: 10 }
+              - { type: adjustRelation, npcId: npc-geto, value: -20 }
+              - { type: adjustMood, value: -12 }
+              - { type: advanceBy, value: { value: 4, unit: day } }
+            nextEventId: ev-yz-07
+          - id: opt-yz6-geto
+            text: 站到夏油那边
+            effects:
+              - { type: setFlag, id: getoOutcome, value: gone }
+              - { type: setFlag, id: playerDefected, value: true }
+              - { type: setFlag, id: getoWanted, value: true }
+              - { type: adjustRelation, npcId: npc-geto, value: 20 }
+              - { type: adjustRelation, npcId: npc-gojo, value: -20 }
+              - { type: adjustAttribute, attribute: infamy, value: 1 }
+              - { type: advanceBy, value: { value: 4, unit: day } }
+            nextEventId: ev-yz-07
+          - id: opt-yz6-persuade
+            text: 走过去，劝他回来
+            visibleWhen:
+              - { flag: haibaraAlive, eq: true }
+              - { flag: savedRiko, eq: true }
+              - { relation: npc-geto, gte: 40 }
+            effects:
+              - { type: setFlag, id: getoOutcome, value: stayed }
+              - { type: setFlag, id: getoWanted, value: false }
+              - { type: adjustRelation, npcId: npc-geto, value: 10 }
+              - { type: adjustMood, value: 6 }
+              - { type: advanceBy, value: { value: 4, unit: day } }
+            nextEventId: ev-yz-07
+
+  - id: ev-yz-07
+    title: 第二章 · 第七幕 · 处分
+    narrative: |
+      高层要一份书面证言。夜蛾把纸推给你，笔是新的。
+      「写你看见的。」他说，「或者什么都不写。两个都有代价。」
+      窗外有人在擦血。新宿那天的死者名单还在整理，已经到第四页了。
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-yz7-testify
+            text: 写。一个字都不改
+            effects:
+              - { type: setFlag, id: getoWanted, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 8 }
+              - { type: adjustMood, value: -4 }
+              - { type: advanceBy, value: { value: 6, unit: day } }
+            nextEventId: ev-yz-08
+          - id: opt-yz7-silent
+            text: 交白纸
+            effects:
+              - { type: adjustAttribute, attribute: reputation, value: -4 }
+              - { type: adjustMood, value: -2 }
+              - { type: advanceBy, value: { value: 6, unit: day } }
+            nextEventId: ev-yz-08
+          - id: opt-yz7-hide
+            text: 写一份让高层看不到他的证言
+            effects:
+              - { type: setFlag, id: getoWanted, value: false }
+              - { type: adjustAttribute, attribute: reputation, value: -8 }
+              - { type: adjustRelation, npcId: npc-geto, value: 6 }
+              - { type: advanceBy, value: { value: 6, unit: day } }
+            nextEventId: ev-yz-08
+
+  - id: ev-yz-08
+    title: 第二章 · 第八幕 · 盘星教
+    narrative: |
+      八月。盘星教的门开着，里面点着香。
+      台阶上有人坐着。不管是夏油，还是已经换上他衣服的另一个人。
+      「我缺人手。」那句话还是那句话，「不是缺一个术师，是缺一个还愿意听我说话的人。」
+      香灰落下来，很慢。八月末，天气开始转凉。你在高专的走廊上遇到新来的学生，
+      他们问你今年夏天发生了什么。你想了很久，最后说：「有个人走了。剩下的都在这里。」
+    trigger:
+      source: chain
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-yz8-follow
+            text: 坐下来。你早就想问了
+            effects:
+              - { type: setFlag, id: playerDefected, value: true }
+              - { type: adjustRelation, npcId: npc-geto, value: 14 }
+              - { type: adjustAttribute, attribute: infamy, value: 1 }
+              - { type: adjustMood, value: 4 }
+          - id: opt-yz8-refuse
+            text: 站着把话说完，然后走
+            effects:
+              - { type: adjustMood, value: -6 }
+              - { type: adjustAttribute, attribute: reputation, value: 4 }
+          - id: opt-yz8-report
+            text: 记下这个地址，回去报告
+            effects:
+              - { type: setFlag, id: getoWanted, value: true }
+              - { type: adjustAttribute, attribute: reputation, value: 10 }
+              - { type: adjustRelation, npcId: npc-geto, value: -14 }
+              - { type: adjustRelation, npcId: npc-gojo, value: 8 }
+
+
+  # 收尾幕并进第八幕：单独再挂一个无出边的事件会被 `sink-event` 判成死链，
+  # 那一条告警留着没用，不如把「夏末」的旁白直接写进第八幕的结尾。

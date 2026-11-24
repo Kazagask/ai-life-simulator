@@ -72,12 +72,13 @@ describe("jjk-2006 3.0.0 · 前实例化开局（v3 出身转盘）", () => {
     const { state } = runOpening(entry.openingDag, entry.template);
     expect(state.turnIndex).toBe(0);
     expect(state.worldTime).toBe(92 * 1440);
-    // 2026-11-21：世界收束到 2006 单章 ⇒ 只剩第一章门 + 年末收束 + 开局第一幕。
-    // 队列里是「定时」而不是「随机」，这正是「主线不用 pool」的落地形态。
+    // 2026-11-24：两章。定时队列里是「开局第一幕 + 第一章门 + 年末收束 + 第二章开头」——
+    // 第二章其余八幕走 `source: chain`，不占队列（否则 8 条排队会把 pool 抽干）。
     expect(state.delayQueue.map((i) => i.definitionId).sort()).toEqual([
       "ev-2006-end",
       "ev-ch1-gate",
       "ev-open-01",
+      "ev-yz-00",
     ]);
     expect(state.delayQueue.every((i) => i.origin.kind === "schedule-init" && i.status === "waiting")).toBe(true);
     expect(state.flags.creationDone).toBe(true);

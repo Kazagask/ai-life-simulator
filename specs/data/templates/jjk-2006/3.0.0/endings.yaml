@@ -3,7 +3,7 @@
 # 判据纪律：终止与死亡只看声明式条件与 battleDefeat 信号，
 # **不得以 HP 数值或 HP 归零为判据**（R-EN-07 / P9，加载期会拒绝）。
 #
-# 2026-11-21：世界收束到 2006 单章（怀玉）。跑满 275 天自然收束（2006-12-31），也可随时主动结束。
+# 2026-11-24：两章。W1 怀玉（2006 夏）+ W2 玉折（2007 夏），跑满 600 天自然收束（2007 夏末）。
 # 结局只由**怀玉的四个出口**（早夭 / 救下 / 同化 / 枪杀）与这一年的生涯事实决定。
 # 2007 以后的结局（战殁 / 特级 / 传说 / 涩谷 / 四度逆行）随旧章节一起删掉，
 # 留档在 `archive/2026-11-21-jjk-2006-full-12y/`。
@@ -12,7 +12,8 @@ terminationConditions:
   - type: timeReached
     params:
       conditions:
-        - { time: { gte: { value: 275, unit: day } } }
+        # 2026-11-24：W1 收在 2006-12-31 会让第二章没机会开始 —— 推到 2007 夏末
+        - { time: { gte: { value: 600, unit: day } } }
     combinator: AND
     terminationMode: afterSettle
 
@@ -114,6 +115,56 @@ endings:
       source: template
       title: 有人一起
       summary: 到后来你们都懒得算谁欠谁。有人负责闯祸，有人负责收拾，有人负责在医务室骂人。一年很短，但如果是几个人一起过，就够把那一枪的回声压下去一点。
+
+  # ---------- 玉折的四个出口（2026-11-24 · W2） ----------
+
+  - endingId: end-yz-followed
+    name: 走了的人
+    description: 八月，你坐进了盘星教的香堂。
+    triggerConditions:
+      - { flag: playerDefected, eq: true }
+    priority: 80
+    endingType: tragedy
+    narrativeConfig:
+      source: template
+      title: 走了的人
+      summary: 后来高专的名册上你的名字被划掉了，笔迹很轻。你不是被开除的，是自己走的。盘星教的日子比学校松，香灰比粉笔灰好闻，只是每次有人喊你「先生」，你都会想起走廊上那声「喂，二年生」。
+
+  - endingId: end-yz-dead
+    name: 那一晚
+    description: 新宿那晚，你站在了五条这边。
+    triggerConditions:
+      - { flag: getoOutcome, eq: dead }
+    priority: 78
+    endingType: tragedy
+    narrativeConfig:
+      source: template
+      title: 那一晚
+      summary: 你没有看清是谁动的手，只记得血在柏油上摊开的形状很像夏天。后来五条一句话也没说，把外套盖在了他身上。第二天高专照常上课，走廊上少了一个人，所有人都从那块空处绕着走。
+
+  - endingId: end-yz-stayed
+    name: 留下来的人
+    description: 你把他从新宿的街心劝了回来。
+    triggerConditions:
+      - { flag: getoOutcome, eq: stayed }
+    priority: 76
+    endingType: bond
+    narrativeConfig:
+      source: template
+      title: 留下来的人
+      summary: 他没有走。高层给他挂了一个「观察对象」的名头，从此他每一次出任务都有人跟着。他还是会笑，只是笑之前会先看你一眼，像是在确认这个决定是不是还算数。你们都知道，这种安稳是有期限的。
+
+  - endingId: end-yz-gone
+    name: 玉折
+    description: 夏油杰叛逃，你没有拦下他。
+    triggerConditions:
+      - { flag: getoOutcome, eq: gone }
+    priority: 74
+    endingType: tragedy
+    narrativeConfig:
+      source: template
+      title: 玉折
+      summary: 那年夏天之后，「夏油」两个字变成了禁令。你在任务报告里写过很多次这个名字，每一次都要被涂掉。十年后有人问起高专最厉害的两个前辈，五条只说了一个名字，然后说：「另一个我的数学一百分，可惜他后来不去考试了。」
 
   # ---------- 兜底 ----------
 

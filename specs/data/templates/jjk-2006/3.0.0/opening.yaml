@@ -214,6 +214,147 @@ nodes:
           gReady: { id: ready1, value: true }
           clock: { value: 92, unit: day }
         goto: n-entrance
+      # 2026-11-24（仅测试）：其余原作人物的**入口先放出来**，剧情一律没写。
+      # 借名只换身体与技能，不换时代 —— 时钟仍落 2006-04-03（第 92 天），
+      # 不然 2017/2018 的人一开局就跨过了 600 天的收束点，第一轮直接结束。
+      - id: c-more
+        text: 更多原作人物（未实现 · 仅测试技能）
+        set: {}
+        goto: n-canon-more
+
+  # ═══════════════════════════════════════════════════════════════════
+  # 0c. 更多原作人物（**未实现** · 仅测试技能）
+  #     这些人的「一年里发生了什么」一行都没写，只有 characters.yaml 里的
+  #     术式 / 领域 / 天赋。放出来的唯一目的是：能上手打一场，看看技能表现得对不对。
+  #     `clock` 一律 92（2006-04-03）：借的是身体，不是年代。
+  # ═══════════════════════════════════════════════════════════════════
+  - node: n-canon-more
+    title: 借谁的名字（未实现）
+    text: 下面这些人的剧情没有写。借他们的身体只为一件事：把技能放出来给你打一场。
+    mode: choose
+    options:
+      - id: c-nanami
+        text: 七海建人 · 2006，二年生（未实现）
+        set:
+          who: { kind: reuse, characterId: npc-nanami }
+          canonRole: { id: canonRole, value: nanami }
+          originTag: { id: origin, value: nanami }
+          gEra: { id: era, value: 1 }
+          gChapter: { id: chapter, value: 1 }
+          gReady: { id: ready1, value: true }
+          clock: { value: 92, unit: day }
+        goto: n-entrance
+      - id: c-haibara
+        text: 灰原雄 · 2006，二年生（未实现）
+        set:
+          who: { kind: reuse, characterId: npc-haibara }
+          canonRole: { id: canonRole, value: haibara }
+          originTag: { id: origin, value: haibara }
+          gEra: { id: era, value: 1 }
+          gChapter: { id: chapter, value: 1 }
+          gReady: { id: ready1, value: true }
+          clock: { value: 92, unit: day }
+        goto: n-entrance
+      - id: c-shoko
+        text: 家入硝子 · 2006，二年生（未实现）
+        set:
+          who: { kind: reuse, characterId: npc-shoko }
+          canonRole: { id: canonRole, value: shoko }
+          originTag: { id: origin, value: shoko }
+          gEra: { id: era, value: 1 }
+          gChapter: { id: chapter, value: 1 }
+          gReady: { id: ready1, value: true }
+          clock: { value: 92, unit: day }
+        goto: n-entrance
+      - id: c-toji
+        text: 伏黑甚尔 · 2006，术师杀手（未实现）
+        set:
+          who: { kind: reuse, characterId: npc-toji }
+          canonRole: { id: canonRole, value: toji }
+          originTag: { id: origin, value: toji }
+          gEra: { id: era, value: 1 }
+          gChapter: { id: chapter, value: 1 }
+          gReady: { id: ready1, value: true }
+          clock: { value: 92, unit: day }
+        goto: n-entrance
+      - id: c-yuta
+        text: 乙骨忧太 · 2017 本体（未实现 · 仅测试）
+        set:
+          who: { kind: reuse, characterId: npc-yuta }
+          canonRole: { id: canonRole, value: yuta }
+          originTag: { id: origin, value: yuta }
+          gEra: { id: era, value: 1 }
+          gChapter: { id: chapter, value: 1 }
+          gReady: { id: ready1, value: true }
+          clock: { value: 92, unit: day }
+        goto: n-entrance
+      - id: c-yuji
+        text: 虎杖悠仁 · 2018 本体（未实现 · 仅测试）
+        set:
+          who: { kind: reuse, characterId: npc-yuji }
+          canonRole: { id: canonRole, value: yuji }
+          originTag: { id: origin, value: yuji }
+          gEra: { id: era, value: 1 }
+          gChapter: { id: chapter, value: 1 }
+          gReady: { id: ready1, value: true }
+          clock: { value: 92, unit: day }
+        goto: n-entrance
+      - id: c-megumi
+        text: 伏黑惠 · 2018 本体（未实现 · 仅测试）
+        set:
+          who: { kind: reuse, characterId: npc-megumi }
+          canonRole: { id: canonRole, value: megumi }
+          originTag: { id: origin, value: megumi }
+          gEra: { id: era, value: 1 }
+          gChapter: { id: chapter, value: 1 }
+          gReady: { id: ready1, value: true }
+          clock: { value: 92, unit: day }
+        goto: n-entrance
+      - id: c-nobara
+        text: 钉崎野蔷薇 · 2018 本体（未实现 · 仅测试）
+        set:
+          who: { kind: reuse, characterId: npc-nobara }
+          canonRole: { id: canonRole, value: nobara }
+          originTag: { id: origin, value: nobara }
+          gEra: { id: era, value: 1 }
+          gChapter: { id: chapter, value: 1 }
+          gReady: { id: ready1, value: true }
+          clock: { value: 92, unit: day }
+        goto: n-entrance
+      - id: c-sukuna
+        text: 两面宿傩 · 诅咒之王（未实现 · 仅测试）
+        set:
+          who: { kind: reuse, characterId: npc-sukuna }
+          canonRole: { id: canonRole, value: sukuna }
+          originTag: { id: origin, value: sukuna }
+          gEra: { id: era, value: 1 }
+          gChapter: { id: chapter, value: 1 }
+          gReady: { id: ready1, value: true }
+          clock: { value: 92, unit: day }
+        goto: n-entrance
+      - id: c-jogo
+        text: 漏瑚 · 特级咒灵（未实现 · 仅测试）
+        set:
+          who: { kind: reuse, characterId: npc-jogo }
+          canonRole: { id: canonRole, value: jogo }
+          originTag: { id: origin, value: jogo }
+          gEra: { id: era, value: 1 }
+          gChapter: { id: chapter, value: 1 }
+          gReady: { id: ready1, value: true }
+          clock: { value: 92, unit: day }
+        goto: n-entrance
+      - id: c-kenjaku
+        text: 羂索 · 千年术师（未实现 · 仅测试）
+        set:
+          who: { kind: reuse, characterId: npc-kenjaku }
+          canonRole: { id: canonRole, value: kenjaku }
+          originTag: { id: origin, value: kenjaku }
+          gEra: { id: era, value: 1 }
+          gChapter: { id: chapter, value: 1 }
+          gReady: { id: ready1, value: true }
+          clock: { value: 92, unit: day }
+        goto: n-entrance
+
   # ═══════════════════════════════════════════════════════════════════
   # 1. 出身 —— 这一格决定站位（六条线），也决定你什么时候进场
   #    权重按「遇到的人有多稀有」给，不按战斗强度给。
