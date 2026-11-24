@@ -47,16 +47,18 @@
 | `assetFingerprint` | manifest + 资源字节 | 只刷新资源 |
 | `legacyFingerprint` | 旧算法（含 manifest） | 只用于识别旧档 |
 
-加载时双哈希：
+加载时双哈希 + 版本号：
 
 ```
 if 存档值 == v2     → 认
-if 存档值 == legacy → 认，并就地升级为 v2
+if 存档值 == legacy → 认，并就地升级为 { v2, fingerprintVersion: 2 }
 else                → 拒载
+后续带 fingerprintVersion: 2 的档只校验 v2
 ```
 
-放行 `legacy` 的依据：旧算法文件集是超集，两套哈希相等 ⇒ 连 manifest 都没变 ⇒ 机制必然没变，不会放过真实漂移。
-**残留损失面**：存档时 manifest 存在、之后又被改过（两值都对不上）。当前模板从未有过 manifest，本轮窗口实际为零。
+**安全性依据**（评审修正）：不是「legacy == v2」，而是「存档值 == 当前模板用**同一套旧算法**算出的值」
+—— 这说明当前模板在旧算法眼里就是当年那份，而旧算法覆盖的是机制文件 + manifest 的**超集**，
+所以机制文件逐个未变。**残留损失面**：存档时 manifest 存在、之后又被改过 ⇒ 仍拒载，不承诺全量无损。
 
 ### M2 · 离线媒体
 
@@ -87,7 +89,8 @@ else                → 拒载
 skinId（持久化） > skinRules 首个命中（实时算） > defaultSkin > 占位符
 ```
 
-- 槽位回退**只在同一皮肤内**：`avatar → bust → full → 占位符`；`cutIn → skillCutIns[skill] → bust → full → 纯文字`。
+- 槽位回退**只在同一皮肤内**：`avatar → bust → full → 占位符`；
+  演出素材是 `skillCutIns[skillId] → cutIn → bust → full → 纯文字`（**专属优先于通用**）。
 - `skinRules[].when` 复用现有 Condition，但 **V1 加载期只放行 `time` / `flag` / `eventOccurred` 三类**；`status` / `attribute` / `relation` 报 `ui_invalid`。
 - **禁止**临时替换 `state.player` / `selfId` 求条件 —— 会污染关系图与观察者。
 
@@ -95,9 +98,12 @@ skinId（持久化） > skinRules 首个命中（实时算） > defaultSkin > �
 
 旧档可用 / 2006→2017 自动换 / 时间回溯恢复 / 显式切换存读档一致 / 清覆盖恢复 / 原作开局皮肤完整 / 自建角色占位符 / 敌人召唤物按 characterId / 同技能不同人素材不同 / AoE 一次 / 多段一次 / 跳过不阻塞 / 读档不重播 / 资源缺失降级 / 离线可看 / 只改媒体不拒载 / 夺舍形象不串 / 机制漂移仍拒载。
 
-## 7. 波次
+## 7. 交付切分
 
-P0 协议+指纹+兼容 → P1 资源与缓存 → P2 皮肤与 Self → P3 CutIn 与门控 → P4 模板实装与回归。**P0 不完成不许动前端**。
+**V1.0（先做）**：P0 协议+指纹+兼容 → P1 资源与缓存 → P2 皮肤与 Self。
+**V1.1（V1.0 验收通过后）**：P3 CutIn 与门控 → P4 模板实装与回归。
+
+分界线是**静态媒体 vs 时序演出**；头像与立绘共用同一条链路，不拆。**P0 不完成不许动前端**。
 
 ---
 
@@ -111,3 +117,20 @@ P0 协议+指纹+兼容 → P1 资源与缓存 → P2 皮肤与 Self → P3 CutI
 6. **`setSkin` 作为 Effect** 会不会被滥用来做「剧情换装」以外的事（例如战斗中切皮肤改变表现）？需要限制作用域吗？
 7. **占位符复用文字头像**是否足够？还是应该默认给一个人形剪影？
 8. **有没有更小的第一版**？例如先只做头像（avatar 槽），立绘与 CutIn 放第二轮 —— 是否比现在这个「一次做完但每波可独立验收」的切法更稳？
+
+---
+
+## 9. 外部评审结论（2026-11-24）
+
+**Approve with changes** —— 架构通过，十项修订已并入 `README` / `requirements` / `design` / `tasks` 与三节 ADR：
+
+1. §3.3 安全论证改为「同一旧算法下相等」；新增 `fingerprintVersion`；**不承诺全量无损**。
+2. 演出素材优先级：`skillCutIns[skillId]` 优先于通用 `cutIn`。
+3. 回滚口径：向后兼容但**不可逆**（旧 Schema 是 strict，读不了带 `skinId` 的新档）。
+4. 缓存补 `event.waitUntil` / 尊重 HTTP 头 / 404 失效 / 并发去重 / `?v=<assetFingerprint>` 断代；FIFO 淘汰。
+5. 门控抽成 `useCastPlayback` Hook，`release` 幂等，卸载走 `cancel`；补连续施法 / 跨战斗 / 结算页边界。
+6. 条件子集保持三类；时间回溯只保证时间条件重算。
+7. `setSkin` 只写**已存在的可写实例**，校验归属，不改数值身份，不支持战斗临时单位。
+8. 占位符沿用文字头像，缺失立绘保持布局。
+9. 解析器统一 `ActorMediaRef`；演出用**释放时快照**。
+10. 拆成 **V1.0 静态媒体 / V1.1 技能演出** 两个交付版本。

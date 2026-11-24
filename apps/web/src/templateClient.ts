@@ -32,6 +32,8 @@ export type TemplateCheck =
       ok: true;
       ref: TemplateRefLite;
       fingerprint: string;
+      /** 旧算法的语义指纹：只给「旧存档一次性升级」用（见 `worldRepo.fingerprintVerdict`）。 */
+      legacyFingerprint: string;
       fromCache: boolean;
       /** 模板本体（兼容既有调用点）。 */
       template: WorldTemplateV2;
@@ -114,6 +116,7 @@ export async function checkTemplate(
           ok: true,
           ref,
           fingerprint: result.fingerprint,
+          legacyFingerprint: result.legacyFingerprint,
           fromCache: true,
           template: result.template,
           bundle: result.bundle,
@@ -156,6 +159,7 @@ export async function checkTemplate(
     ok: true,
     ref,
     fingerprint: result.fingerprint,
+    legacyFingerprint: result.legacyFingerprint,
     fromCache: false,
     template: result.template,
     bundle: result.bundle,

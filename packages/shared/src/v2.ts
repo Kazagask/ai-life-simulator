@@ -11,6 +11,7 @@ import type {
   RelationEdge,
   RelationScope,
   ScheduledEventInstance,
+  Skin,
   Skill,
   StatusEffect,
   TemplateEffect,
@@ -98,6 +99,18 @@ export interface V2CombatantBase {
   statuses: StatusInstance[];
   /** 当前生效的技能冷却（skillId -> 剩余战斗回合） */
   skillCooldowns: Record<string, number>;
+  /**
+   * 当前皮肤（2026-11-24 · 迭代 character-media）：**只影响展示**，不参与任何判定。
+   *
+   * 故意**不进 `ACTOR_FIELD_GROUPS`**（`game-core/v2/actors.ts`）：夺舍搬的是「谁」与「会什么」，
+   * 长相跟着**身体**走 —— 否则羂索夺舍夏油后会顶着上一具身体的脸。
+   */
+  skinId?: string;
+  /**
+   * 实例独有皮肤（预留）：自定义角色的 AI 生成形象落在这里，V1 不产生、不读。
+   * 同样不参与字段搬运。
+   */
+  customSkin?: Skin;
 }
 
 export interface V2Player extends V2CombatantBase {

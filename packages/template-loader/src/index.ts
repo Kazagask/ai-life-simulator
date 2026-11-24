@@ -52,6 +52,7 @@ import {
   isKinshipKind,
   registeredUiCapabilities,
   resolveExtensionRuntimes,
+  validateCharacterMedia,
   validateOpeningDag,
   validateStyleRefs,
 } from "@life-sim/game-core";
@@ -378,6 +379,44 @@ export function fingerprintOfPairs(
  * 一个管「能不能算指纹」，一个管「能不能载入」）。
  */
 export function semanticFingerprintOf(
+  files: ReadonlyArray<{ rel: string; content: string }>,
+  template: WorldTemplateV2,
+): string {
+  const extensionPairs = resolveExtensionRuntimes(template)
+    .slice()
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .map((resolved) => ({
+      name: `extension:${resolved.id}`,
+      content: resolved.runtime.version ?? "*",
+    }));
+  const declarative = [...files]
+    .filter((file) => !SEMANTIC_EXCLUDED.has(file.rel))
+    .sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0))
+    .map((file) => ({ name: file.rel, content: file.content }));
+  return fingerprintOfPairs([...declarative, ...extensionPairs]);
+}
+
+/**
+ * **不进语义指纹**的两份文件（2026-11-24 · 迭代 character-media）。
+ *
+ * - `ui.yaml`：纯展示（ADR-002 D2），改了不该让存档拒载；
+ * - `assets/manifest.yaml`：只决定「能不能看见图」，登记一张立绘不该毁掉存档。
+ *
+ * 代价：资源换了**不会**让旧档漂移 —— 想刷资源看的是 `assetFingerprint`，不是这一支。
+ */
+const SEMANTIC_EXCLUDED: ReadonlySet<string> = new Set(["ui.yaml", "assets/manifest.yaml"]);
+
+/**
+ * **旧算法**的语义指纹（含 `assets/manifest.yaml`，仍排除 `ui.yaml`）。
+ *
+ * 只用于**兼容旧存档**：存档里没有版本号时，拿它跟存档值比一次 ——
+ * 相等说明「当前模板在旧算法眼里就是当年那份」，可以放行并升级。
+ *
+ * **安全性依据**（2026-11-24 评审核正）：不是「legacy 与 v2 相等」，而是
+ * 「存档值 == 当前模板用同一旧算法算出的值」；旧算法覆盖的是机制文件 + manifest 的**超集**
+ * ⇒ 机制文件逐个未变 ⇒ 不会放行真实漂移。
+ */
+export function semanticLegacyFingerprintOf(
   files: ReadonlyArray<{ rel: string; content: string }>,
   template: WorldTemplateV2,
 ): string {
@@ -1003,6 +1042,12 @@ export function loadTemplateBundle(
   const ui = files.has("ui.yaml") ? loadUi(source) : undefined;
 
   // 以下五道是跨文件校验：zod 看不到引用，只能拿到 template + ui 之后查。
+  const mediaIssues = validateCharacterMedia(template, ui, assetManifest);
+  if (mediaIssues.length > 0) {
+    throw new Error(
+      `character_media_invalid: ${mediaIssues.map((i) => `${i.path}: ${i.message}`).join("; ")}`,
+    );
+  }
   const styleIssues = validateStyleRefs(template, ui);
   if (styleIssues.length > 0) {
     throw new Error(
@@ -1253,6 +1298,11 @@ export type TemplatePackageLoadResult =
       declaredFingerprint: string;
       /** 含 ui.yaml 的包指纹：缓存新鲜度以它为准 */
       packageFingerprint: string;
+      /**
+       * **旧算法**的语义指纹（含 manifest）：只给存档兼容用 ——
+       * 老存档里存的是这个值，载入时比一次，命中就放行并升级（`worldRepo.upgradeRecord`）。
+       */
+      legacyFingerprint: string;
     }
   | {
       ok: false;
@@ -1312,6 +1362,11 @@ export function loadTemplatePackage(input: unknown): TemplatePackageLoadResult {
     template,
     bundle,
     fingerprint: computed,
+    /** 旧算法的值：只给**存档兼容**用（见 `semanticLegacyFingerprintOf`）。 */
+    legacyFingerprint: semanticLegacyFingerprintOf(
+      Object.entries(pkg.files).map(([rel, content]) => ({ rel, content })),
+      template,
+    ),
     declaredFingerprint: pkg.fingerprint,
     packageFingerprint: packageFingerprintOf(Object.entries(pkg.files).map(([rel, content]) => ({ rel, content }))),
   };

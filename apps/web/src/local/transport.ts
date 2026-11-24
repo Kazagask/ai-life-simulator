@@ -1,3 +1,4 @@
+import { FINGERPRINT_VERSION, fingerprintVerdict, upgradeRecord } from "./worldRepo";
 import { createTimeAdapter } from "@life-sim/game-core";
 import type { TemplateBundle } from "@life-sim/template-loader";
 import type { BattleCommand, ContentBlockVM, WorldStateV2 } from "@life-sim/shared";
@@ -27,7 +28,10 @@ export interface OpeningSessionRecord {
 
 export interface LocalTemplate {
   ref: { id: string; version: string };
+  /** 新算法的语义指纹（不含 manifest）——存档写的就是它。 */
   fingerprint: string;
+  /** 旧算法的值：只给旧存档的一次性升级通道用（见 `worldRepo.fingerprintVerdict`）。 */
+  legacyFingerprint?: string;
   bundle: TemplateBundle;
 }
 
@@ -141,6 +145,7 @@ export function createLocalEngine(options: {
       savedAt: now(),
       ref: { id: session.bundle.template.meta.id, version: session.templateVersion },
       fingerprint: session.fingerprint,
+      fingerprintVersion: FINGERPRINT_VERSION,
       state: session.state,
     };
     await options.repo.write(record);
@@ -168,12 +173,17 @@ export function createLocalEngine(options: {
       if (options.repo === undefined) return;
       const records = await options.repo.list();
       for (const record of records) {
-        const template = [...templates.values()].find(
-          (t) => t.ref.id === record.ref.id && t.fingerprint === record.fingerprint,
-        );
+        const template = [...templates.values()].find((t) => t.ref.id === record.ref.id);
         // 模板没下过 / 指纹漂移 ⇒ 不预热：这条档要按「模板已变」拒载，不能静默按新模板解释。
-        if (template === undefined) continue;
-        const restored = new LocalSession(template.bundle, record.fingerprint, record.state, record.ref.version);
+        // 旧算法命中的档走 `upgrade`（一次性通道），升级后按新指纹继续用。
+        const verdict =
+          template === undefined
+            ? "drift"
+            : fingerprintVerdict(record, { v2: template.fingerprint, legacy: template.legacyFingerprint });
+        if (template === undefined || verdict === "drift") continue;
+        const upgraded = verdict === "upgrade" ? upgradeRecord(record, template.fingerprint) : record;
+        if (verdict === "upgrade" && options.repo !== undefined) await options.repo.write(upgraded);
+        const restored = new LocalSession(template.bundle, upgraded.fingerprint, upgraded.state, record.ref.version);
         restored.setGateway(
           createClientGateway(template.bundle, record.state, options.agent?.() ?? null, {
             onTrace: (trace) => restored.recordTrace(trace),
@@ -337,10 +347,12 @@ export function createLocalEngine(options: {
       // 与 warmUp 同一条纪律：模板没下过 ⇒ 404；指纹不相等 ⇒ 旧模板拒载，绝不静默解释。
       const any = [...templates.values()].find((t) => t.ref.id === record.ref.id);
       if (any === undefined) throw new EngineError(404, "template_not_found");
-      if (any.fingerprint !== record.fingerprint) {
-        throw new EngineError(409, "template_content_drift");
+      const verdict = fingerprintVerdict(record, { v2: any.fingerprint, legacy: any.legacyFingerprint });
+      if (verdict === "drift") throw new EngineError(409, "template_content_drift");
+      if (verdict === "upgrade" && options.repo !== undefined) {
+        await options.repo.write(upgradeRecord(record, any.fingerprint));
       }
-      const session = new LocalSession(any.bundle, record.fingerprint, record.state, record.ref.version);
+      const session = new LocalSession(any.bundle, any.fingerprint, record.state, record.ref.version);
       session.setGateway(
         createClientGateway(any.bundle, record.state, options.agent?.() ?? null, {
           onTrace: (trace) => session.recordTrace(trace),

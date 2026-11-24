@@ -5,6 +5,7 @@ import { AttributeValueSchema } from "./schema/attribute.js";
 import { CombatSettleSchema, EventV2Schema } from "./schema/event.js";
 import { BattleResultSchema } from "./schema/battle-evaluation.js";
 import { CharacterSchema } from "./schema/character.js";
+import { SkinSchema } from "./schema/ui.js";
 import { EndingConfigSchema } from "./schema/ending.js";
 import { EquipmentInstanceSchema } from "./schema/equipment.js";
 import { ScheduledEventInstanceSchema } from "./schema/event-instance.js";
@@ -58,6 +59,13 @@ const CombatantBaseSchema = z
     mood: z.number(),
     statuses: z.array(StatusInstanceSchema),
     skillCooldowns: z.record(z.string(), z.number()),
+    /**
+     * 当前皮肤（2026-11-24）：只影响展示。可选 ⇒ 旧档逐字段不变，不升 schemaVersion。
+     * 不参与 `transplantActor` 的字段分组（见 `game-core/v2/actors.ts` 的注释）。
+     */
+    skinId: z.string().min(1).optional(),
+    /** 实例独有皮肤（预留）：V1 不产生，读档时原样保留。 */
+    customSkin: SkinSchema.optional(),
   })
   .strict();
 

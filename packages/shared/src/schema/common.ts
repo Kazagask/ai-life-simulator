@@ -565,6 +565,21 @@ export const EffectSchema = z.discriminatedUnion("type", [
     })
     .strict(),
   /**
+   * 换皮肤（2026-11-24 · 迭代 character-media）。
+   *
+   * - `who` 缺省 self；只能指向**已存在的、可写的人物实例**（`writableActorOf`），
+   *   不存在 / 敌人等战斗临时单位 ⇒ 静默跳过（与 `inheritActor` 同策略）。
+   * - `skinId: null` = 清除显式覆盖，回到 `skinRules` / `defaultSkin`。
+   * - 只写 `skinId`，**不碰数值与身份**；皮肤必须属于该角色（加载期 `checkEffectRefs` 校验）。
+   */
+  z
+    .object({
+      type: z.literal("setSkin"),
+      who: ActorTargetSchema,
+      skinId: z.string().min(1).nullable(),
+    })
+    .strict(),
+  /**
    * 关系调整（R2.6 / ADR-0014）。两种形态互斥，引擎侧校验：
    * ① 旧形态（兼容）：`{ npcId, value }` —— 调整 NPC→玩家 标量 `npc.relationship`。
    * ② 关系边形态：`{ fromId, toId, kind, value }` —— 对边值做增量调整；

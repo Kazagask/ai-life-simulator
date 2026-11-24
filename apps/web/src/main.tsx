@@ -522,7 +522,12 @@ function App() {
         // 客户端化的第一颗钉子：在浏览器里起世界 + 推一轮 + 进 IndexedDB 再读回。
         const check = await runLocalEngineSelfCheck(first.template, first.fingerprint, first.ref.version);
         // 模板包到手 ⇒ 本地引擎可用：注册包 + 接线 + 恢复上次没关掉的本地世界。
-        localEngine.registerTemplate({ ref: first.ref, fingerprint: first.fingerprint, bundle: first.bundle });
+        localEngine.registerTemplate({
+          ref: first.ref,
+          fingerprint: first.fingerprint,
+          legacyFingerprint: first.legacyFingerprint,
+          bundle: first.bundle,
+        });
         setLocalEngine(localEngine);
         // 云端同步：发布域 + 已登录才开；顺手把模板包推一份上去（同版本按指纹覆盖）。
         void syncAvailability()

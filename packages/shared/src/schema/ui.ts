@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PolaritySchema, StyleSpecSchema, TagDefinitionSchema } from "./style.js";
+import { TaskConditionSchema } from "./common.js";
 
 /**
  * `ui.yaml` —— 模板的展示层声明（形状 B：落位）。
@@ -436,6 +437,80 @@ export const FxOverrideSchema = z
 export type FxOverride = z.infer<typeof FxOverrideSchema>;
 
 /**
+ * 人物皮肤（2026-11-24 · 迭代 character-media）。
+ *
+ * 一个皮肤就是「同一个人的一套静态素材」：头像 / 半身 / 全身，外加（V1.1 才消费的）演出立绘。
+ * 除 `name` 外全部可选 —— 缺哪个槽位就按 `avatar → bust → full` 回退（`design.md §4.1`）。
+ *
+ * **不进语义指纹**（`ui.yaml` 整体已被排除）：改一张图不该让旧存档拒载。
+ */
+export const SkinSchema = z
+  .object({
+    /** 展示名（如「高专时期」），出现在皮肤选择与调试面板。 */
+    name: z.string().min(1),
+    /** 头像（方图）。 */
+    avatar: z.string().min(1).optional(),
+    /** 半身立绘。 */
+    bust: z.string().min(1).optional(),
+    /** 全身立绘。 */
+    full: z.string().min(1).optional(),
+    /** 通用演出立绘（V1.1 消费；V1.0 只登记）。 */
+    cutIn: z.string().min(1).optional(),
+    /** 技能专属演出立绘（V1.1 消费）：skillId → assetId。专属**优先于**通用 `cutIn`。 */
+    skillCutIns: z.record(z.string().min(1), z.string().min(1)).optional(),
+  })
+  .strict();
+export type Skin = z.infer<typeof SkinSchema>;
+
+/**
+ * 自动换皮肤的一条规则：`when` 成立就用 `skin`。
+ *
+ * 条件**只用全局子集**（时间 / flag / 全局事件事实）—— 白名单在 `template-loader` 里执行，
+ * 因为 `Condition` 的类型在这里是全集的，按人物求值的上下文 V1 并不存在（`design.md §5.3`）。
+ */
+export const SkinRuleSchema = z
+  .object({
+    skin: z.string().min(1),
+    when: z.array(TaskConditionSchema),
+  })
+  .strict();
+export type SkinRule = z.infer<typeof SkinRuleSchema>;
+
+/**
+ * 一个人物的媒体配置：皮肤集合 + 默认皮肤 + 自动规则。
+ *
+ * 优先级：实例 `skinId` → 首个命中的 `skinRules` → `defaultSkin` → 占位符。
+ * 没有配置的人物保持现有展示行为（文字头像）。
+ */
+export const CharacterMediaSchema = z
+  .object({
+    defaultSkin: z.string().min(1),
+    skins: z.record(z.string().min(1), SkinSchema),
+    /** 按声明顺序匹配，**首个**命中生效；不引入优先级字段。 */
+    skinRules: z.array(SkinRuleSchema).optional(),
+  })
+  .strict()
+  .superRefine((media, ctx) => {
+    if (media.skins[media.defaultSkin] === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["defaultSkin"],
+        message: `defaultSkin「${media.defaultSkin}」不在 skins 里`,
+      });
+    }
+    (media.skinRules ?? []).forEach((rule, i) => {
+      if (media.skins[rule.skin] === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["skinRules", i, "skin"],
+          message: `skinRules[${i}] 指向未定义的皮肤「${rule.skin}」`,
+        });
+      }
+    });
+  });
+export type CharacterMedia = z.infer<typeof CharacterMediaSchema>;
+
+/**
  * `ui.presentation`：P0 默认之上的覆盖表（ADR-076 §1）。
  *
  * 键是语义 id（角色 / 技能 / 钩子 / 事件），由加载期校验存在性；
@@ -547,6 +622,12 @@ export const UiConfigSchema = z
      * 改一个颜色不该让旧存档 `template_content_drift`。
      */
     presentation: FxPresentationSchema.optional(),
+    /**
+     * 人物媒体（2026-11-24）：`characterId → { defaultSkin, skins, skinRules? }`。
+     *
+     * 只影响展示；不配的人物保持现状（文字头像）。资源配置缺失不阻塞游戏。
+     */
+    characterMedia: z.record(z.string().min(1), CharacterMediaSchema).optional(),
   })
   .strict();
 

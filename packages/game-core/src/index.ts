@@ -34,6 +34,7 @@ export * from "./v2/equipment-turn.js";
 export * from "./v2/relations.js";
 // 表现层（ADR-002）：样式解析 / 效果摘要 / 固定效果文案 / 回合增量，均为只读投影
 export * from "./v2/presentation/style.js";
+export * from "./v2/presentation/media.js";
 export * from "./v2/presentation/fx.js";
 export * from "./v2/presentation/effects.js";
 export * from "./v2/presentation/ledger.js";

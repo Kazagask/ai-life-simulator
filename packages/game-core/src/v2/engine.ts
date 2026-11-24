@@ -995,6 +995,20 @@ export function applyEffectsV2(
         }
         break;
       }
+      case "setSkin": {
+        /**
+         * 换皮肤（2026-11-24 · 迭代 character-media）：**只写 `skinId`**。
+         *
+         * 作用域（外部评审核定）：只能改「已存在的、可写的人物实例」——
+         * 不存在的 id、敌人这种**没有 NPC 实例的战斗临时单位**一律静默跳过（与 `inheritActor` 同策略）。
+         * 不碰任何数值与身份字段；皮肤归属由加载期 `checkEffectRefs` 校验。
+         */
+        const target = writableActorOf(state, effect.who);
+        if (target === null) break;
+        if (effect.skinId === null) delete target.actor.skinId;
+        else target.actor.skinId = effect.skinId;
+        break;
+      }
       case "inheritActor": {
         /**
          * 继承 / 夺舍（ADR-010 D7）：`transplantActor` 的唯一模板入口。

@@ -25,6 +25,14 @@ export interface LocalWorldRecord {
   ref: { id: string; version: string };
   /** 建局时模板的语义指纹：与当前模板不同 ⇒ 这档要按旧模板拒载，不许静默按新模板解释。 */
   fingerprint: string;
+  /**
+   * 指纹算法版本（2026-11-24）：
+   * - 缺省 / 1 = 旧算法（语义指纹**含** `assets/manifest.yaml`）；
+   * - 2 = 新算法（不含 manifest，见 `semanticFingerprintOf`）。
+   *
+   * 只有旧档需要走「双哈希」兼容通道；升级一次之后就只校验 v2。
+   */
+  fingerprintVersion?: number;
   state: WorldStateV2;
   /** 最后一次成功同步到远端的时刻；缺省 = 从没同步过（纯本地档）。 */
   syncedAt?: string;
@@ -58,6 +66,35 @@ export function isLocalWorldRecord(value: unknown): value is LocalWorldRecord {
 /** 指纹漂移判据：唯一实现点（服务端拒载用的是同一个事实，只是文案不同）。 */
 export function isDrifted(record: LocalWorldRecord, currentFingerprint: string): boolean {
   return record.fingerprint !== currentFingerprint;
+}
+
+/** 当前算法版本。写档时打上，读档时据此决定要不要走 legacy 兼容。 */
+export const FINGERPRINT_VERSION = 2;
+
+/**
+ * 旧档兼容判据（2026-11-24）。
+ *
+ * 返回 `"ok"`（指纹已对上）/ `"upgrade"`（旧算法命中，需要就地升级）/ `"drift"`。
+ *
+ * **安全性依据**：`"upgrade"` 成立的条件是「存档值 == 当前模板用**同一套旧算法**算出的值」，
+ * 说明当前模板在旧算法眼里就是当年那份；旧算法覆盖的是机制文件 + manifest 的**超集**
+ * ⇒ 机制文件逐个未变 ⇒ 不会放行真实漂移。
+ *
+ * 带 `fingerprintVersion: 2` 的档**只**走 v2 比较，不再回落 legacy —— 双哈希只是一次性通道。
+ */
+export function fingerprintVerdict(
+  record: LocalWorldRecord,
+  current: { v2: string; legacy?: string },
+): "ok" | "upgrade" | "drift" {
+  if (record.fingerprint === current.v2) return "ok";
+  if (record.fingerprintVersion === FINGERPRINT_VERSION) return "drift";
+  if (current.legacy !== undefined && record.fingerprint === current.legacy) return "upgrade";
+  return "drift";
+}
+
+/** 把一条旧档就地升级成新指纹（只改指纹字段，不动 state）。 */
+export function upgradeRecord(record: LocalWorldRecord, v2: string): LocalWorldRecord {
+  return { ...record, fingerprint: v2, fingerprintVersion: FINGERPRINT_VERSION };
 }
 
 /** 列表排序：`savedAt` 倒序（与 `GET /api/worlds` 同口径），同刻按 id 稳定。 */

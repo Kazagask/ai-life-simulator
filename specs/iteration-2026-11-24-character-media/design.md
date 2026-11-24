@@ -28,6 +28,7 @@ assets/manifest.yaml ──┘         ↑
 | B | `packages/shared/src/v2.ts` | `ActorSkinState { skinId?: string; customSkin?: Skin }` 并入 `V2Player` / `V2Npc` 公共结构 | 字段可选，旧档缺省 |
 | C | `packages/shared/src/v2-state.ts` | 存档校验同步这两个可选字段 | 同上 |
 | D | `packages/shared/src/schema/common.ts` | Effect 增 `{ type: "setSkin", who?, skinId: string \| null }` | 旧模板不写即无 |
+| E | 存档记录（`local/worldRepo.ts`、服务端 world 文件） | 追加可选 `fingerprintVersion?: 2` 与 `assetFingerprint?: string` | 缺省按 1 代处理（走 §3.3 双哈希） |
 
 > A/C 的 schema 全是 `.strict()`（`ui.ts` 有 31 处），**漏一处模板就 `ui_invalid`**。
 > B 的两个字段**不进 `ACTOR_FIELD_GROUPS`**（`packages/game-core/src/v2/actors.ts`），
@@ -57,38 +58,45 @@ export const DECLARATIVE_FILES = [ … "lore.md", "assets/manifest.yaml", "ui.ya
 新算法的 `semanticFingerprint` = 现有集合 **再排除 `assets/manifest.yaml`**。
 `assetFingerprint` 已有实现（`templates.ts` 的 `asset.fingerprint`），本轮只是把它写进存档记录。
 
-### 3.3 旧档兼容（用户点出的坑）
+### 3.3 旧档兼容（外部评审修订 2026-11-24）
 
 存档里只有一个 `fingerprint: string`（`apps/web/src/local/worldRepo.ts`）。
-换算法后它必然对不上 —— 所以加载时**同时算两个值**：
+换算法后它必然对不上 —— 所以加载时**同时算两个值**，并给新档写上版本号：
 
 ```
 onLoad(record):
-  v2     = semanticFingerprintOf(files, template)          // 新：不含 manifest
-  legacy = semanticLegacyFingerprintOf(files, template)    // 旧：含 manifest
-  if record.fingerprint == v2:
-      ok(record)                        // 新档
-  else if record.fingerprint == legacy:
-      ok(record); record.fingerprint = v2; persist(record)   // 旧档 → 就地升级
-  else:
-      reject(template_content_drift)
+  if record.fingerprintVersion === 2:
+      return record.fingerprint === v2 ? ok : reject   // 新档只认 v2
+  v2     = semanticFingerprintOf(files, template)       // 新算法：不含 manifest
+  legacy = semanticLegacyFingerprintOf(files, template) // 旧算法：含 manifest
+  if record.fingerprint === v2:     ok(record)
+  elif record.fingerprint === legacy: ok(record); 升级为 { fingerprint: v2, fingerprintVersion: 2 }
+  else:                             reject(template_content_drift)
 ```
 
-**为什么 `legacy` 相等是安全的**：旧算法的文件集是**超集**（多了 manifest），
-两套文件集算出来的哈希相等 ⇒ 连 manifest 都没变 ⇒ 机制必然也没变。
-所以「用旧值放行」不会放过任何真实漂移，只会放过「manifest 变了但机制没变」这一种 —— 而它恰好是我们想要的。
+**安全性依据（上一版写错了，这里改正）**：
+安全的判据**不是**「legacy 与 v2 相等」，而是
 
-### 3.4 残留风险（写清楚，不藏）
+> 存档里的值与**当前模板用同一套旧算法**算出来的值相等 ⇒ 这说明「当前模板在旧算法眼里
+> 就是当年那份」，而旧算法覆盖的文件集是机制文件 + manifest 的**超集**
+> ⇒ 机制文件逐个未变、manifest 也未变 ⇒ 不可能有真实漂移被放行。
+
+换成「legacy == v2」来论证是循环论证：两值相等只能说明 manifest 没参与差异，
+不能说明存档当年用的就是这套算法。**新档一律带 `fingerprintVersion: 2`，此后只校验 v2**，
+所以双哈希只是**一次性的升级通道**，不会长期并存。
+
+### 3.4 残留风险（不承诺全量无损）
 
 | 场景 | 结果 |
 |---|---|
-| 存档时模板**没有** manifest（当前仓库就是这样） | `legacy == v2`，直接认新档 ✅ |
-| 存档时 manifest 存在，且之后**改过** | 两个值都对不上 ⇒ 判漂移 ⚠️（唯一损失面） |
-| 存档时 manifest 存在，之后没改 | `legacy` 命中 ⇒ 就地升级 ✅ |
+| 存档时模板**没有** manifest（当前仓库就是这样） | `legacy == v2`，直接认 ✅ |
+| 存档时 manifest 存在，之后**没改** | `legacy` 命中 ⇒ 升级 ✅ |
+| 存档时 manifest 存在，之后**改过** | 两个值都对不上 ⇒ **仍会判漂移** ⚠️ |
 
-⚠️ 这一格的代价是「升级后第一次加图可能让极少数旧档拒载」。当前模板**从未有过**
-`assets/manifest.yaml`（`ls specs/data/templates/jjk-2006/3.0.0/` 可证），所以**实际损失为零**；
-以后每个存档都带 `v2`，这一格永远不会再出现。要在 ADR 里留一句「这是单向升级，代价只在本轮」。
+⚠️ 第三行是硬损失，**不做兜底**：旧档里没有任何信息能区分「manifest 改了」还是「机制改了」，
+任何「猜一下应该没事」的做法都会放行真实漂移。当前模板从未有过 `assets/manifest.yaml`
+（`ls specs/data/templates/jjk-2006/3.0.0/` 可证），所以本轮实际损失为零；升级后每个存档都带
+`fingerprintVersion: 2`，这一格不再出现。
 
 ### 3.5 资源缺失不得中断游戏
 
@@ -101,21 +109,34 @@ onLoad(record):
 
 ## 4. 解析器（三个，全部纯函数）
 
-放在 `packages/game-core/src/v2/presentation/`（与 `effects.ts` / `style.ts` 同层）：
+放在 `packages/game-core/src/v2/presentation/`（与 `effects.ts` / `style.ts` 同层）。
+输入统一成一个轻量引用（**只是解析层入参，不新增人物实例体系**）：
 
 ```ts
-resolveSkin(actor: { id: string } | { characterId: string }, media: CharacterMediaMap | undefined, ctx: SkinContext): SkinResolution | undefined
-resolveCharacterMedia(actorIdOrCharacterId, slot: MediaSlot, media, ctx): string | undefined   // 返回 assetId
-resolveCutIn(casterIdOrCharacterId, skillId, ui): { assetId?: string; title: string; durationMs: number } | undefined
+interface ActorMediaRef {
+  actorId: string;        // 世界里的实例 id（玩家 = selfId；战斗单位 = 单位 id）
+  characterId?: string;   // 模板人物 id（敌人/召唤物没有 NPC 实例时用它查皮肤集合）
+  skinId?: string;        // 实例上的显式皮肤（持久化的那一个）
+  customSkin?: Skin;      // 预留，V1 不产生
+}
+
+resolveSkin(ref: ActorMediaRef, media: CharacterMediaMap | undefined, ctx: SkinContext): SkinResolution | undefined
+resolveCharacterMedia(ref: ActorMediaRef, slot: MediaSlot, media, ctx): string | undefined      // → assetId
+resolveCutIn(ref: ActorMediaRef, skillId: string, ui): CutInPlan | undefined
 ```
 
-- `ctx` 至少含 `{ flags, worldTime, facts }` —— 条件子集只吃这三样（§5.3）。
+- `ctx` 只含 `{ flags, worldTime, facts }` —— 条件子集只吃这三样（§5.3）。
 - 三个函数**只读**，不写 state；命名里不出现任何作品专名。
+- **技能演出用释放时的媒体快照**：CutIn 的 `assetId` 在 cast 生成时就解析好并随 `fx.casts[i]`
+  下发，播放时不再回查 state —— 否则演出途中一次 `setSkin` 会把同一次释放的立绘换掉。
 
 ### 4.1 占位符（S8）
 
 复用现有文字头像：`name.slice(0, 1)` + 由 `characterRef` 哈希出的稳定底色。
 不新增图形资产、不改 `AssetDescriptor`。
+
+**布局约束**：头像位固定为圆形方框；立绘位缺失时**保持原布局**（留白），
+不插入大面积剪影占位 —— 剪影会把「没有图」渲染成「有图但难看」，反而更显眼。
 
 ## 5. 皮肤
 
@@ -143,8 +164,12 @@ skinId（持久化） > skinRules 首个命中（实时算，不落盘） > defa
 加载期用**白名单**校验 `skinRules[].when`：
 
 ```ts
-const SKIN_RULE_CONDITIONS = ["time", "flag", "eventOccurred", "eventNotOccurred"] as const;
+// packages/game-core/src/v2/presentation/media.ts
+export const SKIN_RULE_CONDITION_KEYS = ["time", "flag"] as const;
 ```
+
+「全局事件事实」在 `ConditionSchema` 里**没有独立谓词** —— 项目惯例是让事件写旗标，
+所以 `flag` 已经覆盖它；不为此新增条件类型。
 
 - 命中白名单 ⇒ 通过；否则 `ui_invalid: skin_rule_condition_unsupported`（带路径）。
 - **不**替换 `state.player` / `selfId` 求值 —— 那会污染关系图与观察者，用户明确禁止。
@@ -177,47 +202,79 @@ const SKIN_RULE_CONDITIONS = ["time", "flag", "eventOccurred", "eventNotOccurred
 |---|---|
 | 缓存名 | `character-media`（**不带 `life-sim-` 前缀**，因此不被 activate 清理） |
 | 拦截范围 | 仅 `GET /api/templates/:id/:version/assets/:assetId` |
-| 策略 | `stale-while-revalidate`：先回缓存，后台 fetch 覆盖 |
-| 上限 | 128 MB（常量，可在生成脚本里改） |
-| 淘汰 | 插入前若超限，按 `Cache` 里存的 `x-cached-at` 升序删到 80% |
-| 失败 | `catch` ⇒ 走网络 ⇒ 网络也失败 ⇒ 让 `<img>` 走占位符 |
+| 策略 | `stale-while-revalidate`：先回缓存，后台 `fetch` 覆盖（后台写必须 `event.waitUntil` 包住，否则 SW 随时被回收，写一半） |
+| 上限 | 128 MB（生成脚本里的常量） |
+| 淘汰 | **FIFO**：按 `x-cached-at` 升序删到 80%（不做真 LRU，`Cache` 读不到访问时间，伪 LRU 反而更贵） |
+| 版本参数 | 资源 URL 带 `?v=<assetFingerprint 前 8 位>` —— 作者换图后 URL 变，天然不命中旧缓存 |
+| 404 | 命中缓存的响应若后台回 404 ⇒ **删除该条**并从缓存直接返回失败（不再无限回旧图） |
+| 并发 | 同一 URL 的后台刷新用 `pending: Map<url, Promise>` 去重，避免十张图同时刷新时写同一个 key |
+| 失败 | 网络失败 ⇒ 保留旧缓存继续用；`<img onError>` ⇒ 占位符 |
 
-**不用永久 cache-first**：同一 `assetId` 的图会被模板作者替换（`assetFingerprint` 变了），
-SWR 能让下一次访问拿到新图。
+**不用永久 cache-first**：同一 `assetId` 的图会被模板作者替换，靠 `?v=` 断代 + SWR 覆盖。
 
 ### 6.3 不做
 
 - 不建 IndexedDB 图片索引（Cache Storage 已经是索引）。
 - 不缓存 `/api/templates`（JSON）与 `/package`（体积大、已有 IDB 包缓存）。
 
-## 7. CutIn 与 FX 门控（M3）
+## 7. CutIn 与 FX 门控（M3 · V1.1）
 
-### 7.1 状态机（在 `BattleFxLayer` 内部，不新建组件管全局）
+### 7.1 形态：一个 Hook，不是第二个引擎
+
+外部评审要求「抽成轻量 Hook」，采纳。`useCastPlayback(fx)` 只做三件事：
+
+1. 按 `cast.seq` 维护游标（沿用 `BattleFxLayer` 现有的 `cursorRef` 语义）；
+2. 判定这一条 cast 要不要先播 CutIn；
+3. `release(seq)` 放行 —— **幂等**，多次调用只生效一次。
+
+`BattleFxLayer` 从「自己算游标」退化成「消费 `useCastPlayback` 给的 `pending`」，
+组件本身不再增长职责；不新建通用动画引擎，也不引入全局调度器。
 
 ```
 idle ──新 cast.seq──→ 有 cutIn? ──是──→ cutIn(播放)
                         │                 ├─ 完成 ─┐
-                        │                 ├─ 跳过 ─┤
-                        │                 ├─ 超时 ─┤
-                        │                 └─ 卸载 ─┴─→ release(seq) → 播 cast/trace/impact
-                        └──否──────────────────────────→ 直接播
+                        │                 ├─ 跳过 ─┤──→ release(seq) → 播 cast/trace/impact
+                        │                 └─ 超时 ─┤
+                        │                          │
+                        └──否──────────────────────┴─→ 直接播
 ```
 
 - **门控键 = `cast.seq`**：`release(seq)` 只放行这一条及之前的段。
-- 现有游标语义（`BattleFxLayer.tsx` 的 `cursorRef`）保留：首次挂载推游标 ⇒ 读档不重播（验收 13）。
 - 门控**只在表现层**：`battleActionV2` 的返回、state 写入、结算全都不等它。
+- **卸载即取消**：`useEffect` cleanup 调 `cancel()` 而不是 `release()` —— 组件没了就不该再启动
+  后续 FX（那是「对着空气播动画」，还会在结算页闪一下）。
 
 ### 7.2 去重（S6）
 
-CutIn 的触发键 = `${cast.seq}`（`BattleFxCast` 已有，见 `packages/shared/src/v2.ts:970`）。
+CutIn 的触发键 = `cast.seq`（`packages/shared/src/v2.ts:970`）。
 一条 cast = 一次技能释放（`resolveBattleFx` 对 AoE 只产一条 cast，多段命中进 `hits[]`），
-所以「AoE 播一次、多段播一次」由数据形状天然保证；门控层再加一个 `playedSeqs` 集合防重入。
+所以「AoE 播一次、多段播一次」由数据形状天然保证；Hook 里再用 `playedSeqs` 防重入。
+`release` 与 `cancel` 都要能从 `playedSeqs` 之外独立生效（幂等用 `released` 集合判定）。
 
 ### 7.3 跳过与超时
 
 - 点击/触摸任意处 ⇒ `release(seq)` + 立刻卸载 CutIn。
-- `durationMs`（默认 1200）到时 ⇒ 自动 `release`。
-- `useEffect` cleanup ⇒ `release`（组件卸载 / 切页）。
+- `durationMs`（默认 1200）到时 ⇒ 自动 `release`；**兜底计时器** = `durationMs + 500`，
+  防止动画事件没触发时把 FX 永久卡住。
+- 卸载 ⇒ `cancel()`。
+
+### 7.4 素材优先级（外部评审修正）
+
+```
+skillCutIns[skillId] → cutIn → bust → full → 纯文字
+```
+
+**专属素材优先于通用素材**。上一版把 `cutIn` 写在 `skillCutIns` 前面是错的：
+一旦角色配了通用 `cutIn`，专属演出就永远轮不到。
+
+### 7.5 边界用例（V1.1 验收）
+
+| 场景 | 期望 |
+|---|---|
+| 连续施法（两次技能在同一响应里） | 两条 cast 依次播，CutIn 各播一次 |
+| 跨战斗重置 | 新战斗 `fx.seq` 归零 ⇒ Hook 游标重置，不误判「已播过」 |
+| 最后一次技能 + 结算页切换 | 战斗结束切到战评面板时 ⇒ `cancel()`，不残留、不闪 |
+| 读档 | 首帧把游标推到 `fx.seq`，历史 cast 不重播 |
 
 ## 8. 敌人与召唤物（S5）
 
@@ -254,8 +311,9 @@ CutIn 的触发键 = `${cast.seq}`（`BattleFxCast` 已有，见 `packages/share
 | `packages/game-core/src/v2/projection.ts` | 投影 `media`：按在场角色补 `portrait.<id>` / `avatar.<id>` |
 | `packages/template-loader/src/index.ts` | 指纹拆两套 + `characterMedia` 引用校验 + 条件白名单 |
 | `apps/web/scripts/build-sw.mjs` | 媒体缓存 |
-| `packages/rpg-ui/src/CharacterAvatar.tsx` / `SkillCutIn.tsx` | 新组件 |
-| `packages/rpg-ui/src/BattleFxLayer.tsx` | 门控 |
+| `packages/rpg-ui/src/CharacterAvatar.tsx` | 新组件（V1.0） |
+| `packages/rpg-ui/src/useCastPlayback.ts` + `SkillCutIn.tsx` | 新 Hook + 组件（V1.1） |
+| `packages/rpg-ui/src/BattleFxLayer.tsx` | 改成消费 Hook（V1.1） |
 | `specs/data/templates/jjk-2006/3.0.0/assets/manifest.yaml` | 新建（6 张现有图 + 后续素材） |
 | `specs/data/templates/jjk-2006/3.0.0/ui.yaml` | `characterMedia` + `cutIn` |
 
@@ -271,4 +329,10 @@ CutIn 的触发键 = `${cast.seq}`（`BattleFxCast` 已有，见 `packages/share
 | 媒体配置写错导致 `ui_invalid` | 加载期校验给路径级报错（`ui.characterMedia.npc-x.skins.y.avatar`） |
 | 引擎里混进专名 | `test/unit/engine-generic.test.ts` 已覆盖 |
 
-回滚：四处协议增量全部是**可选字段**，回滚只需撤前端与配置；存档里的 `skinId` 会被旧代码忽略。
+回滚：四处协议增量全部是**可选字段** —— 但这里要说准（外部评审核正）：
+
+- **保证**：新代码读旧存档（旧档没有 `skinId` / `fingerprintVersion`，按缺省处理）。
+- **不保证**：旧代码读新存档。`packages/shared/src/v2-state.ts` 是 `.strict()` 的，
+  回滚到旧版本后，带 `skinId` 的存档会被判 `schema_invalid`。
+- 所以这是一次**向后兼容、但不可逆**的升级：回滚代码之前必须先回滚存档，或接受旧档丢失。
+- 缓解：`skinId` 只影响展示，回滚前可跑一次「剥字段」脚本（不实现，写在这里备案）。
