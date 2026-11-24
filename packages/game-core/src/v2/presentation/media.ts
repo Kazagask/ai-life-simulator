@@ -167,7 +167,9 @@ export function resolveCharacterMedia(
  * 只产出**解析得到**的槽：没有皮肤、没有素材、角色没配 → 一条都不产出，
  * 前端自然退到文字头像（`design.md §4.5`）。
  *
- * 槽名约定（`packages/rpg-ui/src/slots.ts` 已认）：`avatar.<id>` / `portrait.<id>`。
+ * **只产出 `avatar.<id>`**（2026-11-24 用户裁决）：`portrait.<id>` 会被
+ * `StoryStage` 的立绘排当成叙事配图，在故事区塞一张小图；立绘是人物页的东西，
+ * 等 P2 做人物详情页时再按 `bust` 槽单独取，不要混进叙事流。
  */
 export function derivedActorMedia(
   actors: ReadonlyArray<{ ref: ActorMediaRef; visible: boolean }>,
@@ -179,8 +181,6 @@ export function derivedActorMedia(
     if (!visible) continue;
     const avatar = resolveCharacterMedia(ref, "avatar", media);
     if (avatar !== undefined) out.push({ slot: `avatar.${ref.actorId}`, assetId: avatar });
-    const bust = resolveCharacterMedia(ref, "bust", media);
-    if (bust !== undefined) out.push({ slot: `portrait.${ref.actorId}`, assetId: bust });
   }
   return out;
 }

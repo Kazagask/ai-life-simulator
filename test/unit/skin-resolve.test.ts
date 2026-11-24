@@ -58,7 +58,7 @@ describe("resolveCharacterMedia（槽位回退，只在同一皮肤内）", () =
 });
 
 describe("derivedActorMedia", () => {
-  it("产出 avatar.<id> 与 portrait.<id>，不可见的角色跳过", () => {
+  it("只产出 avatar.<id>（立绘不进叙事流），不可见的角色跳过", () => {
     const out = derivedActorMedia(
       [
         { ref: { actorId: "npc-a" }, visible: true },
@@ -67,10 +67,7 @@ describe("derivedActorMedia", () => {
       ],
       media,
     );
-    expect(out).toEqual([
-      { slot: "avatar.npc-a", assetId: "a.avatar" },
-      { slot: "portrait.npc-a", assetId: "a.bust" },
-    ]);
+    expect(out).toEqual([{ slot: "avatar.npc-a", assetId: "a.avatar" }]);
   });
 
   it("没有 characterMedia ⇒ 空数组（老模板零变化）", () => {
