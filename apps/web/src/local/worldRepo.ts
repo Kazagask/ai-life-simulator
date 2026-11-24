@@ -86,8 +86,26 @@ export function fingerprintVerdict(
   record: LocalWorldRecord,
   current: { v2: string; legacy?: string },
 ): "ok" | "upgrade" | "drift" {
-  if (record.fingerprint === current.v2) return "ok";
-  if (record.fingerprintVersion === FINGERPRINT_VERSION) return "drift";
+  const version = record.fingerprintVersion;
+  /**
+   * 未知版本（未来版 / 脏数据）⇒ **拒载**，不猜、不降级。
+   * 版本只能加，不能往回解释；否则「新档被旧算法重新打标」会掩盖真正的漂移。
+   */
+  if (version !== undefined && version !== 1 && version !== FINGERPRINT_VERSION) return "drift";
+
+  if (version === FINGERPRINT_VERSION) {
+    // 已升级过的档：只认 v2。值不对就是漂移，不再回落 legacy。
+    return record.fingerprint === current.v2 ? "ok" : "drift";
+  }
+
+  /**
+   * 未标记版本（旧档）：
+   * - 值已经是 v2（可能上次升级写了一半 / 老档本来就没有 manifest）⇒ 仍返回 `upgrade`，
+   *   让调用方补写 `fingerprintVersion: 2`。**不返回 ok** —— 否则这条档永远不带版本号，
+   *   双哈希通道会一直开着。
+   * - 值是 legacy ⇒ `upgrade`；都不命中 ⇒ `drift`。
+   */
+  if (record.fingerprint === current.v2) return "upgrade";
   if (current.legacy !== undefined && record.fingerprint === current.legacy) return "upgrade";
   return "drift";
 }

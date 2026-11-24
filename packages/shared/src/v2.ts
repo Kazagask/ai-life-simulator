@@ -1519,7 +1519,13 @@ export interface V2Snapshot {
   status?: WorldRunStatus;
   /** 已终止时的结局投影；未终止为 null */
   ending?: EndingView | null;
-  /** F3：媒体资源投影（展示就绪，含 url / alt）；存档只留引用。 */
+  /**
+   * 媒体资源投影（F3 + 2026-11-24 角色媒体）。
+   *
+   * 两份来源合并：`state.media`（内容块点名的槽）+ **派生**（在场人物按皮肤解析出的
+   * `avatar.<id>` / `portrait.<id>`）。引擎只给 `assetId`，`url` 由下发层按路由拼 ——
+   * 内核不认识 origin / 版本号，也不该认识。
+   */
   media?: Array<{ slot: string; assetId: string; url: string; alt: string }>;
   /** 是否存在待回程的 LLM 调用（F3 稀疏参与标志）。 */
   llmPending?: boolean;

@@ -1,0 +1,55 @@
+# 资源清单（2026-11-24 · 迭代 character-media · T-05）
+#
+# 只登记**磁盘上真实存在的文件**：assetId 是不透明标识（改名不影响引用），
+# `path` 相对本目录下的 `assets/`，服务端会拼成 `<version>/assets/<path>` 并做越界/扩展名校验。
+#
+# 这份文件**不进语义指纹**：登记一张立绘不该让旧存档拒载（ADR-70「三类指纹」）。
+# 但它进包指纹：改了会让浏览器里的旧包失效，下次启动重新下载。
+#
+# `kind` 只用于粗筛（portrait / diff / cg / bgm），**槽位语义由 ui.yaml 的 skin 决定**
+# （avatar / bust / full）—— 同一个 characterRef 可以有多张图中不同用途。
+
+assets:
+  # ---- 五条悟 · 高专时期（2006） ----
+  - assetId: gojo.student.avatar
+    path: characters/gojo-satoru-kaigyoku-portrait.png
+    kind: portrait
+    characterRef: npc-gojo
+    tags: [student, avatar]
+    visibility: public
+
+  - assetId: gojo.student.bust
+    path: characters/gojo-satoru-kaigyoku-bust.png
+    kind: portrait
+    characterRef: npc-gojo
+    tags: [student, bust]
+    visibility: public
+
+  - assetId: gojo.student.full
+    path: characters/gojo-satoru-kaigyoku-full.png
+    kind: portrait
+    characterRef: npc-gojo
+    tags: [student, full]
+    visibility: public
+
+  # ---- 表情差分（V1 不驱动切换，先登记；`kind: diff` 保留给以后的表情系统） ----
+  - assetId: gojo.student.bust.grin
+    path: characters/gojo-satoru-kaigyoku-bust-grin.png
+    kind: diff
+    characterRef: npc-gojo
+    tags: [student, bust, grin]
+    visibility: public
+
+  - assetId: gojo.student.bust.serious
+    path: characters/gojo-satoru-kaigyoku-bust-serious.png
+    kind: diff
+    characterRef: npc-gojo
+    tags: [student, bust, serious]
+    visibility: public
+
+  - assetId: gojo.student.bust.surprise
+    path: characters/gojo-satoru-kaigyoku-bust-surprise.png
+    kind: diff
+    characterRef: npc-gojo
+    tags: [student, bust, surprise]
+    visibility: public

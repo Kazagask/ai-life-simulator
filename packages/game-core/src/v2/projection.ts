@@ -20,6 +20,7 @@ import type {
   WorldStateV2,
   WorldTemplateV2,
 } from "@life-sim/shared";
+import { derivedActorMedia, type ActorMediaRef } from "./presentation/media.js";
 import {
   DEFAULT_RESOURCE_DANGER_RATIO,
   DEFAULT_RESOURCE_DISPLAY,
@@ -357,8 +358,29 @@ export function projectSnapshotV2(
   const shownHp = battle && !battle.over ? battle.player.hp : player.hp;
   const shownMp = battle && !battle.over ? battle.player.mp : player.mp;
 
+  /**
+   * 媒体槽（2026-11-24 · 迭代 character-media · T-08）：
+   * `state.media` 里内容块点名的槽 + 在场人物按皮肤解析出的头像/立绘。
+   *
+   * `url` 一律留空由下发层拼 —— 内核不知道 origin，也不该知道版本号。
+   * 解析不到任何素材的人不产出条目（前端退文字头像）。
+   */
+  const actorMediaRefs: Array<{ ref: ActorMediaRef; visible: boolean }> = [
+    { ref: { actorId: selfIdOf(state), characterId: state.player.id, ...(player.skinId !== undefined ? { skinId: player.skinId } : {}) }, visible: true },
+    ...state.npcs.map((npc) => ({
+      ref: { actorId: npc.id, characterId: npc.id, ...(npc.skinId !== undefined ? { skinId: npc.skinId } : {}) },
+      visible: npc.visibility !== "hidden" && npc.lifecycle.state !== "unspawned",
+    })),
+  ];
+  const derived = derivedActorMedia(actorMediaRefs, ui?.characterMedia);
+  const mediaSlots = [
+    ...(state.media ?? []).map((m) => ({ slot: m.slot, assetId: m.assetId })),
+    ...derived.filter((d) => !(state.media ?? []).some((m) => m.slot === d.slot)),
+  ].map((m) => ({ ...m, url: "", alt: "" }));
+
   const snapshot: V2Snapshot = {
     worldId: state.id,
+    ...(mediaSlots.length > 0 ? { media: mediaSlots } : {}),
     templateId: state.templateId,
     /**
      * 观察者只在**不是自己**时下发（缺省即「你在看你自己」）。

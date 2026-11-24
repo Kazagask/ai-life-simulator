@@ -349,3 +349,23 @@ presentation:
       impact: { preset: lightning }
       result:
         label: { text: "黒閃", latin: "BLACK FLASH" }
+
+# ══════════════════════════════════════════════════════════════════
+# 人物媒体（2026-11-24 · 迭代 character-media · V1.0）
+# ══════════════════════════════════════════════════════════════════
+#
+# 一个人物的皮肤集合。优先级（P2 全量）：实例 skinId → skinRules 首个命中 → defaultSkin → 占位符。
+# **V1.0-P1 只走 defaultSkin**：解析器先跑通「身份 → 默认皮肤 → assetId」这条正式链路，
+# 规则与显式皮肤在 P2 接进同一个函数。
+#
+# 资源必须先在 `assets/manifest.yaml` 登记：声明了 characterMedia 却没有 manifest 会加载期拒载
+# （配置错误不该被静默降级）。素材缺失由前端退文字头像，那是运行时的事。
+characterMedia:
+  npc-gojo:
+    defaultSkin: student
+    skins:
+      student:
+        name: 高专时期
+        avatar: gojo.student.avatar
+        bust: gojo.student.bust
+        full: gojo.student.full

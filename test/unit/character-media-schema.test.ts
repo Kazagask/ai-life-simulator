@@ -113,10 +113,20 @@ describe("加载期跨文件校验（validateCharacterMedia）", () => {
     expect(issues[0]?.message).toContain("未知角色");
   });
 
-  it("资源未登记 ⇒ 一条 issue；没有 manifest 时跳过（按占位符处理）", () => {
+  it("资源未登记 ⇒ 一条 issue", () => {
     const config = { "npc-a": { defaultSkin: "s", skins: { s: { name: "s", bust: "a.young.bust" } } } };
     expect(validateCharacterMedia(template, ui(config), manifest)).toHaveLength(1);
-    expect(validateCharacterMedia(template, ui(config), undefined)).toHaveLength(0);
+  });
+
+  it("声明了媒体却没有 manifest ⇒ 加载期报错（配置错误，不是运行时降级）", () => {
+    const config = { "npc-a": { defaultSkin: "s", skins: { s: { name: "s", avatar: "a.young.avatar" } } } };
+    const issues = validateCharacterMedia(template, ui(config), undefined);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.message).toContain("manifest");
+  });
+
+  it("没有 characterMedia 的老模板 ⇒ 一条都不报（兼容）", () => {
+    expect(validateCharacterMedia(template, {} as never, undefined)).toHaveLength(0);
   });
 
   it("条件超出子集（relation / status）⇒ 拒", () => {

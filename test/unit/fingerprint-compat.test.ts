@@ -59,8 +59,16 @@ describe("旧档兼容判据", () => {
   const record = (fingerprint: string, fingerprintVersion?: number) =>
     ({ id: "w", formatVersion: 1, savedAt: "", ref: { id: "t", version: "1" }, fingerprint, state: {}, ...(fingerprintVersion !== undefined ? { fingerprintVersion } : {}) }) as never;
 
-  it("命中新值 ⇒ ok", () => {
-    expect(fingerprintVerdict(record("sha256:v2"), current)).toBe("ok");
+  it("已标记版本的档命中新值 ⇒ ok", () => {
+    expect(fingerprintVerdict(record("sha256:v2", FINGERPRINT_VERSION), current)).toBe("ok");
+  });
+
+  it("命中新值但**还没标记版本** ⇒ 仍然 upgrade（补写版本号）", () => {
+    expect(fingerprintVerdict(record("sha256:v2"), current)).toBe("upgrade");
+  });
+
+  it("未知版本号 ⇒ drift（不猜、不降级）", () => {
+    expect(fingerprintVerdict(record("sha256:v2", 99), current)).toBe("drift");
   });
 
   it("旧值命中 legacy ⇒ upgrade（一次性通道）", () => {
