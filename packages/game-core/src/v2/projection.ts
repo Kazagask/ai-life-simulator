@@ -26,13 +26,14 @@ import {
   relationScopeOf,
   relationVisibleTo,
 } from "@life-sim/shared";
-import { moodBand, maxHp, maxMp } from "./engine.js";
+import { derivedAttributeKeys, derivedAttributeValues, effectiveAttributesOfActor, moodBand, maxHp, maxMp } from "./engine.js";
 import { resourceMax, resourceValue } from "./resources.js";
-import { resolveAttributeViews } from "./presentation/attributes.js";
+import { resolveAttributeViews, roundAttribute } from "./presentation/attributes.js";
 import { birthTimeFromAge, createTimeAdapter } from "./time.js";
 import type { TemplateLookup } from "./lookup.js";
 import { slotEventView } from "./turn.js";
 import { controlOf, effectiveCostOf, legalTargetsForPlayer, playerSkills, summonLimitOfTier } from "./battle.js";
+import { statusFor } from "./talent.js";
 import { battleSealOf, skillSealOf } from "./seal.js";
 import { projectVisibleRelations } from "./relations.js";
 import {
@@ -59,6 +60,7 @@ import {
   type SnapshotDerivationContext,
 } from "./extensions.js";
 import { actorName, buildActorDirectory, selfIdOf } from "./actors.js";
+import { resolveBattleFx } from "./presentation/fx.js";
 
 /** 关系行（`V2Snapshot.npcs[].relations[]` 的元素）。 */
 type RelationRow = V2Snapshot["npcs"][number]["relations"][number];
@@ -264,7 +266,7 @@ export function projectSnapshotV2(
   /**
    * 玩家状态 = **战斗镜像优先 + 世界层补齐**（2026-11-21）。
    *
-   * 以前这里只读 `player.statuses`（世界层），于是战斗中挂上的 `black-flash` 这类
+   * 以前这里只读 `player.statuses`（世界层），于是战斗中挂上的临时战斗态
    * 战斗态在个人页一个字都看不到 —— 而战斗面板看得见，两处自相矛盾。
    * 与 `battleView` 同一份合并口径：镜像里的实例更「新鲜」（层数/剩余回合都在上面），
    * 世界层只补镜像缺的那些（旧档 / 手工构造）。
@@ -402,14 +404,19 @@ export function projectSnapshotV2(
       gender: player.gender,
       genderLabel,
       hp: shownHp,
-      maxHp: maxHp(player, template),
+      maxHp: maxHp(player, template, effectiveAttributesOfActor(state, lookup, player)),
       mp: shownMp,
-      maxMp: maxMp(player, template),
+      maxMp: maxMp(player, template, effectiveAttributesOfActor(state, lookup, player)),
       mood: player.mood,
       moodBandLabel: moodBand(player.mood, template).label,
-      attributes: { ...player.attributes },
+      /**
+       * 派生属性（ADR-074）：面板上显示**计算后的值**，不是存档里的旧数。
+       * 只覆盖声明了 `derived` 的键 —— 其他属性仍然显示基础值（补正在 `statusTotals` 里，
+       * 面板的口径没有变）。
+       */
+      attributes: { ...panelAttributesOf(state, lookup) },
       // ADR-003：属性面板视图（排序 / hidden 过滤 / 样式 / 档位 / 进度）在投影期一次算好。
-      attributeViews: resolveAttributeViews(player.attributes, template, ui, player.attributeTiers),
+      attributeViews: resolveAttributeViews(panelAttributesOf(state, lookup), template, ui, player.attributeTiers),
       // ADR-003 D10：资源条顺序与显隐由 statusBar 决定；自定义资源同形。
       resources: resourceViews(state, lookup, ui),
       statuses,
@@ -509,7 +516,7 @@ export function projectSnapshotV2(
         knownGoals: [...npc.knownGoals],
         attributes: projectNpcAttributes(npc.attributes, template),
         attributeViews: resolveAttributeViews(npc.attributes, template, ui, npc.attributeTiers),
-        // 与玩家卡同一份投影（ADR-002 D3）：NPC 面板上的「六眼」也要是同一身彩虹。
+        // 与玩家卡同一份投影（ADR-002 D3）：同一个状态在 NPC 面板上也要同一份样式。
         statuses: npc.statuses
           .map((inst) => toStatusView(inst, lookup, ui, state.worldTime))
           .filter((s): s is StatusView => s !== null),
@@ -1078,6 +1085,32 @@ function projectNpcAttributes(
 ): Record<string, AttributeValue> {
   const out: Record<string, AttributeValue> = {};
   for (const key of template.attributes.order) out[key] = attributes[key] ?? 0;
+  /**
+   * 派生属性（ADR-074）：NPC 卡也显示算出来的值。这里只用**基础属性**算，
+   * 不叠加 NPC 的状态/装备 —— 那些是 hidden 信息，面板一旦按 effective 算
+   * 就等于把「他身上挂着什么」从侧信道泄出去（ADR-0019 红线）。
+   */
+  const derivedKeys = derivedAttributeKeys(template);
+  if (derivedKeys.size > 0) {
+    const derived = derivedAttributeValues(attributes, template);
+    for (const key of derivedKeys) {
+      if (key in out) out[key] = derived[key] ?? 0;
+    }
+  }
+  return out;
+}
+
+/** 玩家面板的属性表：基础值 + 派生属性现值（ADR-074）。 */
+function panelAttributesOf(
+  state: WorldStateV2,
+  lookup: TemplateLookup,
+): Record<string, AttributeValue> {
+  const player = state.player;
+  const derivedKeys = derivedAttributeKeys(lookup.template);
+  if (derivedKeys.size === 0) return player.attributes;
+  const eff = effectiveAttributesOfActor(state, lookup, player);
+  const out: Record<string, AttributeValue> = { ...player.attributes };
+  for (const key of derivedKeys) out[key] = roundAttribute(eff[key] ?? 0);
   return out;
 }
 
@@ -1147,6 +1180,8 @@ function statusViewOf(
   ui: UiConfig | undefined,
   /** 只有**实例**能给时长；定义视图不传，于是输出里就没有 `durationLabel`。 */
   durationLabel?: string,
+  /** 成长型天赋的进度（实例值 + 下一阶），定义视图不传。 */
+  progress?: StatusView["progress"],
 ): StatusView {
   const style = resolveEntityStyle(def, ui);
   const tags = resolveEntityTags(def, ui);
@@ -1167,6 +1202,7 @@ function statusViewOf(
     ...(tags.length > 0 ? { tags } : {}),
     ...(effects.length > 0 ? { effects } : {}),
     ...(durationLabel !== undefined ? { durationLabel } : {}),
+    ...(progress !== undefined ? { progress } : {}),
   };
 }
 
@@ -1207,8 +1243,13 @@ function toStatusView(
   const def = lookup.status(inst.statusId);
   if (def === undefined || def.visibility !== "known") return null;
   /**
+   * 成长型天赋当前阶的 `attributeModifiers / combat / quality` 会**替换**基础定义
+   * （ADR-075 §7）。投影必须读同一份有效定义，否则面板上的成长型天赋永远是初始形态。
+   */
+  const display = statusFor(def, inst) ?? def;
+  /**
    * 天赋**不下发时长**（ADR-018 D1）：它没有时钟，面板与详情都不该出现「持续」。
-   * 这不是展示层过滤 —— 下发了就总会有人把它渲染出来，然后「六眼 直到被移除」
+   * 这不是展示层过滤 —— 下发了就总会有人把它渲染出来，然后「某个天赋 直到被移除」
    * 就成了玩家要猜的一句话。
    */
   const label =
@@ -1218,7 +1259,34 @@ function toStatusView(
         def.kind === "battle" && inst.roundsLeft === undefined
         ? "整场战斗"
         : statusDurationRemaining(inst, worldTime, { inBattle });
-  return statusViewOf(def, inst.stacks, lookup, ui, label);
+  /**
+   * 成长型天赋：把「当前进度 / 下一阶门槛」一并投影。
+   * 前端只展示**当前阶**（样式已经在 `display` 里换成当前阶的品质）+ 这一条进度，
+   * 不铺整张阶梯表。
+   */
+  /**
+   * 成长进度**按阶梯展示**（2026-11-24 用户裁决）：
+   *
+   * 不显示「34/100」这种抽象总量，而是显示「当前阶梯 / 下一阶梯」——
+   * `1/4` → `4/8` → 满阶 `8/8 已完成`。玩家关心的是「离下一阶还差多少」，
+   * 而不是一个上限可能永远到不了的分数。`value` 仍原样给出去，详情可以自己算。
+   */
+  const progress = (() => {
+    if (def.kind !== "talent" || def.progress?.max === undefined) return undefined;
+    const value = inst.progress ?? def.progress.initial ?? 0;
+    const tiers = def.tiers ?? [];
+    const lastAt = tiers.at(-1)?.at;
+    const next = tiers.find((t) => t.at > value);
+    const done = lastAt !== undefined && value >= lastAt;
+    return {
+      label: def.progress.label ?? "",
+      value,
+      current: lastAt !== undefined ? Math.min(value, lastAt) : value,
+      target: next?.at ?? lastAt ?? value,
+      done,
+    };
+  })();
+  return statusViewOf(display, inst.stacks, lookup, ui, label, progress);
 }
 
 function battleView(
@@ -1306,9 +1374,9 @@ function battleView(
        */
       id: selfIdOf(state),
       hp: battle.player.hp,
-      maxHp: maxHp(state.player, template),
+      maxHp: maxHp(state.player, template, effectiveAttributesOfActor(state, lookup, state.player)),
       mp: battle.player.mp,
-      maxMp: maxMp(state.player, template),
+      maxMp: maxMp(state.player, template, effectiveAttributesOfActor(state, lookup, state.player)),
       // ADR-003 D10：战斗内资源条（hp/mp + 自定义资源），值取战斗镜像。
       resources: resourceViews(state, lookup, ui),
       statuses: allStatuses,
@@ -1326,7 +1394,7 @@ function battleView(
         .map((s) => {
           const combat = s as Extract<NonNullable<typeof s>, { kind: "combat" }>;
           /**
-           * ADR-012 D8：价格走**修正后**的值（六眼 -90%）。
+           * ADR-012 D8：价格走**修正后**的值（状态/效率折扣）。
            * 面板写 18 而实际扣 2，玩家会以为技能坏了；反之写 2 扣 18 更糟。
            */
           const cost = effectiveCostOf(state, battle, selfIdOf(state), combat.id, lookup);
@@ -1383,7 +1451,11 @@ function battleView(
       canAct: !controlOf(battle.player.statuses, "cannot_act", lookup),
     },
     enemies: battle.enemies.map(combatantView),
-    allies: battle.allies.map(combatantView),
+    allies: [
+      ...battle.allies.map(combatantView),
+      // 本轮离场的灰卡（收回 / 献祭）：只展示，不参与选中与判定
+      ...(battle.departed ?? []).map((u) => ({ ...combatantView(u), departed: true })),
+    ],
     /** ADR-012 D5：第三方。旧前端可忽略（契约给了 `default([])`）。 */
     // 旧现场（测试夹具 / 旧档直读）可能没有这个字段：按空数组处理，不在这里崩。
     neutrals: (battle.neutrals ?? []).map(combatantView),
@@ -1399,5 +1471,11 @@ function battleView(
      */
     fallen: (battle.fallen ?? []).filter((u) => u.tier === "hero").map(combatantView),
     log: battle.log.slice(-30),
+    // ADR-073：暴击次数只数结构化事件（`log` 是文案，不从字符串反解）。
+    crits: (battle.events ?? []).filter((e) => e.kind === "damage" && e.critical).length,
+    // ADR-076：四层（施法/轨迹/受击/结算）在这里一次解析完，前端只负责画。
+    fx: resolveBattleFx(battle, ui?.presentation),
+    // ADR-077：结束瞬间的战评。`over` 之前没有，结束时技能区就换成它。
+    ...(battle.evaluation !== undefined ? { evaluation: battle.evaluation } : {}),
   };
 }

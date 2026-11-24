@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CombatDurationSchema, EffectSchema, FormulaSchema } from "./common.js";
+import { BattleHookSchema, CritSpecSchema } from "./battle-hooks.js";
 
 /**
  * 技能 Schema：战斗技能（消耗/命中/伤害/施加状态/冷却）与通用技能（解锁选项/效率/熟练度）。
@@ -273,6 +274,16 @@ export const CombatSkillSchema = z
     usableInBattle: z.literal(true),
     quality: z.string().min(1).optional(),
     style: z.string().min(1).optional(),
+    /**
+     * 技能自带的暴击词条（ADR-073 D2）：与状态/世界默认累加，`chance: 1` 即必暴。
+     * 只影响这一招的 `damage`。
+     */
+    crit: CritSpecSchema.optional(),
+    /**
+     * 技能自带的战斗钩子（ADR-073）：只在这**一招**的结算里收集，其余时刻不存在。
+     * 咒具「命中时解除术式」写在这里，不写成一个独立的常驻光环。
+     */
+    hooks: z.array(BattleHookSchema).optional(),
   })
   .strict();
 

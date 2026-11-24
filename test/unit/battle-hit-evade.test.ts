@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createBattle, createWorldV2, performBattleAction, skillEffectSummaries, statusEffectSummaries, type WorldStateV2 } from "@life-sim/game-core";
+import {
+  createBattle,
+  createWorldV2,
+  performBattleAction,
+  skillEffectSummaries,
+  statusEffectSummaries,
+  type WorldStateV2,
+} from "@life-sim/game-core";
 import { SkillSchema } from "@life-sim/shared";
 import { loadTemplates } from "../../apps/server/src/templates.ts";
 
@@ -12,8 +19,17 @@ function loadEntry() {
   return entry;
 }
 
-/** 与五条对打：他身上带「无下限」（闪避 100%）。 */
-function gojoBattle(seed = 5): { state: WorldStateV2; entry: ReturnType<typeof loadEntry> } {
+/**
+ * 与五条对打。
+ *
+ * `infinity: true` 手动把「无下限」常时版挂到他身上 —— 2006 年的五条悟**没有**这个状态
+ * （2026-11-23 用户裁决：这个时期要主动开，见 sk-limitless）。所以默认是「没开」，
+ * 需要测闪避 100% 的用例自己开。
+ */
+function gojoBattle(
+  seed = 5,
+  options: { infinity?: boolean } = {},
+): { state: WorldStateV2; entry: ReturnType<typeof loadEntry> } {
   const entry = loadEntry();
   const state = createWorldV2({ templateId: "jjk-2006", playerName: "测试", seed }, entry.template, `w-evade-${seed}`);
   for (const id of ["sk-basic-strike", "sk-domain-empty", "sk-reverse-heal"]) {
@@ -21,14 +37,41 @@ function gojoBattle(seed = 5): { state: WorldStateV2; entry: ReturnType<typeof l
   }
   state.player.mp = 200;
   state.battle = createBattle("ev:test", { enemies: [{ ref: "npc-gojo" }] }, state, entry.lookup);
+  if (options.infinity === true) {
+    // 战斗单位是 createBattle 那一刻的快照：要给他加状态，得写在这份快照上
+    // （与 `/api/admin/sim` 的 `right.statuses` 覆盖同一条路径）。
+    state.battle.enemies[0]?.statuses.push({
+      statusId: "infinity",
+      stacks: 1,
+      appliedTurn: state.turnIndex,
+      appliedAt: state.worldTime,
+    });
+  }
   return { state, entry };
 }
 
 const gojoHp = (state: WorldStateV2): number => state.battle!.enemies[0].hp;
 
 describe("闪避与必中（ADR-008 D1）", () => {
-  it("无下限：命中判定过了也打不到（闪避 100%）", () => {
+  it("2006 年的五条没有常时无下限：普通攻击照常打掉血", () => {
     const { state, entry } = gojoBattle();
+    const before = gojoHp(state);
+    /**
+     * 五条敏捷 11 + 六眼 10 ⇒ 闪避 21%；而玩家敏捷 5 对 21 的命中率被夹到 5%。
+     * 一颗常数骰子不可能同时满足「< 5%」与「> 21%」，所以按骰序给：
+     * 命中 0.01 → 闪避 0.9 → 暴击 0.9。
+     */
+    let call = 0;
+    performBattleAction(state, { type: "skill", skillId: "sk-basic-strike" }, entry.lookup, () => {
+      call += 1;
+      return call === 1 ? 0.01 : 0.9;
+    });
+
+    expect(gojoHp(state)).toBeLessThan(before);
+  });
+
+  it("无下限（常时）：命中判定过了也打不到（闪避 100%）", () => {
+    const { state, entry } = gojoBattle(5, { infinity: true });
     const before = gojoHp(state);
     // rng 恒为 0 ⇒ 命中骰必过（`0 >= chance` 为假）、闪避骰必中（`0 < 1`）。
     performBattleAction(state, { type: "skill", skillId: "sk-basic-strike" }, entry.lookup, () => 0);
@@ -37,8 +80,21 @@ describe("闪避与必中（ADR-008 D1）", () => {
     expect(state.battle!.log.some((l) => l.includes("无下限") && l.includes("隔在了外面"))).toBe(true);
   });
 
-  it("领域是必中：无量空处绕过无下限照常造成伤害（伤害不会被阵营状态擦掉）", () => {
+  it("无下限要主动开：sk-limitless 给自己挂三回合的 limitless-active", () => {
     const { state, entry } = gojoBattle();
+    if (!state.player.skills.includes("sk-limitless")) state.player.skills.push("sk-limitless");
+    performBattleAction(state, { type: "skill", skillId: "sk-limitless" }, entry.lookup, () => 0);
+
+    const active = state.battle!.player.statuses.find((s) => s.statusId === "limitless-active");
+    expect(active).toBeDefined();
+    // 战斗域时长落在 `roundsLeft`（不是 worldTime）；这一回合已经结算过，所以最多 3。
+    expect(active?.roundsLeft).toBeGreaterThanOrEqual(1);
+    expect(active?.roundsLeft).toBeLessThanOrEqual(3);
+  });
+
+  it("领域是必中：无量空处绕过无下限照常造成伤害（伤害不会被阵营状态擦掉）", () => {
+    const { state, entry } = gojoBattle(5, { infinity: true });
+
     const before = gojoHp(state);
     performBattleAction(state, { type: "skill", skillId: "sk-domain-empty" }, entry.lookup, () => 0);
 
@@ -67,7 +123,7 @@ describe("闪避与必中（ADR-008 D1）", () => {
       cost: { mp: 0 },
       target: "enemy" as const,
       hit: "guaranteed" as const,
-      hitCheck: { preset: "opposed" as const, attacker: "cursedEnergy", defender: "agility", baseChance: 0.7 },
+      hitCheck: { preset: "opposed" as const, attacker: "energy", defender: "agility", baseChance: 0.7 },
       damage: [{ preset: "fixed" as const, value: 1 }],
       cooldownTurns: 0,
       usableInBattle: true as const,

@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { stableStringify } from "@life-sim/shared";
+import { sha256Hex, stableStringify } from "@life-sim/shared";
 import type {
   EngineApiHandle,
   LlmContext,
@@ -113,7 +112,8 @@ export const OUTPUT_CONTRACT = buildOutputContract();
 export { stableStringify };
 
 export function sha256(text: string): string {
-  return `sha256:${createHash("sha256").update(text, "utf8").digest("hex")}`;
+  // 纯 TS 实现（shared）：浏览器里的 gateway 要算同一个 hash，不能用 node:crypto。
+  return `sha256:${sha256Hex(text)}`;
 }
 
 const sortTools = (tools: readonly ToolDescriptor[]): ToolDescriptor[] =>

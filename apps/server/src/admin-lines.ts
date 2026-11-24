@@ -180,6 +180,11 @@ export function outgoingEdges(event: Rec): OutEdge[] {
 /** 旗标 → 读取它的结局 id（支线节点据此提示「这一步可能锁定了哪个结局」）。 */
 function endingReaders(orch: AdminOrchestration): Map<string, string[]> {
   const map = new Map<string, string[]>();
+  const add = (flag: string, id: string): void => {
+    const list = map.get(flag) ?? [];
+    if (!list.includes(id)) list.push(id);
+    map.set(flag, list);
+  };
   for (const raw of orch.endings) {
     const ending = asObject(raw);
     if (!ending) continue;
@@ -189,11 +194,15 @@ function endingReaders(orch: AdminOrchestration): Map<string, string[]> {
       ...flagsReadInConditions(ending.triggerConditions),
       ...flagsReadInConditions(ending.unlockConditions),
     ];
-    for (const flag of flags) {
-      const list = map.get(flag) ?? [];
-      if (!list.includes(id)) list.push(id);
-      map.set(flag, list);
-    }
+    for (const flag of flags) add(flag, id);
+  }
+  // 死亡路由（ADR-075 §5）：档枪那条线靠 `hvEarlyDeath` 走到早夭，现已不在 triggerConditions 里。
+  for (const raw of orch.deathRoutes ?? []) {
+    const route = asObject(raw);
+    const then = route ? asObject(route.then) : undefined;
+    const id = str(then?.endingId);
+    if (!route || !id || then?.kind !== "ending") continue;
+    for (const flag of flagsReadInConditions(route.when)) add(flag, id);
   }
   return map;
 }

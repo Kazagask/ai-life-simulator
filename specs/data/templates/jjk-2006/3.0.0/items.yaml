@@ -76,9 +76,9 @@ items:
     quality: mythic
     dynamicModifiers:
       - label: 咒力回路
-        attribute: cursedEnergy
+        attribute: cursedEnergyOutput
         preset: scaled
-        params: { base: 4, scaleBy: cursedEnergy, multiplier: 0.2 }
+        params: { base: 4, scaleBy: cursedEnergyTotal, multiplier: 0.2 }
       # 「贯穿一切」不是命中率 +100%，而是**跳过命中骰与闪避门**（2026-11-20）：
       # 以前这件事只能靠 `grantsSkill` 造一个带 `hit: guaranteed` 的招式，
       # 结果是玩家技能栏里凭空多一招，而它本来是这把矛的特性。
@@ -119,9 +119,9 @@ items:
     quality: legend
     dynamicModifiers:
       - label: 咒力回路
-        attribute: cursedEnergy
+        attribute: cursedEnergyOutput
         preset: scaled
-        params: { base: 4, scaleBy: cursedEnergy, multiplier: 0.2 }
+        params: { base: 4, scaleBy: cursedEnergyTotal, multiplier: 0.2 }
       # 不砍肉、只斩灵魂：伤害乘区加算。它不是属性，改不到面板上的任何一格。
       - label: 斩魂
         combat: { damageDealt: 0.15 }
@@ -169,9 +169,9 @@ items:
     category: cursed-tool
     quality: legend
     dynamicModifiers:
-      - attribute: cursedEnergy
+      - attribute: cursedEnergyOutput
         preset: scaled
-        params: { base: 3, scaleBy: cursedEnergy, multiplier: 0.15 }
+        params: { base: 3, scaleBy: cursedEnergyTotal, multiplier: 0.15 }
 
   - id: eq-jinmukai
     type: equipment
@@ -184,9 +184,9 @@ items:
     category: cursed-tool
     quality: legend
     dynamicModifiers:
-      - attribute: cursedEnergy
+      - attribute: cursedEnergyOutput
         preset: scaled
-        params: { base: 3, scaleBy: cursedEnergy, multiplier: 0.15 }
+        params: { base: 3, scaleBy: cursedEnergyTotal, multiplier: 0.15 }
 
   # ══════════════ 等级未明的咒具 ══════════════
 
@@ -216,9 +216,9 @@ items:
     category: cursed-tool
     quality: epic
     dynamicModifiers:
-      - attribute: cursedEnergy
+      - attribute: cursedEnergyOutput
         preset: scaled
-        params: { base: 2, scaleBy: cursedEnergy, multiplier: 0.1 }
+        params: { base: 2, scaleBy: cursedEnergyTotal, multiplier: 0.1 }
 
   - id: eq-tekatachi
     type: equipment
@@ -246,9 +246,9 @@ items:
     category: cursed-tool
     quality: excellent
     dynamicModifiers:
-      - attribute: cursedEnergy
+      - attribute: cursedEnergyOutput
         preset: scaled
-        params: { base: 1, scaleBy: cursedEnergy, multiplier: 0.05 }
+        params: { base: 1, scaleBy: cursedEnergyTotal, multiplier: 0.05 }
 
   - id: eq-blunt-knife
     type: equipment
@@ -336,9 +336,9 @@ items:
     category: cursed-tool
     quality: epic
     dynamicModifiers:
-      - attribute: cursedEnergy
+      - attribute: cursedEnergyOutput
         preset: scaled
-        params: { base: 2, scaleBy: cursedEnergy, multiplier: 0.1 }
+        params: { base: 2, scaleBy: cursedEnergyTotal, multiplier: 0.1 }
 
   - id: eq-axe
     type: equipment

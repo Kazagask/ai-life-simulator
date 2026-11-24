@@ -45,6 +45,7 @@ export { branchInstructionOf, BRANCH_PROMPT_LEAD, runAgentLoop, traceRefFor } fr
 export type { AgentLoopDeps, LoopEndReason } from "./loop.js";
 
 export { AgentGateway } from "./gateway.js";
+export { worldSkeletonOf } from "./world-skeleton.js";
 export type { AgentGatewayDeps } from "./gateway.js";
 
 export {

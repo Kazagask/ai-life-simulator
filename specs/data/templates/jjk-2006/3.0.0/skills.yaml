@@ -3,8 +3,9 @@
 # 设计原则（2026-11-12 重做）：
 # - 生得术式不是「一个技能」，而是一整套能力：术式补正（见 statuses.yaml）+ 2–3 个技能
 #   + 1 个领域展开。角色可以同时持有多个术式（宿傩、羂索、以及玩家的隐藏分支）。
-# - 引擎没有「暴击」机制，因此黑闪不做随机暴击，改为**会心窗口**：
-#   一记必中的重击 + 给自身挂 1 回合的伤害增幅补正（damageDealt），下一击才是真正的黑闪。
+# - 原生暴击与战斗钩子见 ADR-073：世界默认 6% / 1.5x（world.yaml 的 `combat.crit`）。
+#   黑闪**不是技能**：它是天赋 `t-black-flash` + 属性 `cursedEnergyControl`（咒力操作）上的一个
+#   `afterHit` 钩子，只可能在一次暴击之后发生。想调黑闪就去调天赋与资质，不要在这里加技能。
 # - 领域展开用补正实现：自身大幅增幅 + 全体敌人「领域压制」（受伤增加、命中下降），限 3 回合。
 skills:
   # ────────────────────────────── 通用 ──────────────────────────────
@@ -27,9 +28,9 @@ skills:
     description: 把咒力凝在拳锋或刃上，一击夹带灼烧。
     cost: { mp: 10 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.6 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: agility, baseChance: 0.6 }
     damage:
-      - { preset: scaled, base: 10, scaleBy: cursedEnergy, multiplier: 1.2 }
+      - { preset: scaled, base: 10, scaleBy: cursedEnergyOutput, multiplier: 1.2 }
     applyStatus:
       - { status: battle-cursed-burn, chance: 0.3, duration: { rounds: 2 } }
     cooldownTurns: 1
@@ -42,7 +43,7 @@ skills:
     cost: { mp: 15 }
     target: self
     heal:
-      - { preset: scaled, base: 12, scaleBy: cursedEnergy, multiplier: 0.9 }
+      - { preset: scaled, base: 12, scaleBy: cursedEnergyOutput, multiplier: 0.9 }
     cooldownTurns: 2
     usableInBattle: true
 
@@ -55,7 +56,7 @@ skills:
     # `targetInstanceId` 指定，不传就是自己。
     target: ally
     heal:
-      - { preset: scaled, base: 10, scaleBy: cursedEnergy, multiplier: 0.8 }
+      - { preset: scaled, base: 10, scaleBy: cursedEnergyOutput, multiplier: 0.8 }
     cooldownTurns: 2
     usableInBattle: true
 
@@ -66,29 +67,10 @@ skills:
     cost: { mp: 10 }
     target: self
     heal:
-      - { preset: scaled, base: 6, scaleBy: cursedEnergy, multiplier: 0.4 }
+      - { preset: scaled, base: 6, scaleBy: cursedEnergyOutput, multiplier: 0.4 }
     applyStatus:
       - { status: veil, chance: 1.0, stacks: 1, target: self, duration: { rounds: 2 } }
     cooldownTurns: 3
-    usableInBattle: true
-
-  # 黑闪：不是随机暴击，而是「会心窗口」——这一击必中且重，窗口留给下一击
-  - id: sk-black-flash
-    kind: combat
-    name: 黑闪
-    description: 物理打击与咒力在百万分之一秒的误差内重合。这一击之后，咒力的运转会短暂地变得异常顺滑——真正的杀招是下一击。
-    cost: { mp: 16 }
-    target: enemy
-    damage:
-      - { preset: scaled, base: 16, scaleBy: cursedEnergy, multiplier: 1.4 }
-    applyStatus:
-      # 2026-11-21：原来写 `rounds: 1`，结果这条「会心窗口」在**当回合末**就被清掉 ——
-      # 玩家一次都没看到它（投影发生在回合结算之后），下一击也没吃到增幅。
-      # 战斗态的倒计时是「每次回合末 -1」，所以「撑到你的下一击」要写 2：
-      # 本回合末 2→1，下一回合行动时还在，那回合末 1→0 清掉。
-      # 不要为此改引擎：`stun` 那类 debuff 正是靠 `{ rounds: 1 }` =「只封本回合」。
-      - { status: black-flash, chance: 1.0, stacks: 1, target: self, duration: { rounds: 2 } }
-    cooldownTurns: 4
     usableInBattle: true
 
   - id: sk-investigation
@@ -117,7 +99,7 @@ skills:
     # 领域是必中（ADR-008 D1）：不掷命中骰，也不吃对方的闪避。没有这一行，无下限会把领域也挡掉。
     hit: guaranteed
     damage:
-      - { preset: scaled, base: 26, scaleBy: cursedEnergy, multiplier: 1.0 }
+      - { preset: scaled, base: 26, scaleBy: cursedEnergyOutput, multiplier: 1.0 }
     applyStatus:
       - { status: domain-active, chance: 1.0, stacks: 1, target: self, duration: { rounds: 3 } }
       - { status: domain-pin, chance: 1.0, stacks: 1, target: all_enemies, duration: { rounds: 3 } }
@@ -300,7 +282,7 @@ skills:
     target: enemy
     hitCheck: { preset: opposed, attacker: agility, defender: physique, baseChance: 0.65 }
     damage:
-      - { preset: scaled, base: 14, scaleBy: cursedEnergy, multiplier: 1.2 }
+      - { preset: scaled, base: 14, scaleBy: cursedEnergyOutput, multiplier: 1.2 }
     applyStatus:
       - { status: stun, chance: 0.3, duration: { rounds: 1 } }
     cooldownTurns: 2
@@ -355,7 +337,7 @@ skills:
     # 魔虚罗的「适应」不是掷骰：它挥出来就一定落在你身上。
     hit: guaranteed
     damage:
-      - { preset: scaled, base: 26, scaleBy: cursedEnergy, multiplier: 1.25 }
+      - { preset: scaled, base: 26, scaleBy: cursedEnergyOutput, multiplier: 1.25 }
     cooldownTurns: 3
     usableInBattle: true
 
@@ -367,9 +349,9 @@ skills:
     description: 把血抽成薄刃。加茂家的血脉术式，代价是你自己也在失血。
     cost: { mp: 8 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.65 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: physique, baseChance: 0.65 }
     damage:
-      - { preset: scaled, base: 12, scaleBy: cursedEnergy, multiplier: 1.1 }
+      - { preset: scaled, base: 12, scaleBy: cursedEnergyOutput, multiplier: 1.1 }
     applyStatus:
       - { status: battle-curse-poison, chance: 0.4, duration: { rounds: 3 } }
     cooldownTurns: 1
@@ -381,9 +363,9 @@ skills:
     description: 血液在半空凝固成笼，把对手关在里面慢慢收紧。
     cost: { mp: 12 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.6 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: agility, baseChance: 0.6 }
     damage:
-      - { preset: scaled, base: 8, scaleBy: cursedEnergy, multiplier: 0.8 }
+      - { preset: scaled, base: 8, scaleBy: cursedEnergyOutput, multiplier: 0.8 }
     applyStatus:
       - { status: bind, chance: 0.7, duration: { rounds: 2 } }
     cooldownTurns: 3
@@ -396,7 +378,7 @@ skills:
     cost: { mp: 10 }
     target: self
     heal:
-      - { preset: scaled, base: 8, scaleBy: cursedEnergy, multiplier: 0.5 }
+      - { preset: scaled, base: 8, scaleBy: cursedEnergyOutput, multiplier: 0.5 }
     applyStatus:
       - { status: veil, chance: 1.0, stacks: 1, target: self, duration: { rounds: 2 } }
     cooldownTurns: 3
@@ -410,9 +392,9 @@ skills:
     description: 一根钉子、一个草人、一缕头发。剩下的交给因果。
     cost: { mp: 9 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.65 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: agility, baseChance: 0.65 }
     damage:
-      - { preset: scaled, base: 10, scaleBy: cursedEnergy, multiplier: 1.0 }
+      - { preset: scaled, base: 10, scaleBy: cursedEnergyOutput, multiplier: 1.0 }
     applyStatus:
       - { status: battle-cursed-burn, chance: 0.4, duration: { rounds: 2 } }
     cooldownTurns: 1
@@ -425,7 +407,7 @@ skills:
     cost: { mp: 12 }
     target: enemy
     damage:
-      - { preset: scaled, base: 16, scaleBy: cursedEnergy, multiplier: 1.1 }
+      - { preset: scaled, base: 16, scaleBy: cursedEnergyOutput, multiplier: 1.1 }
     cooldownTurns: 2
     usableInBattle: true
 
@@ -448,9 +430,9 @@ skills:
     description: 咒力在掌心压成一道雷，掷出去时空气会先一步炸开。
     cost: { mp: 12 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.6 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: agility, baseChance: 0.6 }
     damage:
-      - { preset: scaled, base: 13, scaleBy: cursedEnergy, multiplier: 1.2 }
+      - { preset: scaled, base: 13, scaleBy: cursedEnergyOutput, multiplier: 1.2 }
     applyStatus:
       - { status: stun, chance: 0.3, duration: { rounds: 1 } }
     cooldownTurns: 2
@@ -462,9 +444,9 @@ skills:
     description: 把雷压成一条直线。它不追求范围，只追求从这一头穿到那一头。
     cost: { mp: 16 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.7 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: physique, baseChance: 0.7 }
     damage:
-      - { preset: scaled, base: 22, scaleBy: cursedEnergy, multiplier: 1.3 }
+      - { preset: scaled, base: 22, scaleBy: cursedEnergyOutput, multiplier: 1.3 }
     cooldownTurns: 3
     usableInBattle: true
 
@@ -475,7 +457,7 @@ skills:
     cost: { mp: 14 }
     target: all_enemies
     damage:
-      - { preset: scaled, base: 9, scaleBy: cursedEnergy, multiplier: 0.7 }
+      - { preset: scaled, base: 9, scaleBy: cursedEnergyOutput, multiplier: 0.7 }
     applyStatus:
       - { status: stun, chance: 0.35, duration: { rounds: 1 } }
     cooldownTurns: 3
@@ -489,9 +471,9 @@ skills:
     description: 用咒力加持一句话，让它成为现实。喉咙会先一步流血。
     cost: { mp: 13 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: cursedEnergy, baseChance: 0.6 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: cursedEnergyControl, baseChance: 0.6 }
     damage:
-      - { preset: scaled, base: 14, scaleBy: cursedEnergy, multiplier: 1.2 }
+      - { preset: scaled, base: 14, scaleBy: cursedEnergyOutput, multiplier: 1.2 }
     applyStatus:
       - { status: stun, chance: 0.45, duration: { rounds: 1 } }
     cooldownTurns: 2
@@ -547,15 +529,29 @@ skills:
 
   # ────────────────────── 五条悟 / 七海建人 kit ──────────────────────
 
+  # 无下限（2026-11-23 用户裁决）：这个时期的五条**还做不到常时展开** ——
+  # 要主动开，只撑三回合。玩家走无下限术式也是同一套：先有术式，才有这一手；
+  # 常时版（天赋无下限，statuses 的 `infinity`）要 六眼（伪）+ 反转术式 才拿得到。
+  - id: sk-limitless
+    kind: combat
+    name: 无下限
+    description: 把「无限」贴到身上。三回合内，靠近你的一切都只能无限接近，永远到不了。
+    cost: { mp: 10 }
+    target: self
+    applyStatus:
+      - { status: limitless-active, chance: 1.0, stacks: 1, target: self, duration: { rounds: 3 } }
+    cooldownTurns: 3
+    usableInBattle: true
+
   - id: sk-gojo-blue
     kind: combat
     name: 术式顺转·苍
     description: 造出负的咒力漩涡，把目标吸进去撕裂。
     cost: { mp: 18 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.75 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: agility, baseChance: 0.75 }
     damage:
-      - { preset: scaled, base: 18, scaleBy: cursedEnergy, multiplier: 0.9 }
+      - { preset: scaled, base: 18, scaleBy: cursedEnergyOutput, multiplier: 0.9 }
     cooldownTurns: 1
     usableInBattle: true
 
@@ -565,10 +561,23 @@ skills:
     description: 把「苍」反转成排斥。爆发力远超顺转，五条自己都嫌它太张扬。
     cost: { mp: 32 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.65 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: agility, baseChance: 0.65 }
     damage:
-      - { preset: scaled, base: 34, scaleBy: cursedEnergy, multiplier: 1.3 }
+      - { preset: scaled, base: 34, scaleBy: cursedEnergyOutput, multiplier: 1.3 }
     cooldownTurns: 2
+    usableInBattle: true
+
+  - id: sk-gojo-hollow-purple
+    kind: combat
+    # 与「术式顺转·苍」「术式反转·赫」同一套命名：虚式不是反转，是两者相撞
+    name: 虚式·茈
+    description: 苍与赫叠在一处。排斥与吸引相撞的那一瞬，中间那一点东西不再存在。
+    cost: { mp: 45 }
+    target: enemy
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: agility, baseChance: 0.7 }
+    damage:
+      - { preset: scaled, base: 48, scaleBy: cursedEnergyOutput, multiplier: 1.5 }
+    cooldownTurns: 3
     usableInBattle: true
 
   - id: sk-domain-empty
@@ -579,7 +588,7 @@ skills:
     target: all_enemies
     hit: guaranteed
     damage:
-      - { preset: scaled, base: 30, scaleBy: cursedEnergy, multiplier: 1.0 }
+      - { preset: scaled, base: 30, scaleBy: cursedEnergyOutput, multiplier: 1.0 }
     applyStatus:
       - { status: domain-active, chance: 1.0, stacks: 1, target: self, duration: { rounds: 3 } }
       - { status: domain-pin, chance: 1.0, stacks: 1, target: all_enemies, duration: { rounds: 3 } }
@@ -593,7 +602,7 @@ skills:
     description: 把目标按 3:7 切开——在那一刻，那 30% 就是绝对的弱点。
     cost: { mp: 8 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.75 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: agility, baseChance: 0.75 }
     damage:
       - { preset: fixed, value: 20 }
     cooldownTurns: 2
@@ -630,9 +639,9 @@ skills:
     description: 一级咒灵凝成的巨大质量，直接把猎物压进地面。
     cost: { mp: 12 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.65 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: physique, baseChance: 0.65 }
     damage:
-      - { preset: scaled, base: 16, scaleBy: cursedEnergy, multiplier: 1.2 }
+      - { preset: scaled, base: 16, scaleBy: cursedEnergyOutput, multiplier: 1.2 }
     applyStatus:
       - { status: bind, chance: 0.35, duration: { rounds: 2 } }
     cooldownTurns: 1
@@ -647,7 +656,7 @@ skills:
     cost: { mp: 10 }
     target: all_enemies
     damage:
-      - { preset: scaled, base: 9, scaleBy: cursedEnergy, multiplier: 0.8 }
+      - { preset: scaled, base: 9, scaleBy: cursedEnergyOutput, multiplier: 0.8 }
     cooldownTurns: 2
     usableInBattle: true
 
@@ -671,9 +680,9 @@ skills:
     description: 把咒力凝在刀锋上，专斩术师的咒力回路。
     cost: { mp: 8 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.7 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: agility, baseChance: 0.7 }
     damage:
-      - { preset: scaled, base: 12, scaleBy: cursedEnergy, multiplier: 1.1 }
+      - { preset: scaled, base: 12, scaleBy: cursedEnergyOutput, multiplier: 1.1 }
     applyStatus:
       - { status: battle-cursed-burn, chance: 0.3, duration: { rounds: 2 } }
     cooldownTurns: 1
@@ -692,6 +701,15 @@ skills:
       - { preset: fixed, value: 32 }
     cooldownTurns: 1
     usableInBattle: true
+    # ADR-073：解除术式是**流程**，聚合层表达不了（「闪避 100%」只是一个数）。
+    # 命中之后清掉目标身上所有正向战斗态 —— 无下限的「到不了」也是战斗态，一并抹掉。
+    # 只清 battle 档：天赋（六眼、天与咒缚）在结构上不可驱散。
+    hooks:
+      - id: ten-spear-dispel
+        phase: afterHit
+        effects:
+          - { type: cureStatus, target: target, kind: battle, polarity: positive }
+          - { type: log, text: "矛尖划过的地方，术式断了线。" }
 
   - id: sk-weapon-cleave
     kind: combat
@@ -711,9 +729,9 @@ skills:
     description: 夜蛾缝在布偶里的咒力骨架，从暗处扑上来。
     cost: { mp: 8 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.7 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: agility, baseChance: 0.7 }
     damage:
-      - { preset: scaled, base: 12, scaleBy: cursedEnergy, multiplier: 1.0 }
+      - { preset: scaled, base: 12, scaleBy: cursedEnergyOutput, multiplier: 1.0 }
     cooldownTurns: 1
     usableInBattle: true
 
@@ -771,7 +789,7 @@ skills:
     description: 极之番之一。把收来的咒灵全部压进一个漩涡里打出去——祭品越多、品级越高，那一击就越不像这个世界该有的东西。公式书里它还有第二种用法：把咒灵整个卷进去，取出它带着的术式。
     cost: { mp: 25 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.6 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: agility, baseChance: 0.6 }
     # ADR-013 D5：祭品是**场上的单位**，不是库存计数。虹龙与杂兵不是同一个价
     # （用户口径：「献祭虹龙和杂兵伤害要不一样」）—— 差价写在技能上，因为
     # 同一只杂兵被别的术式烧掉，能换来的东西本来也不一样。
@@ -787,9 +805,9 @@ skills:
     description: 触碰灵魂的形，把对手改造成另一种东西。人类对它来说只是素材。
     cost: { mp: 14 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: intellect, baseChance: 0.6 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: intellect, baseChance: 0.6 }
     damage:
-      - { preset: scaled, base: 13, scaleBy: cursedEnergy, multiplier: 1.1 }
+      - { preset: scaled, base: 13, scaleBy: cursedEnergyOutput, multiplier: 1.1 }
     applyStatus:
       - { status: stun, chance: 0.4, duration: { rounds: 1 } }
     cooldownTurns: 2
@@ -802,7 +820,7 @@ skills:
     cost: { mp: 14 }
     target: all_enemies
     damage:
-      - { preset: scaled, base: 14, scaleBy: cursedEnergy, multiplier: 0.9 }
+      - { preset: scaled, base: 14, scaleBy: cursedEnergyOutput, multiplier: 0.9 }
     applyStatus:
       - { status: battle-cursed-burn, chance: 0.5, duration: { rounds: 2 } }
     cooldownTurns: 2
@@ -814,7 +832,7 @@ skills:
     description: 无形的斩击，把空间连同其上的东西一起切开。
     cost: { mp: 10 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.7 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: agility, baseChance: 0.7 }
     damage:
       - { preset: fixed, value: 34 }
     cooldownTurns: 1
@@ -826,9 +844,9 @@ skills:
     description: 与「解」不同，它按咒力量自动调整强度——所以对术师更狠。
     cost: { mp: 18 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.65 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: agility, baseChance: 0.65 }
     damage:
-      - { preset: scaled, base: 26, scaleBy: cursedEnergy, multiplier: 1.5 }
+      - { preset: scaled, base: 26, scaleBy: cursedEnergyOutput, multiplier: 1.5 }
     cooldownTurns: 2
     usableInBattle: true
 
@@ -882,9 +900,9 @@ skills:
     description: 乙骨忧太身后的那个「她」。特级过咒怨灵的重量，从来不讲道理。
     cost: { mp: 20 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.7 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: physique, baseChance: 0.7 }
     damage:
-      - { preset: scaled, base: 24, scaleBy: cursedEnergy, multiplier: 1.3 }
+      - { preset: scaled, base: 24, scaleBy: cursedEnergyOutput, multiplier: 1.3 }
     cooldownTurns: 2
     usableInBattle: true
 
@@ -913,9 +931,9 @@ skills:
     description: 把对手和他脚下那段距离一起对折。人会突然回到刚才站的位置，方向感先碎一步。
     cost: { mp: 10 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.7 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: agility, baseChance: 0.7 }
     damage:
-      - { preset: scaled, base: 8, scaleBy: cursedEnergy, multiplier: 0.8 }
+      - { preset: scaled, base: 8, scaleBy: cursedEnergyOutput, multiplier: 0.8 }
     applyStatus:
       - { status: stun, chance: 0.4, duration: { rounds: 1 } }
     cooldownTurns: 2
@@ -927,9 +945,9 @@ skills:
     description: 在两点之间下一刀。被切开的是距离本身，站在缝上的人只是顺带。
     cost: { mp: 13 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.65 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: agility, baseChance: 0.65 }
     damage:
-      - { preset: scaled, base: 15, scaleBy: cursedEnergy, multiplier: 1.2 }
+      - { preset: scaled, base: 15, scaleBy: cursedEnergyOutput, multiplier: 1.2 }
     cooldownTurns: 2
     usableInBattle: true
 
@@ -941,7 +959,7 @@ skills:
     description: 不编画面，只递进去一句话：「你已经输了。」身体会先信，然后才是他自己。
     cost: { mp: 11 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: intellect, baseChance: 0.65 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: intellect, baseChance: 0.65 }
     applyStatus:
       - { status: stun, chance: 0.55, duration: { rounds: 1 } }
     cooldownTurns: 3
@@ -953,9 +971,9 @@ skills:
     description: 把一段记忆整页换掉。痛觉不换——所以他知道有什么不对，却想不起是什么。
     cost: { mp: 12 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: intellect, baseChance: 0.6 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: intellect, baseChance: 0.6 }
     damage:
-      - { preset: scaled, base: 12, scaleBy: cursedEnergy, multiplier: 1.0 }
+      - { preset: scaled, base: 12, scaleBy: cursedEnergyOutput, multiplier: 1.0 }
     applyStatus:
       - { status: battle-exhausted, chance: 0.5, duration: { rounds: 2 } }
     cooldownTurns: 2
@@ -970,7 +988,7 @@ skills:
     cost: { mp: 10 }
     target: self
     heal:
-      - { preset: scaled, base: 12, scaleBy: cursedEnergy, multiplier: 0.9 }
+      - { preset: scaled, base: 12, scaleBy: cursedEnergyOutput, multiplier: 0.9 }
     cooldownTurns: 2
     usableInBattle: true
 
@@ -980,9 +998,9 @@ skills:
     description: 隔着皮肉把对手的关节拧到另一个方向。骨头没有断，只是不再长在该在的地方。
     cost: { mp: 13 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.7 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: physique, baseChance: 0.7 }
     damage:
-      - { preset: scaled, base: 14, scaleBy: cursedEnergy, multiplier: 1.1 }
+      - { preset: scaled, base: 14, scaleBy: cursedEnergyOutput, multiplier: 1.1 }
     applyStatus:
       - { status: stun, chance: 0.3, duration: { rounds: 1 } }
     cooldownTurns: 2
@@ -997,7 +1015,7 @@ skills:
     cost: { mp: 9 }
     target: self
     heal:
-      - { preset: scaled, base: 5, scaleBy: cursedEnergy, multiplier: 0.4 }
+      - { preset: scaled, base: 5, scaleBy: cursedEnergyOutput, multiplier: 0.4 }
     applyStatus:
       - { status: veil, chance: 1.0, stacks: 1, target: self, duration: { rounds: 2 } }
     cooldownTurns: 3
@@ -1009,9 +1027,9 @@ skills:
     description: 只改一件事：哪边是下。对手还站着，膝盖已经在替地面数数。
     cost: { mp: 12 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.7 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: physique, baseChance: 0.7 }
     damage:
-      - { preset: scaled, base: 13, scaleBy: cursedEnergy, multiplier: 1.2 }
+      - { preset: scaled, base: 13, scaleBy: cursedEnergyOutput, multiplier: 1.2 }
     applyStatus:
       - { status: stun, chance: 0.35, duration: { rounds: 1 } }
     cooldownTurns: 2
@@ -1050,7 +1068,7 @@ skills:
     cost: { mp: 11 }
     target: all_enemies
     damage:
-      - { preset: scaled, base: 8, scaleBy: cursedEnergy, multiplier: 0.7 }
+      - { preset: scaled, base: 8, scaleBy: cursedEnergyOutput, multiplier: 0.7 }
     applyStatus:
       - { status: stun, chance: 0.35, duration: { rounds: 1 } }
     cooldownTurns: 2
@@ -1062,9 +1080,9 @@ skills:
     description: 把频率调到和骨头一致。外面看不出伤，里面已经按同一个节奏裂开。
     cost: { mp: 15 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.65 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: physique, baseChance: 0.65 }
     damage:
-      - { preset: scaled, base: 17, scaleBy: cursedEnergy, multiplier: 1.2 }
+      - { preset: scaled, base: 17, scaleBy: cursedEnergyOutput, multiplier: 1.2 }
     cooldownTurns: 3
     usableInBattle: true
 
@@ -1077,7 +1095,7 @@ skills:
     cost: { mp: 12 }
     target: all_enemies
     damage:
-      - { preset: scaled, base: 8, scaleBy: cursedEnergy, multiplier: 0.6 }
+      - { preset: scaled, base: 8, scaleBy: cursedEnergyOutput, multiplier: 0.6 }
     applyStatus:
       - { status: battle-curse-poison, chance: 0.6, duration: { rounds: 3 } }
     cooldownTurns: 3
@@ -1089,9 +1107,9 @@ skills:
     description: 不去铺新的毒，只把已经进去的那一份往骨头里推。毒性会在里面自己找路。
     cost: { mp: 11 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: physique, baseChance: 0.65 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: physique, baseChance: 0.65 }
     damage:
-      - { preset: scaled, base: 12, scaleBy: cursedEnergy, multiplier: 1.0 }
+      - { preset: scaled, base: 12, scaleBy: cursedEnergyOutput, multiplier: 1.0 }
     applyStatus:
       - { status: battle-curse-poison, chance: 0.8, duration: { rounds: 3 } }
     cooldownTurns: 2
@@ -1105,9 +1123,9 @@ skills:
     description: 把空气里的杂质压成一根铁刺，再从对手看不见的角度送出去。转换只花一瞬。
     cost: { mp: 11 }
     target: enemy
-    hitCheck: { preset: opposed, attacker: cursedEnergy, defender: agility, baseChance: 0.7 }
+    hitCheck: { preset: opposed, attacker: cursedEnergyControl, defender: agility, baseChance: 0.7 }
     damage:
-      - { preset: scaled, base: 14, scaleBy: cursedEnergy, multiplier: 1.1 }
+      - { preset: scaled, base: 14, scaleBy: cursedEnergyOutput, multiplier: 1.1 }
     cooldownTurns: 1
     usableInBattle: true
 
@@ -1142,7 +1160,7 @@ skills:
     cost: { mp: 13 }
     target: enemy
     damage:
-      - { preset: scaled, base: 16, scaleBy: cursedEnergy, multiplier: 1.1 }
+      - { preset: scaled, base: 16, scaleBy: cursedEnergyOutput, multiplier: 1.1 }
     applyStatus:
       - { status: battle-cursed-burn, chance: 0.35, duration: { rounds: 2 } }
     cooldownTurns: 3
@@ -1168,7 +1186,7 @@ skills:
     cost: { mp: 12 }
     target: enemy
     damage:
-      - { preset: scaled, base: 10, scaleBy: cursedEnergy, multiplier: 0.9 }
+      - { preset: scaled, base: 10, scaleBy: cursedEnergyOutput, multiplier: 0.9 }
     applyStatus:
       - { status: battle-exhausted, chance: 0.55, duration: { rounds: 2 } }
     cooldownTurns: 2
@@ -1187,7 +1205,7 @@ skills:
     cost: { mp: 50 }
     target: all_enemies
     damage:
-      - { preset: scaled, base: 24, scaleBy: cursedEnergy, multiplier: 1.0 }
+      - { preset: scaled, base: 24, scaleBy: cursedEnergyOutput, multiplier: 1.0 }
     applyStatus:
       - { status: domain-active, chance: 1.0, stacks: 1, target: self, duration: { rounds: 3 } }
       - { status: domain-pin, chance: 1.0, stacks: 1, target: all_enemies, duration: { rounds: 3 } }
@@ -1202,7 +1220,7 @@ skills:
     cost: { mp: 50 }
     target: all_enemies
     damage:
-      - { preset: scaled, base: 22, scaleBy: cursedEnergy, multiplier: 1.0 }
+      - { preset: scaled, base: 22, scaleBy: cursedEnergyOutput, multiplier: 1.0 }
     applyStatus:
       - { status: domain-active, chance: 1.0, stacks: 1, target: self, duration: { rounds: 3 } }
       - { status: domain-pin, chance: 1.0, stacks: 1, target: all_enemies, duration: { rounds: 3 } }
@@ -1217,7 +1235,7 @@ skills:
     cost: { mp: 50 }
     target: all_enemies
     damage:
-      - { preset: scaled, base: 26, scaleBy: cursedEnergy, multiplier: 1.0 }
+      - { preset: scaled, base: 26, scaleBy: cursedEnergyOutput, multiplier: 1.0 }
     applyStatus:
       - { status: domain-active, chance: 1.0, stacks: 1, target: self, duration: { rounds: 3 } }
       - { status: domain-pin, chance: 1.0, stacks: 1, target: all_enemies, duration: { rounds: 3 } }
@@ -1232,7 +1250,7 @@ skills:
     cost: { mp: 52 }
     target: all_enemies
     damage:
-      - { preset: scaled, base: 25, scaleBy: cursedEnergy, multiplier: 1.0 }
+      - { preset: scaled, base: 25, scaleBy: cursedEnergyOutput, multiplier: 1.0 }
     applyStatus:
       - { status: domain-active, chance: 1.0, stacks: 1, target: self, duration: { rounds: 3 } }
       - { status: domain-pin, chance: 1.0, stacks: 1, target: all_enemies, duration: { rounds: 3 } }
@@ -1247,7 +1265,7 @@ skills:
     cost: { mp: 48 }
     target: all_enemies
     damage:
-      - { preset: scaled, base: 20, scaleBy: cursedEnergy, multiplier: 1.0 }
+      - { preset: scaled, base: 20, scaleBy: cursedEnergyOutput, multiplier: 1.0 }
     applyStatus:
       - { status: domain-active, chance: 1.0, stacks: 1, target: self, duration: { rounds: 3 } }
       - { status: domain-pin, chance: 1.0, stacks: 1, target: all_enemies, duration: { rounds: 3 } }
@@ -1262,7 +1280,7 @@ skills:
     cost: { mp: 52 }
     target: all_enemies
     damage:
-      - { preset: scaled, base: 28, scaleBy: cursedEnergy, multiplier: 1.0 }
+      - { preset: scaled, base: 28, scaleBy: cursedEnergyOutput, multiplier: 1.0 }
     applyStatus:
       - { status: domain-active, chance: 1.0, stacks: 1, target: self, duration: { rounds: 3 } }
       - { status: domain-pin, chance: 1.0, stacks: 1, target: all_enemies, duration: { rounds: 3 } }
@@ -1277,7 +1295,7 @@ skills:
     cost: { mp: 48 }
     target: all_enemies
     damage:
-      - { preset: scaled, base: 18, scaleBy: cursedEnergy, multiplier: 1.0 }
+      - { preset: scaled, base: 18, scaleBy: cursedEnergyOutput, multiplier: 1.0 }
     applyStatus:
       - { status: domain-active, chance: 1.0, stacks: 1, target: self, duration: { rounds: 3 } }
       - { status: domain-pin, chance: 1.0, stacks: 1, target: all_enemies, duration: { rounds: 3 } }
@@ -1292,7 +1310,7 @@ skills:
     cost: { mp: 50 }
     target: all_enemies
     damage:
-      - { preset: scaled, base: 24, scaleBy: cursedEnergy, multiplier: 1.0 }
+      - { preset: scaled, base: 24, scaleBy: cursedEnergyOutput, multiplier: 1.0 }
     applyStatus:
       - { status: domain-active, chance: 1.0, stacks: 1, target: self, duration: { rounds: 3 } }
       - { status: domain-pin, chance: 1.0, stacks: 1, target: all_enemies, duration: { rounds: 3 } }
@@ -1307,7 +1325,7 @@ skills:
     cost: { mp: 52 }
     target: all_enemies
     damage:
-      - { preset: scaled, base: 24, scaleBy: cursedEnergy, multiplier: 1.0 }
+      - { preset: scaled, base: 24, scaleBy: cursedEnergyOutput, multiplier: 1.0 }
     applyStatus:
       - { status: domain-active, chance: 1.0, stacks: 1, target: self, duration: { rounds: 3 } }
       - { status: domain-pin, chance: 1.0, stacks: 1, target: all_enemies, duration: { rounds: 3 } }
@@ -1322,7 +1340,7 @@ skills:
     cost: { mp: 55 }
     target: all_enemies
     damage:
-      - { preset: scaled, base: 23, scaleBy: cursedEnergy, multiplier: 1.0 }
+      - { preset: scaled, base: 23, scaleBy: cursedEnergyOutput, multiplier: 1.0 }
     applyStatus:
       - { status: domain-active, chance: 1.0, stacks: 1, target: self, duration: { rounds: 3 } }
       - { status: domain-pin, chance: 1.0, stacks: 1, target: all_enemies, duration: { rounds: 3 } }
@@ -1342,7 +1360,7 @@ skills:
     cost: { mp: 18 }
     target: self
     heal:
-      - { preset: scaled, base: 6, scaleBy: cursedEnergy, multiplier: 0.4 }
+      - { preset: scaled, base: 6, scaleBy: cursedEnergyOutput, multiplier: 0.4 }
     applyStatus:
       - { status: veil, chance: 1.0, stacks: 1, target: self, duration: { rounds: 3 } }
     cooldownTurns: 4
@@ -1378,7 +1396,7 @@ skills:
     cost: { mp: 24 }
     target: self
     heal:
-      - { preset: scaled, base: 8, scaleBy: cursedEnergy, multiplier: 0.5 }
+      - { preset: scaled, base: 8, scaleBy: cursedEnergyOutput, multiplier: 0.5 }
     applyStatus:
       - { status: veil, chance: 1.0, stacks: 1, target: self, duration: { rounds: 3 } }
     cooldownTurns: 5

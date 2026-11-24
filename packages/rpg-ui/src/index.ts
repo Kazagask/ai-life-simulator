@@ -28,6 +28,8 @@ export type { OptionDeckProps } from "./OptionDeck.js";
 
 export { BattleBoard } from "./BattleBoard.js";
 export type { BattleBoardProps } from "./BattleBoard.js";
+export { BattleFxLayer } from "./BattleFxLayer.js";
+export type { BattleFxLayerProps } from "./BattleFxLayer.js";
 
 export { WheelPanel } from "./WheelPanel.js";
 export type { WheelPanelProps } from "./WheelPanel.js";

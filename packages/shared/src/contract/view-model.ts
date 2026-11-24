@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { ResolvedStyleSchema, ResolvedTagSchema } from "../schema/style.js";
 import { EffectSummarySchema, TurnGainSchema, type EffectSummary, type TurnGain } from "../schema/effects.js";
+import { BattleResultSchema } from "../schema/battle-evaluation.js";
+import { FxEffectSchema } from "../schema/ui.js";
 
 /**
  * 视图模型（P0 → Wave 3 扩写）：自定义前端与 `@life-sim/rpg-ui` 之间**唯一**的展示契约。
@@ -92,7 +94,7 @@ export type InventoryItemVM = z.infer<typeof InventoryItemVMSchema>;
  * 技能封印（ADR-015）：技能**还在手**，但现在用不了，以及为什么。
  *
  * 与「技能不存在」是两件事，所以不能靠隐藏表达：式神死透了、祭品没了、场上站满了、
- * 咒力不够——这些都不是「你没学过这一招」。藏起来只会让玩家反复怀疑自己点错了，
+ * 资源不够——这些都不是「你没学过这一招」。藏起来只会让玩家反复怀疑自己点错了，
  * 所以技能照常列出，靠 `seal` 说明原因。`code` 是机器可读的判据（引擎拒绝用的同一个），
  * `text` 是给玩家看的人话（由内核按模板取名，不在前端拼字符串）。
  */
@@ -107,6 +109,20 @@ export type SkillSealVM = z.infer<typeof SkillSealVMSchema>;
 /** 角色身上的一条状态 / 状态（玩家卡、NPC 卡、战斗面板共用同一形状，避免两处漂移）。 */
 export const StatusVMSchema = z
   .object({
+    /**
+     * 成长型天赋的进度（只有声明了 progress 的天赋才有）。按**阶梯**给：
+     * `current/target` 就是「1/4 → 4/8 → 8/8」，到顶时 `done` 为真。
+     */
+    progress: z
+      .object({
+        label: z.string(),
+        value: z.number(),
+        current: z.number(),
+        target: z.number(),
+        done: z.boolean(),
+      })
+      .strict()
+      .optional(),
     id: z.string(),
     name: z.string(),
     stacks: z.number(),
@@ -424,7 +440,7 @@ export const PlayerVMSchema = z
      * 追加：状态合计（ADR-018 D8）。
      *
      * 「状态直接算总值、详情展示来源」：面板不再只列名字，玩家能看见
-     * 「咒力 +3、伤害 +15%、咒力消耗 -90%」，点开是每一笔的来源。
+     * 「资源 +3、伤害 +15%、消耗 -90%」，点开是每一笔的来源。
      * 零值通道不下发。
      */
     statusTotals: z.array(StatusTotalVMSchema).default([]),
@@ -641,6 +657,8 @@ export const BattleCombatantVMSchema = z
     hp: z.number(),
     maxHp: z.number(),
     alive: z.boolean(),
+    /** 本轮离场但保留展示的灰卡（收回 / 献祭）：只展示、不可选 */
+    departed: z.boolean().optional(),
     /** 追加：当前状态（与玩家一致，名字来自模板）。 */
     statuses: z.array(BattleStatusVMSchema),
     /**
@@ -744,6 +762,88 @@ export type BattlePlayerVM = z.infer<typeof BattlePlayerVMSchema>;
  * 战斗展示模型：只镜像默认 UI 需要的展示字段（参战者血量 / 回合 / 战报行），
  * **不复用** `V2Snapshot["battle"]` 的引擎类型（那里含技能、道具、控制判定等规则细节）。
  */
+/** 表现层标签（ADR-076 §7）：主文本 + 拉丁副标题，文本全部来自模板。 */
+export const BattleFxLabelVMSchema = z
+  .object({ id: z.string(), text: z.string(), latin: z.string().optional() })
+  .strict();
+export type BattleFxLabelVM = z.infer<typeof BattleFxLabelVMSchema>;
+
+/** 一个目标身上的结论：受击层 id + 结算层终值（数字文本已拼好，前端不再拼串）。 */
+export const BattleFxHitVMSchema = z
+  .object({
+    seq: z.number().int(),
+    targetId: z.string(),
+    kind: z.enum(["damage", "heal", "miss", "immune", "summon", "depart", "buff", "sacrifice"]),
+    outcome: z.enum(["hit", "miss", "immune"]),
+    amount: z.number().optional(),
+    /** 已含符号与后缀：`-225!!` / `+80`。没有数字时缺省（未命中 / 无效） */
+    text: z.string().optional(),
+    critical: z.boolean().optional(),
+    critTier: z.union([z.literal(1), z.literal(2)]).optional(),
+    color: z.string(),
+    size: z.number(),
+    stroke: z.number(),
+    labels: z.array(BattleFxLabelVMSchema).default([]),
+    /** 这一击自己的轨迹（覆盖 cast 级默认）；缺省 = 用 cast.trace */
+    trace: z
+      .object({
+        preset: z.string(),
+        color: z.string().optional(),
+        width: z.number().optional(),
+        def: FxEffectSchema.optional(),
+      })
+      .strict()
+      .optional(),
+    /** 受击预设 id；null = 这一段没有受击（未命中） */
+    impact: z.string().nullable(),
+    /** 受击的模板定义（preset 是模板 id 时带上来） */
+    def: FxEffectSchema.optional(),
+    /** 轨迹反向（目标 → 施法者）：收灵 / 吸取类 */
+    reverse: z.boolean().optional(),
+  })
+  .strict();
+export type BattleFxHitVM = z.infer<typeof BattleFxHitVMSchema>;
+
+/** 一次施放：四层里前三层的参数 + 每个目标的结论。 */
+export const BattleFxCastVMSchema = z
+  .object({
+    seq: z.number().int(),
+    eventId: z.string(),
+    actorId: z.string(),
+    skillId: z.string().optional(),
+    cast: z
+      .object({
+        preset: z.string().nullable(),
+        color: z.string(),
+        durationMs: z.number(),
+        /** 模板定义（`presentation.effects[preset]`）；缺省 = 没有施法段 */
+        def: FxEffectSchema.optional(),
+      })
+      .strict(),
+    trace: z
+      .object({
+        preset: z.string().nullable(),
+        color: z.string(),
+        width: z.number(),
+        durationMs: z.number(),
+        /** 模板定义；缺省 = 走内置几何（arrow / fan / updraft） */
+        def: FxEffectSchema.optional(),
+      })
+      .strict(),
+    hits: z.array(BattleFxHitVMSchema),
+  })
+  .strict();
+export type BattleFxCastVM = z.infer<typeof BattleFxCastVMSchema>;
+
+/** `battle.fx`：只带最近几段；前端按 `seq > 游标` 播放（读档不重放）。 */
+export const BattleFxVMSchema = z
+  .object({
+    seq: z.number().int(),
+    casts: z.array(BattleFxCastVMSchema),
+  })
+  .strict();
+export type BattleFxVM = z.infer<typeof BattleFxVMSchema>;
+
 export const BattleVMSchema = z
   .object({
     round: z.number(),
@@ -758,6 +858,21 @@ export const BattleVMSchema = z
     fallen: z.array(BattleCombatantVMSchema).default([]),
     /** 战报行（按发生顺序，已经是玩家可见文案）。 */
     log: z.array(z.string()),
+    /**
+     * 本场暴击次数（ADR-073）。只做展示——「这一场打出过几下暴击」是玩家会记住的事，
+     * 从 `battle.events` 数出来，不从战报字符串里正则匹配。
+     */
+    crits: z.number().int().nonnegative().default(0),
+    /**
+     * ADR-076：最近几段施放的四层解析结果。旧前端忽略即可（可选），
+     * 新前端按 `seq` 游标播放 —— 读档时把游标推到 `fx.seq`，一帧都不重放。
+     */
+    fx: BattleFxVMSchema.optional(),
+    /**
+     * ADR-077：结束瞬间的战评。有它 ⇒ 战斗已经打完、世界停着等「继续」；
+     * 前端据此把技能区换成战评面板。
+     */
+    evaluation: BattleResultSchema.optional(),
   })
   .strict();
 export type BattleVM = z.infer<typeof BattleVMSchema>;

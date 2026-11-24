@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "vite build"
+    "build": "vite build && node scripts/build-sw.mjs"
   },
   "dependencies": {
     "@life-sim/ext-family": "workspace:*",
@@ -15,7 +15,8 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "@life-sim/template-loader": "workspace:*",
-    "@life-sim/game-core": "workspace:*"
+    "@life-sim/game-core": "workspace:*",
+    "@life-sim/agent-runtime": "workspace:*"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.4.0",

@@ -176,8 +176,13 @@ export const BattleConditionSchema = z.union([
   z.object({ kind: z.literal("survive_rounds"), rounds: z.number().int().positive() }).strict(),
   /** 友军全灭（含玩家？不含 —— 玩家另有 `player_down`）。 */
   z.object({ kind: z.literal("all_allies_down") }).strict(),
-  /** 玩家倒下（失败缺省）：hp ≤ 1。 */
+  /** 玩家倒下（失败缺省）：阈值随 stake（`dead → 0`，其余 `1`，ADR-075 §1.1）。 */
   z.object({ kind: z.literal("player_down") }).strict(),
+  /**
+   * 血量比例低于阈值（ADR-075 §1）：切磋「点到为止」用。
+   * `hp / maxHp <= ratio`，不看 stake 的判负阈值 —— 它是**另一条**判据。
+   */
+  z.object({ kind: z.literal("hp_below"), ratio: z.number().min(0).max(1) }).strict(),
 ]);
 
 /**
@@ -230,6 +235,16 @@ export const CombatSettleSchema = z
         victory: z.array(BattleConditionSchema).optional(),
         /** 失败条件；缺省 = 玩家倒下。 */
         defeat: z.array(BattleConditionSchema).optional(),
+        /**
+         * 这场战斗的赌注（ADR-075 §1）：不写 ⇒ `world.combat.defaultStake`。
+         * 决定判负阈值与战败后的 HP 落点；`dead` 是死亡路由的唯一入口。
+         */
+        stake: z.string().min(1).optional(),
+        /**
+         * 战评具名钩子组（ADR-075 §2）：按数组顺序结算 `world.combat.evaluation.sets` 里的组。
+         * 默认 hooks 不需要引用。
+         */
+        evaluation: z.array(z.string().min(1)).optional(),
         canFlee: z.boolean().optional(),
         fleeCheck: OpposedCheckSchema.optional(),
         onVictory: SettleOutcomeSchema.optional(),

@@ -100,7 +100,7 @@ events:
           - id: opt-dc-1
             text: 把咒力灌进布偶的关节
             effects:
-              - { type: adjustAttribute, attribute: cursedEnergy, value: 1 }
+              - { type: adjustAttribute, attribute: cursedEnergyTotal, value: 1 }
               - { type: adjustAttribute, attribute: intellect, value: 1 }
               - { type: adjustRelation, npcId: npc-yaga, value: 2 }
           - id: opt-dc-2
@@ -143,7 +143,7 @@ events:
             effects:
               - { type: adjustRelation, npcId: npc-gojo, value: 3 }
               - { type: adjustRelation, npcId: npc-geto, value: 2 }
-              - { type: adjustAttribute, attribute: cursedEnergy, value: 1 }
+              - { type: adjustAttribute, attribute: cursedEnergyTotal, value: 1 }
           - id: opt-ct-2
             text: 坐到七海和灰原那桌
             effects:
@@ -194,7 +194,7 @@ events:
             effects:
               - { type: adjustRelation, npcId: npc-gojo, value: 3 }
               - { type: setFlag, id: askedGojo, value: true }
-              - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
+              - { type: adjustAttribute, attribute: cursedEnergyTotal, value: 2 }
 
   - id: ev-d-geto
     title: 夏油学长的道理
@@ -305,13 +305,13 @@ events:
                 targets:
                   - { attribute: physique, max: 2 }
                   - { attribute: agility, max: 2 }
-                  - { attribute: cursedEnergy, max: 2 }
+                  - { attribute: cursedEnergyTotal, max: 2 }
               - { type: adjustRelation, npcId: npc-nanami, value: 3 }
               - { type: adjustMood, value: -2 }
           - id: opt-sp-2
             text: 用术式压他
             effects:
-              - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
+              - { type: adjustAttribute, attribute: cursedEnergyTotal, value: 2 }
               - { type: adjustRelation, npcId: npc-nanami, value: 1 }
           - id: opt-sp-3
             text: 打完一起去吃拉面
@@ -641,7 +641,7 @@ events:
               weight: 12
               effects:
                 - { type: adjustMood, value: 3 }
-                - { type: adjustAttribute, attribute: cursedEnergy, value: 1 }
+                - { type: adjustAttribute, attribute: cursedEnergyTotal, value: 1 }
             - label: 二级咒灵 · 巢就在里面
               weight: 20
               nextEventId: ev-combat-grade2
@@ -650,7 +650,7 @@ events:
               weightBy: { luck: 2 }
               effects:
                 - { type: grantItem, itemId: eq-cursed-blade, count: 1 }
-                - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
+                - { type: adjustAttribute, attribute: cursedEnergyTotal, value: 2 }
             - label: 一级咒灵 · 你踩到了它的领域边缘
               weight: 7
               nextEventId: ev-combat-grade1
@@ -720,6 +720,9 @@ events:
     kind: combat
     settle:
       combat:
+        # ADR-075：默认 stake 是 deaths（硬核）。本模板只有第六幕挡枪是死局，
+        # 其余四场先按恶战（hp 锁 1、绝不判死）；挡枪在死亡路由落地后改 deaths。
+        stake: hard
         enemies:
           - { ref: enemy-grade2-curse, levelScale: 0.7 }
         canFlee: true
@@ -728,7 +731,7 @@ events:
           effects:
             - { type: adjustFlag, id: missionsCompleted, value: 1 }
             - { type: adjustFlag, id: truthBits, value: 1 }
-            - { type: adjustAttribute, attribute: cursedEnergy, value: 1 }
+            - { type: adjustAttribute, attribute: cursedEnergyTotal, value: 1 }
             - { type: adjustAttribute, attribute: reputation, value: 2 }
             - { type: adjustMood, value: 3 }
         onDefeat:
@@ -747,6 +750,9 @@ events:
     kind: combat
     settle:
       combat:
+        # ADR-075：默认 stake 是 deaths（硬核）。本模板只有第六幕挡枪是死局，
+        # 其余四场先按恶战（hp 锁 1、绝不判死）；挡枪在死亡路由落地后改 deaths。
+        stake: hard
         enemies:
           - { ref: enemy-curse-user, levelScale: 0.8 }
         canFlee: true
@@ -769,6 +775,9 @@ events:
     kind: combat
     settle:
       combat:
+        # ADR-075：默认 stake 是 deaths（硬核）。本模板只有第六幕挡枪是死局，
+        # 其余四场先按恶战（hp 锁 1、绝不判死）；挡枪在死亡路由落地后改 deaths。
+        stake: hard
         enemies:
           - { ref: enemy-grade1-curse, levelScale: 0.75 }
         # ADR-012 D3：一级咒灵会招来同类。第 3 回合起，每 2 回合掷一次，五成概率来人，
@@ -791,7 +800,7 @@ events:
           effects:
             - { type: adjustFlag, id: missionsCompleted, value: 2 }
             - { type: adjustFlag, id: truthBits, value: 1 }
-            - { type: adjustAttribute, attribute: cursedEnergy, value: 2 }
+            - { type: adjustAttribute, attribute: cursedEnergyTotal, value: 2 }
             - { type: adjustAttribute, attribute: reputation, value: 6 }
             - { type: adjustMood, value: 6 }
         onDefeat:
@@ -849,6 +858,87 @@ events:
               - { type: adjustAttribute, attribute: intellect, value: 1 }
               - { type: adjustRelation, npcId: npc-yaga, value: 2 }
             nextEventId: ev-hv-01
+
+  # ── 无下限的两次越界（2026-11-23）──────────────────────────────
+  # 苍是顺转，生得就会；赫要反转术式，茈要赫与苍同时在手。门票是「无下限术式 + 已学会反转术式」。
+  # 六眼（伪）把第二条路打开：它看得见「术式本该长成什么样」，于是顺手把常时无下限也拿到手。
+  # 两条事件用 `present: true / false` 互斥，玩家只会见到其中一条 —— 效果 DSL 没有
+  # 「有某个状态才给某个效果」的写法，只能拆成两个互斥的池事件。
+  - id: ev-pool-limitless-red
+    title: 赫与茈
+    narrative: |
+      医务室值夜。伤口早就结痂了，你还是把反转术式又走了一遍。
+      第三遍的时候，指尖那点正向的咒力没有散掉——它反过来，把空气里的咒力推开了一寸。
+      你试着把「苍」压上去。两股力量相撞的地方，出现了一个不属于任何一侧的点。
+    trigger:
+      source: pool
+      probability: 0.08
+      once: true
+      priority: 18
+      cooldown: { value: 5, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 1 }
+        - { attribute: innateTechnique, eq: limitless }
+        - { requiresSkill: sk-reverse-heal }
+        - { status: six-eyes-pseudo, present: false }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-lr-1
+            text: 把那个点按下去
+            effects:
+              - { type: unlockSkill, skillId: sk-gojo-red }
+              - { type: unlockSkill, skillId: sk-gojo-hollow-purple }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustMood, value: 6 }
+          - id: opt-lr-2
+            text: 先记下来。这种东西不该在没有人的走廊里试
+            effects:
+              - { type: unlockSkill, skillId: sk-gojo-red }
+              - { type: unlockSkill, skillId: sk-gojo-hollow-purple }
+              - { type: adjustAttribute, attribute: intellect, value: 3 }
+              - { type: adjustMood, value: -2 }
+
+  - id: ev-pool-limitless-void
+    title: 观空 · 茈
+    narrative: |
+      你还没动手，眼睛先看见了。
+      苍与赫在你看来的样子不是两股力，而是同一道算式被写了两遍——第一遍取负，第二遍把负再取一次。
+      中间那一项本该是零。可它没有消掉，它停在那里，等你把它念出来。
+    trigger:
+      source: pool
+      probability: 0.1
+      once: true
+      priority: 18
+      cooldown: { value: 5, unit: day }
+      conditions:
+        - { flag: creationDone, eq: true }
+        - { flag: era, eq: 1 }
+        - { attribute: innateTechnique, eq: limitless }
+        - { requiresSkill: sk-reverse-heal }
+        - { status: six-eyes-pseudo, present: true }
+    kind: normal
+    settle:
+      normal:
+        options:
+          - id: opt-lv-1
+            text: 把它念出来
+            effects:
+              - { type: unlockSkill, skillId: sk-gojo-red }
+              - { type: unlockSkill, skillId: sk-gojo-hollow-purple }
+              # 天赋无下限：这双眼睛看得见「无限」，于是它不必再被主动开启。
+              - { type: applyStatus, status: infinity }
+              - { type: adjustAttribute, attribute: intellect, value: 2 }
+              - { type: adjustMood, value: 8 }
+          - id: opt-lv-2
+            text: 先闭上眼。看得太清楚的人通常活不长
+            effects:
+              - { type: unlockSkill, skillId: sk-gojo-red }
+              - { type: unlockSkill, skillId: sk-gojo-hollow-purple }
+              - { type: applyStatus, status: infinity }
+              - { type: adjustMood, value: -4 }
 
   # ──────────────────────────────────────────────────────────────
   # L1 怀玉 · 七幕（ev-hv-01 … ev-hv-07）
@@ -1003,6 +1093,9 @@ events:
     kind: combat
     settle:
       combat:
+        # ADR-075：默认 stake 是 deaths（硬核）。本模板只有第六幕挡枪是死局，
+        # 其余四场先按恶战（hp 锁 1、绝不判死）；挡枪在死亡路由落地后改 deaths。
+        stake: hard
         enemies:
           - { ref: enemy-curse-user, levelScale: 0.7 }
           - { ref: enemy-grade2-curse, levelScale: 0.55 }
@@ -1406,6 +1499,8 @@ events:
     kind: combat
     settle:
       combat:
+        # ADR-075：第六幕是**死斗**——挡不住甚尔就是早夭，由 world.deathRoutes 收束。
+        stake: deaths
         enemies:
           - { ref: npc-toji, levelScale: 0.55 }
         canFlee: false

@@ -271,8 +271,23 @@ export function statusEffectSummaries(
         tone: "buff",
       });
     }
+    if (combat.crit?.chance !== undefined && combat.crit.chance > 0) {
+      // 暴击是独立一层（ADR-073）：它不改命中，也不改伤害乘区，必须单独说。
+      out.push({
+        text: `战斗中暴击率 ${pct(combat.crit.chance)}`,
+        kind: "combat",
+        tone: "buff",
+      });
+    }
+    if (combat.crit?.multiplier !== undefined && combat.crit.multiplier > 1) {
+      out.push({
+        text: `战斗中暴击倍率 ${combat.crit.multiplier.toFixed(2)}x`,
+        kind: "combat",
+        tone: "buff",
+      });
+    }
     for (const [resource, value] of Object.entries(combat.costMultiplier ?? {})) {
-      // 六眼这类「咒力消耗 -90%」：它改的是技能实际价格，必须在状态详情里说清楚。
+      // 「某资源消耗 -90%」改的是技能实际价格，必须在状态详情里说清楚。
       if (value === 0) continue;
       out.push({
         text: `战斗中${lookup.resourceLabel(resource)}消耗 ${pct(value)}`,
@@ -333,8 +348,8 @@ export function skillEffectSummaries(def: Skill, lookup: TemplateLookup, ui?: Ui
     /**
      * 消耗行只写**真的要付的钱**（2026-11-20 用户裁决）。
      *
-     * `cost: { mp: 0 }` 在协议里是必填形状，但「魔法世界没有咒力」的模板（瓦勒蒙）里
-     * 印成「消耗 0 咒力」既啰嗦又像是漏配。零消耗直接写「无消耗」；
+     * `cost: { mp: 0 }` 在协议里是必填形状，但「这个世界没有 mp 这种资源」的模板里
+     * 印成「消耗 0 点某种资源」既啰嗦又像是漏配。零消耗直接写「无消耗」；
      * 底层 `mp` 字段保留不动（它仍是成本表的一员，只是没人收）。
      */
     const paid = Object.entries(def.cost).filter(([, amount]) => amount > 0);
@@ -412,7 +427,7 @@ export function skillEffectSummaries(def: Skill, lookup: TemplateLookup, ui?: Ui
      * 冷却只在**真的有冷却**时才占一行（2026-11-20 用户裁决：「没有冷却就什么都不展示」）。
      *
      * `cooldownTurns` 在协议里是必填数字，多数模板写 0 —— 印成「冷却 0 回合」
-     * 与「消耗 0 咒力」是同一类噪音：面板在描述一件永远不会发生的事。
+     * 与「消耗 0 点资源」是同一类噪音：面板在描述一件永远不会发生的事。
      * 字段本身不动（它仍是结算的判据），只是零值不上屏。
      */
     if (def.cooldownTurns > 0) out.push({ text: `冷却 ${def.cooldownTurns} 回合`, kind: "cost" });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkTemplate, type TemplateRefLite } from "../../apps/web/src/templateClient.ts";
+import { checkCachedTemplates, checkTemplate, type TemplateRefLite } from "../../apps/web/src/templateClient.ts";
 import type { KeyValueStore } from "../../apps/web/src/idb.ts";
 import { registerServerExtensions } from "../../apps/server/src/extensions.ts";
 import { loadTemplates, readDeclarativeFiles } from "../../apps/server/src/templates.ts";
@@ -117,5 +117,44 @@ describe("模板包缓存", () => {
     await checkTemplate(ref, { fetchImpl: impl, cache: null, expectedFingerprint: pkg.fingerprint });
     await checkTemplate(ref, { fetchImpl: impl, cache: null, expectedFingerprint: pkg.fingerprint });
     expect(calls.count).toBe(2);
+  });
+
+  it("offlineOnly：命中缓存不发请求，未命中也不发请求", async () => {
+    const { pkg } = packageOf();
+    const cache = memoryCache();
+    const { impl, calls } = countingFetch(pkg);
+    await checkTemplate(ref, { fetchImpl: impl, cache, expectedFingerprint: pkg.fingerprint });
+    calls.count = 0;
+
+    const hit = await checkTemplate(ref, {
+      fetchImpl: impl,
+      cache,
+      expectedFingerprint: pkg.fingerprint,
+      offlineOnly: true,
+    });
+    expect(hit.ok).toBe(true);
+    expect(calls.count).toBe(0);
+
+    const miss = await checkTemplate(
+      { id: "jjk-2006", version: "9.9.9" },
+      { fetchImpl: impl, cache, offlineOnly: true },
+    );
+    expect(miss.ok).toBe(false);
+    expect(calls.count).toBe(0);
+  });
+
+  it("checkCachedTemplates 只走缓存（PWA 断网启动）", async () => {
+    const { pkg } = packageOf();
+    const cache = memoryCache();
+    const { impl, calls } = countingFetch(pkg);
+    await checkTemplate(ref, { fetchImpl: impl, cache });
+    calls.count = 0;
+
+    const scan = await checkCachedTemplates([{ ...ref, fingerprint: pkg.fingerprint }], {
+      fetchImpl: impl,
+      cache,
+    });
+    expect(scan.results.some((result) => result.ok)).toBe(true);
+    expect(calls.count).toBe(0);
   });
 });

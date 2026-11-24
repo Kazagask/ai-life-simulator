@@ -191,6 +191,14 @@
                   <input id="simSeed" type="number" value="1" />
                 </label>
                 <label class="field">
+                  <span class="field-label">额外敌人</span>
+                  <input id="simEnemyCount" type="number" min="0" max="3" value="0" title="与右侧对手同款，用来演群体 / 多目标" />
+                </label>
+                <label class="field">
+                  <span class="field-label">开场友军</span>
+                  <input id="simAllyCount" type="number" min="0" max="3" value="0" title="木桩友军，用来演友军单体 / 全体治疗与增益" />
+                </label>
+                <label class="field">
                   <span class="field-label">挑招姿态</span>
                   <select id="simStance">
                     <option value="damage">堆伤害</option>
@@ -202,7 +210,7 @@
               <div class="field-row">
                 <label class="field grow2">
                   <span class="field-label">左侧属性覆盖 <span class="hint">点选填数，留空用角色卡</span></span>
-                  <input id="simLeftAttributes" type="text" placeholder="cursedEnergy=140" />
+                  <input id="simLeftAttributes" type="text" placeholder="cursedEnergyTotal=140" />
                 </label>
                 <button class="ghost preset-btn" id="simUsePreset" title="把选中角色的自带配置填进下方表单">用角色卡填表</button>
               </div>

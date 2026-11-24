@@ -148,6 +148,12 @@ body {
   white-space: nowrap;
 }
 
+/* ADR-073：本场暴击次数。暖红与「胜利/败北」的语义标签区分开。 */
+.tag.crit {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
 /* R2.7 / T-S1 / T-S2：AI 叙事来源的中性小标记。复用 .tag 外观，
    仅补一点行内间距，挂在既有 meta / eval 行里，不新增独立行、不打断布局。 */
 .ai-narrative-tag {
@@ -312,6 +318,21 @@ button {
   overflow: hidden;
 }
 
+/*
+ * 单位卡的血条：**写死 flex-basis**。
+ *
+ * `.bar { flex: 1 }` 的 basis 是 0，在竖排卡片里靠 grow 拿空间；卡片高度由内容撑开时
+ * 没有空闲空间可分，血条就塌成 0px —— 所以敌人 / 友军 / 召唤物从来就没画出过血条。
+ * 同一行里只要有一张卡更高（多一行「已离场」），其它卡的血条又会被拉粗。
+ * `0 0 6px` 两头都堵住：高度一定是 6px，且不参与纵向分配。
+ */
+.ally > .bar,
+.enemy > .bar,
+.neutral > .bar,
+.battle-self > .bar {
+  flex: 0 0 6px;
+  height: 6px;
+}
 .bar-fill {
   height: 100%;
   border-radius: 999px;
@@ -1080,7 +1101,13 @@ button {
   border-radius: var(--radius);
   background: var(--bg-card-2);
 }
-.ally.dead { opacity: 0.35; text-decoration: line-through; }
+/*
+ * 阵亡的友军（2026-11-24 用户报「收灵样式 bug」）：
+ * 以前整张卡 0.35 + 删除线，名字和 0/95 一起糊掉，看起来像渲染失败。
+ * 现在只把**名字**划掉，卡片留 0.62 —— 死掉的东西也要能读。
+ */
+.ally.dead { opacity: 0.62; }
+.ally.dead strong { text-decoration: line-through; color: var(--text-dim); }
 /*
  * 可选中的友军卡（ADR-015 D3）：`button.ally` 默认是浏览器按钮样式，这里补齐外观；
  * `.targeting` 与敌人卡片用同一套高亮——**没有高亮就等于没有反馈**，
@@ -1334,9 +1361,21 @@ button.ally.dead { cursor: default; }
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  /* 2026-11-23：参考人生页的两列布局。三列会把「咒力消耗」这种四字标签挤成竖排。 */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-top: 10px;
+}
+
+/* 数字标签不折行；值靠右、保留数字等宽。 */
+.stat > span:first-child {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.stat > strong {
+  text-align: right;
+  min-width: 0;
 }
 
 .stat {
@@ -2200,3 +2239,37 @@ details.llm-config .llm-saved {
 }
 .viewer-banner strong { color: var(--accent-2); font-weight: 600; }
 .rel-owner-note { margin: -2px 0 8px; font-size: 11px; }
+
+/* PWA 更新提示：贴在底部栏上方，不遮挡游戏操作。 */
+.pwa-update {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 35%);
+}
+
+/* 开局姓名格（ADR-072 D7）：输入框 + 说明 + 确认。 */
+.opening-input {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.opening-input input {
+  width: 100%;
+  font-size: 1.05rem;
+  letter-spacing: 0.04em;
+}
+
+.opening-input .muted {
+  margin: 0;
+  font-size: 0.85rem;
+}

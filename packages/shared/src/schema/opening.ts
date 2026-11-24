@@ -325,17 +325,94 @@ export const OpeningBranchOptionSchema = z
   .strict()
   .refine((o) => o.weightBy === undefined, { message: "开局 roll 不支持 weightBy（ADR-001 D-4）" });
 
-/** branch DAG 节点：roll 自动掷、choose 玩家点、allocate 加点；可任意交错（R-OP-02）。 */
+/**
+ * 节点前置（ADR-072 D3）：**只看本会话已落定的开局参数**，不看世界状态。
+ *
+ * 为什么需要它：DAG 的选项没有 `conditions`，`goto` 又是编译期分流 ——
+ * 「御三家才转传承那一格、其他人直接进通用术式池」在旧契约里写不出来（要么给所有人看，
+ * 要么复制三条 lane 把性别/年龄/天赋整段抄三遍）。节点级前置把「这一格给谁看」
+ * 从结构里拆出来：不成立的节点**静默跳过**（跟着它自己的 `goto ?? 下一个` 走），
+ * 不占步数、不写结果、不上屏。
+ *
+ * 判据刻意做成**白名单小语法**而不是通用条件 DSL：开局期没有 WorldStateV2，
+ * 复用事件条件会诱导模板作者写 `flag`/`status` 这些此刻还不存在的东西。
+ */
+export const OpeningNodeWhenSchema = z
+  .object({
+    /** 参数 id（必须是本 DAG 声明过的 flag 参数）。 */
+    param: z.string().min(1),
+    /** 取值白名单：落定值命中任意一项即算通过。 */
+    in: z.array(z.string().min(1)).min(1),
+  })
+  .strict();
+
+/**
+ * 输入节点的预填候选（ADR-072 D7）。
+ *
+ * 一组候选按声明序求值，**第一个命中的胜出**：
+ * - `when`：与节点前置同一套 `{ param, in }`（AND）；
+ * - `require`：这些参数必须落定为**非空字符串**（例如「玩家在向导里填过名字」）；
+ * - `text`：`{paramId}` 插值 + `{pick}`（从 `suggestions` 里按本节点 seed 取一个）。
+ *   `{paramId}` 未落定 ⇒ 空串，所以「姓 + 名」这种拼接不需要额外语法。
+ */
+export const OpeningInputPrefillSchema = z
+  .object({
+    when: z.array(OpeningNodeWhenSchema).optional(),
+    require: z.array(z.string().min(1)).optional(),
+    text: z.string(),
+  })
+  .strict();
+
+/**
+ * 输入节点（ADR-072 D7）：**唯一一个让玩家写字符串的格子**。
+ *
+ * 落点由参数声明的 `kind` 决定，引擎不认识「名字」这个业务：
+ * - `kind: name` ⇒ 写世界里的玩家名（`player.name`）；
+ * - `kind: flag` ⇒ 写字符串旗标（必须同时声明 `flag: <旗标 id>`，因为 flag 参数是 `{id,value}`）。
+ *
+ * `attribute` 参数**刻意不支持**：枚举属性只接受声明过的选项 id、数值属性不接受字符串，
+ * 让自由文本落进属性等于把一个坏值写进存档。要「按选项填」应该用 choose 节点。
+ *
+ * 校验顺序（运行期 `resolveStep`）：trim → 空值兜底（`defaultValue` → 预填）→
+ * `minLength` / `maxLength` / `pattern`。长度按**码点数**（中文一个字算一）。
+ */
+export const OpeningInputSchema = z
+  .object({
+    /** 写哪个参数（必填）。 */
+    param: z.string().min(1),
+    /** `param` 是 flag 时必须给：写到哪个旗标 id 上。 */
+    flag: z.string().min(1).optional(),
+    /** 预填：字符串 = 单一候选；数组 = 按序取第一个命中的候选。 */
+    prefill: z.union([z.string(), z.array(OpeningInputPrefillSchema).min(1)]).optional(),
+    /** `{pick}` 的取值池（用到 `{pick}` 就必须给）。 */
+    suggestions: z.array(z.string().min(1)).max(64).optional(),
+    placeholder: z.string().min(1).optional(),
+    /** 填写说明：输入框下方的一行小字（模板自己写，引擎不解释）。 */
+    hint: z.string().min(1).optional(),
+    minLength: z.number().int().nonnegative().optional(),
+    maxLength: z.number().int().positive().optional(),
+    /** 正则**源码**（加载期编译校验，运行期整串匹配）。 */
+    pattern: z.string().min(1).optional(),
+    /** 提交空串时的兜底值；也没给 ⇒ 用预填；预填也空 ⇒ 拒（`opening_input_required`）。 */
+    defaultValue: z.string().min(1).optional(),
+  })
+  .strict();
+
+/** branch DAG 节点：roll 自动掷、choose 玩家点、allocate 加点、input 玩家填字；可任意交错（R-OP-02）。 */
 export const OpeningBranchNodeSchema = z
   .object({
     node: z.string().min(1),
     title: z.string().min(1),
     text: z.string().min(1).optional(),
-    mode: z.enum(["roll", "choose", "allocate"]),
+    mode: z.enum(["roll", "choose", "allocate", "input"]),
     /** allocate 节点指向的 points 参数 id；roll/choose 可省略。 */
     param: z.string().min(1).optional(),
+    /** input 节点的输入规格（写哪个参数 / 预填 / 校验）。 */
+    input: OpeningInputSchema.optional(),
     options: z.array(OpeningBranchOptionSchema).optional(),
     goto: z.string().min(1).optional(),
+    /** 前置（AND）：任一不成立 ⇒ 本节点整格跳过。见 `OpeningNodeWhenSchema`。 */
+    when: z.array(OpeningNodeWhenSchema).optional(),
   })
   .strict()
   .superRefine((node, ctx) => {
@@ -352,6 +429,29 @@ export const OpeningBranchNodeSchema = z
         code: z.ZodIssueCode.custom,
         path: ["param"],
         message: "param 只对 allocate 节点有意义",
+      });
+    }
+    // ADR-072 D7：input 节点必须带 input 规格，且其它节点不能带 —— 否则模板作者
+    // 写错一个 mode 就会得到一个「点了没反应」的格子。
+    if (node.mode === "input" && node.input === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["input"],
+        message: "input 节点必须声明 input（写哪个参数 / 预填 / 校验）",
+      });
+    }
+    if (node.mode !== "input" && node.input !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["input"],
+        message: "input 只对 mode: input 的节点有意义",
+      });
+    }
+    if (node.mode === "input" && (node.options?.length ?? 0) > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["options"],
+        message: "input 节点不接受 options（玩家写的是字符串，不是选项）",
       });
     }
   });
@@ -428,6 +528,8 @@ export const OpeningStepResultSchema = z
     rollIndex: z.number().int().nonnegative().optional(),
     /** allocate 节点的最终分配结果：paramId -> attribute -> value */
     allocation: z.record(z.string(), z.record(z.string(), z.number())).optional(),
+    /** input 节点玩家填的原文（已 trim；落点由节点声明的 `input.param` 决定）。 */
+    input: z.string().optional(),
   })
   .strict();
 

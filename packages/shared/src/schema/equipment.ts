@@ -52,7 +52,7 @@ const DynamicModifierBase = {
   /**
    * 词条显示名（「锋利」「压手」「缠」）。
    *
-   * 没有它的时候，一件咒具在面板上只会写「咒力 +4」，玩家分不清那是刀锋利还是
+   * 没有它的时候，一件装备在面板上只会写「属性 +4」，玩家分不清那是刀锋利还是
    * 术式回路宽 —— 名字是词条的身份，数值只是这一件东西上的一次取值。
    */
   label: z.string().min(1).optional(),
@@ -126,7 +126,7 @@ export const CombatModifierSchema = z
  * 一条装备词条：**属性** 或 **战斗轴**，二者其一。
  *
  * 一件装备可以有多条（`dynamicModifiers`）：老实现只允许一条属性词条，
- * 于是「释魂刀 +咒力」和「斩灵魂」只能二选一，或者靠授予技能打补丁。
+ * 于是「某把刀 +属性」和「斩灵魂」只能二选一，或者靠授予技能打补丁。
  */
 export const EquipmentModifierSchema = z.union([DynamicModifierSpecSchema, CombatModifierSchema]);
 export type EquipmentModifier = z.infer<typeof EquipmentModifierSchema>;

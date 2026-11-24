@@ -35,7 +35,7 @@ characters:
       gender: male
       description: 一年生班主任，一级术师。沉默、魁梧、会缝布偶，也会在你偷懒时把布偶扔到你脸上。
     mood: { value: 55 }
-    attributes: { cursedEnergy: 30, intellect: 9, physique: 8, agility: 6, reputation: 35 }
+    attributes: { cursedEnergyTotal: 30, intellect: 9, physique: 8, agility: 6, reputation: 35 }
     skills: [sk-puppet, sk-basic-strike]
     public:
       personality: 严厉、护短，从不把「保护学生」四个字说出口。
@@ -64,11 +64,14 @@ characters:
       gender: male
       description: 二年生，五条家的六眼。全世界最强的两个咒术师之一，也是最吵的那个。
     mood: { value: 80 }
-    attributes: { cursedEnergy: 120, intellect: 10, physique: 9, agility: 11, reputation: 60, grade: special, innateTechnique: limitless }
-    # ADR-010 D6：开局只会顺转。赫与领域由 world.yaml 的 scheduledFacts 在
-    # 怀玉收束（518 天）与苦夏之后（760 天）解锁 —— 2006 年秋天的五条悟还不会反转。
-    skills: [sk-gojo-blue, sk-basic-strike]
-    statuses: [six-eyes, infinity]
+    # 黑闪资质 55（2026-11-23）：原作里五条确实打出过黑闪，但那是资质与偶然，不是招式。
+    attributes: { cursedEnergyTotal: 120, intellect: 10, physique: 9, agility: 11, reputation: 60, grade: special, innateTechnique: limitless }
+    # 2006 年的五条悟**还不会常时无下限**（2026-11-23 用户裁决）：那层「到不了」要主动开，
+    # 只撑三回合（skills 的 sk-limitless + statuses 的 limitless-active）。
+    # 反转术式 / 赫 / 茈 / 常时无下限由 world.yaml 的 scheduledFacts 在怀玉收束后授予；
+    # 无量空处留到 0 卷那一章（本模板只有 2006，还没有那一章）。
+    skills: [sk-limitless, sk-gojo-blue, sk-basic-strike]
+    statuses: [six-eyes, t-black-flash]
     public:
       personality: 轻浮、自大、随时在开玩笑。真的危险时，他会站在最前面。
       knownGoals: [把咒术界翻过来]
@@ -77,7 +80,8 @@ characters:
       goals: [become-strongest, protect-students]
       traits: [confident, playful]
       combatHints:
-        skillWeights: { sk-gojo-blue: 4, sk-gojo-red: 3, sk-domain-empty: 1 }
+        # 开场只会苍 + 主动无下限；赫与茈要等世界时间表给他（见 world.yaml）。
+        skillWeights: { sk-limitless: 3, sk-gojo-blue: 5, sk-basic-strike: 1 }
     relationship: 10
     relations:
       - { to: npc-geto, kind: friend, scope: public, value: 70 }
@@ -98,7 +102,7 @@ characters:
       gender: male
       description: 二年生，咒灵操术。总是笑着讲道理，讲的道理越来越重。
     mood: { value: 62 }
-    attributes: { cursedEnergy: 48, intellect: 10, physique: 8, agility: 7, reputation: 40, grade: special, innateTechnique: cursed-spirits }
+    attributes: { cursedEnergyTotal: 48, intellect: 10, physique: 8, agility: 7, reputation: 40, grade: special, innateTechnique: cursed-spirits }
     # ADR-012 D9：咒灵数量是**他的**条，不是全局资源 —— 别人没有这条槽。
     skills: [sk-summon-curse, sk-summon-dragon, sk-recall, sk-uzumaki, sk-basic-strike]
     public:
@@ -126,7 +130,7 @@ characters:
       gender: female
       description: 二年生，反转术式。高专唯一的医生，也是唯一能在五条和夏油之间插话的人。
     mood: { value: 60 }
-    attributes: { cursedEnergy: 26, intellect: 9, physique: 5, agility: 6, reputation: 30 }
+    attributes: { cursedEnergyTotal: 26, intellect: 9, physique: 5, agility: 6, reputation: 30 }
     skills: [sk-reverse-heal, sk-reverse-heal-ally, sk-basic-strike]
     public:
       personality: 冷淡、嘴毒，医务室的灯永远为你留着。
@@ -152,7 +156,7 @@ characters:
       gender: male
       description: 你的一年生同班同学。十划咒法，永远在算「这件事值不值得做」。
     mood: { value: 58 }
-    attributes: { cursedEnergy: 26, intellect: 9, physique: 7, agility: 7, reputation: 15 }
+    attributes: { cursedEnergyTotal: 26, intellect: 9, physique: 7, agility: 7, reputation: 15 }
     skills: [sk-7-3, sk-basic-strike]
     public:
       personality: 克制、讲规则，会在你乱来之后冷静地把你骂一顿。
@@ -177,7 +181,7 @@ characters:
       gender: male
       description: 你的一年生同班同学。嗓门大、饭量大、笑起来像夏天。
     mood: { value: 78 }
-    attributes: { cursedEnergy: 20, intellect: 6, physique: 8, agility: 6, reputation: 10 }
+    attributes: { cursedEnergyTotal: 20, intellect: 6, physique: 8, agility: 6, reputation: 10 }
     skills: [sk-basic-strike, sk-cursed-strike]
     public:
       personality: 直率、热血，把「术师要保护人」当成理所当然的事。
@@ -201,7 +205,7 @@ characters:
       gender: female
       description: 星浆体。命中注定要与天元同化，本人却只想再去一次海边。
     mood: { value: 50 }
-    attributes: { cursedEnergy: 0, intellect: 7, physique: 3, agility: 4, reputation: 0 }
+    attributes: { cursedEnergyTotal: 0, intellect: 7, physique: 3, agility: 4, reputation: 0 }
     skills: []
     public:
       personality: 嘴硬、倔，会在最害怕的时候故作镇定。
@@ -218,9 +222,14 @@ characters:
       gender: male
       description: 天与咒缚的完成形。零咒力，靠一具肉身杀穿术师界，人称「术师杀手」。
     mood: { value: 50 }
-    attributes: { cursedEnergy: 0, intellect: 7, physique: 16, agility: 15, reputation: 20 }
+    # 天与咒缚（ADR-074）：总量 30 全部换成肉体（0.5 体术 / 0.35 敏捷）⇒ 最终 16 / 14.5。
+    # 写「30 + 低基础值」而不是「0 + 高基础值」，是为了让转化这条规则真的被走一遍：
+    # 总量归零之后，由它派生的输出/操作/效率与 mp 上限也一起归零。
+    attributes: { cursedEnergyTotal: 30, intellect: 7, physique: 1, agility: 4, reputation: 20 }
     # ADR-012 D7：天逆鉾是**行为**（必中），靠装备授予技能，而不是靠词条堆属性。
     # 没有它，甚尔对五条是 30 局 0 伤害 —— 无下限 100% 闪避，谁都碰不到。
+    # 天与咒缚是**天赋**：转化只在有效属性里发生，不写进基础属性（换人/夺舍时不会带着走）。
+    statuses: [heavenly-restriction]
     equipment: [eq-ten-spear]
     skills: [sk-heavenly-body, sk-weapon-cleave, sk-basic-strike]
     public:
@@ -246,7 +255,7 @@ characters:
       gender: male
       description: 2017 年入学的一年生。身后跟着特级过咒怨灵「里香」，本人却温吞得像张纸。
     mood: { value: 45 }
-    attributes: { cursedEnergy: 55, intellect: 8, physique: 7, agility: 7, reputation: 25 }
+    attributes: { cursedEnergyTotal: 55, intellect: 8, physique: 7, agility: 7, reputation: 25 }
     skills: [sk-rika, sk-cursed-strike, sk-basic-strike]
     public:
       personality: 自卑、温柔，为了别人可以把自己折断。
@@ -274,7 +283,7 @@ characters:
       gender: male
       description: 2018 年入学的一年生。吞下宿傩的手指还活着，全日本只有这一个。
     mood: { value: 70 }
-    attributes: { cursedEnergy: 32, intellect: 6, physique: 12, agility: 9, reputation: 10 }
+    attributes: { cursedEnergyTotal: 32, intellect: 6, physique: 12, agility: 9, reputation: 10 }
     skills: [sk-divergent-fist, sk-basic-strike]
     public:
       personality: 直、快、善良得有点笨。跑得比谁都快，因为他要去救人。
@@ -297,7 +306,7 @@ characters:
       gender: male
       description: 2018 年入学的一年生。十种影法术的继承者，甚尔的儿子，也是你学长敌人的儿子。
     mood: { value: 52 }
-    attributes: { cursedEnergy: 30, intellect: 8, physique: 7, agility: 8, reputation: 12, grade: grade-2, innateTechnique: ten-shadows }
+    attributes: { cursedEnergyTotal: 30, intellect: 8, physique: 7, agility: 8, reputation: 12, grade: grade-2, innateTechnique: ten-shadows }
     # ADR-013 D7：十影整套招式都是**点名式神**（`summon.ref`），只有体术是自己打的。
     # 英雄档一次只站一只 ⇒ 换手要先用 `sk-ten-recall` 收回前一只（状态跟着进回收架）。
     skills:
@@ -325,7 +334,7 @@ characters:
       gender: female
       description: 2018 年入学的一年生。刍灵咒法，从乡下来，带着一根钉子和一肚子火。
     mood: { value: 68 }
-    attributes: { cursedEnergy: 24, intellect: 7, physique: 6, agility: 8, reputation: 8 }
+    attributes: { cursedEnergyTotal: 24, intellect: 7, physique: 6, agility: 8, reputation: 8 }
     skills: [sk-doll-curse, sk-doll-nail, sk-basic-strike]
     public:
       personality: 直率、好胜，绝不承认自己害怕。
@@ -344,7 +353,7 @@ characters:
       gender: male
       description: 特级咒灵，火山之形。他坚信咒灵才是真正的人类，而人类该被烧干净。
     mood: { value: 60 }
-    attributes: { cursedEnergy: 46, intellect: 8, physique: 9, agility: 8, reputation: 45 }
+    attributes: { cursedEnergyTotal: 46, intellect: 8, physique: 9, agility: 8, reputation: 45 }
     skills: [sk-flame, sk-curse-crush, sk-basic-strike]
     statuses: [enrage]
     public:
@@ -363,7 +372,7 @@ characters:
       gender: male
       description: 特级咒灵，人类对人类的憎恶所生。他的术式能改写灵魂的形状。
     mood: { value: 65 }
-    attributes: { cursedEnergy: 40, intellect: 8, physique: 7, agility: 9, reputation: 35 }
+    attributes: { cursedEnergyTotal: 40, intellect: 8, physique: 7, agility: 9, reputation: 35 }
     skills: [sk-impurity, sk-curse-bite, sk-basic-strike]
     public:
       personality: 好奇、孩子气，把人类当作可以随便捏的黏土。
@@ -382,7 +391,7 @@ characters:
       gender: male
       description: 千年前的诅咒师，靠换脑活着。他布了一个横跨千年的局，你们全在局里。
     mood: { value: 55 }
-    attributes: { cursedEnergy: 58, intellect: 12, physique: 7, agility: 8, reputation: 30 }
+    attributes: { cursedEnergyTotal: 58, intellect: 12, physique: 7, agility: 8, reputation: 30 }
     # 羂索操的是夏油杰的身体 —— 同一套咒灵操术，所以他也有这条槽。
     skills: [sk-summon-curse, sk-summon-dragon, sk-recall, sk-uzumaki, sk-impurity, sk-curse-user-blade, sk-basic-strike]
     statuses: [kenjaku]
@@ -403,7 +412,7 @@ characters:
       gender: male
       description: 诅咒之王。四手四眼，把「解」与「捌」当作呼吸一样使用。
     mood: { value: 50 }
-    attributes: { cursedEnergy: 72, intellect: 11, physique: 12, agility: 11, reputation: 100, grade: special, innateTechnique: shrine }
+    attributes: { cursedEnergyTotal: 72, intellect: 11, physique: 12, agility: 11, reputation: 100, grade: special, innateTechnique: shrine }
     skills: [sk-dismantle, sk-cleaves, sk-fuga, sk-domain-malevolent, sk-basic-strike]
     statuses: [cursed-king]
     public:
@@ -431,7 +440,7 @@ characters:
       description: 借来的身体。脸上多了四道纹路，手腕的骨节在错位地生长。他一边笑一边活动手指，像在试一件新衣服合不合身。
     mood: { value: 60 }
     # 略强于涩谷那夜（npc-sukuna）：他先适应了这具身体，才开始认真。
-    attributes: { cursedEnergy: 78, intellect: 11, physique: 13, agility: 12, reputation: 100 }
+    attributes: { cursedEnergyTotal: 78, intellect: 11, physique: 13, agility: 12, reputation: 100 }
     skills: [sk-dismantle, sk-cleaves, sk-fuga, sk-domain-malevolent, sk-ten-shadow, sk-basic-strike]
     statuses: [cursed-king]
     public:
@@ -451,7 +460,7 @@ characters:
       description: 真身。四臂两面，不再借任何人的身体——他把自己塞回了原本的形状，头上的骨冠在路灯下泛着旧血的颜色。
     mood: { value: 65 }
     # 显著强于一阶段：真身不受宿主的肉体限制。
-    attributes: { cursedEnergy: 105, intellect: 12, physique: 15, agility: 12, reputation: 100 }
+    attributes: { cursedEnergyTotal: 105, intellect: 12, physique: 15, agility: 12, reputation: 100 }
     # 世界斩只给真身：借伏黑之身那两阶段还没把「斩空间」练成招式（原作时序）。
     skills: [sk-dismantle, sk-cleaves, sk-fuga, sk-domain-malevolent, sk-sukuna-world-cut, sk-basic-strike]
     statuses: [cursed-king]
@@ -476,7 +485,7 @@ characters:
       gender: agender
       description: 从某栋公寓的怨念里长出来的东西。形状不稳定，但牙很硬。
     mood: { value: 50 }
-    attributes: { cursedEnergy: 12, intellect: 2, physique: 6, agility: 5, reputation: 0 }
+    attributes: { cursedEnergyTotal: 12, intellect: 2, physique: 6, agility: 5, reputation: 0 }
     skills: [sk-curse-bite, sk-basic-strike]
     public:
       personality: 只有食欲。
@@ -494,7 +503,7 @@ characters:
       gender: agender
       description: 一级。它已经学会了等，学会了在你转身的时候动手。
     mood: { value: 50 }
-    attributes: { cursedEnergy: 30, intellect: 5, physique: 8, agility: 6, reputation: 0 }
+    attributes: { cursedEnergyTotal: 30, intellect: 5, physique: 8, agility: 6, reputation: 0 }
     skills: [sk-curse-crush, sk-curse-wail, sk-basic-strike]
     public:
       personality: 沉默，耐心。
@@ -512,7 +521,7 @@ characters:
       gender: male
       description: 用术式杀人换钱的家伙。他不恨你，只是你值几个钱。
     mood: { value: 50 }
-    attributes: { cursedEnergy: 20, intellect: 6, physique: 6, agility: 7, reputation: 0 }
+    attributes: { cursedEnergyTotal: 20, intellect: 6, physique: 6, agility: 7, reputation: 0 }
     skills: [sk-curse-user-blade, sk-basic-strike]
     public:
       personality: 干脆，务实。
@@ -530,7 +539,7 @@ characters:
       gender: agender
       description: 少年院地下那间屋子里孵化了不知多久的东西。它还没长完，但已经不需要长完了。
     mood: { value: 50 }
-    attributes: { cursedEnergy: 38, intellect: 3, physique: 11, agility: 7, reputation: 0 }
+    attributes: { cursedEnergyTotal: 38, intellect: 3, physique: 11, agility: 7, reputation: 0 }
     skills: [sk-curse-crush, sk-curse-bite, sk-curse-wail, sk-basic-strike]
     public:
       personality: 没有。
@@ -561,7 +570,7 @@ characters:
       gender: agender
       description: 一条会飞的咒灵。鳞片把光折成七种颜色，远远看着像一道彩虹压得很低。
     mood: { value: 50 }
-    attributes: { cursedEnergy: 34, intellect: 4, physique: 12, agility: 13, reputation: 0 }
+    attributes: { cursedEnergyTotal: 34, intellect: 4, physique: 12, agility: 13, reputation: 0 }
     skills: [sk-wyrm-coil, sk-wyrm-breath, sk-basic-strike]
     public:
       personality: 温顺——对召唤它的人。对别人只是慢。
@@ -583,7 +592,7 @@ characters:
       gender: agender
       description: 一黑一白，两条犬。它们从影子里出来时不叫，跑起来也没有声音。
     mood: { value: 50 }
-    attributes: { cursedEnergy: 14, intellect: 6, physique: 9, agility: 10, reputation: 0 }
+    attributes: { cursedEnergyTotal: 14, intellect: 6, physique: 9, agility: 10, reputation: 0 }
     skills: [sk-shiki-bite, sk-basic-strike]
     public:
       personality: 只认影子的主人。
@@ -601,7 +610,7 @@ characters:
       gender: agender
       description: 一团长着翅膀的影子。它飞得很高，然后抓着人一起落下来。
     mood: { value: 50 }
-    attributes: { cursedEnergy: 18, intellect: 5, physique: 7, agility: 12, reputation: 0 }
+    attributes: { cursedEnergyTotal: 18, intellect: 5, physique: 7, agility: 12, reputation: 0 }
     skills: [sk-shiki-plunge, sk-basic-strike]
     public:
       personality: 安静，只在扑下去的那一下出声。
@@ -619,7 +628,7 @@ characters:
       gender: agender
       description: 一只不肯挪窝的大蛙。舌头从嘴里甩出去，比它的身子长十倍。
     mood: { value: 50 }
-    attributes: { cursedEnergy: 12, intellect: 4, physique: 11, agility: 4, reputation: 0 }
+    attributes: { cursedEnergyTotal: 12, intellect: 4, physique: 11, agility: 4, reputation: 0 }
     skills: [sk-shiki-tongue, sk-basic-strike]
     public:
       personality: 懒得动。
@@ -637,7 +646,7 @@ characters:
       gender: agender
       description: 从影子里游出来的一截巨蛇。你只能看见它的这一段，另几段还在下面。
     mood: { value: 50 }
-    attributes: { cursedEnergy: 22, intellect: 4, physique: 13, agility: 6, reputation: 0 }
+    attributes: { cursedEnergyTotal: 22, intellect: 4, physique: 13, agility: 6, reputation: 0 }
     skills: [sk-shiki-constrict, sk-basic-strike]
     public:
       personality: 耐心得不像野兽。
@@ -655,7 +664,7 @@ characters:
       gender: agender
       description: 一头有一对弯角的鹿。它不咬人——它把角抵在伤口上，血就倒着流回去。
     mood: { value: 60 }
-    attributes: { cursedEnergy: 20, intellect: 7, physique: 8, agility: 8, reputation: 0 }
+    attributes: { cursedEnergyTotal: 20, intellect: 7, physique: 8, agility: 8, reputation: 0 }
     skills: [sk-reverse-heal-ally, sk-basic-strike]
     public:
       personality: 温和，守着人。
@@ -673,7 +682,7 @@ characters:
       gender: agender
       description: 一头只认直线的牛。撞上之前不会拐弯，撞上之后也不需要。
     mood: { value: 50 }
-    attributes: { cursedEnergy: 18, intellect: 3, physique: 12, agility: 11, reputation: 0 }
+    attributes: { cursedEnergyTotal: 18, intellect: 3, physique: 12, agility: 11, reputation: 0 }
     skills: [sk-shiki-charge, sk-basic-strike]
     public:
       personality: 犟。
@@ -691,7 +700,7 @@ characters:
       gender: agender
       description: 背着一只法轮的神将。它不躲、不挡，只是挨过一击之后，就不再怕那一击。
     mood: { value: 50 }
-    attributes: { cursedEnergy: 54, intellect: 8, physique: 15, agility: 12, reputation: 0 }
+    attributes: { cursedEnergyTotal: 54, intellect: 8, physique: 15, agility: 12, reputation: 0 }
     skills: [sk-shiki-wheel, sk-basic-strike]
     # ADR-014：法轮常驻 —— 每回合末回一点血、给自己叠一层「适应」。
     statuses: [mahoraga-wheel]
@@ -712,7 +721,7 @@ characters:
       gender: agender
       description: 影子里涌出来的兔子。一只是可爱，三十只是另一回事。
     mood: { value: 55 }
-    attributes: { cursedEnergy: 4, intellect: 2, physique: 3, agility: 11, reputation: 0 }
+    attributes: { cursedEnergyTotal: 4, intellect: 2, physique: 3, agility: 11, reputation: 0 }
     skills: [sk-shiki-nibble, sk-basic-strike]
     public:
       personality: 慌。
@@ -729,7 +738,7 @@ playerTemplate:
     age: 15
     gender: female
   mood: 60
-  attributes: { cursedEnergy: 5, intellect: 6, physique: 5, agility: 5, luck: 5, reputation: 0 }
+  attributes: { cursedEnergyTotal: 5, intellect: 6, physique: 5, agility: 5, luck: 5, reputation: 0 }
   skills: [sk-basic-strike]
   items:
     - { itemId: item-first-aid, count: 1 }

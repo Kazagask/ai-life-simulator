@@ -3,6 +3,7 @@ import {
   buildOpeningPrologueRequest,
   type OpeningPrologueRequestInput,
 } from "@life-sim/game-core";
+import { isNumericAttributeKind } from "@life-sim/shared";
 import type { LoreRule, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
 import { generateNarrative } from "./generate.js";
 import type { LLMProvider } from "../llm/provider.js";
@@ -52,9 +53,26 @@ export function prologueFactsOf(
   lore: readonly LoreRule[] | undefined,
 ): OpeningPrologueRequestInput {
   const labels = template.attributes.labels ?? {};
-  const attributes = template.attributes.order
-    // 只写「看得见的三项」：全表灌进去会把开场白写成角色卡。
-    .filter((id) => ["cursedEnergy", "physique", "agility", "intellect", "luck"].includes(id))
+  /**
+   * 「开场白里提哪些属性」是**世界事实**，不能写死。
+   *
+   * 2026-11-23 自查：以前这里硬编码了一份属性 id 列表，等于把某个世界的属性表塞进
+   * 通用运行时 —— 换一个世界（属性叫法不同）开场白就一条属性都没有。
+   * 现在的口径：优先用模板 `statusBar` 里 `source: attribute` 声明的键（那本来就是
+   * 「这个世界想在面板上露什么」），没有就退回 `attributes.order` 的数值属性；
+   * 两边都跳过 `hidden` 与文本/复合属性，最多 5 条（全表灌进去会把开场白写成角色卡）。
+   */
+  const panelKeys = (template.statusBar ?? [])
+    .filter((section) => section.source === "attribute")
+    .flatMap((section) => section.keys ?? (section.key !== undefined ? [section.key] : []));
+  const visibleIds = (panelKeys.length > 0 ? panelKeys : template.attributes.order)
+    .filter((id) => {
+      const def = template.attributes.defs?.[id];
+      if (def?.hidden === true) return false;
+      return isNumericAttributeKind(def?.kind);
+    })
+    .slice(0, 5);
+  const attributes = visibleIds
     .map((id) => {
       const raw = state.player.attributes[id];
       // enum / ladder 属性也可能是字符串（如生得术式的等级）——原样交给模型，不做换算。

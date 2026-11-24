@@ -25,7 +25,9 @@ import {
  * 一句写死的「本幕要求」要么把两条线写成同一条，要么谁都不像。
  *
  * - `as`：**当前 self 是谁**的快捷写法（与事件节点级的 `as` 同一套语义）：
- *   `as: npc-riko` ⇔ `when: [{ selfIs: npc-riko }]`。加载期不展开，求值时等价判断；
+ *   `as: npc-riko` ⇔ `when: [{ selfIs: npc-riko }]`；也可以写数组
+ *   `as: [npc-a, npc-b]`，表示「这几个角色共用同一段提示词」。
+ *   自建角色的 id 按出身区分（`player-civilian` 等），因此数组也能做「同出身同线」的分派。
  *   可与 `when` 叠加（AND），用旗标进一步收窄。
  * - `when`：条件数组（与触发器同一个 DSL，AND）；缺省 / 空数组 = 兜底。
  *   按声明序取第一条命中的；**有 as 变体时，必须留一条无 as 的兜底**（与 ADR-010 D4 同规）。
@@ -33,7 +35,9 @@ import {
  */
 export const InstructionVariantSchema = z
   .object({
-    as: z.string().min(1).optional(),
+    as: z
+      .union([z.string().min(1), z.array(z.string().min(1)).min(1).max(8)])
+      .optional(),
     when: z.array(TaskConditionSchema).optional(),
     text: z.string().min(1).max(300),
   })

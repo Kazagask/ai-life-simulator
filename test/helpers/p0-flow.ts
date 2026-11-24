@@ -4,6 +4,8 @@ export interface Snapshot {
   turnIndex: number;
   status?: string;
   slotEvent?: { eventId?: string; kind?: string } | null;
+  /** ADR-077：战斗结束会停在战评，`over` 非空 ⇒ 还要一次 `leave` 才推进世界。 */
+  battle?: { over?: string | null } | null;
   ending?: { endingId?: string } | null;
 }
 
@@ -48,10 +50,17 @@ export async function playP0ToEnding(
     optionId: "opt-go",
   });
   await api<{ snapshot: Snapshot }>(baseUrl, "POST", `/api/worlds/${worldId}/wheels/confirm`);
+  let last: { snapshot: Snapshot } | undefined;
   for (let i = 0; i < 2; i += 1) {
-    await api<{ snapshot: Snapshot }>(baseUrl, "POST", `/api/worlds/${worldId}/battle`, {
+    last = await api<{ snapshot: Snapshot }>(baseUrl, "POST", `/api/worlds/${worldId}/battle`, {
       type: "skill",
       skillId: "sk-strike",
+    });
+  }
+  // ADR-077：战斗结束停在战评面板，`leave` 才收场 / 推进世界
+  if (last?.snapshot.battle?.over !== undefined && last.snapshot.battle?.over !== null) {
+    await api<{ snapshot: Snapshot }>(baseUrl, "POST", `/api/worlds/${worldId}/battle`, {
+      type: "leave",
     });
   }
   const chosen = await api<{ snapshot: Snapshot }>(baseUrl, "POST", `/api/worlds/${worldId}/events/choose`, {

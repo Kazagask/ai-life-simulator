@@ -1806,9 +1806,18 @@
     const maxRounds = Number($("#simMaxRounds").value);
     const seed = Number($("#simSeed").value);
     const stance = $("#simStance").value;
+    // 额外敌人 = 右侧那款的复制；开场友军 = 木桩（用来演友军单体 / 全体）
+    const enemyCount = Math.max(0, Math.min(3, Number($("#simEnemyCount")?.value) || 0));
+    const allyCount = Math.max(0, Math.min(3, Number($("#simAllyCount")?.value) || 0));
+    const enemies = Array.from({ length: enemyCount }, () => right);
+    const allies = Array.from({ length: allyCount }, () => ({
+      dummy: { name: "友军木桩", ...(right.dummy?.hp !== undefined ? { hp: right.dummy.hp } : {}) },
+    }));
     return {
       left,
       right,
+      ...(enemies.length > 0 ? { enemies } : {}),
+      ...(allies.length > 0 ? { allies } : {}),
       ...(Number.isFinite(repeat) ? { repeat } : {}),
       ...(Number.isFinite(maxRounds) ? { maxRounds } : {}),
       ...(Number.isFinite(seed) ? { seed } : {}),

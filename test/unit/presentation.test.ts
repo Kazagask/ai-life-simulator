@@ -97,7 +97,7 @@ describe("效果摘要（ADR-002 D3）", () => {
       stacking: "unique",
       polarity: "negative",
       visibility: "known",
-      attributeModifiers: { cursedEnergy: -2 },
+      attributeModifiers: { energy: -2 },
       combat: { control: ["cannot_act"], hitChance: -0.1 },
     };
     const out = statusEffectSummaries(def, lookup);
@@ -146,7 +146,7 @@ describe("效果摘要（ADR-002 D3）", () => {
       category: "blade",
       quality: "rare",
       dynamicModifiers: [
-        { attribute: "cursedEnergy", preset: "scaled", params: { base: 3, scaleBy: "cursedEnergy", multiplier: 0.2 } },
+        { attribute: "energy", preset: "scaled", params: { base: 3, scaleBy: "energy", multiplier: 0.2 } },
       ],
     };
     const out = equipmentEffectSummaries(eq, lookup);
@@ -162,7 +162,7 @@ describe("效果摘要（ADR-002 D3）", () => {
       duration: { turns: 1 },
       stacking: "unique",
       visibility: "known",
-      simulation: { attributeModifiers: { cursedEnergy: 1 } },
+      simulation: { attributeModifiers: { energy: 1 } },
       combat: { control: ["cannot_act"] },
     };
     const out = statusEffectSummaries(def, entry.lookup);
@@ -182,7 +182,7 @@ describe("回合增量（ADR-002 D4）", () => {
     const { state, entry } = makeWorld(7);
     const before = captureGainBaseline(state);
     const after = structuredClone(state);
-    after.player.attributes.cursedEnergy = (after.player.attributes.cursedEnergy ?? 0) + 2;
+    after.player.attributes.energy = (after.player.attributes.energy ?? 0) + 2;
     after.player.statuses = [...after.player.statuses, { statusId: entry.template.statuses[0]!.id, stacks: 2, sinceTurn: 0 }];
     after.player.inventory["item-first-aid"] = 1;
     const gains = diffGains(before, after, entry.lookup);
@@ -225,7 +225,7 @@ void _typecheck;
 describe("开局所得（ADR-002 D4 的开局版本）", () => {
   it("每步与 commit 用同一份 collectOpeningGains：技能/物品/状态/属性都出现", async () => {
     const { loadTemplates } = await import("../../apps/server/src/templates.ts");
-    const { createOpeningSession, resolveStep, collectOpeningGains } = await import(
+    const { createOpeningSession, resolveStep, collectOpeningGains, describeNode } = await import(
       "../../packages/game-core/src/v2/opening-dag.ts"
     );
     const entry = loadTemplates({ warn: () => {}, error: () => {}, info: () => {} }).resolve({
@@ -234,7 +234,8 @@ describe("开局所得（ADR-002 D4 的开局版本）", () => {
     });
     if (entry?.status !== "ready" || entry.openingDag === undefined) throw new Error("not ready");
 
-    let session = createOpeningSession(entry.openingDag, 4242);
+    const walk = (seed: number) => {
+    let session = createOpeningSession(entry.openingDag, seed);
     for (let guard = 0; !session.done && guard < 40; guard += 1) {
       const node = entry.openingDag.nodes.find((n) => n.node === session.nodeId);
       if (node === undefined) break;
@@ -242,9 +243,12 @@ describe("开局所得（ADR-002 D4 的开局版本）", () => {
         session = resolveStep(entry.openingDag, session, { kind: "roll" }).session;
         continue;
       }
+      if (node.mode === "input") {
+        session = resolveStep(entry.openingDag, session, { kind: "input", value: "测试名字" }).session;
+        continue;
+      }
       if (node.mode === "allocate") {
         // ADR-004：这条用例只关心「各类条目都出现」，加点按第一项吃满走个过场。
-        const { describeNode } = await import("../../packages/game-core/src/v2/opening-dag.ts");
         const view = describeNode(entry.openingDag, session, { template: entry.template });
         const allocation: Record<string, number> = {};
         let left = view?.allocation?.budget ?? 0;
@@ -262,7 +266,21 @@ describe("开局所得（ADR-002 D4 的开局版本）", () => {
       }).session;
     }
 
-    const gains = collectOpeningGains(entry.openingDag, session, entry.template, entry.ui);
+      return session;
+    };
+
+    // 池子的落点随 seed 变（2026-11-23 术式池拆成三格后，4242 不再落到带状态的格子）。
+    // 这条用例只关心「各类条目能同时出现」，所以扫几个 seed 找一个齐全的。
+    let gains: ReturnType<typeof collectOpeningGains> = [];
+    for (let seed = 4242; seed <= 4262; seed += 1) {
+      const candidate = collectOpeningGains(entry.openingDag, walk(seed), entry.template, entry.ui);
+      const seen = new Set(candidate.map((g) => g.category));
+      if (seen.has("status") && seen.has("skill")) {
+        gains = candidate;
+        break;
+      }
+    }
+    expect(gains.length).toBeGreaterThan(0);
     const categories = new Set(gains.map((g) => g.category));
     expect(categories.has("status")).toBe(true);
     expect(categories.has("skill")).toBe(true);

@@ -60,9 +60,9 @@ describe("rule.lexicon：先目录，再按节取", () => {
     ]);
     // 属性：id + 显示名 + 当前值（模板 labels 是唯一来源）
     const ce = (effects.attributes as Array<{ id: string; label: string; value: unknown }>).find(
-      (a) => a.id === "cursedEnergy",
+      (a) => a.id === "cursedEnergyTotal",
     );
-    expect(ce?.label).toBe("咒力");
+    expect(ce?.label).toBe("咒力总量");
     expect(typeof ce?.value).toBe("number");
     // 资源：hp / mp 至少在
     const ids = (effects.resources as Array<{ id: string }>).map((r) => r.id);

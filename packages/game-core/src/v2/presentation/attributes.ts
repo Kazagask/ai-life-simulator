@@ -23,6 +23,18 @@ import { ladderTierState } from "../attribute-rules.js";
  * 前端只消费 `AttributeView`，不查模板、不认识 `kind` 之外的语义。
  */
 
+/**
+ * 内核视图的数值口径（2026-11-23）：整数原样，非整数保留**两位**小数。
+ *
+ * 派生属性是浮点运算的产物（`效率 × -0.6` 会给出 -52.199999999），
+ * 直接把 IEEE 结果印到面板上是把实现细节漏给玩家。UI 不再自己修数——
+ * 「显示什么」由内核视图决定，前端只排版。
+ */
+export function roundAttribute(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Number.isInteger(value) ? value : Math.round(value * 100) / 100;
+}
+
 function labelOf(template: WorldTemplateV2, id: string): string {
   return template.attributes.labels?.[id] ?? id;
 }
@@ -68,7 +80,7 @@ function displayOf(
     const state = ladderTierState(def, value, tiers?.[id], template.attributes.caps?.[id]);
     return { display: state.label, style: styleOf(state.style, ui) };
   }
-  const value = numericAttr(raw[id]);
+  const value = roundAttribute(numericAttr(raw[id]));
   return { display: String(value) };
 }
 
@@ -134,7 +146,7 @@ export function resolveAttributeView(
   }
 
   if (def?.kind === "ladder") {
-    const value = numericAttr(raw[id]);
+    const value = roundAttribute(numericAttr(raw[id]));
     const state = ladderTierState(def, value, tiers?.[id], template.attributes.caps?.[id]);
     const style = styleOf(state.style, ui);
     return {
@@ -150,7 +162,7 @@ export function resolveAttributeView(
         ...(style !== undefined ? { style } : {}),
       },
       ...(state.progressMax !== undefined
-        ? { progress: { value: state.progressValue, max: state.progressMax } }
+        ? { progress: { value: roundAttribute(state.progressValue), max: state.progressMax } }
         : {}),
     };
   }
@@ -170,7 +182,7 @@ export function resolveAttributeView(
     };
   }
 
-  const value = numericAttr(raw[id]);
+  const value = roundAttribute(numericAttr(raw[id]));
   return { id, label, kind: "number", value, display: String(value) };
 }
 

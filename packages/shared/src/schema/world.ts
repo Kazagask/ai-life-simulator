@@ -19,6 +19,8 @@ import { NpcActionSchema } from "./npc-action.js";
 import { ChainSchema, EventV2Schema } from "./event.js";
 import { EquipmentConfigSchema, checkDynamicModifierSpec, type EquipmentSlot } from "./equipment.js";
 import { CombatAiConfigSchema } from "./combat-ai.js";
+import { BattleHookSchema, CritSpecSchema } from "./battle-hooks.js";
+import { CombatEvaluationSchema, DeathRouteSchema, StakeSchema } from "./battle-evaluation.js";
 
 /**
  * WorldTemplateV2 顶层聚合 Schema。
@@ -207,7 +209,7 @@ export const ScheduledFactSchema = z
     /**
      * **玩家可见**的一句话（2026-11-19 用户裁决）。
      *
-     * 世界事实不经过玩家，所以它天然没有「本轮收获」——五条悟 2007 年学会赫，
+     * 世界事实不经过玩家，所以它天然没有「本轮收获」——某个角色在后续年份学会新技能，
      * 玩家那回合可能只是在修炼。但「你看不到」不等于「不该告诉你」：这条消息写进
      * 编年史（`history` 的 `world` 类），读起来就是「远方传来的事」。
      *
@@ -234,7 +236,7 @@ export const WorldTemplateV2Schema = z
         /**
          * 隐藏模板（2026-11-20）：不在 `GET /api/templates` 里出现，但**仍可用 id 建局**。
          *
-         * 用途是测试田与半成品（瓦勒蒙就是这样）：玩家不该在选模板时看到它，
+         * 用途是测试田与半成品：玩家不该在选模板时看到它，
          * 但作者要能用 curl / 脚本起一个局。做成模板字段而不是服务端开关，
          * 是因为「哪个模板是测试田」属于模板自己的性质，不该由部署环境决定。
          *
@@ -338,6 +340,28 @@ export const WorldTemplateV2Schema = z
       })
       .strict()
       .optional(),
+    /**
+     * 战斗的**世界级**规则（ADR-073）。缺省 = 没有暴击、没有钩子 ——
+     * 引擎不写死任何数值，旧模板零迁移。
+     */
+    combat: z
+      .object({
+        /** 全局暴击默认值（与状态/技能的 `crit` 同形累加）。 */
+        crit: CritSpecSchema.optional(),
+        /** 世界规则的钩子：对**所有**战斗生效（这是世界现象，不是某个人的特质）。 */
+        hooks: z.array(BattleHookSchema).optional(),
+        /**
+         * 战败赌注（ADR-075 §1）。内置 `spar / hard / deaths`；模板按 key 覆盖，
+         * `defaultStake` 决定没写 `stake` 的战斗按哪一档算。
+         */
+        stakes: z.record(z.string().min(1), StakeSchema).optional(),
+        /** 缺省 `deaths`（ADR-075 用户裁决：默认硬核）。 */
+        defaultStake: z.string().min(1).optional(),
+        /** 战评（ADR-075 §2）；缺省 = 没有评价与钩子。 */
+        evaluation: CombatEvaluationSchema.optional(),
+      })
+      .strict()
+      .optional(),
     regen: z
       .object({
         perTurn: RegenAmountsSchema,
@@ -387,6 +411,11 @@ export const WorldTemplateV2Schema = z
      * 可选 ⇒ 旧模板零改动可载（无 `scheduledFacts` = 世界没有自主时间表）。
      */
     scheduledFacts: z.array(ScheduledFactSchema).optional(),
+    /**
+     * 死亡路由（ADR-075 §5）：**死亡结局的唯一权威**。声明顺序即优先序，首个命中；
+     * 必须有 `when: []` 兜底。`endings.triggerConditions` 不参与死亡选择。
+     */
+    deathRoutes: z.array(DeathRouteSchema).optional(),
     /**
      * 事件流阈值（ADR-0034 §3-6 / §8-⑨）：控制主循环 pool 抽取的触发条件。
      * 全部**可选 + 默认值** ⇒ 既有模板零改动即可跑（默认 `skipWhenSlotOccupied: true`、
@@ -448,6 +477,28 @@ export const WorldTemplateV2Schema = z
       const def = defs[id];
       return def?.kind === "enum" ? new Set(def.values.map((v) => v.id)) : undefined;
     };
+    /**
+     * 派生属性（ADR-074）：只读、按依赖顺序现算、不落存档。
+     *
+     * 加载期做三件事，缺一不可：
+     * 1. 依赖必须存在且是数值属性（写 enum 会算出 NaN）；
+     * 2. **拒绝循环依赖**（a←b←a）—— 运行期没有「先算谁」的答案；
+     * 3. 派生属性不能出现在任何**写点**（defaults / 角色 / 开局 / setAttribute / adjustAttribute）。
+     */
+    interface DerivedSpecLocal {
+      base?: number;
+      from: { attribute: string; perPoint: number }[];
+      min?: number;
+      max?: number;
+    }
+    const derivedSpecs = new Map<string, DerivedSpecLocal>();
+    for (const [id, def] of Object.entries(defs)) {
+      if (def.kind === "number" && def.derived !== undefined) {
+        derivedSpecs.set(id, def.derived);
+      }
+    }
+    const derivedIds = new Set(derivedSpecs.keys());
+    const isWritableAttr = (id: string): boolean => attributeIds.has(id) && !derivedIds.has(id);
     const resourceIds = new Set(Object.keys(w.resources));
     // ADR-012 D9：角色声明的专属池也算「已知资源」—— 召唤弹药与旋涡引用的就是它。
     // 但它**不进** `w.resources`，所以不会变成人人都有的一条槽。
@@ -456,6 +507,148 @@ export const WorldTemplateV2Schema = z
     /** ADR-018：施加点与状态的 kind 必须属于同一个域，判据只有这一张表。 */
     const statusKindById = new Map(w.statuses.map((s) => [s.id, s.kind] as const));
     const isBattleStatus = (id: string): boolean => statusKindById.get(id) === "battle";
+    const add = (path: (string | number)[], message: string) =>
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path, message });
+    /**
+     * 战斗钩子的引用完整性（ADR-073）。三处挂载点（世界 / 状态 / 技能）同一套判定：
+     * - `applyStatus` 只能指向已声明的 `kind: battle`（和技能施加点同一条纪律）；
+     * - `chance.attribute` 必须是已声明的**数值**属性（写 enum 会算出一个 NaN 概率）；
+     * - 同一来源内 id 唯一（同名钩子挂两处是合法的，同数组里重复是笔误）。
+     */
+    const checkHooks = (
+      hooks: readonly { id: string; when?: readonly unknown[]; effects: readonly unknown[] }[] | undefined,
+      path: (string | number)[],
+    ): void => {
+      const seen = new Set<string>();
+      (hooks ?? []).forEach((hook, i) => {
+        const p = [...path, i];
+        if (seen.has(hook.id)) add([...p, "id"], `重复的 hook id：${hook.id}`);
+        seen.add(hook.id);
+        (hook.when ?? []).forEach((cond, j) => {
+          const chance = (cond as { chance?: unknown }).chance;
+          if (chance === null || typeof chance !== "object") return;
+          const attr = (chance as { attribute?: unknown }).attribute;
+          if (typeof attr !== "string") return;
+          if (!attributeIds.has(attr)) add([...p, "when", j, "chance", "attribute"], `未知属性：${attr}`);
+          else if (!isNumericAttr(attr)) {
+            add([...p, "when", j, "chance", "attribute"], `概率只接受数值属性：${attr}（${kindOf(attr)}）`);
+          }
+        });
+        (hook.effects ?? []).forEach((raw, j) => {
+          const eff = raw as { type?: string; status?: unknown };
+          if (eff.type === "applyStatus") {
+            const id = eff.status;
+            if (typeof id !== "string") return;
+            if (!statusIds.has(id)) add([...p, "effects", j, "status"], `未知状态：${id}`);
+            else if (!isBattleStatus(id)) {
+              add([...p, "effects", j, "status"], `钩子只能施加 kind: battle（${id} 不是）`);
+            }
+          }
+          if (eff.type === "cureStatus" && typeof eff.status === "string" && !statusIds.has(eff.status)) {
+            add([...p, "effects", j, "status"], `未知状态：${eff.status}`);
+          }
+        });
+      });
+    };
+    checkHooks(w.combat?.hooks, ["combat", "hooks"]);
+    /**
+     * Stake（ADR-075 §1）。内置三档由引擎提供，模板可按 key 覆盖；
+     * `defaultStake` 与每场战斗的 `stake` 都必须解析得到。
+     */
+    const BUILTIN_STAKES = ["spar", "hard", "deaths"] as const;
+    const stakeIds = new Set<string>([...BUILTIN_STAKES, ...Object.keys(w.combat?.stakes ?? {})]);
+    const defaultStake = w.combat?.defaultStake ?? "deaths";
+    if (!stakeIds.has(defaultStake)) {
+      add(["combat", "defaultStake"], `defaultStake 指向未声明的 stake：${defaultStake}`);
+    }
+    for (const [id, stake] of Object.entries(w.combat?.stakes ?? {})) {
+      if (stake.defeatState !== "dead" || stake.hpOnDefeat === undefined) continue;
+      if (stake.hpOnDefeat.mode !== "set" || stake.hpOnDefeat.value !== 0) {
+        add(
+          ["combat", "stakes", id, "hpOnDefeat"],
+          `defeatState: dead 的战败落点必须是 { mode: set, value: 0 }（hp 0 是死亡信号）`,
+        );
+      }
+    }
+    w.events.forEach((e, i) => {
+      if (e.kind !== "combat") return;
+      const stake = e.settle.combat.stake;
+      if (stake !== undefined && !stakeIds.has(stake)) {
+        add(["events", i, "settle", "combat", "stake"], `未知 stake：${stake}`);
+      }
+    });
+    /**
+     * 死亡路由（ADR-075 §5）：id 唯一、必须有兜底、兜底之后不得再有路由；
+     * 事件目标只能是 `kind: normal`（转盘/战斗都无法在 hp 0 上收敛）。
+     * `endingId` 的引用在 `template-loader` 里跨文件校验（endings.yaml 不在本 schema）。
+     */
+    const deathRoutes = w.deathRoutes ?? [];
+    const routeIds = new Set<string>();
+    let fallbackAt = -1;
+    deathRoutes.forEach((route, i) => {
+      if (routeIds.has(route.id)) add(["deathRoutes", i, "id"], `重复的死亡路由 id：${route.id}`);
+      routeIds.add(route.id);
+      if (route.when.length === 0) fallbackAt = i;
+      const action = route.then;
+      if (action.kind === "event") {
+        const event = w.events.find((e) => e.id === action.eventId);
+        if (event === undefined) add(["deathRoutes", i, "then", "eventId"], `未知事件：${action.eventId}`);
+        else if (event.kind !== "normal") {
+          add(["deathRoutes", i, "then", "eventId"], `死亡事件只能是 kind: normal（${event.id} 是 ${event.kind}）`);
+        }
+      }
+    });
+    if (deathRoutes.length > 0) {
+      if (fallbackAt < 0) add(["deathRoutes"], "死亡路由必须有一条 when: [] 兜底");
+      else if (fallbackAt !== deathRoutes.length - 1) {
+        add(["deathRoutes", fallbackAt], "兜底路由之后不得再有路由（永远不会命中）");
+      }
+    }
+    /**
+     * 战斗力权重（ADR-075 §4.3）：只接受**基础、非 signed、非 hidden 的数值属性**。
+     * 派生键会与它的基属性重复计入；signed 键（mpCostRate）是负值，会把战力倒扣。
+     */
+    for (const key of Object.keys(w.combat?.evaluation?.power?.weights ?? {})) {
+      const p = ["combat", "evaluation", "power", "weights", key];
+      if (!attributeIds.has(key)) add(p, `未知属性：${key}`);
+      else if (derivedIds.has(key)) add(p, `战斗力权重不能引用派生属性：${key}`);
+      else if (!isNumericAttr(key)) add(p, `战斗力只接受数值属性：${key}（${kindOf(key)}）`);
+      else if (defs[key]?.hidden === true) add(p, `战斗力权重不能引用隐藏属性：${key}`);
+      else if (defs[key]?.kind === "number" && defs[key].signed === true) {
+        add(p, `战斗力权重不能引用 signed 属性：${key}（负值会倒扣战力）`);
+      }
+    }
+    /**
+     * 战评（ADR-075 §2）：grade id 唯一、`when` 非空、不得自引用 grade；
+     * hook id 全模板唯一；事件引用的 set 必须存在。
+     */
+    const evaluation = w.combat?.evaluation;
+    const gradeIds = new Set<string>();
+    evaluation?.grades?.forEach((grade, i) => {
+      if (gradeIds.has(grade.id)) add(["combat", "evaluation", "grades", i, "id"], `重复的 grade id：${grade.id}`);
+      gradeIds.add(grade.id);
+      if (grade.when.length === 0) add(["combat", "evaluation", "grades", i, "when"], "grade 的 when 不能为空");
+      if (grade.when.some((cond) => "grade" in cond)) {
+        add(["combat", "evaluation", "grades", i, "when"], "grade 条件不能引用 grade（自己读自己）");
+      }
+    });
+    const evalHookIds = new Set<string>();
+    const checkEvalHookId = (hook: { id: string }, p: (string | number)[]): void => {
+      if (evalHookIds.has(hook.id)) add([...p, "id"], `重复的战评 hook id：${hook.id}`);
+      evalHookIds.add(hook.id);
+    };
+    evaluation?.hooks?.forEach((hook, i) => checkEvalHookId(hook, ["combat", "evaluation", "hooks", i]));
+    for (const [setId, hooks] of Object.entries(evaluation?.sets ?? {})) {
+      hooks.forEach((hook, i) => checkEvalHookId(hook, ["combat", "evaluation", "sets", setId, i]));
+    }
+    w.events.forEach((event, i) => {
+      if (event.kind !== "combat") return;
+      event.settle.combat.evaluation?.forEach((setId, j) => {
+        if (evaluation?.sets?.[setId] === undefined) {
+          add(["events", i, "settle", "combat", "evaluation", j], `未知战评组：${setId}`);
+        }
+      });
+    });
     const isWorldStatus = (id: string): boolean => {
       const kind = statusKindById.get(id);
       return kind === "talent" || kind === "modifier";
@@ -466,10 +659,49 @@ export const WorldTemplateV2Schema = z
     const eventIds = new Set(w.events.map((e) => e.id));
     const chainIds = new Set((w.chains ?? []).map((c) => c.id));
 
-    const add = (path: (string | number)[], message: string) =>
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path, message });
+    for (const [id, spec] of derivedSpecs) {
+      if (!attributeIds.has(id)) add(["attributes", "defs", id], `派生属性不在 attributes.order 中：${id}`);
+      const seenDeps = new Set<string>();
+      spec.from.forEach((dep, j) => {
+        const p = ["attributes", "defs", id, "derived", "from", j, "attribute"];
+        if (dep.attribute === id) add(p, `派生属性不能依赖自己：${id}`);
+        else if (!attributeIds.has(dep.attribute)) add(p, `未知属性：${dep.attribute}`);
+        else if (!isNumericAttr(dep.attribute)) add(p, `派生属性只能依赖数值属性：${dep.attribute}（${kindOf(dep.attribute)}）`);
+        if (seenDeps.has(dep.attribute)) add(p, `重复的依赖项：${dep.attribute}`);
+        seenDeps.add(dep.attribute);
+      });
+    }
+    {
+      const mark = new Map<string, 1 | 2>();
+      const path: string[] = [];
+      const visit = (id: string): void => {
+        const state = mark.get(id);
+        if (state === 2) return;
+        if (state === 1) {
+          add(["attributes", "defs", id, "derived"], `派生属性存在循环依赖：${[...path, id].join(" → ")}`);
+          return;
+        }
+        mark.set(id, 1);
+        path.push(id);
+        for (const dep of derivedSpecs.get(id)?.from ?? []) {
+          if (derivedSpecs.has(dep.attribute)) visit(dep.attribute);
+        }
+        path.pop();
+        mark.set(id, 2);
+      };
+      for (const id of derivedSpecs.keys()) visit(id);
+    }
+
 
     // ---- ADR-003：属性类型声明 ----
+    /** 角色唯一（ADR-074）：两个属性都声明 `role: critRate`，引擎该读谁没有答案。 */
+    const roleOwner = new Map<string, string>();
+    for (const [id, def] of Object.entries(defs)) {
+      if (def.kind !== "number" || def.role === undefined) continue;
+      const prev = roleOwner.get(def.role);
+      if (prev !== undefined) add(["attributes", "defs", id, "role"], `角色 ${def.role} 已被 ${prev} 占用`);
+      else roleOwner.set(def.role, id);
+    }
     Object.entries(defs).forEach(([id, def]) => {
       if (!attributeIds.has(id)) {
         add(["attributes", "defs", id], `未知属性：${id}（未在 attributes.order 中声明）`);
@@ -526,6 +758,10 @@ export const WorldTemplateV2Schema = z
           add([...path, attr], `未知属性：${attr}（未在 attributes.order 中声明）`);
           return;
         }
+        if (derivedIds.has(attr)) {
+          add([...path, attr], `派生属性只读：${attr} 由公式计算，不能直接赋值`);
+          return;
+        }
         checkAttributeValue(attr, v, [...path, attr]);
       });
     };
@@ -562,6 +798,25 @@ export const WorldTemplateV2Schema = z
        */
       Object.keys(st.combat?.costMultiplier ?? {}).forEach((key) => {
         if (!resourceIds.has(key)) add(["statuses", i, "combat", "costMultiplier"], `未知资源：${key}`);
+      });
+      checkHooks(st.combat?.hooks, ["statuses", i, "combat", "hooks"]);
+      /**
+       * 属性转化（ADR-074）：源与目标都要是已声明的数值属性，且都不能是派生属性 ——
+       * 派生属性不落存档、按公式现算，把「搬走一个现算值」写进状态只会让顺序变得不可推理。
+       */
+      (st.conversion ?? []).forEach((conv, j) => {
+        const p = ["statuses", i, "conversion", j];
+        if (!attributeIds.has(conv.from)) add([...p, "from"], `未知属性：${conv.from}`);
+        else if (derivedIds.has(conv.from)) add([...p, "from"], `派生属性不能被转化：${conv.from}`);
+        else if (!isNumericAttr(conv.from)) {
+          add([...p, "from"], `属性转化只接受数值属性：${conv.from}（${kindOf(conv.from)}）`);
+        }
+        for (const to of Object.keys(conv.to)) {
+          if (!attributeIds.has(to)) add([...p, "to", to], `未知属性：${to}`);
+          else if (derivedIds.has(to)) add([...p, "to", to], `派生属性不能被转化：${to}`);
+          else if (!isNumericAttr(to)) add([...p, "to", to], `属性转化只接受数值属性：${to}（${kindOf(to)}）`);
+          else if (to === conv.from) add([...p, "to", to], `转化目标不能是源属性本身：${to}`);
+        }
       });
       /**
        * 战后折算只能指向 `modifier`（ADR-018 D4）：折算的意义就是「变成世界状态」，
@@ -666,19 +921,26 @@ export const WorldTemplateV2Schema = z
         add([...p, "duration"], "kind: modifier 必须写 duration");
       }
     };
-    const checkEffectRefs = (effects: readonly unknown[] | undefined, path: (string | number)[]): void => {
+    const checkEffectRefs = (
+      effects: readonly unknown[] | undefined,
+      path: (string | number)[],
+      opts: { allowTalentMetric?: boolean } = {},
+    ): void => {
       (effects ?? []).forEach((eff, j) => {
         if (!isCoreEffect(eff)) return;
         const p = [...path, j];
         checkStatusRef(eff, p);
         if (eff.type === "adjustAttribute") {
           if (!attributeIds.has(eff.attribute)) add(p, `未知属性：${eff.attribute}`);
-          else if (!isNumericAttr(eff.attribute)) {
+          else if (derivedIds.has(eff.attribute)) {
+            add(p, `派生属性只读：${eff.attribute}（要改它就去改它的依赖，或写 attributeModifiers）`);
+          } else if (!isNumericAttr(eff.attribute)) {
             add(p, `adjustAttribute 只接受数值属性：${eff.attribute}（${kindOf(eff.attribute)}）`);
           }
         }
         if (eff.type === "setAttribute") {
           if (!attributeIds.has(eff.attribute)) add(p, `未知属性：${eff.attribute}`);
+          else if (derivedIds.has(eff.attribute)) add(p, `派生属性只读：${eff.attribute}`);
           else checkAttributeValue(eff.attribute, eff.value, p);
         }
         if (eff.type === "adjustResource" && !resourceIds.has(eff.resource)) {
@@ -687,10 +949,20 @@ export const WorldTemplateV2Schema = z
         if (eff.type === "grantAllocation") {
           eff.targets.forEach((t, k) => {
             if (!attributeIds.has(t.attribute)) add([...p, "targets", k], `未知属性：${t.attribute}`);
+            else if (derivedIds.has(t.attribute)) add([...p, "targets", k], `派生属性只读：${t.attribute}`);
             else if (!isNumericAttr(t.attribute)) {
               add([...p, "targets", k], `加点只接受数值属性：${t.attribute}（${kindOf(t.attribute)}）`);
             }
           });
+        }
+        if (eff.type === "advanceTalent") {
+          if (!statusIds.has(eff.talent)) add([...p, "talent"], `未知天赋：${eff.talent}`);
+          else if (statusKindById.get(eff.talent) !== "talent") {
+            add([...p, "talent"], `advanceTalent 只能指向 kind: talent（${eff.talent} 不是）`);
+          }
+          if (typeof eff.amount !== "number" && opts.allowTalentMetric !== true) {
+            add([...p, "amount"], "世界效果里 advanceTalent.amount 必须是数字（metric 只允许战评 hooks）");
+          }
         }
         if (eff.type === "observeActor" && eff.actorId !== null && eff.actorId !== "__self__") {
           if (eff.actorId !== PLAYER_ID && !characterIds.has(eff.actorId)) {
@@ -732,6 +1004,22 @@ export const WorldTemplateV2Schema = z
     };
     w.actions?.forEach((action, i) => checkEffectRefs(action.effects, ["actions", i, "effects"]));
     w.items.forEach((item, i) => checkEffectRefs(item.use, ["items", i, "use"]));
+    // 成长阶梯的 `grant` 也是世界效果：同样过一遍引用完整性（ADR-075 §7）。
+    w.statuses.forEach((st, i) => {
+      st.tiers?.forEach((tier, j) => {
+        checkEffectRefs(tier.effects.grant, ["statuses", i, "tiers", j, "effects", "grant"]);
+      });
+    });
+    // 战评 hooks 允许 metric 形态的 advanceTalent（它们有战果上下文）。
+    const checkEvalEffects = (hooks: readonly { effects: readonly unknown[] }[] | undefined, path: (string | number)[]): void => {
+      (hooks ?? []).forEach((hook, i) => {
+        checkEffectRefs(hook.effects, [...path, i, "effects"], { allowTalentMetric: true });
+      });
+    };
+    checkEvalEffects(w.combat?.evaluation?.hooks, ["combat", "evaluation", "hooks"]);
+    for (const [setId, hooks] of Object.entries(w.combat?.evaluation?.sets ?? {})) {
+      checkEvalEffects(hooks, ["combat", "evaluation", "sets", setId]);
+    }
 
     // ---- ADR-003：条件里的属性引用与类型约束 ----
     const checkConditionRefs = (conditions: readonly unknown[] | undefined, path: (string | number)[]): void => {
@@ -908,6 +1196,7 @@ export const WorldTemplateV2Schema = z
         if (s.consumeStatus && !statusIds.has(s.consumeStatus.status)) {
           add(["skills", i, "consumeStatus"], `未知状态：${s.consumeStatus.status}`);
         }
+        checkHooks(s.hooks, ["skills", i, "hooks"]);
         const formulas = [...(s.damage ?? []), ...(s.heal ?? [])];
         formulas.forEach((f, j) => {
           if (f.preset === "stack-scaled" && !statusIds.has(f.status)) {
@@ -950,7 +1239,7 @@ export const WorldTemplateV2Schema = z
          * ADR-010 D6：技能可以在**运行时**增长（`scheduledFacts` + `unlockSkill` 的 `who`），
          * 所以判据从「此刻持有」放宽到「模板里确有这个技能」。
          *
-         * 否则「给五条悟写赫的出招权重」会变成加载错误 —— 成长机制与校验规则自相矛盾。
+         * 否则「给某个角色写尚未解锁技能的出招权重」会变成加载错误 —— 成长机制与校验规则自相矛盾。
          * 拼写错误仍然抓得住（`skillIds` 里没有就报）。
          */
         if (!skillIds.has(sk)) {

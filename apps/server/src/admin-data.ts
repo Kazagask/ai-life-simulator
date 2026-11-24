@@ -92,6 +92,8 @@ export interface AdminOrchestration {
    */
   openingParams: Array<{ param: string; writers: Array<{ node: string; option: string }> }>;
   endings: unknown[];
+  /** 死亡路由（ADR-075 §5）：`when` 里的旗标也是「通向结局」的读取点。 */
+  deathRoutes: unknown[];
   termination: unknown[];
   chains: unknown[];
   stats: {
@@ -240,7 +242,66 @@ export function openingParamOverwrites(
   dag: OpeningBranchDag | undefined,
 ): Array<{ param: string; writers: Array<{ node: string; option: string }> }> {
   if (!dag) return [];
-  type Write = { node: string; nodeIndex: number; option: string; reach: Set<string> };
+  /**
+   * 一条写入「在什么条件下才会发生」：`param ∈ {值…}`。
+   *
+   * 两个来源分开存，**不能混**：
+   * - `guards`：节点的 `when`（ADR-072 D3 的节点前置）—— 是**守卫**，不满足就整格跳过；
+   * - `facts`：选项 `set` 里的字符串 flag 写入 —— 是**效果**，它会改掉参数的值。
+   *
+   * 互斥只在「守卫 vs 事实 / 守卫 vs 守卫」之间成立：同一个参数上守卫与别人的效果
+   * 没有交集 ⇒ 这一格根本不会在那种情况下跑。**事实 vs 事实不算互斥** ——
+   * 同一路径上先后写同一个 flag 的两个不同值，正是要报出来的覆盖。
+   *
+   * 2026-11-23 补：以前只看结构可达性，于是「御三家才跑的那一格」会被算成与平民的写入
+   * 冲突（`heritage` / `surname` 各报一条假 warn）。
+   */
+  type Constraint = Map<string, Set<string>>;
+  const addConstraint = (map: Constraint, param: string, values: Iterable<string>): void => {
+    const set = map.get(param) ?? new Set<string>();
+    for (const value of values) set.add(value);
+    map.set(param, set);
+  };
+  const guardsOf = (node: OpeningBranchDag["nodes"][number]): Constraint => {
+    const map: Constraint = new Map();
+    for (const cond of node.when ?? []) addConstraint(map, cond.param, cond.in);
+    return map;
+  };
+  const factsOf = (option: { set?: Record<string, unknown> }): Constraint => {
+    const map: Constraint = new Map();
+    for (const [param, raw] of Object.entries(option.set ?? {})) {
+      const value =
+        raw !== null && typeof raw === "object" && !Array.isArray(raw)
+          ? (raw as { value?: unknown }).value
+          : raw;
+      if (typeof value === "string") addConstraint(map, param, [value]);
+    }
+    return map;
+  };
+  const contradicts = (a: Constraint, b: Constraint): boolean => {
+    for (const [param, values] of a) {
+      const other = b.get(param);
+      if (other === undefined) continue;
+      let overlap = false;
+      for (const value of values) {
+        if (other.has(value)) {
+          overlap = true;
+          break;
+        }
+      }
+      if (!overlap) return true;
+    }
+    return false;
+  };
+
+  type Write = {
+    node: string;
+    nodeIndex: number;
+    option: string;
+    reach: Set<string>;
+    guards: Constraint;
+    facts: Constraint;
+  };
   const byParam = new Map<string, Write[]>();
   dag.nodes.forEach((node, nodeIndex) => {
     (node.options ?? []).forEach((option, optionIndex) => {
@@ -251,6 +312,8 @@ export function openingParamOverwrites(
           nodeIndex,
           option: option.id,
           reach: reachableFromOption(dag, nodeIndex, optionIndex),
+          guards: guardsOf(node),
+          facts: factsOf(option),
         });
         byParam.set(param, list);
       }
@@ -267,6 +330,14 @@ export function openingParamOverwrites(
         // 同一个节点：roll/choose 一次只落一个选项，两个选项不可能同时生效。
         if (a.nodeIndex === b.nodeIndex) continue;
         if (!a.reach.has(b.node) && !b.reach.has(a.node)) continue;
+        // 条件互斥（节点前置 vs 前置 / 前置 vs 写下的字符串旗标）⇒ 也不会同时生效。
+        if (
+          contradicts(a.guards, b.guards) ||
+          contradicts(a.guards, b.facts) ||
+          contradicts(b.guards, a.facts)
+        ) {
+          continue;
+        }
         conflicting.add(a);
         conflicting.add(b);
       }
@@ -436,6 +507,16 @@ export function buildOrchestration(entry: ReadyTemplateEntry): AdminOrchestratio
       ensureFlag(flag).readers.push({ flag, where: "termination", ref });
     }
   }
+  /**
+   * 死亡路由（ADR-075 §5）：`world.deathRoutes[].when` 里的 flag 也会决定结局。
+   * 线路图必须把它算成「通向结局」的读取点，否则挡枪那条线会被画成断头路。
+   */
+  for (const route of tpl.deathRoutes ?? []) {
+    if (route.then.kind !== "ending") continue;
+    for (const flag of flagsReadInConditions(route.when)) {
+      ensureFlag(flag).readers.push({ flag, where: "ending", ref: route.then.endingId });
+    }
+  }
 
   const eventIds = new Set(tpl.events.map((e) => e.id));
   const danglingEdges = edges.filter((e) => !eventIds.has(e.to));
@@ -501,6 +582,7 @@ export function buildOrchestration(entry: ReadyTemplateEntry): AdminOrchestratio
       .sort((a, b) => a.id.localeCompare(b.id)),
     openingParams: openingParamOverwrites(entry.openingDag),
     endings,
+    deathRoutes: (tpl.deathRoutes ?? []) as unknown[],
     termination,
     chains: (tpl.chains ?? []) as unknown[],
     stats: {
@@ -594,6 +676,12 @@ export function terminationFlagsOf(orch: AdminOrchestration): Set<string> {
     const cond = raw as Record<string, unknown>;
     const params = (cond.params ?? {}) as Record<string, unknown>;
     for (const flag of flagsReadInConditions(params.conditions)) out.add(flag);
+  }
+  for (const raw of orch.deathRoutes ?? []) {
+    const route = raw as Record<string, unknown>;
+    const then = route.then as Record<string, unknown> | undefined;
+    if (then?.kind !== "ending") continue;
+    for (const flag of flagsReadInConditions(route.when)) out.add(flag);
   }
   return out;
 }

@@ -10,7 +10,7 @@ dimensions:
     ranges: [-50, 100]
     explainRules:
       - 咒力、体术、智力的提升计入成长。
-      - 解锁高阶技能（黑闪、领域、反转精通）额外加分。
+      - 解锁高阶能力（领域展开、反转术式的精通）额外加分。
   - id: bonds
     label: 羁绊
     weight: 1.0

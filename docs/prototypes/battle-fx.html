@@ -1,0 +1,1654 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>战斗表现层 · 四段分层原型 v4（ADR-076）</title>
+<style>
+  :root {
+    --bg: #0b0e14; --bg-card: #141926; --bg-card-2: #1a2133; --border: #26304a;
+    --text: #e8ecf4; --muted: #8b94ab;
+    --dmg: #ff6b7f; --heal: #58e3a7; --buff: #7ec6ff; --debuff: #b387ff;
+    --miss: #a0a8b8; --immune: #e6c97a;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: #070910; color: var(--text);
+    font-family: "PingFang SC", "HarmonyOS Sans SC", "Microsoft YaHei", system-ui, sans-serif; }
+  body { padding: 24px 20px 70px; }
+  .page { display: flex; gap: 26px; align-items: flex-start; justify-content: center; flex-wrap: wrap; }
+  .brief { max-width: 288px; }
+  .brief h1 { font-size: 17px; margin: 0 0 6px; }
+  .brief p { font-size: 12px; line-height: 1.7; color: var(--muted); margin: 0 0 10px; }
+  .brief b { color: #cfd7ea; }
+
+  .phone { width: 420px; flex: 0 0 auto; background: var(--bg); border: 1px solid #1c2436;
+    border-radius: 26px; overflow: hidden; box-shadow: 0 30px 80px rgba(0,0,0,.6); }
+  .topbar { display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; font-size: 12px; color: var(--muted); border-bottom: 1px solid #161d2c; }
+  .topbar b { color: var(--text); font-weight: 600; font-size: 13px; }
+
+  .battle-body { position: relative; padding: 14px 14px 18px; }
+  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .row h3 { font-size: 13px; margin: 0; font-weight: 600; }
+  .tag { font-size: 10px; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border); }
+  .tag.crit { color: #ffd479; border-color: rgba(255,212,121,.45); background: rgba(255,212,121,.1); }
+  .tag.round { color: var(--muted); font-family: inherit; background: none; cursor: pointer; }
+  #hintTag { margin-left: auto; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #resetBtn { margin-left: 6px; padding: 2px 6px; }
+
+  .actor-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 0 0 10px;
+    padding: 3px; background: #0e1320; border: 1px solid #1e2740; border-radius: 10px; }
+  .actor-switch button { appearance: none; border: 0; background: none; color: var(--muted);
+    font-family: inherit; font-size: 11px; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+  .actor-switch button.on { background: #1c2437; color: var(--text); font-weight: 600; }
+  .actor-switch button small { display: block; font-size: 9px; font-weight: 400; color: #6e7893; margin-top: 1px; }
+  .actor-switch button.on small { color: #9aa5c2; }
+
+  .self { background: var(--bg-card-2); border: 1px solid var(--border); border-radius: 14px;
+    padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; margin-bottom: 12px; }
+  .self-name { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .self-name b { font-weight: 600; }
+  .chips { display: flex; gap: 5px; flex-wrap: wrap; }
+  .chip { font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid;
+    color: #9fe3c7; border-color: rgba(88,227,167,.35); }
+  .chip.dash { border-style: dashed; color: #9db4ff; border-color: rgba(124,140,255,.35); }
+
+  .attr { display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--muted); }
+  .attr .bar { flex: 1; height: 6px; background: #0d1220; border-radius: 4px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; transition: width .35s ease; }
+  .bar-fill.hp { background: linear-gradient(90deg, #ff5d73, #ff9aa8); }
+  .bar-fill.mp { background: linear-gradient(90deg, #4f7dff, #7ec6ff); }
+  .attr .val { width: 56px; text-align: right; color: #c7cfe4; font-variant-numeric: tabular-nums; }
+
+  .ally-list { display: flex; gap: 8px; margin: 0 0 10px; }
+  .ally { flex: 1 1 0; min-width: 0; background: #101a24; border: 1px solid rgba(88,227,167,.28);
+    border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px;
+    transition: opacity .3s, transform .3s; }
+  .ally .row-top { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+  .ally .name { font-size: 11px; font-weight: 600; color: #bfe9d6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ally .val { font-size: 9px; color: #8fb8a6; font-variant-numeric: tabular-nums; }
+  .ally .bar { height: 4px; background: #0a1119; border-radius: 3px; overflow: hidden; }
+  .ally .bar i { display: block; height: 100%; background: linear-gradient(90deg, #35b98a, #6ee7b7); border-radius: 3px; }
+  .ally .tag-s { font-size: 8px; color: #6f9a88; letter-spacing: .5px; }
+  .ally.arriving { animation: allyIn 420ms cubic-bezier(.2,.9,.3,1.2) both; }
+  .ally.departed { opacity: .38; filter: grayscale(1); }
+  .ally.departed .tag-s { color: #8b94ab; }
+  .ally-head { display: flex; align-items: center; justify-content: space-between; margin: 0 2px 6px; }
+  .ally-head span { font-size: 9px; color: #6e7893; letter-spacing: .5px; }
+  .ally-head button { appearance: none; font-family: inherit; font-size: 9px; cursor: pointer;
+    color: #9db4ff; background: none; border: 1px solid rgba(124,140,255,.35); border-radius: 999px;
+    padding: 1px 8px; }
+  .ally-empty { font-size: 10px; color: #4d5670; padding: 6px 2px; }
+  @keyframes allyIn { from { opacity: 0; transform: translateY(14px) scale(.86); } to { opacity: 1; transform: none; } }
+
+  .enemy-list { display: flex; flex-direction: column; gap: 9px; }
+  .enemy { position: relative; background: var(--bg-card); border: 1px solid #2c3550;
+    border-radius: 12px; padding: 10px 12px; display: flex; flex-direction: column; gap: 5px; align-items: flex-start; }
+  .enemy.neutral { border-color: rgba(216,177,119,.4); }
+  .enemy.dead { opacity: .32; }
+  .enemy .name { font-size: 12px; font-weight: 600; }
+  .enemy .name small { font-weight: 400; color: var(--muted); margin-left: 6px; font-size: 10px; }
+  .enemy .attr { width: 100%; }
+  .enemy .bar-fill.ehp { background: linear-gradient(90deg, #e0566b, #ff8f9e); }
+  .enemy.neutral .bar-fill.ehp { background: linear-gradient(90deg, #c99a4e, #e6c97a); }
+
+  .fx-layer { position: absolute; inset: 0; pointer-events: none; z-index: 6; overflow: visible; }
+  .fx-layer svg { position: absolute; inset: 0; overflow: visible; }
+
+  .fx-num { position: absolute; z-index: 9; font-weight: 800; font-variant-numeric: tabular-nums;
+    letter-spacing: -1px; will-change: transform, opacity; white-space: nowrap; }
+  .fx-num__r { display: inline-block; }
+  .fx-num__t { display: inline-block; transform-origin: 60% 70%; padding: 0 2px; }
+
+  .fx-label { position: absolute; z-index: 9; white-space: nowrap; }
+  .fx-tag { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .8px;
+    padding: 1px 6px; border-radius: 4px; }
+  .fx-bf { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 1.05; }
+  .fx-bf b { font-size: 16px; font-weight: 800; letter-spacing: 4px; color: #ff5a63;
+    text-shadow: 0 0 12px rgba(255,40,60,.7), 0 1px 0 #000; }
+  .fx-bf span { font-size: 8px; font-weight: 700; letter-spacing: 2.2px; color: #ff9aa2; opacity: .85; }
+
+  .fx-spark { position: absolute; z-index: 8; border-radius: 50%; pointer-events: none; }
+  .fx-flash { position: absolute; inset: 0; z-index: 8; pointer-events: none; }
+  .fx-cast { position: absolute; z-index: 7; width: 0; height: 0; }
+  .fx-cast i, .fx-cast u, .fx-cast em { position: absolute; display: block; border-radius: 50%; }
+
+  @keyframes pop { 0% { transform: scale(.45); opacity: 0; } 50% { transform: scale(1.14); opacity: 1; }
+                   100% { transform: scale(1); opacity: 1; } }
+  @keyframes rise { to { transform: translateY(-34px); opacity: 0; } }
+  @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes shake { 0%,100% { transform: translate(0,0); } 16% { transform: translate(-5px,3px); }
+                     42% { transform: translate(5px,-3px); } 68% { transform: translate(-2px,1px); } }
+  @keyframes sparkfly { from { transform: translate(0,0) scale(1); opacity: .95; }
+                        to { transform: translate(var(--dx), var(--dy)) scale(.2); opacity: 0; } }
+  @keyframes ringpulse { from { transform: scale(.35); opacity: .7; } to { transform: scale(1.25); opacity: 0; } }
+  @keyframes washin { from { transform: scale(.72); opacity: 0; } to { transform: scale(1); opacity: .055; } }
+  @keyframes castFade { 0% { opacity: 0; } 22% { opacity: 1; } 100% { opacity: 0; } }
+  @keyframes castDash { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -56; } }
+  @keyframes inflow { 0% { transform: translate(var(--dx), var(--dy)) scale(.9); opacity: 0; }
+                      22% { opacity: 1; }
+                      100% { transform: translate(0, 0) scale(.22); opacity: 0; } }
+  @keyframes outflow { 0% { transform: translate(0, 0) scale(.5); opacity: 1; }
+                       100% { transform: translate(var(--dx), var(--dy)) scale(1.1); opacity: 0; } }
+  @keyframes poolIn { 0% { transform: scale(.3); opacity: 0; } 30% { opacity: .95; }
+                      100% { transform: scale(1.15); opacity: 0; } }
+  @keyframes castDashRev { from { stroke-dashoffset: 0; } to { stroke-dashoffset: 56; } }
+  .shake { animation: shake .34s cubic-bezier(.36,.07,.19,.97); }
+
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+  .act { appearance: none; text-align: left; cursor: pointer; font-family: inherit;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 11px;
+    padding: 9px 10px; color: var(--text); transition: border-color .15s, background .15s; }
+  .act:hover { border-color: #40507a; background: #182035; }
+  .act:active { transform: translateY(1px); }
+  .act b { display: block; font-size: 12px; font-weight: 600; }
+  .act span { display: block; font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .act.slash b { color: #ff7f8b; }
+
+  .summon-bar { margin-top: 12px; padding-top: 10px; border-top: 1px dashed #1e2740; }
+  .summon-bar__t { font-size: 9px; color: #6e7893; letter-spacing: .4px; margin-bottom: 7px; }
+  .summon-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .summon-grid button { appearance: none; text-align: left; cursor: pointer; font-family: inherit;
+    background: #101a24; border: 1px solid rgba(88,227,167,.22); border-radius: 9px; padding: 6px 8px; color: var(--text); }
+  .summon-grid button:active { transform: translateY(1px); }
+  .summon-grid button b { display: block; font-size: 11px; font-weight: 600; color: #bfe9d6; }
+  .summon-grid button span { display: block; font-size: 9px; color: #6f9a88; margin-top: 1px; }
+
+  .support-bar { margin-top: 12px; padding-top: 10px; border-top: 1px dashed #1e2740; }
+  .support-bar__t { font-size: 9px; color: #6e7893; letter-spacing: .4px; margin-bottom: 7px; }
+  .support-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .support-grid button { appearance: none; text-align: left; cursor: pointer; font-family: inherit;
+    background: #101a24; border: 1px solid #24304a; border-radius: 9px; padding: 6px 8px; color: var(--text); }
+  .support-grid button:active { transform: translateY(1px); }
+  .support-grid button b { display: block; font-size: 11px; font-weight: 600; color: #dbe3f5; }
+  .support-grid button span { display: block; font-size: 9px; color: #6e7893; margin-top: 1px; }
+  .support-grid button.heal b { color: #bfe9d6; }
+  .support-grid button.buff b { color: #ffc9cf; }
+
+  .panel { width: 330px; display: flex; flex-direction: column; gap: 13px; }
+  .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 13px 14px; }
+  .card h4 { margin: 0 0 9px; font-size: 12px; font-weight: 600; color: #cfd7ea; }
+  .card p { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.7; }
+  .card pre { margin: 0; font-family: ui-monospace, Menlo, monospace; font-size: 9.5px; line-height: 1.65;
+    color: #b9c3db; background: #0d1220; border: 1px solid #1e2740; border-radius: 8px; padding: 9px; overflow: auto; }
+  .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .flow div { background: #101728; border: 1px solid #1e2740; border-radius: 8px; padding: 7px 6px; text-align: center; }
+  .flow b { display: block; font-size: 11px; color: #dbe3f5; }
+  .flow span { display: block; font-size: 9px; color: #6e7893; margin-top: 2px; }
+
+  .switches { display: flex; flex-direction: column; gap: 8px; }
+  .sw { display: flex; align-items: center; justify-content: space-between; font-size: 11px; cursor: pointer; }
+  .sw input { appearance: none; width: 32px; height: 18px; border-radius: 999px; background: #232c42;
+    position: relative; transition: background .18s; cursor: pointer; }
+  .sw input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+    border-radius: 50%; background: #8b94ab; transition: transform .18s, background .18s; }
+  .sw input:checked { background: rgba(124,140,255,.4); }
+  .sw input:checked::after { transform: translateX(14px); background: #cfd8ff; }
+
+  .cascade { display: flex; flex-direction: column; gap: 4px; }
+  .cs { display: grid; grid-template-columns: 46px 1fr auto; gap: 8px; align-items: center;
+    font-size: 11px; padding: 3px 0; border-bottom: 1px dashed #1e2740; }
+  .cs:last-child { border-bottom: 0; }
+  .cs .k { color: var(--muted); }
+  .cs .v { color: #dbe3f5; }
+  .cs .p { font-size: 9px; padding: 1px 5px; border-radius: 4px; border: 1px solid; white-space: nowrap; }
+  .p0 { color: #93a1c0; border-color: #33405e; }
+  .p3 { color: #9db4ff; border-color: #3b4b86; background: rgba(124,140,255,.1); }
+  .p4 { color: #ff9fb0; border-color: #6b3542; background: rgba(255,107,127,.1); }
+
+  .bench { width: 100%; max-width: 1240px; margin: 32px auto 0; }
+  .bench h2 { font-size: 14px; font-weight: 600; margin: 0 0 4px; color: #cfd7ea; }
+  .bench .sub { font-size: 11px; color: #6e7893; margin: 0 0 14px; line-height: 1.7; }
+  .chain { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .chain > button { appearance: none; font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+    color: #0b0e14; background: #8fa3ff; border: 0; border-radius: 9px; padding: 8px 16px; }
+  .chain > button:active { transform: translateY(1px); }
+  .steps { display: flex; gap: 6px; }
+  .steps span { font-size: 10px; padding: 3px 9px; border-radius: 999px; border: 1px solid #26304a; color: #6e7893;
+    transition: color .15s, background .15s, border-color .15s; }
+  .steps span.on { color: #0b0e14; background: #8fa3ff; border-color: #8fa3ff; }
+  .bench-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+  .bench-col { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 12px 12px 6px; }
+  .bench-col h4 { margin: 0 0 2px; font-size: 12px; font-weight: 600; color: #cfd7ea; }
+  .bench-col .hint { font-size: 9px; color: #6e7893; margin-bottom: 9px; }
+  .bench-col button { display: block; width: 100%; text-align: left; cursor: pointer; font-family: inherit;
+    background: #101728; border: 1px solid #1e2740; border-radius: 9px; padding: 7px 9px; margin-bottom: 7px; color: var(--text); }
+  .bench-col button:hover { border-color: #3b4b86; background: #16203a; }
+  .bench-col button:active { transform: translateY(1px); }
+  .bench-col button b { display: block; font-size: 11px; font-weight: 600; color: #dbe3f5; }
+  .bench-col button span { display: block; font-size: 9px; color: #6e7893; margin-top: 1px; }
+  .note { font-size: 10px; color: #6e7893; line-height: 1.7; }
+
+  @media (max-width: 980px) {
+    body { padding: 10px 8px 40px; }
+    .page { gap: 14px; }
+    .brief { display: none; }
+    .phone { width: 100%; max-width: 432px; border-radius: 18px; }
+    .panel { width: 100%; max-width: 432px; }
+    .bench { margin-top: 20px; }
+    .bench-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="brief">
+    <h1>四段分层原型 v4</h1>
+    <p>一次出手拆成 <b>施法 → 轨迹 → 受击 → 结算</b>，四层各自独立、可被模板单独覆盖。</p>
+    <p>宿傩斩击、免疫盾牌、黑闪雷电裂纹都归<b>受击层</b>；miss 与抵抗只改<b>轨迹</b>的收尾，不产生受击段。</p>
+    <p class="note">下方「分层实验台」每次只播一层；「全链路」按顺序合成。手机上点按钮即可。</p>
+  </div>
+
+  <div class="phone">
+    <div class="topbar"><span>咒术转盘人生</span><b>⚔ 战斗</b><span>第 2 回合</span></div>
+    <div class="battle-body" id="board">
+      <div class="row">
+        <h3>战斗 · 第 <span id="roundNo">2</span> 回合</h3>
+        <span class="tag crit">暴击 ×1</span>
+        <button class="tag round" id="hintTag">选一个技能</button>
+        <button class="tag round" id="resetBtn" title="重置演示">↺</button>
+      </div>
+
+      <div class="actor-switch" id="actorSwitch">
+        <button data-actor="normal" class="on">普通咒术师<small>世界默认色 · P0</small></button>
+        <button data-actor="gojo">五条悟<small>个人术式色 · P3</small></button>
+      </div>
+
+      <div class="self" id="self" data-unit-id="player">
+        <div class="self-name"><b>普通咒术师</b><span class="chips"><span class="chip">术式 · 无特性</span></span></div>
+        <div class="attr"><span>生命</span><div class="bar"><div class="bar-fill hp" id="php" style="width:94%"></div></div><span class="val" id="phpt">207/221</span></div>
+        <div class="attr"><span>咒力</span><div class="bar"><div class="bar-fill mp" id="pmp" style="width:90%"></div></div><span class="val" id="pmpt">180/200</span></div>
+      </div>
+
+      <div class="ally-head">
+        <span>召唤位 <b id="allySlots">1</b>/3 · 离场灰卡，下一轮移除</span>
+        <button id="nextRound">下一轮 ›</button>
+      </div>
+      <div class="ally-list" id="allyList"></div>
+
+      <div class="enemy-list" id="enemyList">
+        <div class="enemy" id="e1" data-unit-id="e1">
+          <div class="name">二级咒灵 <small>敌方</small></div>
+          <div class="attr"><div class="bar"><div class="bar-fill ehp" style="width:100%"></div></div><span class="val">320/320</span></div>
+          <div class="chips"><span class="chip dash">适应 ×2</span></div>
+        </div>
+        <div class="enemy neutral" id="e2" data-unit-id="e2">
+          <div class="name">魔虚罗 <small>中立</small></div>
+          <div class="attr"><div class="bar"><div class="bar-fill ehp" style="width:100%"></div></div><span class="val">345/345</span></div>
+          <div class="chips"><span class="chip dash">适应 ×1</span></div>
+        </div>
+        <div class="enemy" id="e3" data-unit-id="e3">
+          <div class="name">改造咒灵 <small>敌方</small></div>
+          <div class="attr"><div class="bar"><div class="bar-fill ehp" style="width:100%"></div></div><span class="val">180/180</span></div>
+          <div class="chips"><span class="chip dash">无下限</span></div>
+        </div>
+      </div>
+
+      <div class="fx-layer" id="fx"></div>
+
+      <div class="actions">
+        <button class="act" data-cast="energy"><b>术式 · 冲击</b><span>蓄力 → 单箭头 → 火花</span></button>
+        <button class="act" data-cast="precision"><b>术式 · 锁定</b><span>蓄力 → 精准 → 火花</span></button>
+        <button class="act" data-cast="area"><b>术式 · 扩散</b><span>法阵 → 群体 → 混合</span></button>
+        <button class="act slash" data-cast="slash"><b>黑闪</b><span>起手闪 → 刀光 → 雷电</span></button>
+        <button class="act" data-cast="cut"><b>斩击</b><span>快线 → 切口</span></button>
+        <button class="act" data-cast="heal"><b>反转术式</b><span>蓄力 → 上升风</span></button>
+      </div>
+
+      <div class="summon-bar">
+        <div class="summon-bar__t">⑤ 召唤 · 无目标 → 无轨迹 · 登场算受击</div>
+        <div class="summon-grid">
+          <button data-summon="summon"><b>召唤</b><span>法阵 → 登场</span></button>
+          <button data-summon="summonAttack"><b>召唤 + 首轮攻击</b><span>登场 → 它自己打</span></button>
+          <button data-summon="recall"><b>收回</b><span>上升风（反向）</span></button>
+          <button data-summon="sacrifice"><b>献祭</b><span>锁定 → 被吞</span></button>
+          <button data-summon="massSacrifice"><b>群体献祭</b><span>放射 → 逐个被吞</span></button>
+          <button data-summon="vortex"><b>漩涡</b><span>友方群祭 → 敌方单体</span></button>
+        </div>
+      </div>
+
+      <div class="support-bar">
+        <div class="support-bar__t">⑥ 目标 · 自身 / 友军 / 全体 · 治疗绿 · 增益红</div>
+        <div class="support-grid">
+          <button class="heal" data-support="heal-self"><b>治疗自身</b><span>updraft 上升 + 箭头</span></button>
+          <button class="heal" data-support="heal-ally"><b>治疗单个友军</b><span>arrow 飞线</span></button>
+          <button class="heal" data-support="heal-all"><b>治疗全体</b><span>自身 updraft · 友军 fan</span></button>
+          <button class="buff" data-support="buff-self"><b>自我增益</b><span>updraft 上升 + 箭头</span></button>
+          <button class="buff" data-support="buff-ally"><b>友军增益</b><span>arrow 飞线</span></button>
+          <button class="buff" data-support="buff-all"><b>全体增益</b><span>自身 updraft · 友军 fan</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="card">
+      <h4>四层职责</h4>
+      <div class="flow">
+        <div><b>施法</b><span>施法者</span></div>
+        <div><b>轨迹</b><span>施法者→目标</span></div>
+        <div><b>受击</b><span>目标</span></div>
+        <div><b>结算</b><span>数字</span></div>
+      </div>
+      <p class="note" style="margin-top:9px">受击层决定「打没打中」；结算层只说事实。</p>
+    </div>
+
+    <div class="card">
+      <h4>模板怎么配（全部可覆盖）</h4>
+      <pre>skills:
+  sk-gojo-blue:
+    presentation:
+      cast:   { preset: charge,  color: "#7C8CFF" }
+      trace:  { preset: arrow,   color: "#7C8CFF", width: 2 }
+      impact: { preset: burst,   color: "#FF6B7F" }
+      result: { size: 28, stroke: 1.4, suffix: auto }</pre>
+      <p class="note" style="margin-top:8px">四层各取一个 preset，只覆盖写了的字段；preset 是引擎词，颜色是模板词。</p>
+    </div>
+
+    <div class="card">
+      <h4>级联来源</h4>
+      <div class="cascade" id="cascade">
+        <div class="cs"><span class="k">施法</span><span class="v" id="csCast">charge</span><span class="p p0" id="csCastP">P0</span></div>
+        <div class="cs"><span class="k">轨迹</span><span class="v" id="csTrace">arrow</span><span class="p p0" id="csTraceP">P0</span></div>
+        <div class="cs"><span class="k">受击</span><span class="v" id="csImpact">burst</span><span class="p p0" id="csImpactP">P0</span></div>
+        <div class="cs"><span class="k">结算</span><span class="v" id="csResult">28 / 1.4</span><span class="p p0" id="csResultP">P0</span></div>
+        <div class="cs"><span class="k">颜色</span><span class="v" id="csColor">#FF6B7F</span><span class="p p0" id="csColorP">P0</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h4>播放器设置（P6：模板盖不掉）</h4>
+      <div class="switches">
+        <label class="sw"><span>减少动画</span><input type="checkbox" id="swReduce" /></label>
+        <label class="sw"><span>快速战斗</span><input type="checkbox" id="swFast" /></label>
+        <label class="sw"><span>关闭闪光</span><input type="checkbox" id="swNoFlash" /></label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<section class="bench">
+  <h2>分层实验台</h2>
+  <p class="sub">每次只播一层，单独验收；「全链路」按 施法 → 轨迹 → 受击 → 结算 合成一次完整出手。</p>
+  <div class="chain">
+    <button id="fullChain">▶ 全链路</button>
+    <div class="steps" id="steps">
+      <span data-step="0">① 施法</span><span data-step="1">② 轨迹</span><span data-step="2">③ 受击</span><span data-step="3">④ 结算</span>
+    </div>
+  </div>
+  <div class="bench-grid">
+    <div class="bench-col">
+      <h4>① 施法 cast</h4>
+      <div class="hint">默认 none · 只有召唤 / 奥义需要</div>
+      <button data-bench="cast" data-kind="converge"><b>converge</b><span>引力 · 苍：粒子内吸</span></button>
+      <button data-bench="cast" data-kind="repulse"><b>repulse</b><span>斥力 · 赫：冲击外扩</span></button>
+      <button data-bench="cast" data-kind="collapse"><b>collapse</b><span>虚式 · 茈：双球坍缩</span></button>
+      <button data-bench="cast" data-kind="mandala"><b>mandala</b><span>法阵 · 召唤：影池 + 召唤纹</span></button>
+      <button data-bench="cast" data-kind="flash"><b>flash</b><span>起手闪 · 黑闪</span></button>
+      <button data-bench="cast" data-kind="ultimate"><b>ultimate</b><span>奥义 · 遮幅 + 立绘预留</span></button>
+      <button data-bench="cast" data-kind="none"><b>none</b><span>无 · 一般技能的默认</span></button>
+    </div>
+    <div class="bench-col">
+      <h4>② 轨迹 trace</h4>
+      <div class="hint">施法者 → 目标 · 只有攻击/治疗有</div>
+      <button data-bench="trace" data-kind="arrow"><b>单箭头</b><span>彗尾弧线 + V 头</span></button>
+      <button data-bench="trace" data-kind="precision"><b>精准打击</b><span>发丝直线 + 菱形 + 四角框</span></button>
+      <button data-bench="trace" data-kind="miss"><b>miss 虚线</b><span>断在半路 + 渐隐点</span></button>
+      <button data-bench="trace" data-kind="resist"><b>抵抗黄线</b><span>金线撞向目标</span></button>
+      <button data-bench="trace" data-kind="fan"><b>群体</b><span>每个目标一根扇刃</span></button>
+      <button data-bench="trace" data-kind="updraft"><b>上升之风</b><span>治疗 · 双股上升</span></button>
+      <button data-bench="trace" data-kind="self"><b>自身上行</b><span>updraft 单股 + 箭头</span></button>
+      <button data-bench="trace" data-kind="none"><b>none</b><span>仅召唤用 · 无目标</span></button>
+    </div>
+    <div class="bench-col">
+      <h4>③ 受击 impact</h4>
+      <div class="hint">目标身上 · 打没打中看这里</div>
+      <button data-bench="impact" data-kind="burst"><b>火花 burst</b><span>火花 + 冲击环</span></button>
+      <button data-bench="impact" data-kind="lightning"><b>雷电裂纹</b><span>黑闪专用 · 红黑雷弧</span></button>
+      <button data-bench="impact" data-kind="cuts"><b>斩击 cuts</b><span>宿傩「解」· 三短一长</span></button>
+      <button data-bench="impact" data-kind="shield"><b>盾牌 shield</b><span>免疫 / 抵抗 · 六边形</span></button>
+      <button data-bench="impact" data-kind="none"><b>none</b><span>未命中 · 没有受击段</span></button>
+    </div>
+    <div class="bench-col">
+      <h4>④ 结算 result</h4>
+      <div class="hint">数字 + 后缀 + 标签 · 不染色</div>
+      <button data-bench="result" data-kind="normal"><b>普通</b><span>-68</span></button>
+      <button data-bench="result" data-kind="crit"><b>暴击</b><span>-100! + CRITICAL</span></button>
+      <button data-bench="result" data-kind="finisher"><b>放大暴击</b><span>-225!! + 黒閃</span></button>
+      <button data-bench="result" data-kind="heal"><b>治疗</b><span>+80</span></button>
+    </div>
+  </div>
+</section>
+
+<script>
+(() => {
+  const board = document.getElementById("board");
+  const fx = document.getElementById("fx");
+  const selfEl = document.getElementById("self");
+  const enemyList = document.getElementById("enemyList");
+  const units = { e1: document.getElementById("e1"), e2: document.getElementById("e2"), e3: document.getElementById("e3") };
+  const C = { damage: "#ff6b7f", heal: "#58e3a7", buff: "#7ec6ff", debuff: "#b387ff", miss: "#a0a8b8", immune: "#e6c97a" };
+  const settings = { reduce: false, fast: false, noFlash: false };
+
+  let uid = 0;
+  let seed = 20261123;
+  const rand = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+
+  const svgEl = (tag, attrs) => {
+    const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [k, v] of Object.entries(attrs ?? {})) el.setAttribute(k, String(v));
+    return el;
+  };
+  const W = () => board.clientWidth;
+  const H = () => board.clientHeight;
+  const rectOf = (el) => {
+    const r = el.getBoundingClientRect();
+    const b = board.getBoundingClientRect();
+    return { x: r.left - b.left, y: r.top - b.top, w: r.width, h: r.height };
+  };
+  const selfRect = () => rectOf(selfEl);
+  const origin = () => { const s = selfRect(); return { x: s.x + s.w * 0.62, y: s.y + s.h - 4 }; };
+  const cardCenter = (id) => { const r = rectOf(units[id]); return { x: r.x + r.w * 0.3, y: r.y + r.h * 0.5 }; };
+  const quad = (a, b, bx, by) => `M ${a.x} ${a.y} Q ${(a.x + b.x) / 2 + bx} ${(a.y + b.y) / 2 + by} ${b.x} ${b.y}`;
+  const mkSvg = () => { const svg = svgEl("svg", { viewBox: `0 0 ${W()} ${H()}`, width: "100%", height: "100%" }); fx.appendChild(svg); return svg; };
+  const probe = (svg, d) => { const p = svgEl("path", { d, fill: "none", stroke: "none" }); svg.appendChild(p); return p; };
+
+  function ribbon(pEl, maxW, prof) {
+    const L = pEl.getTotalLength();
+    const N = 52;
+    const left = [];
+    const right = [];
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const p = pEl.getPointAtLength(L * t);
+      const p2 = pEl.getPointAtLength(Math.min(L, L * t + 0.6));
+      const p1 = pEl.getPointAtLength(Math.max(0, L * t - 0.6));
+      const ang = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+      const nx = -Math.sin(ang);
+      const ny = Math.cos(ang);
+      const w = Math.max(0.3, (maxW * prof(t)) / 2);
+      left.push(`${(p.x + nx * w).toFixed(1)},${(p.y + ny * w).toFixed(1)}`);
+      right.push(`${(p.x - nx * w).toFixed(1)},${(p.y - ny * w).toFixed(1)}`);
+    }
+    return `M ${left.join(" L ")} L ${right.reverse().join(" L ")} Z`;
+  }
+  const PROFILE = {
+    comet: (t) => Math.pow(Math.sin(Math.PI * t), 0.55) * (0.3 + 0.7 * t),
+    blade: (t) => Math.pow(Math.sin(Math.PI * t), 0.42),
+    fan: (t) => Math.pow(Math.sin(Math.PI * Math.pow(t, 0.9)), 0.7) * (0.2 + 0.8 * t),
+  };
+
+  function defsOf(svg) { if (!svg.__defs) { svg.__defs = svgEl("defs"); svg.appendChild(svg.__defs); } return svg.__defs; }
+
+  function makeReveal(svg, d, width, dur, delay = 0) {
+    const id = `rv${++uid}`;
+    const mask = svgEl("mask", { id, maskUnits: "userSpaceOnUse", x: -90, y: -90, width: W() + 180, height: H() + 180 });
+    const L = probe(svg, d).getTotalLength();
+    const p = svgEl("path", { d, fill: "none", stroke: "#fff", "stroke-width": width + 14,
+      "stroke-linecap": "round", "stroke-dasharray": L, "stroke-dashoffset": L });
+    mask.appendChild(p);
+    defsOf(svg).appendChild(mask);
+    setTimeout(() => {
+      p.style.transition = `stroke-dashoffset ${dur}ms cubic-bezier(.22,.62,.24,1)`;
+      p.style.strokeDashoffset = "0";
+    }, delay);
+    return `url(#${id})`;
+  }
+
+  function lineGrad(svg, a, b, color, colorFrom, from = 0) {
+    const id = `gr${++uid}`;
+    const g = svgEl("linearGradient", { id, gradientUnits: "userSpaceOnUse", x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+    if (colorFrom) {
+      g.appendChild(svgEl("stop", { offset: "0%", "stop-color": colorFrom, "stop-opacity": "0.05" }));
+      g.appendChild(svgEl("stop", { offset: "48%", "stop-color": colorFrom, "stop-opacity": "0.92" }));
+      g.appendChild(svgEl("stop", { offset: "100%", "stop-color": color, "stop-opacity": "1" }));
+    } else {
+      g.appendChild(svgEl("stop", { offset: "0%", "stop-color": color, "stop-opacity": String(from) }));
+      g.appendChild(svgEl("stop", { offset: "38%", "stop-color": color, "stop-opacity": "0.5" }));
+      g.appendChild(svgEl("stop", { offset: "100%", "stop-color": color, "stop-opacity": "1" }));
+    }
+    defsOf(svg).appendChild(g);
+    return `url(#${id})`;
+  }
+
+  function trail(svg, d, o) {
+    const { color, colorFrom, w, dur, delay = 0, prof = "comet", glow = true, core = true,
+            coreColor = "#fff", coreOpacity = 0.4 } = o;
+    const p = probe(svg, d);
+    const L = p.getTotalLength();
+    const end = p.getPointAtLength(L);
+    const prev = p.getPointAtLength(Math.max(0, L - 3));
+    const ang = Math.atan2(end.y - prev.y, end.x - prev.x);
+    const start = p.getPointAtLength(0);
+    const fill = lineGrad(svg, start, end, color, colorFrom);
+    const mask = makeReveal(svg, d, w, dur, delay);
+    if (glow) svg.appendChild(svgEl("path", { d, fill: "none", stroke: color, "stroke-width": w * 2.1,
+      "stroke-linecap": "round", opacity: 0.2, filter: "blur(6px)", mask }));
+    svg.appendChild(svgEl("path", { d: ribbon(p, w, PROFILE[prof]), fill, opacity: 0.96, mask }));
+    if (core) svg.appendChild(svgEl("path", { d, fill: "none", stroke: coreColor,
+      "stroke-width": Math.max(0.9, w * 0.13), "stroke-linecap": "round", opacity: coreOpacity, mask }));
+    p.remove();
+    return { end, ang, L };
+  }
+
+  function hairline(svg, d, { color, w = 1.4, dur = 220, delay = 0, dash, from = 0.12 }) {
+    const p = probe(svg, d);
+    const L = p.getTotalLength();
+    const start = p.getPointAtLength(0);
+    const end = p.getPointAtLength(L);
+    const mask = makeReveal(svg, d, w, dur, delay);
+    const line = svgEl("path", { d, fill: "none", stroke: lineGrad(svg, start, end, color, null, from),
+      "stroke-width": w, "stroke-linecap": "round", mask });
+    if (dash) line.setAttribute("stroke-dasharray", dash);
+    svg.appendChild(line);
+    p.remove();
+    return { end, L, ang: Math.atan2(end.y - start.y, end.x - start.x) };
+  }
+
+  function chevron(svg, p, ang, color, size = 7) {
+    const a1 = ang + Math.PI * 0.78;
+    const a2 = ang - Math.PI * 0.78;
+    svg.appendChild(svgEl("path", {
+      d: `M ${(p.x + Math.cos(a1) * size).toFixed(1)} ${(p.y + Math.sin(a1) * size).toFixed(1)} L ${p.x.toFixed(1)} ${p.y.toFixed(1)} L ${(p.x + Math.cos(a2) * size).toFixed(1)} ${(p.y + Math.sin(a2) * size).toFixed(1)}`,
+      fill: "none", stroke: color, "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", opacity: 0.95,
+    }));
+  }
+
+  function diamond(svg, p, size, color, opacity = 1) {
+    svg.appendChild(svgEl("path", {
+      d: `M ${p.x} ${p.y - size} L ${p.x + size} ${p.y} L ${p.x} ${p.y + size} L ${p.x - size} ${p.y} Z`, fill: color, opacity }));
+  }
+
+  function hexShield(svg, p, color) {
+    const r = 13;
+    const pts = [];
+    for (let i = 0; i < 6; i++) {
+      const a = (Math.PI / 3) * i - Math.PI / 2;
+      pts.push(`${(p.x + Math.cos(a) * r).toFixed(1)} ${(p.y + Math.sin(a) * r * 1.1).toFixed(1)}`);
+    }
+    const path = svgEl("path", { d: `M ${pts.join(" L ")} Z`, fill: "none", stroke: color, "stroke-width": 1.6, opacity: 0.95 });
+    path.style.transformOrigin = `${p.x}px ${p.y}px`;
+    path.style.animation = "pop 240ms cubic-bezier(.2,.9,.3,1.3) both";
+    svg.appendChild(path);
+  }
+
+  function boltPoints(from, to, segs, amp) {
+    const pts = [{ x: from.x, y: from.y }];
+    for (let i = 1; i < segs; i++) {
+      const t = i / segs;
+      pts.push({ x: from.x + (to.x - from.x) * t + (rand() - 0.5) * amp,
+                 y: from.y + (to.y - from.y) * t + (rand() - 0.5) * amp });
+    }
+    pts.push({ x: to.x, y: to.y });
+    return pts;
+  }
+  const boltD = (pts) => `M ${pts.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" L ")}`;
+
+  function sparks(p, color, count = 8) {
+    if (settings.reduce) return;
+    for (let i = 0; i < count; i++) {
+      const el = document.createElement("div");
+      el.className = "fx-spark";
+      const size = 2 + rand() * 3;
+      const a = rand() * Math.PI * 2;
+      const dist = 16 + rand() * 32;
+      el.style.cssText = `left:${p.x}px;top:${p.y}px;width:${size}px;height:${size}px;background:${color};
+        box-shadow:0 0 6px ${color};--dx:${(Math.cos(a) * dist).toFixed(0)}px;--dy:${(Math.sin(a) * dist).toFixed(0)}px;
+        animation: sparkfly ${320 + rand() * 240}ms cubic-bezier(.2,.7,.3,1) both;`;
+      fx.appendChild(el);
+      setTimeout(() => el.remove(), 650);
+    }
+  }
+
+  function ringAt(p, color, size = 64) {
+    if (settings.reduce) return;
+    const el = document.createElement("div");
+    el.style.cssText = `position:absolute;left:${p.x - size / 2}px;top:${p.y - size / 2}px;width:${size}px;height:${size}px;
+      border-radius:50%;border:1px solid ${color};opacity:0;z-index:7;
+      animation: ringpulse 420ms cubic-bezier(.16,.7,.2,1) both;`;
+    fx.appendChild(el);
+    setTimeout(() => el.remove(), 460);
+  }
+
+  // ══════════════════════ ① 施法层 ══════════════════════
+  // 全部用 SVG 画：CSS 的 dashed border + border-radius 在缩放动画下会被抗锯齿吃掉（实测不可见）
+  function coreGrad(svg, color) {
+    const id = `cg${++uid}`;
+    const g = svgEl("radialGradient", { id });
+    g.appendChild(svgEl("stop", { offset: "0%", "stop-color": "#ffffff", "stop-opacity": "1" }));
+    g.appendChild(svgEl("stop", { offset: "42%", "stop-color": color, "stop-opacity": "0.9" }));
+    g.appendChild(svgEl("stop", { offset: "100%", "stop-color": color, "stop-opacity": "0" }));
+    defsOf(svg).appendChild(g);
+    return `url(#${id})`;
+  }
+  const spin = (el, p, anim) => {
+    el.style.animation = anim;
+    return el;
+  };
+
+  /** 掌心的内吸 / 外扩粒子（DOM 动画比 SVG transform 稳） */
+  function mote(p, color, dx, dy, dur, size, anim = "inflow") {
+    if (settings.reduce) return;
+    const el = document.createElement("div");
+    el.className = "fx-spark";
+    el.style.cssText = `left:${p.x}px;top:${p.y}px;width:${size}px;height:${size}px;background:${color};
+      box-shadow:0 0 8px ${color};--dx:${dx.toFixed(0)}px;--dy:${dy.toFixed(0)}px;
+      animation:${anim} ${dur}ms cubic-bezier(.3,.7,.4,1) both;`;
+    fx.appendChild(el);
+    setTimeout(() => el.remove(), dur + 80);
+  }
+
+  const CAST = {
+    /**
+     * 引力 · 苍：粒子与光条向掌心收拢，三段环反向旋转收束。
+     * 读法是「把东西吸过来」，所以方向全部朝内。
+     */
+    converge: (svg, p, color) => {
+      [36, 27, 18].forEach((r, i) => {
+        svg.appendChild(spin(svgEl("circle", {
+          cx: p.x, cy: p.y, r, fill: "none", stroke: color, "stroke-width": 2.2 - i * 0.4,
+          "stroke-dasharray": `${r * 1.1} ${r * 0.8}`, opacity: 0.9,
+        }), p, `castFade ${460 + i * 60}ms ${i * 40}ms ease-out both, castDashRev ${600 + i * 70}ms linear both`));
+      });
+      for (let i = 0; i < 10; i++) {
+        const a = (Math.PI / 5) * i + 0.3;
+        svg.appendChild(svgEl("line", {
+          x1: p.x + Math.cos(a) * 48, y1: p.y + Math.sin(a) * 48,
+          x2: p.x + Math.cos(a) * 20, y2: p.y + Math.sin(a) * 20,
+          stroke: color, "stroke-width": 1.2, "stroke-linecap": "round", opacity: 0.35,
+        }));
+      }
+      for (let i = 0; i < 8; i++) {
+        const a = rand() * Math.PI * 2;
+        const d = 38 + rand() * 18;
+        mote(p, color, Math.cos(a) * d, Math.sin(a) * d, 420 + rand() * 160, 2 + rand() * 2, "inflow");
+      }
+      svg.appendChild(spin(svgEl("circle", { cx: p.x, cy: p.y, r: 10, fill: coreGrad(svg, color) }),
+        p, "castFade 520ms ease-out both"));
+    },
+
+    /**
+     * 斥力 · 赫：从掌心炸开的两层冲击波 + 向外飞散的条纹。
+     * 与 converge 正好相反：所有方向朝外，环是「扩散」而不是「收束」。
+     */
+    repulse: (svg, p, color) => {
+      for (let i = 0; i < 12; i++) {
+        const a = (Math.PI / 6) * i;
+        const long = i % 2 === 0;
+        svg.appendChild(svgEl("line", {
+          x1: p.x + Math.cos(a) * 12, y1: p.y + Math.sin(a) * 12,
+          x2: p.x + Math.cos(a) * (long ? 54 : 34), y2: p.y + Math.sin(a) * (long ? 54 : 34),
+          stroke: color, "stroke-width": long ? 2.6 : 1.4, "stroke-linecap": "round", opacity: long ? 0.85 : 0.45,
+        }));
+      }
+      [0, 70].forEach((delay, i) => {
+        svg.appendChild(spin(svgEl("circle", { cx: p.x, cy: p.y, r: 16 + i * 10, fill: "none", stroke: color,
+          "stroke-width": 2.4 - i * 0.8, opacity: 0.9 }), p, `castFade ${300 + i * 120}ms ${delay}ms ease-out both`));
+      });
+      for (let i = 0; i < 7; i++) {
+        const a = rand() * Math.PI * 2;
+        const d = 34 + rand() * 22;
+        mote(p, color, Math.cos(a) * d, Math.sin(a) * d, 340 + rand() * 140, 2 + rand() * 2, "outflow");
+      }
+      svg.appendChild(spin(svgEl("circle", { cx: p.x, cy: p.y, r: 13, fill: coreGrad(svg, color) }),
+        p, "castFade 300ms ease-out both"));
+    },
+
+    /**
+     * 虚式 · 茈：蓝（引力）与红（斥力）两球向掌心对撞，坍缩成紫球并炸出一圈畸变。
+     * 分两拍：0–240ms 对撞，240ms 之后才是紫球与冲击波。
+     */
+    collapse: (svg, p) => {
+      // 起始只有两颗球：左蓝（引力）、右红（斥力），**没有核**
+      const BLUE = "#7c8cff";
+      const RED = "#ff3b4d";
+      const VIOLET = "#a855ff";
+      mote(p, BLUE, -78, -10, 260, 16, "inflow");
+      mote(p, RED, 78, 10, 260, 16, "inflow");
+      // 对撞：白热点一闪 → 紫核 → 三层畸变环 → 外扩粒子
+      setTimeout(() => {
+        if (!fx.contains(svg)) return;
+        svg.appendChild(spin(svgEl("circle", { cx: p.x, cy: p.y, r: 10, fill: coreGrad(svg, "#ffffff") }),
+          p, "castFade 220ms ease-out both"));
+        setTimeout(() => {
+          if (!fx.contains(svg)) return;
+          svg.appendChild(spin(svgEl("circle", { cx: p.x, cy: p.y, r: 26, fill: coreGrad(svg, VIOLET) }),
+            p, "castFade 560ms ease-out both"));
+          [34, 52, 70].forEach((r, i) => {
+            svg.appendChild(spin(svgEl("circle", { cx: p.x, cy: p.y, r, fill: "none", stroke: VIOLET,
+              "stroke-width": 3 - i * 0.7, "stroke-dasharray": i === 0 ? "none" : "12 9", opacity: 0.85 }),
+              p, `castFade ${440 + i * 150}ms ${i * 55}ms ease-out both, castDash 760ms linear both`));
+          });
+          for (let i = 0; i < 12; i++) {
+            const a = rand() * Math.PI * 2;
+            const d = 62 + rand() * 40;
+            mote(p, VIOLET, Math.cos(a) * d, Math.sin(a) * d, 460 + rand() * 180, 2.5 + rand() * 3, "outflow");
+          }
+        }, 90);
+      }, 260);
+    },
+
+    /**
+     * 法阵 · 召唤：脚下影池 + 双层反向环 + 12 刻度 + 六枚召唤纹 + 上升光柱。
+     * 比 charge 更「仪式」，因为召唤要占一整个回合的注意力。
+     */
+    mandala: (svg, p, color = "#9db4ff") => {
+      // 影池：径向渐变的地面暗池 + 三圈透视环（都带淡出）
+      const poolId = `pl${++uid}`;
+      const rg = svgEl("radialGradient", { id: poolId });
+      rg.appendChild(svgEl("stop", { offset: "0%", "stop-color": "#1a1030", "stop-opacity": "0.95" }));
+      rg.appendChild(svgEl("stop", { offset: "55%", "stop-color": "#0d0a1a", "stop-opacity": "0.8" }));
+      rg.appendChild(svgEl("stop", { offset: "100%", "stop-color": "#0d0a1a", "stop-opacity": "0" }));
+      defsOf(svg).appendChild(rg);
+      svg.appendChild(spin(svgEl("ellipse", { cx: p.x, cy: p.y + 30, rx: 66, ry: 19,
+        fill: `url(#${poolId})`, stroke: "none" }), p, "poolIn 760ms ease-out both"));
+      for (let i = 0; i < 3; i++) {
+        svg.appendChild(spin(svgEl("ellipse", {
+          cx: p.x, cy: p.y + 30, rx: 40 + i * 13, ry: 11 + i * 3.6,
+          fill: "none", stroke: color, "stroke-width": 1.4 - i * 0.3, opacity: 0.55 - i * 0.12,
+        }), p, `castFade ${620 + i * 90}ms ${i * 50}ms ease-out both`));
+      }
+      // 上升光柱
+      const beam = svgEl("rect", { x: p.x - 26, y: p.y - 54, width: 52, height: 84, fill: coreGrad(svg, color), opacity: 0.5 });
+      svg.appendChild(spin(beam, p, "castFade 760ms ease-out both"));
+      // 双层反向环
+      svg.appendChild(spin(svgEl("circle", { cx: p.x, cy: p.y, r: 46, fill: "none", stroke: color,
+        "stroke-width": 2.6, "stroke-dasharray": "14 9", opacity: 0.95 }), p, "castFade 780ms ease-out both, castDash 1300ms linear both"));
+      svg.appendChild(spin(svgEl("circle", { cx: p.x, cy: p.y, r: 33, fill: "none", stroke: color,
+        "stroke-width": 1.6, "stroke-dasharray": "5 7", opacity: 0.75 }), p, "castFade 780ms 80ms ease-out both, castDashRev 900ms linear both"));
+      // 12 刻度
+      const ticks = svgEl("g", {});
+      for (let i = 0; i < 12; i++) {
+        const a = (Math.PI / 6) * i - Math.PI / 2;
+        const long = i % 3 === 0;
+        ticks.appendChild(svgEl("line", {
+          x1: p.x + Math.cos(a) * 37, y1: p.y + Math.sin(a) * 37,
+          x2: p.x + Math.cos(a) * (long ? 45 : 41), y2: p.y + Math.sin(a) * (long ? 45 : 41),
+          stroke: color, "stroke-width": long ? 3 : 1.4, opacity: long ? 0.95 : 0.5,
+        }));
+      }
+      svg.appendChild(spin(ticks, p, "castFade 780ms 40ms ease-out both"));
+      // 六枚召唤纹（小三角）
+      const glyphs = svgEl("g", {});
+      for (let i = 0; i < 6; i++) {
+        const a = (Math.PI / 3) * i + Math.PI / 6;
+        const cx = p.x + Math.cos(a) * 25;
+        const cy = p.y + Math.sin(a) * 25;
+        glyphs.appendChild(svgEl("path", {
+          d: `M ${cx} ${cy - 4.5} L ${cx + 4} ${cy + 3} L ${cx - 4} ${cy + 3} Z`,
+          fill: "none", stroke: color, "stroke-width": 1.2, opacity: 0.8,
+        }));
+      }
+      svg.appendChild(spin(glyphs, p, "castFade 780ms 120ms ease-out both"));
+      for (let i = 0; i < 6; i++) {
+        const a = rand() * Math.PI * 2;
+        const d = 30 + rand() * 20;
+        mote(p, color, Math.cos(a) * d, Math.sin(a) * d, 520 + rand() * 200, 2 + rand() * 2, "outflow");
+      }
+    },
+
+    /** 起手闪：八向星芒 + 双环。黑闪这类「抬手就打」。 */
+    flash: (svg, p, color) => {
+      for (let i = 0; i < 8; i++) {
+        const a = (Math.PI / 4) * i;
+        const long = i % 2 === 0;
+        svg.appendChild(svgEl("line", {
+          x1: p.x + Math.cos(a) * 8, y1: p.y + Math.sin(a) * 8,
+          x2: p.x + Math.cos(a) * (long ? 34 : 20), y2: p.y + Math.sin(a) * (long ? 34 : 20),
+          stroke: color, "stroke-width": long ? 2.4 : 1.4, "stroke-linecap": "round", opacity: 0.9,
+        }));
+      }
+      [18, 10].forEach((r, i) => {
+        svg.appendChild(spin(svgEl("circle", { cx: p.x, cy: p.y, r, fill: "none", stroke: color,
+          "stroke-width": 2 - i * 0.5, opacity: 0.9 }), p, `castFade ${260 + i * 60}ms ease-out both`));
+      });
+      svg.appendChild(spin(svgEl("circle", { cx: p.x, cy: p.y, r: 14, fill: coreGrad(svg, color) }),
+        p, "castFade 260ms ease-out both"));
+    },
+
+    /**
+     * 奥义：法阵 + 上下遮幅 + 立绘占位。
+     * 立绘 / 过场动画本次不做，这一档只是**预留接口**。
+     */
+    ultimate: (svg, p, color) => {
+      CAST.mandala(svg, p, color);
+      const bandTop = document.createElement("div");
+      const bandBot = document.createElement("div");
+      const label = document.createElement("div");
+      const base = "position:absolute;left:0;right:0;z-index:8;pointer-events:none;background:#05070d;";
+      bandTop.style.cssText = base + "top:0;height:0;transition:height .22s ease-out;";
+      bandBot.style.cssText = base + "bottom:0;height:0;transition:height .22s ease-out;";
+      label.style.cssText = "position:absolute;left:0;right:0;top:40%;z-index:9;text-align:center;font-size:10px;" +
+        "letter-spacing:4px;color:#8b94ab;opacity:0;transition:opacity .2s;pointer-events:none;";
+      label.textContent = "奥義 · 立绘 / 过场（预留）";
+      fx.appendChild(bandTop); fx.appendChild(bandBot); fx.appendChild(label);
+      requestAnimationFrame(() => {
+        bandTop.style.height = "34px"; bandBot.style.height = "34px"; label.style.opacity = "1";
+      });
+      setTimeout(() => { bandTop.style.height = "0"; bandBot.style.height = "0"; label.style.opacity = "0"; }, 640);
+      setTimeout(() => { bandTop.remove(); bandBot.remove(); label.remove(); }, 920);
+    },
+
+    none: null,
+  };
+
+  // ══════════════════════ ② 轨迹层 ══════════════════════
+  /** outcome: hit | miss | immune。miss 断线、immune 金线，端头由轨迹层决定，不产生受击。 */
+  function drawTrace(svg, preset, a, b, { color, w = 9, dur = 300, delay = 0, outcome = "hit", bowX = 54, bowY = -10 }) {
+    if (preset === "none") return null;
+
+    if (outcome === "miss") {
+      const d = quad(a, b, bowX, bowY);
+      const r = hairline(svg, d, { color: "#8d96a8", w: 1.3, dur: dur * 0.8, delay, dash: "5 6" });
+      const cut = probe(svg, d).getPointAtLength(r.L * 0.62);
+      for (let k = 0; k < 3; k++) {
+        svg.appendChild(svgEl("circle", { cx: cut.x + k * 7, cy: cut.y - k * 3, r: 1.5 - k * 0.4, fill: "#8d96a8", opacity: 0.7 - k * 0.2 }));
+      }
+      return { end: cut, miss: true };
+    }
+
+    if (outcome === "immune") {
+      const d = quad(a, b, bowX, bowY);
+      const r = trail(svg, d, { color: C.immune, w: w * 0.8, dur: dur * 0.85, delay, prof: "comet" });
+      return { end: r.end, immune: true };
+    }
+
+    if (preset === "arrow") {
+      const r = trail(svg, quad(a, b, bowX, bowY), { color, w, dur, delay, prof: "comet" });
+      chevron(svg, r.end, r.ang, color, 8);
+      return r;
+    }
+    if (preset === "precision") {
+      const r = hairline(svg, `M ${a.x} ${a.y} L ${b.x} ${b.y}`, { color, w: 1.5, dur, delay });
+      chevron(svg, r.end, r.ang, color, 7);
+      const mid = probe(svg, `M ${a.x} ${a.y} L ${b.x} ${b.y}`).getPointAtLength(r.L * 0.55);
+      diamond(svg, mid, 3.4, color, 0.9);
+      return r;
+    }
+    if (preset === "fan") {
+      const r = trail(svg, quad(a, b, bowX, bowY), { color, w: 6.5, dur: dur * 0.9, delay, prof: "fan", glow: delay === 0, core: delay === 0 });
+      return r;
+    }
+    if (preset === "updraft") {
+      const r = trail(svg, quad(a, b, 40, 6), { color, w, dur, delay, prof: "comet" });
+      return r;
+    }
+    if (preset === "self") {
+      // 自身 = **单股**上升气流（细起粗收的彗尾弧），端点加一个箭头。
+      // 双股/双箭头在红色下会被读成「自残」；S 形不是这套语言，直接用 quad 弧。
+      const r = trail(svg, quad(a, b, 40, 6), { color, w, dur, delay, prof: "comet", coreOpacity: 0.3 });
+      chevron(svg, r.end, r.ang, color, 7);
+      return r;
+    }
+    if (preset === "slash") {
+      const r = trail(svg, quad(a, b, -26, -34), { color, colorFrom: "#140006", w, dur, delay, prof: "blade", coreColor: "#3d0009", coreOpacity: 0.75 });
+      return r;
+    }
+    return null;
+  }
+
+  // ══════════════════════ ③ 受击层 ══════════════════════
+  const IMPACT = {
+    burst: (svg, rect, p, color) => {
+      if (settings.reduce) return;
+      sparks(p, color, 8);
+      ringAt(p, color, 56);
+    },
+    lightning: (svg, rect, p, color) => {
+      const dirs = [-2.5, -1.9, -0.7, 0.35, 1.1, 2.6];
+      for (const a of dirs) {
+        const len = 36 + rand() * 36;
+        const to = { x: p.x + Math.cos(a) * len, y: p.y + Math.sin(a) * len * 0.85 };
+        const mid = { x: (p.x + to.x) / 2 + (rand() - 0.5) * 14, y: (p.y + to.y) / 2 + (rand() - 0.5) * 14 };
+        const d = boltD([...boltPoints(p, mid, 3, 9), ...boltPoints(mid, to, 3, 9).slice(1)]);
+        const g = lineGrad(svg, p, to, color, "#140006");
+        svg.appendChild(svgEl("path", { d, fill: "none", stroke: color, "stroke-width": 3.6, "stroke-linecap": "round", opacity: 0.28, filter: "blur(4px)" }));
+        svg.appendChild(svgEl("path", { d, fill: "none", stroke: g, "stroke-width": 2, "stroke-linecap": "round", opacity: 0.95 }));
+        svg.appendChild(svgEl("path", { d, fill: "none", stroke: "#140006", "stroke-width": 0.8, "stroke-linecap": "round", opacity: 0.6 }));
+      }
+      if (!settings.reduce && !settings.noFlash) {
+        const el = document.createElement("div");
+        el.className = "fx-flash";
+        el.style.background = `radial-gradient(circle 150px at ${p.x}px ${p.y}px, rgba(255,74,74,.5), rgba(130,0,16,.26) 46%, transparent 76%)`;
+        el.style.animation = "fadein 90ms ease-out both";
+        fx.appendChild(el);
+        setTimeout(() => { el.style.transition = "opacity 220ms"; el.style.opacity = "0"; }, 70);
+        setTimeout(() => el.remove(), 340);
+      }
+      sparks(p, "#ff8a80", 12);
+    },
+    cuts: (svg, rect, p, color, miss = false) => {
+      const specs = miss
+        ? [{ cx: 0.34, cy: -0.1, a: -0.2, len: 0.26, d: 0, w: 3.2 },
+           { cx: 0.6, cy: -0.18, a: 0.18, len: 0.3, d: 45, w: 3.4 }]
+        : [{ cx: 0.28, cy: 0.34, a: -0.3, len: 0.24, d: 0, w: 4 },
+           { cx: 0.62, cy: 0.62, a: 0.26, len: 0.22, d: 42, w: 4.2 },
+           { cx: 0.44, cy: 0.44, a: -0.08, len: 0.34, d: 84, w: 4.6 },
+           { cx: 0.7, cy: 0.36, a: 0.12, len: 0.18, d: 122, w: 3.4 }];
+      for (const s of specs) {
+        const cx = rect.x + rect.w * s.cx;
+        const cy = rect.y + rect.h * s.cy;
+        const len = (rect.w * s.len) / 2;
+        const dx = Math.cos(s.a) * len;
+        const dy = Math.sin(s.a) * len;
+        const d = `M ${(cx - dx).toFixed(1)} ${(cy - dy).toFixed(1)} L ${(cx + dx).toFixed(1)} ${(cy + dy).toFixed(1)}`;
+        trail(svg, d, { color: miss ? "#8d96a8" : color, w: s.w, dur: 100, delay: s.d, prof: "blade", glow: false, core: false });
+      }
+      if (!miss) sparks(p, color, 5);
+    },
+    shield: (svg, rect, p, color) => {
+      hexShield(svg, p, color);
+      ringAt(p, color, 54);
+    },
+    none: null,
+  };
+
+  // ══════════════════════ ④ 结算层 ══════════════════════
+  function spawnNumber({ x, y, text, color, size, stroke, glow, align }) {
+    const wrap = document.createElement("div");
+    wrap.className = "fx-num";
+    wrap.style.left = `${x}px`;
+    wrap.style.top = `${y}px`;
+    wrap.style.color = color;
+    wrap.style.fontSize = `${size}px`;
+    wrap.style.lineHeight = "1";
+    const s = Math.max(0.7, size * 0.045);
+    const shadows = [
+      `${s}px 0 0 #05070d`, `${-s}px 0 0 #05070d`, `0 ${s}px 0 #05070d`, `0 ${-s}px 0 #05070d`,
+      `${s * 0.72}px ${s * 0.72}px 0 #05070d`, `${-s * 0.72}px ${s * 0.72}px 0 #05070d`,
+      `${s * 0.72}px ${-s * 0.72}px 0 #05070d`, `${-s * 0.72}px ${-s * 0.72}px 0 #05070d`,
+    ];
+    if (glow) shadows.push(`0 0 16px ${glow}`, `0 0 32px ${glow}88`);
+    wrap.style.textShadow = shadows.join(",");
+    wrap.style.transform = align === "right" ? "translate(-100%,-50%)" : "translate(-50%,-50%)";
+    const t = document.createElement("span");
+    t.className = "fx-num__t";
+    t.textContent = text;
+    const mid = document.createElement("span");
+    mid.className = "fx-num__r";
+    if (!settings.reduce) {
+      t.style.animation = "pop 300ms cubic-bezier(.18,.9,.28,1.25) both";
+      mid.style.animation = "rise 950ms 260ms ease-out both";
+    }
+    mid.appendChild(t);
+    wrap.appendChild(mid);
+    fx.appendChild(wrap);
+  }
+
+  function spawnTag(x, y, text, color, align) {
+    const el = document.createElement("div");
+    el.className = "fx-label";
+    const tag = document.createElement("span");
+    tag.className = "fx-tag";
+    tag.textContent = text;
+    tag.style.cssText = `color:${color};border:1px solid ${color}77;background:#0d111c;`;
+    el.appendChild(tag);
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.style.transform = align === "center" ? "translate(-50%,0)" : "translate(-100%,0)";
+    if (!settings.reduce) el.style.animation = "fadein 200ms 80ms both";
+    fx.appendChild(el);
+  }
+
+  function spawnBlackFlash(x, y, align) {
+    const el = document.createElement("div");
+    el.className = "fx-label fx-bf";
+    const b = document.createElement("b");
+    b.textContent = "黒閃";
+    const en = document.createElement("span");
+    en.textContent = "BLACK FLASH";
+    el.appendChild(b);
+    el.appendChild(en);
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.style.transform = align === "center" ? "translate(-50%,0)" : "translate(-100%,0)";
+    if (!settings.reduce) el.style.animation = "fadein 200ms 60ms both";
+    fx.appendChild(el);
+  }
+
+  function shake(el) {
+    if (settings.reduce) return;
+    el.classList.remove("shake");
+    void el.offsetWidth;
+    el.classList.add("shake");
+    setTimeout(() => el.classList.remove("shake"), 380);
+  }
+
+  function applyDamage(id, amount) {
+    const st = state[id];
+    st.hp = Math.max(0, st.hp - amount);
+    const card = units[id];
+    card.querySelector(".bar-fill").style.width = `${(st.hp / st.max) * 100}%`;
+    card.querySelector(".val").textContent = `${st.hp}/${st.max}`;
+    if (st.hp === 0) card.classList.add("dead");
+  }
+
+  const ACTORS = {
+    normal: { name: "普通咒术师", color: C.damage, layer: "P0",
+      names: { energy: "术式 · 冲击", precision: "术式 · 锁定", area: "术式 · 扩散", slash: "黑闪", cut: "斩击", heal: "反转术式" } },
+    gojo: { name: "五条悟", color: "#7c8cff", layer: "P3",
+      names: { energy: "术式「苍」", precision: "术式反转「赫」", area: "虚式「茈」", slash: "黑闪", cut: "解", heal: "反转术式" } },
+  };
+  let actorKey = "normal";
+  const state = { e1: { hp: 320, max: 320 }, e2: { hp: 345, max: 345 }, e3: { hp: 180, max: 180 } };
+
+  const SKILLS = {
+    energy: {
+      cast: "converge", trace: "arrow", impact: "burst", prof: "comet", w: 9, dur: 300,
+      color: { normal: C.damage, gojo: "#7c8cff" },
+      hits: [{ target: "e1", kind: "damage", amount: 68 }],
+    },
+    precision: {
+      cast: "repulse", trace: "precision", impact: "burst", w: 2, dur: 240,
+      color: { normal: C.damage, gojo: "#ff3b4d" },
+      hits: [{ target: "e1", kind: "damage", amount: 120, crit: true }],
+    },
+    area: {
+      cast: "collapse", trace: "fan", impact: "burst", w: 6.5, dur: 340,
+      color: { normal: C.damage, gojo: "#a855ff" },
+      hits: [
+        { target: "e1", kind: "damage", amount: 168 },
+        { target: "e2", kind: "miss" },
+        { target: "e3", kind: "immune" },
+      ],
+    },
+    slash: {
+      cast: "flash", trace: "slash", impact: "lightning", w: 17, dur: 180,
+      color: "#ff2f45",
+      hits: [{ target: "e1", kind: "damage", amount: 225, crit: true, critTier: 2 }],
+    },
+    cut: {
+      cast: "none", trace: "arrow", impact: "cuts", w: 4, dur: 150,
+      color: { normal: "#dfe8ff", gojo: "#ff5a5f" },
+      hits: [
+        { target: "e1", kind: "damage", amount: 96 },
+        { target: "e2", kind: "damage", amount: 88 },
+        { target: "e3", kind: "miss" },
+      ],
+    },
+    heal: {
+      cast: "none", trace: "updraft", impact: "none", w: 7, dur: 320,
+      color: C.heal,
+      hits: [{ target: "player", kind: "heal", amount: 80 }],
+    },
+  };
+
+  const colorOf = (skill) => typeof skill.color === "string" ? skill.color : (skill.color[actorKey] ?? C.damage);
+  const setCascade = (rows) => {
+    for (const [k, id] of [["cast", "Cast"], ["trace", "Trace"], ["impact", "Impact"], ["result", "Result"], ["color", "Color"]]) {
+      const [v, p] = rows[k] ?? ["—", "P0"];
+      document.getElementById(`cs${id}`).textContent = v;
+      const pe = document.getElementById(`cs${id}P`);
+      pe.textContent = p;
+      pe.className = `p ${p.toLowerCase()}`;
+    }
+  };
+
+  function clearFx() { fx.innerHTML = ""; }
+
+  /** 一次完整出手：四层按顺序合成。 */
+  function play(key) {
+    const skill = SKILLS[key];
+    if (!skill) return;
+    clearFx();
+    const color = colorOf(skill);
+    const speed = settings.fast ? 0.4 : 1;
+    const dur = Math.max(50, skill.dur * speed);
+    const svg = mkSvg();
+    const a = origin();
+    const s = selfRect();
+
+    document.getElementById("hintTag").textContent = ACTORS[actorKey].names[key] ?? key;
+    setCascade({
+      cast: [skill.cast, skill.cast === "none" ? "P0" : "P0"],
+      trace: [skill.trace, skill.trace === "none" ? "P0" : "P3"],
+      impact: [skill.impact, skill.impact === "lightning" || skill.impact === "cuts" ? "P3" : "P0"],
+      result: ["28 / 1.4", "P0"],
+      color: [color.toUpperCase(), typeof skill.color === "string" ? "P4" : "P3"],
+    });
+
+    // ① 施法
+    if (CAST[skill.cast]) CAST[skill.cast](svg, a, color);
+    const castLead = skill.cast === "none" ? 0 : 140 * speed;
+
+    let impactAt = castLead + dur;
+
+    // ② 轨迹：线的数量 = 目标数量，每个目标按自己的结果收尾（命中/断线/撞盾）
+    const from = skill.trace === "fan"
+      ? { x: s.x + s.w * 0.5, y: s.y + s.h + 2 }
+      : a;
+    if (skill.trace === "fan") {
+      const lr = rectOf(enemyList);
+      const wash = svgEl("ellipse", { cx: lr.x + lr.w * 0.5, cy: lr.y + lr.h * 0.5,
+        rx: lr.w * 0.46, ry: lr.h * 0.46, fill: color, opacity: 0.055 });
+      wash.style.transformOrigin = `${lr.x + lr.w * 0.5}px ${lr.y + lr.h * 0.5}px`;
+      wash.style.animation = "washin 520ms cubic-bezier(.16,.7,.2,1) both";
+      svg.appendChild(wash);
+    }
+    if (skill.trace !== "none") {
+      skill.hits.forEach((hit, i) => {
+        const b = hit.target === "player"
+          ? { x: s.x + s.w * 0.66, y: s.y + 8 }
+          : cardCenter(hit.target);
+        drawTrace(svg, skill.trace, hit.target === "player" ? { x: s.x + s.w * 0.44, y: s.y + s.h - 6 } : from, b, {
+          color,
+          w: skill.trace === "fan" ? 6.5 : skill.w,
+          dur: skill.trace === "fan" ? dur * 0.9 : dur,
+          delay: castLead + i * (settings.fast ? 25 : 55),
+          outcome: hit.kind,
+        });
+      });
+    }
+    impactAt = castLead + (skill.trace === "fan" ? dur * 0.9 : dur) + (skill.hits.length - 1) * 55 + 40;
+
+    // ③④ 命中 + 结算
+    const seen = {};
+    skill.hits.forEach((hit, i) => {
+      const stack = seen[hit.target] ?? 0;
+      seen[hit.target] = stack + 1;
+      const at = impactAt + i * (settings.fast ? 60 : 150);
+      setTimeout(() => {
+        const el = hit.target === "player" ? selfEl : units[hit.target];
+        const r = rectOf(el);
+        const p = hit.target === "player" ? { x: r.x + r.w * 0.56, y: r.y + r.h * 0.5 } : { x: r.x + r.w * 0.3, y: r.y + r.h * 0.5 };
+
+        if (hit.kind === "miss") {
+          // 未命中：没有受击段。无轨迹技能（斩击）用「斩空」表达
+          if (skill.trace === "none" && IMPACT[skill.impact]) IMPACT[skill.impact](svg, r, p, color, true);
+          spawnTag(p.x + 14, p.y - 12, "MISS", C.miss, "left");
+          return;
+        }
+        if (hit.kind === "immune") {
+          IMPACT.shield(svg, r, p, C.immune);
+          spawnTag(p.x + 14, p.y - 12, "免疫", C.immune, "left");
+          return;
+        }
+
+        if (IMPACT[skill.impact]) IMPACT[skill.impact](svg, r, p, hit.critTier >= 2 ? "#ff2f45" : color);
+
+        const toSelf = hit.target === "player";
+        const px = toSelf ? r.x + r.w * 0.56 : r.x + r.w - 12;
+        const py = r.y + 22 - stack * 32;
+        const crit = hit.crit === true;
+        const tier = hit.critTier ?? (crit ? 1 : 0);
+        const size = tier >= 2 ? 42 : crit ? 36 : 28;
+        const stroke = tier >= 2 ? 2.4 : crit ? 1.8 : 1.4;
+        const sign = hit.kind === "heal" ? "+" : "-";
+        const suffix = tier >= 2 ? "!!" : crit ? "!" : "";
+
+        spawnNumber({ x: px, y: py, text: `${sign}${hit.amount}${suffix}`,
+          color: hit.kind === "heal" ? C.heal : C.damage, size, stroke,
+          glow: tier >= 2 ? "#ff2f45" : crit ? "#ff9aa8" : undefined,
+          align: toSelf ? "center" : "right" });
+
+        if (tier >= 2) spawnBlackFlash(px, py + size * 0.5 + 10, toSelf ? "center" : "right");
+        else if (crit) spawnTag(px, py + size * 0.5 + 8, "CRITICAL", "#ffd479", toSelf ? "center" : "right");
+
+        if (crit) shake(el);
+        if (hit.kind === "heal") {
+          document.getElementById("phpt").textContent = "221/221";
+          document.getElementById("php").style.width = "100%";
+        } else {
+          applyDamage(hit.target, hit.amount);
+        }
+      }, at);
+    });
+  }
+
+  function applyActor() {
+    const actor = ACTORS[actorKey];
+    document.querySelectorAll("#actorSwitch button").forEach((b) => b.classList.toggle("on", b.dataset.actor === actorKey));
+    document.querySelector("#self .self-name b").textContent = actor.name;
+    document.querySelector("#self .chips").innerHTML = actorKey === "gojo"
+      ? '<span class="chip">六眼</span><span class="chip dash">无下限</span>'
+      : '<span class="chip" style="color:#9db4ff;border-color:rgba(124,140,255,.35)">术式 · 无特性</span>';
+    document.querySelectorAll("[data-cast]").forEach((btn) => {
+      btn.querySelector("b").textContent = actor.names[btn.dataset.cast] ?? btn.dataset.cast;
+    });
+    clearFx();
+    setCascade({ cast: ["converge", "P0"], trace: ["arrow", "P0"], impact: ["burst", "P0"],
+      result: ["28 / 1.4", "P0"], color: [actor.color.toUpperCase(), actor.layer] });
+    document.getElementById("hintTag").textContent = "选一个技能";
+  }
+
+  // ══════════════════════ 友军（召唤物） ══════════════════════
+  const allyList = document.getElementById("allyList");
+  let allies = [];
+
+  function renderAllies() {
+    allyList.innerHTML = allies.length === 0
+      ? '<div class="ally-empty">场上没有召唤物</div>'
+      : allies.map((a) => `
+      <div class="ally${a.departed ? " departed" : ""}" data-ally="${a.id}">
+        <div class="row-top"><span class="name">${a.name}</span><span class="val">${a.departed ? "—" : `${a.hp}/${a.max}`}</span></div>
+        <div class="bar"><i style="width:${a.departed ? 0 : (a.hp / a.max) * 100}%"></i></div>
+        <span class="tag-s">${a.departed ? "已离场 · 本轮灰卡" : "召唤物"}</span>
+      </div>`).join("");
+    const live = allies.filter((a) => !a.departed).length;
+    const slot = document.getElementById("allySlots");
+    if (slot) slot.textContent = String(live);
+  }
+
+  function addAlly(name = "玉犬 · 黑") {
+    const id = `a${++uid}`;
+    allies.push({ id, name, hp: 90, max: 90 });
+    renderAllies();
+    const el = allyList.querySelector(`[data-ally="${id}"]`);
+    el.classList.add("arriving");
+    return el;
+  }
+
+  /** 离场：本轮先灰卡（不占召唤位），下一轮才真正移除 —— 轨迹还要指到它 */
+  function departAlly(el) {
+    const id = el?.dataset?.ally;
+    const a = allies.find((x) => x.id === id);
+    if (a) a.departed = true;
+    renderAllies();
+  }
+
+  function nextRound() {
+    allies = allies.filter((a) => !a.departed);
+    renderAllies();
+    const el = document.getElementById("roundNo");
+    el.textContent = String(Number(el.textContent) + 1);
+    clearFx();
+  }
+
+  // 受击层的召唤专属三档：登场 / 离场 / 被吞
+  const SUMMON_IMPACT = {
+    arrive: (svg, r, color) => {
+      const p = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+      // 落点光斑：一团柔光先亮后灭
+      const burstId = `ab${++uid}`;
+      const bg = svgEl("radialGradient", { id: burstId });
+      bg.appendChild(svgEl("stop", { offset: "0%", "stop-color": "#ffffff", "stop-opacity": "0.9" }));
+      bg.appendChild(svgEl("stop", { offset: "35%", "stop-color": color, "stop-opacity": "0.55" }));
+      bg.appendChild(svgEl("stop", { offset: "100%", "stop-color": color, "stop-opacity": "0" }));
+      defsOf(svg).appendChild(bg);
+      svg.appendChild(spin(svgEl("ellipse", { cx: p.x, cy: p.y + 8, rx: 46, ry: 26,
+        fill: `url(#${burstId})`, stroke: "none" }), p, "castFade 520ms ease-out both"));
+
+      // 三圈光环：粗细递减、半径递增，逐圈淡出
+      for (let i = 0; i < 3; i++) {
+        const ring = svgEl("circle", { cx: p.x, cy: p.y, r: 14 + i * 9, fill: "none", stroke: color,
+          "stroke-width": 2.6 - i * 0.6, "stroke-dasharray": i === 1 ? "9 6" : "none", opacity: 0 });
+        ring.style.animation = `castFade ${480 + i * 110}ms ${i * 55}ms ease-out both`;
+        svg.appendChild(ring);
+      }
+
+      // 地面落环（透视椭圆），跟着一起淡出
+      svg.appendChild(spin(svgEl("ellipse", { cx: p.x, cy: p.y + 24, rx: r.w * 0.4, ry: 7,
+        fill: "none", stroke: color, "stroke-width": 1.8, opacity: 0 }),
+        p, "castFade 620ms 60ms ease-out both"));
+
+      // 放射线：由内向外拉开，每根各自淡出（不再是死线）
+      for (let i = 0; i < 7; i++) {
+        const a = -Math.PI / 2 + (i - 3) * 0.19;
+        const line = svgEl("line", {
+          x1: p.x + Math.cos(a) * 16, y1: p.y + Math.sin(a) * 24,
+          x2: p.x + Math.cos(a) * 38, y2: p.y + Math.sin(a) * 58,
+          stroke: color, "stroke-width": 1.6, "stroke-linecap": "round", opacity: 0,
+        });
+        line.style.animation = `castFade ${420 + i * 45}ms ${40 + i * 30}ms ease-out both`;
+        svg.appendChild(line);
+      }
+      sparks(p, color, 8);
+    },
+    depart: (svg, r, color) => {
+      const p = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+      for (let i = 0; i < 4; i++) {
+        const line = svgEl("line", { x1: p.x - 26 + i * 15, y1: p.y + 18, x2: p.x - 26 + i * 15, y2: p.y - 20,
+          stroke: color, "stroke-width": 1.2, opacity: 0.5 });
+        line.style.animation = `castFade ${380 + i * 60}ms ease-out both`;
+        svg.appendChild(line);
+      }
+      sparks(p, color, 6);
+    },
+    dissolve: (svg, r, color) => {
+      // 用 DOM 火花 + 冲击环，不用 SVG transform（合成层下不稳）
+      const p = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+      sparks(p, "#c9a0ff", 9);
+      ringAt(p, "#c9a0ff", 46);
+    },
+  };
+
+  // ══════════════════════ 分层实验台 ══════════════════════
+  const stepEls = [...document.querySelectorAll("#steps span")];
+  const step = (i) => stepEls.forEach((el, k) => el.classList.toggle("on", i >= 0 && k === i));
+  const tint = () => ACTORS[actorKey].color;
+
+  function benchCast(kind) {
+    clearFx(); step(0);
+    if (CAST[kind]) CAST[kind](mkSvg(), origin(), tint());
+    setTimeout(() => step(-1), 700);
+  }
+
+  /** 上行箭头：整条落在目标卡内（下缘内侧 → 上缘内侧），永不出卡。 */
+  function riseOn(svg, rect, color, delay = 0) {
+    // 对角上升：**左下 → 右上**，不是原地竖直。竖直 + 右偏控制点会卷成 C 形（试过，形状不对）。
+    return drawTrace(svg, "self",
+      { x: rect.x + rect.w * 0.42, y: rect.y + rect.h - 6 },
+      { x: rect.x + rect.w * 0.64, y: rect.y + 6 },
+      { color, w: 6.5, dur: 300, delay });
+  }
+
+  /**
+   * ⑥ 目标演示：自身 / 单个友军 / 全体。
+   *
+   * 语法只有两条：
+   * - **自己**：没有飞线，直接在自己卡里上行（自己对自己不该有横向位移）；
+   * - **别人**：先一条飞线过去，落到对方卡里再上行 —— 不这样的话「谁给谁加」又看不出来了。
+   *
+   * 颜色：治疗绿、增益红（2026-11-23 用户裁决）。
+   */
+  function supportDemo(kind) {
+    clearFx(); step(2);
+    const heal = kind.startsWith("heal");
+    const color = heal ? C.heal : C.damage;
+    const scope = kind.endsWith("all") ? "all" : kind.endsWith("ally") ? "ally" : "self";
+    if (scope !== "self") {
+      ensureAlly();
+      if (scope === "all" && allies.length < 2) addAlly("玉犬 · 黑");
+    }
+    const svg = mkSvg();
+    const s = selfRect();
+    const hand = { x: s.x + s.w * 0.86, y: s.y + s.h - 2 };
+    const allyEls = () => [...allyList.querySelectorAll("[data-ally]:not(.departed)")];
+
+    /** 结算：治疗出数字，增益挂标签（标签走右上角，别压住血量数值）。 */
+    const paint = (rect, at) => setTimeout(() => {
+      // 一律挂**名字行右侧**：中线右边是血量数值（207/221、80/90），挂那儿必压字
+      const px = rect.x + rect.w - 10;
+      if (heal) spawnNumber({ x: px, y: rect.y + 16, text: "+80", color: C.heal, size: 26, stroke: 1.3, align: "right" });
+      else spawnTag(px, rect.y + 6, "强化", C.damage, "right");
+    }, at);
+
+    // 目标是自己：updraft（双股上升）+ 箭头，整条在卡内
+    if (scope === "self") {
+      riseOn(svg, s, color);
+      paint(s, 240);
+      setTimeout(() => step(-1), 1100);
+      return;
+    }
+
+    // 单个友军：arrow 飞线过去
+    if (scope === "ally") {
+      const r = rectOf(allyEls()[0]);
+      drawTrace(svg, "arrow", hand, { x: r.x + r.w * 0.16, y: r.y + r.h * 0.5 },
+        { color, w: 6, dur: 270, bowX: 28, bowY: -16 });
+      paint(r, 260);
+      setTimeout(() => step(-1), 1100);
+      return;
+    }
+
+    // 全体：自身 updraft，友军每人一根 fan 刃
+    const apex = { x: s.x + s.w * 0.5, y: s.y + s.h + 2 };
+    riseOn(svg, s, color);
+    paint(s, 240);
+    allyEls().forEach((el, i) => {
+      const r = rectOf(el);
+      const t = { x: r.x + r.w * 0.18, y: r.y + r.h * 0.5 };
+      drawTrace(svg, "fan", apex, t, {
+        color, w: 6, dur: 300, delay: 60 + i * 60,
+        bowX: apex.x + (t.x - apex.x) * 0.34 + (i - 0.5) * 40 - (apex.x + t.x) / 2,
+        bowY: apex.y + (t.y - apex.y) * 0.5 - (apex.y + t.y) / 2,
+      });
+      paint(r, 320 + i * 60);
+    });
+    setTimeout(() => step(-1), 1300);
+  }
+
+  function benchTrace(kind) {
+    clearFx(); step(1);
+    const svg = mkSvg();
+    const a = origin();
+    const b = cardCenter("e1");
+    const color = tint();
+    if (kind === "miss") {
+      drawTrace(svg, "arrow", a, b, { color: "#8d96a8", w: 9, dur: 300, outcome: "miss" });
+    } else if (kind === "resist") {
+      const r = drawTrace(svg, "arrow", a, b, { color: C.immune, w: 9, dur: 300, outcome: "immune" });
+      if (r) setTimeout(() => hexShield(svg, r.end, C.immune), 300);
+    } else if (kind === "fan") {
+      const lr = rectOf(enemyList);
+      const apex = { x: selfRect().x + selfRect().w * 0.5, y: selfRect().y + selfRect().h + 2 };
+      ["e1", "e2", "e3"].forEach((id, i) => {
+        const tr = rectOf(units[id]);
+        const t = { x: tr.x + tr.w * 0.22, y: tr.y + tr.h * 0.5 };
+        drawTrace(svg, "fan", apex, t, { color, dur: 300, delay: i * 55,
+          bowX: apex.x + (t.x - apex.x) * 0.34 + (i - 1) * 40 - (apex.x + t.x) / 2,
+          bowY: apex.y + (t.y - apex.y) * 0.52 - (apex.y + t.y) / 2, w: 6.5 });
+      });
+    } else if (kind === "self") {
+      riseOn(svg, selfRect(), color);
+    } else if (kind === "updraft") {
+      const s = selfRect();
+      drawTrace(svg, "updraft", { x: s.x + s.w * 0.44, y: s.y + s.h - 6 }, { x: s.x + s.w * 0.66, y: s.y + 6 }, { color, w: 7, dur: 320 });
+      drawTrace(svg, "updraft", { x: s.x + s.w * 0.3, y: s.y + s.h - 6 }, { x: s.x + s.w * 0.5, y: s.y + 10 }, { color, w: 4, dur: 340, delay: 60 });
+    } else {
+      drawTrace(svg, kind, a, b, { color, w: kind === "arrow" ? 9 : 2, dur: 300 });
+    }
+    setTimeout(() => step(-1), 900);
+  }
+
+  function benchImpact(kind) {
+    clearFx(); step(2);
+    const svg = mkSvg();
+    const r = rectOf(units.e1);
+    const p = { x: r.x + r.w * 0.3, y: r.y + r.h * 0.5 };
+    if (kind === "burst") IMPACT.burst(svg, r, p, C.damage);
+    else if (kind === "lightning") IMPACT.lightning(svg, r, p, "#ff2f45");
+    else if (kind === "cuts") IMPACT.cuts(svg, r, p, tint() === C.damage ? "#ff5a5f" : tint());
+    else if (kind === "shield") { IMPACT.shield(svg, r, p, C.immune); spawnTag(p.x + 14, p.y - 12, "免疫", C.immune, "left"); }
+    else if (kind === "none") spawnTag(p.x + 14, p.y - 12, "MISS", C.miss, "left");
+    setTimeout(() => step(-1), 900);
+  }
+
+  function benchResult(kind) {
+    clearFx(); step(3);
+    const r = rectOf(units.e1);
+    const px = r.x + r.w - 12;
+    const py = r.y + 22;
+    if (kind === "normal") spawnNumber({ x: px, y: py, text: "-68", color: C.damage, size: 28, stroke: 1.4, align: "right" });
+    if (kind === "crit") {
+      spawnNumber({ x: px, y: py, text: "-100!", color: C.damage, size: 36, stroke: 1.8, glow: "#ff9aa8", align: "right" });
+      spawnTag(px, py + 26, "CRITICAL", "#ffd479", "right");
+    }
+    if (kind === "finisher") {
+      spawnNumber({ x: px, y: py, text: "-225!!", color: C.damage, size: 42, stroke: 2.4, glow: "#ff2f45", align: "right" });
+      spawnBlackFlash(px, py + 32, "right");
+    }
+    if (kind === "heal") {
+      const sr = selfRect();
+      spawnNumber({ x: sr.x + sr.w * 0.56, y: sr.y + sr.h * 0.5, text: "+80", color: C.heal, size: 28, stroke: 1.4, align: "center" });
+    }
+    setTimeout(() => step(-1), 1400);
+  }
+
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const SUMMON_COLOR = "#9db4ff";
+
+  /** 保证场上至少有一只召唤物（收回/献祭的演示前提） */
+  function ensureAlly() {
+    if (allies.length > 0) return allyList.querySelector(`[data-ally="${allies[0].id}"]`);
+    const el = addAlly("玉犬 · 白");
+    return el;
+  }
+
+  async function benchSummon(kind) {
+    clearFx();
+    step(-1);
+    const svg = mkSvg();
+    const a = origin();
+    const color = SUMMON_COLOR;
+
+    if (kind === "summon" || kind === "summonAttack") {
+      // 每次从「一只初始召唤物」开始，避免演示叠加成三只
+      allies = [{ id: "a0", name: "玉犬 · 白", hp: 80, max: 80 }];
+      renderAllies();
+      await wait(30);
+      const sr = selfRect();
+      const hand = { x: sr.x + sr.w * 0.5, y: sr.y + sr.h * 0.42 };  // 手心，别压到下面的召唤物
+      CAST.mandala(svg, hand, color);                   // 召唤者：法阵（影池 + 双层环 + 召唤纹）
+      await wait(340);
+      const el = addAlly();
+      await wait(40);
+      const r = rectOf(el);
+      SUMMON_IMPACT.arrive(svg, r, color);             // 登场：受击层的 summon 档
+      if (kind === "summonAttack") {
+        await wait(520);
+        const from = { x: r.x + r.w * 0.72, y: r.y + r.h * 0.35 };
+        const b = cardCenter("e1");
+        const tr = drawTrace(svg, "arrow", from, b, { color, w: 7, dur: 280 });
+        await wait(320);
+        const er = rectOf(units.e1);
+        const p = { x: er.x + er.w * 0.3, y: er.y + er.h * 0.5 };
+        IMPACT.burst(svg, er, p, color);
+        spawnNumber({ x: er.x + er.w - 12, y: er.y + 22, text: "-42", color: C.damage, size: 28, stroke: 1.4, align: "right" });
+        applyDamage("e1", 42);
+        shake(units.e1);
+      }
+      return;
+    }
+
+    if (kind === "recall") {
+      const el = ensureAlly();
+      const r = rectOf(el);
+      const p = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+      drawTrace(svg, "updraft", { x: p.x + 10, y: p.y + 6 }, a, { color, w: 6, dur: 300 });  // 上升之风（反向）
+      await wait(330);
+      SUMMON_IMPACT.depart(svg, r, color);
+      spawnTag(p.x + 24, p.y - 10, "收回", color, "left");
+      await wait(380);          // 动效播完再撤卡，否则线指向空气
+      departAlly(el);
+      return;
+    }
+
+    if (kind === "sacrifice") {
+      const el = ensureAlly();
+      const r = rectOf(el);
+      const p = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+      drawTrace(svg, "precision", a, p, { color, w: 2, dur: 260 });                          // 锁定
+      await wait(300);
+      SUMMON_IMPACT.dissolve(svg, r, color);
+      spawnTag(p.x + 24, p.y - 10, "献祭", "#c9a0ff", "left");
+      await wait(320);          // 同上：先演完再消失
+      departAlly(el);
+      return;
+    }
+
+    if (kind === "massSacrifice" || kind === "vortex") {
+      if (allies.length === 0) ensureAlly();
+      await wait(40);
+      const cards = [...allyList.querySelectorAll(".ally")];
+      const rects = cards.map((c) => rectOf(c));
+      const apex = { x: a.x, y: a.y };
+      rects.forEach((r, i) => {
+        const t = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+        drawTrace(svg, "fan", apex, t, { color: "#c9a0ff", w: 5, dur: 280, delay: i * 50,
+          bowX: apex.x + (t.x - apex.x) * 0.3 - (apex.x + t.x) / 2,
+          bowY: -30 - (apex.y + t.y) / 2 + (apex.y + t.y) * 0.5 });
+      });
+      await wait(360);
+      cards.forEach((c, i) => {
+        const r = rectOf(c);
+        setTimeout(() => {
+          SUMMON_IMPACT.dissolve(svg, r, "#c9a0ff");
+          setTimeout(() => departAlly(c), 320);   // 先演完再灰卡（下一轮才移除）
+        }, i * 60);
+      });
+      if (kind === "massSacrifice") {
+        spawnTag(a.x + 30, a.y - 56, "群体献祭", "#c9a0ff", "left");
+        return;
+      }
+      // 漩涡：友方群祭之后，再接一发敌方单体
+      await wait(520);
+      const b = cardCenter("e1");
+      const beam = trail(svg, `M ${a.x} ${a.y} L ${b.x} ${b.y}`, { color: "#d9a7ff", w: 15, dur: 240, prof: "blade" });
+      chevron(svg, beam.end, beam.ang, "#d9a7ff", 9);
+      await wait(260);
+      const er = rectOf(units.e1);
+      const p = { x: er.x + er.w * 0.3, y: er.y + er.h * 0.5 };
+      IMPACT.burst(svg, er, p, "#d9a7ff");
+      const px = er.x + er.w - 12;
+      spawnNumber({ x: px, y: er.y + 22, text: "-186", color: C.damage, size: 36, stroke: 1.8, glow: "#ff9aa8", align: "right" });
+      spawnTag(px, er.y + 22 + 26, "CRITICAL", "#ffd479", "right");
+      applyDamage("e1", 186);
+      shake(units.e1);
+      return;
+    }
+  }
+
+  function fullChain() {
+    clearFx();
+    const svg = mkSvg();
+    const a = origin();
+    const b = cardCenter("e1");
+    const color = tint();
+    const r = rectOf(units.e1);
+    const p = { x: r.x + r.w * 0.3, y: r.y + r.h * 0.5 };
+    step(0);
+    CAST.charge(svg, a, color);
+    setTimeout(() => {
+      step(1);
+      drawTrace(svg, "arrow", a, b, { color, w: 9, dur: 300 });
+    }, 240);
+    setTimeout(() => {
+      step(2);
+      IMPACT.burst(svg, r, p, color);
+      shake(units.e1);
+    }, 580);
+    setTimeout(() => {
+      step(3);
+      spawnNumber({ x: r.x + r.w - 12, y: r.y + 22, text: "-68", color: C.damage, size: 28, stroke: 1.4, align: "right" });
+      applyDamage("e1", 68);
+    }, 660);
+    setTimeout(() => step(-1), 1700);
+  }
+
+  document.querySelectorAll("[data-cast]").forEach((b) => b.addEventListener("click", () => play(b.dataset.cast)));
+  document.querySelectorAll("#actorSwitch button").forEach((b) => b.addEventListener("click", () => { actorKey = b.dataset.actor; applyActor(); }));
+  document.querySelectorAll("[data-bench]").forEach((b) => {
+    b.addEventListener("click", () => {
+      const layer = b.dataset.bench;
+      const kind = b.dataset.kind;
+      if (layer === "cast") benchCast(kind);
+      else if (layer === "trace") benchTrace(kind);
+      else if (layer === "impact") benchImpact(kind);
+      else if (layer === "summon") benchSummon(kind);
+      else benchResult(kind);
+    });
+  });
+  document.getElementById("fullChain").addEventListener("click", fullChain);
+  document.getElementById("nextRound").addEventListener("click", nextRound);
+  document.querySelectorAll("[data-summon]").forEach((b) =>
+    b.addEventListener("click", () => benchSummon(b.dataset.summon)));
+  document.querySelectorAll("[data-support]").forEach((b) =>
+    b.addEventListener("click", () => supportDemo(b.dataset.support)));
+  document.getElementById("swReduce").addEventListener("change", (e) => { settings.reduce = e.target.checked; });
+  document.getElementById("swFast").addEventListener("change", (e) => { settings.fast = e.target.checked; });
+  document.getElementById("swNoFlash").addEventListener("change", (e) => { settings.noFlash = e.target.checked; });
+
+  document.getElementById("resetBtn").addEventListener("click", () => {
+    for (const [id, max] of [["e1", 320], ["e2", 345], ["e3", 180]]) {
+      state[id].hp = max;
+      const card = units[id];
+      card.classList.remove("dead");
+      card.querySelector(".bar-fill").style.width = "100%";
+      card.querySelector(".val").textContent = `${max}/${max}`;
+    }
+    document.getElementById("php").style.width = "94%";
+    document.getElementById("phpt").textContent = "207/221";
+    clearFx();
+    document.getElementById("hintTag").textContent = "选一个技能";
+  });
+
+  allies.push({ id: "a0", name: "玉犬 · 白", hp: 80, max: 80 });
+  renderAllies();
+  applyActor();
+  window.addEventListener("resize", clearFx);
+})();
+</script>
+</body>
+</html>

@@ -95,8 +95,8 @@ const RELATION_KINDS = [...KinshipKindSchema.options, ...SocialKindSchema.option
  * 效果形状的词表：**与 `BranchEffectSchema` 一一对应**，多一种少一种都是 bug。
  *
  * 为什么是函数而不是常量：`mp` 的叫法与 `mood` 的上下界都是**世界事实**（有的模板里
- * mp 叫「能量」、心情条是 0..10）。写死在提示词里等于把咒术世界的叫法塞进通用运行时，
- * 模型照着写「恢复咒力」，换一个世界就全错。
+ * mp 叫「能量」、心情条是 0..10）。写死在提示词里等于把某个世界的叫法塞进通用运行时，
+ * 模型照着写「恢复能量」，换一个世界就全错。
  */
 function effectShapesOf(template: WorldTemplateV2 | undefined) {
   const mpLabel =

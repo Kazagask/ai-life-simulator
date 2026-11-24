@@ -245,4 +245,70 @@ describe("模板 branch 加载期展开", () => {
       }
     }
   });
+
+  it("node 级 as 数组：多个 self 共用同一节点，兜底排除每一个 as", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "life-sim-branch-as-multi-"));
+    const versionDir = path.join(dir, "p0", "1.0.0");
+    cpSync(path.resolve("test/fixtures/templates/p0/1.0.0"), versionDir, { recursive: true });
+    writeFileSync(
+      path.join(versionDir, "events.yaml"),
+      `
+  - id: ev:branch-as-multi
+    title: 多角色共用
+    trigger: { source: chain }
+    branch:
+      - node: first
+        title: 首
+        text: 首。
+        options:
+          - text: 继续
+            goto: second
+      - node: second
+        as: [npc-friend, player-civilian]
+        title: 二·共用
+        text: 两个人看到的同一段。
+        options:
+          - { text: 出口, nextEventId: ev:final }
+      - node: second
+        title: 二·默认
+        text: 其他人看到的。
+        options:
+          - { text: 默认出口, nextEventId: ev:final }
+`,
+      { flag: "a" },
+    );
+
+    const previous = process.env.TEMPLATES_DIR;
+    process.env.TEMPLATES_DIR = dir;
+    try {
+      const registry = loadTemplates({ warn: () => {}, error: () => {}, info: () => {} });
+      const entry = registry.resolve({ id: "p0", version: "1.0.0" });
+      expect(entry?.status).toBe("ready");
+      if (entry?.status !== "ready") throw new Error("template not ready");
+
+      const first = entry.template.events.find((e) => e.id === "ev:branch-as-multi");
+      const friend = entry.template.events.find((e) => e.id === "ev:branch-as-multi#second@npc-friend");
+      const custom = entry.template.events.find(
+        (e) => e.id === "ev:branch-as-multi#second@player-civilian",
+      );
+      const fallback = entry.template.events.find((e) => e.id === "ev:branch-as-multi#second");
+      expect(friend?.narrative).toBe("两个人看到的同一段。");
+      expect(custom?.narrative).toBe("两个人看到的同一段。");
+      expect(fallback?.narrative).toBe("其他人看到的。");
+      expect(fallback?.trigger.conditions).toEqual([
+        { selfIsNot: "npc-friend" },
+        { selfIsNot: "player-civilian" },
+      ]);
+      if (first?.kind !== "normal") throw new Error("kind");
+      expect(first.settle.normal.options.map((o) => o.nextEventId)).toEqual([
+        "ev:branch-as-multi#second@npc-friend",
+        "ev:branch-as-multi#second@player-civilian",
+        "ev:branch-as-multi#second",
+      ]);
+    } finally {
+      if (previous === undefined) delete process.env.TEMPLATES_DIR;
+      else process.env.TEMPLATES_DIR = previous;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

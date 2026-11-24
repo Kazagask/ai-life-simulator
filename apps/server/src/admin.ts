@@ -127,6 +127,12 @@ function simSpecOf(value: unknown): SimDuelSpec | null {
   const left = actorSpecOf(raw.left);
   const right = actorSpecOf(raw.right);
   if (left === null || right === null) return null;
+  const listOf = (v: unknown): SimActorSpec[] =>
+    Array.isArray(v)
+      ? v.map(actorSpecOf).filter((x): x is SimActorSpec => x !== null).slice(0, 3)
+      : [];
+  const enemies = listOf(raw.enemies);
+  const allies = listOf(raw.allies);
   const repeat = Math.min(SIM_MAX_DUELS, Math.max(1, Math.round(finiteNumber(raw.repeat) ?? 20)));
   const maxRounds = Math.min(SIM_MAX_ROUNDS, Math.max(1, Math.round(finiteNumber(raw.maxRounds) ?? 30)));
   const seed = finiteNumber(raw.seed);
@@ -136,6 +142,8 @@ function simSpecOf(value: unknown): SimDuelSpec | null {
     repeat,
     maxRounds,
     ...(seed !== undefined ? { seed: Math.round(seed) } : {}),
+    ...(enemies.length > 0 ? { enemies } : {}),
+    ...(allies.length > 0 ? { allies } : {}),
     ...(raw.stance === "coverage" ? { stance: "coverage" as const } : {}),
   };
 }
@@ -144,10 +152,67 @@ function simSpecOf(value: unknown): SimDuelSpec | null {
  * 路由注册
  * ------------------------------------------------------------------ */
 
-/** `LIFE_SIM_ADMIN=1` 才开门：trace 里有本该被玩家窗口挡住的原文，不能随线上一起暴露。 */
+/**
+ * 开门条件：本地 `LIFE_SIM_ADMIN=1`，或配了口令 `LIFE_SIM_ADMIN_TOKEN`（线上用）。
+ *
+ * trace 里是**完整叙事正文**（含本该被窗口挡住的原文），所以线上绝不能裸奔。
+ * 上线时不开 `LIFE_SIM_ADMIN`，只给一个随机口令，走下面的 `registerAdminGuard`。
+ */
 export function adminEnabled(): boolean {
   const flag = process.env.LIFE_SIM_ADMIN;
-  return flag === "1" || flag === "true";
+  return flag === "1" || flag === "true" || adminToken() !== "";
+}
+
+/** 管理端口令；空串 = 不设防（仅限本地）。 */
+export function adminToken(): string {
+  return (process.env.LIFE_SIM_ADMIN_TOKEN ?? "").trim();
+}
+
+const ADMIN_COOKIE = "life_sim_admin";
+
+function cookieOf(header: string | undefined, name: string): string | undefined {
+  if (!header) return undefined;
+  for (const part of header.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    if (part.slice(0, eq).trim() === name) return part.slice(eq + 1).trim();
+  }
+  return undefined;
+}
+
+/**
+ * 口令闸：配了 `LIFE_SIM_ADMIN_TOKEN` 才挂。
+ *
+ * 第一次带 `?token=xxx` 打开 `/admin`，服务端种一个 HttpOnly cookie，
+ * 之后页面自己拉的 `/admin/*.js` 与 `/api/admin/*` 靠 cookie 通过 ——
+ * 免得每个子资源都要往 URL 里塞口令（那样会进浏览器历史、也会被截图带出去）。
+ *
+ * 用 `onRequest` 而不是给每个路由加 preHandler：`/api/admin/*` 分散在 admin.ts 与
+ * admin/battle.ts 两处，逐个加必然漏；前缀闸是一刀切，加新接口不用再想起这件事。
+ * **必须在注册 admin 路由之前调用**（同一 scope 内的 hook 只作用于其后注册的路由）。
+ */
+export function registerAdminGuard(app: FastifyInstance): void {
+  const token = adminToken();
+  if (token === "") return;
+  app.addHook("onRequest", async (request, reply) => {
+    const url = request.raw.url ?? "";
+    if (!url.startsWith("/admin") && !url.startsWith("/api/admin")) return;
+    // onRequest 阶段 query 还没解析，直接从原始 URL 取
+    const queryToken = new URL(url, "http://localhost").searchParams.get("token") ?? "";
+    const header = request.headers["x-admin-token"];
+    const cookie = cookieOf(request.headers.cookie, ADMIN_COOKIE);
+    const given = queryToken !== "" ? queryToken : typeof header === "string" ? header : (cookie ?? "");
+    if (given !== token) {
+      return reply.code(403).send({
+        error: "admin_locked",
+        hint: "线上管理端需要口令：/admin?token=<口令>",
+      });
+    }
+    // 口令只在第一次（从 URL 进来）时落 cookie；之后别再重复下发
+    if (queryToken !== "") {
+      reply.header("set-cookie", `${ADMIN_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`);
+    }
+  });
 }
 
 export function registerAdminRoutes(app: FastifyInstance, registry: TemplateRegistry): void {

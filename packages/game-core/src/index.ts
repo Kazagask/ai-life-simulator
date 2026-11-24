@@ -5,6 +5,9 @@ export * from "./v2/engine.js";
 // 资源公式（ADR-012：仪器与后台工具需要 initPlayerResources / maxHp 之外的口径）
 export * from "./v2/resources.js";
 export * from "./v2/battle.js";
+export * from "./v2/battle-evaluation.js";
+export * from "./v2/talent.js";
+export * from "./v2/any-match.js";
 export * from "./v2/equipment.js";
 // ADR-015：技能封印（技能还在、但现在用不了）+ 原因文案，投影与前端共用一份
 export * from "./v2/seal.js";
@@ -22,6 +25,7 @@ export * from "./v2/allocation.js";
 // ADR-004：开局 DAG 的跨文件校验（加点目标 / 预算来源 / 节点引用）
 export * from "./v2/opening-validate.js";
 export * from "./v2/narrative.js";
+export * from "./v2/narrative-text.js";
 export * from "./v2/life-evaluation.js";
 export * from "./v2/archive.js";
 export * from "./v2/history.js";
@@ -30,6 +34,7 @@ export * from "./v2/equipment-turn.js";
 export * from "./v2/relations.js";
 // 表现层（ADR-002）：样式解析 / 效果摘要 / 固定效果文案 / 回合增量，均为只读投影
 export * from "./v2/presentation/style.js";
+export * from "./v2/presentation/fx.js";
 export * from "./v2/presentation/effects.js";
 export * from "./v2/presentation/ledger.js";
 export * from "./v2/presentation/fixed-effects.js";

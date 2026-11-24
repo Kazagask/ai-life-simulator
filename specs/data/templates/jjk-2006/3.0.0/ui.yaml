@@ -41,6 +41,9 @@ qualityStyles:
   rainbow-static: rainbow-static
   gold: gold
   orange: orange
+  # 黑闪第三阶（ADR-075）：橙红是**品质键**，落到 `ember`（sublime 绝世·史诗 那档的橙红光谱）。
+  # 不用 `orange`：那是三品·史诗的单色橙，和「绝世」差一档，玩家看不出来升阶了。
+  orange-red: ember
   pink: pink
   purple: purple
   blue: blue
@@ -76,4 +79,273 @@ polarityStyles:
 # 人生页人物卡展示哪些属性（2026-11-19）：等级 / 生得术式 / 名誉是身份，数值属性跟在后。
 # 一行两个纯文字；ladder 独占整行（带进度条）。本文件不进语义指纹。
 playerCard:
-  attributes: [grade, innateTechnique, fame, cursedEnergy, intellect, physique]
+  # 2026-11-23：人生页只放「身份 + 基础量」，派生属性（输出/操作/效率/暴击/闪避/消耗）
+  # 只在个人页展示 —— 首页那一条是每回合扫一眼的东西，不是数值面板。
+  attributes: [grade, innateTechnique, fame, cursedEnergyTotal, physique, agility]
+
+# ── 战斗表现层（ADR-076）─────────────────────────────────────────
+# 四层：施法 / 轨迹 / 受击 / 结算。引擎只内置轨迹与受击的闭集，
+# `cast.preset` 是自由 id（模板/扩展提供，渲染层认不出就降级成环形）。
+# 不写 = 走引擎默认（伤害=arrow+burst，治疗=updraft+none，多目标=fan）。
+# 本段只影响「怎么演」，不进语义指纹。
+presentation:
+  # ── 表现积木（ADR-078）─────────────────────────────────────────
+  # 引擎只内置「不表达世界观」的几何：直线箭头 / 群体扇刃 / 上升气流 / 火花 /
+  # 登场 / 离场 / 消散。**带作品辨识度的东西全在这里写**：苍赫茈的起手、黑闪的雷弧与刀光、
+  # 宿傩的割口、召唤的法阵 —— 引擎不认识「苍」「黑闪」，它只认识环、光柱、雷弧、割口。
+  #
+  # 图元：ring / pool / pillar / rays / motes / sparks / bolt / orb / arc / cuts /
+  #       hexagon / flash / bars / diamond
+  # 锚点：self / hand / ground / target / targetGround / mid / board（都是相对卡片，不写绝对坐标）
+  effects:
+    # ── 五条：苍 = 引力（向内收）────────────────────────────────
+    # 三层环 + 内吸粒子 + 白核小球：**纯色圆看着像贴纸**，白核→本色→暗边才像发光体。
+    converge:
+      kind: cast
+      layers:
+        - { shape: glow, at: hand, r: 104, gradient: ["#CFE0FF", "#5C79E6", "#0D1430"], opacity: 0.72 }
+        # 主体只有**一条粗环**：细线多了不像引力，像仪表盘
+        - { shape: ring, at: hand, r: 46, width: 3.4, gradient: ["#FFFFFF", "#BBD1FF", "#5C79E6"] }
+        - { shape: ring, at: hand, r: 58, width: 1.6, dash: [12, 9], spin: -1, gradient: ["#9FB8FF", "#EAF1FF"] }
+        # 四条粗光条（十字）+ 八条细光条，主次分明
+        - { shape: rays, at: hand, count: 4, inner: 24, outer: 64, width: 3.2, from: 0.78, gradient: ["#7FA0FF", "#FFFFFF"] }
+        - { shape: rays, at: hand, count: 8, inner: 20, outer: 42, width: 1.4, from: 0, gradient: ["#5C79E6", "#DCE7FF"] }
+        - { shape: motes, at: hand, count: 12, radius: 56, dir: in, color: "#BBD1FF" }
+        - { shape: orb, at: hand, r: 14, delayMs: 90, gradient: ["#FFFFFF", "#BBD1FF", "#3B5BDB"] }
+
+    # ── 赫 = 斥力（向外炸）──────────────────────────────────────
+    # 红日：12 道长短不一的光条 + 环 + 外扩粒子。光条内虚外亮，才像「射出去」。
+    repulse:
+      kind: cast
+      layers:
+        - { shape: glow, at: hand, r: 116, gradient: ["#FFF0F3", "#FF2D55", "#5C0A1E"], opacity: 0.66 }
+        # 八长八短 = 日轮；只用细线会像「蒲公英」
+        - { shape: rays, at: hand, count: 8, inner: 14, outer: 66, width: 3.4, stagger: 8, gradient: ["#FF2D55", "#FFD9DF", "#FFFFFF"] }
+        - { shape: rays, at: hand, count: 8, inner: 16, outer: 44, width: 1.5, from: 0.39, stagger: 8, gradient: ["#FF2D55", "#FFD9DF"] }
+        - { shape: ring, at: hand, r: 29, width: 3, gradient: ["#FFFFFF", "#FF6B81", "#C1121F"] }
+        - { shape: ring, at: hand, r: 43, width: 1.5, dash: [6, 7], spin: -1, delayMs: 60, gradient: ["#FF2D55", "#FFD9DF"] }
+        - { shape: orb, at: hand, r: 15, gradient: ["#FFFFFF", "#FF8FA3", "#C1121F"] }
+        - { shape: motes, at: hand, count: 16, radius: 62, dir: out, color: "#FF8FA3" }
+
+    # ── 茈 = 虚式：蓝红两球对撞 → 紫核（**起始没有紫核**）──────
+    # 背景那团大紫光不是装饰：没有它，紫核看起来只是「一个亮点」，没有「空间被压塌」。
+    collapse:
+      kind: cast
+      layers:
+        - { shape: glow, at: self, r: 230, offset: [20, 60], gradient: ["#D9B8FF", "#5A189A", "#12001F"], opacity: 0.66 }
+        - { shape: orb, at: hand, offset: [-52, 0], r: 11, gradient: ["#FFFFFF", "#7C8CFF", "#283A9E"], to: [52, 0] }
+        - { shape: orb, at: hand, offset: [52, 0], r: 11, gradient: ["#FFFFFF", "#FF4D6D", "#8E0E23"], to: [-52, 0] }
+        - { shape: ring, at: hand, r: 34, width: 3, delayMs: 280, gradient: ["#F3E8FF", "#C77DFF", "#7B2CBF"] }
+        - { shape: ring, at: hand, r: 56, width: 2.2, dash: [8, 8], spin: -1, delayMs: 280, gradient: ["#E0C3FF", "#9D4EDD"] }
+        - { shape: glow, at: hand, r: 92, delayMs: 280, gradient: ["#FFFFFF", "#C77DFF", "#5A189A"], opacity: 0.9 }
+        - { shape: orb, at: hand, r: 20, delayMs: 280, gradient: ["#FFFFFF", "#D9B8FF", "#5A189A"] }
+        - { shape: rays, at: hand, count: 10, inner: 24, outer: 58, width: 1.8, stagger: 14, delayMs: 280, gradient: ["#9D4EDD", "#F3E8FF"] }
+        - { shape: motes, at: hand, count: 16, radius: 74, dir: out, color: "#C77DFF", delayMs: 280 }
+
+    # ── 十种影 / 奥义：法阵（**内接三角**是设计稿里最像「仪式」的一笔）──
+    # 三环（分段/虚线/实线）+ 三层三角反向转 + 刻度 + 地面压扁双环 + 中心光柱。
+    mandala:
+      kind: cast
+      layers:
+        - { shape: glow, at: ground, r: 78, offset: [0, -4], gradient: ["#E8EEFF", "#4C5FD5", "#0B1030"], opacity: 0.55 }
+        - { shape: pool, at: ground, rx: 52, ry: 15, blur: 7, gradient: ["#EEF2FF", "#6B7CFF", "#2A3480"], opacity: 0.7 }
+        # 只有一层外环 + 一个内接三角：再多就是「线框球」，看不出主体
+        - { shape: ring, at: ground, r: 36, offset: [0, -12], width: 2.2, dash: [26, 11], turns: 0.5, gradient: ["#FFFFFF", "#A9B8FF", "#6B7CFF"] }
+        - { shape: ring, at: ground, r: 26, offset: [0, -12], width: 1.3, gradient: ["#DCE3FF", "#8C9EFF"] }
+        - { shape: polygon, at: ground, sides: 3, r: 30, offset: [0, -12], width: 1.8, turns: 0.35, gradient: ["#F0F4FF", "#A9B8FF"] }
+        - { shape: rays, at: ground, count: 8, inner: 30, outer: 38, width: 1.2, offset: [0, -12], turns: 0.15, gradient: ["#DCE3FF", "#FFFFFF"] }
+        - { shape: ring, at: ground, r: 46, ry: 13, width: 1.6, dash: [14, 9], spin: 1, gradient: ["#C7D2FF", "#6B7CFF"] }
+        - { shape: pillar, at: ground, w: 16, h: 48, offset: [0, -4], blur: 6, core: 0.34, gradient: ["#F0F4FF", "#6B7CFF", "#2A3480"] }
+        - { shape: motes, at: ground, count: 8, radius: 40, dir: out, color: "#B9C6FF", offset: [0, -10], delayMs: 140 }
+
+    # ── 黑闪的起手：**瞄准**（虚线环收紧 + 四角刻度 + 中心菱形），不是星芒 ──
+    # 星芒留给受击层；起手是「锁定」，两处形状必须不一样，否则看起来在两个地方各炸一次。
+    aim:
+      kind: cast
+      durationMs: 320
+      layers:
+        - { shape: glow, at: hand, r: 44, gradient: ["#FFB3BD", "#FF2F45", "#200004"], opacity: 0.45, durationMs: 320 }
+        - { shape: ring, at: hand, r: 30, width: 1.3, dash: [12, 9], spin: 1, color: "#FF6B7F", durationMs: 320 }
+        - { shape: ring, at: hand, r: 19, width: 1.1, color: "#FF2F45", durationMs: 300 }
+        - { shape: rays, at: hand, count: 4, inner: 23, outer: 36, width: 2, from: 0.785, color: "#FF6B7F", durationMs: 300 }
+        - { shape: diamond, at: hand, size: 4, color: "#FF2F45", durationMs: 300 }
+
+    # ── 旧版星芒起手（保留给扩展；黑闪已改用 aim）──
+    flash:
+      kind: cast
+      durationMs: 320
+      layers:
+        - { shape: glow, at: hand, r: 54, gradient: ["#FFFFFF", "#FF6B6B", "#2A0006"], opacity: 0.6, durationMs: 320 }
+        - { shape: rays, at: hand, count: 8, inner: 8, outer: 34, width: 2.2, gradient: ["#FF2F45", "#FFF1F2"], durationMs: 320 }
+        - { shape: ring, at: hand, r: 20, width: 2, durationMs: 220, gradient: ["#FF2F45", "#FFD9DF"], }
+
+    # ── 奥义：法阵 + 上下遮幅（立绘 / 过场留给扩展）──
+    ultimate:
+      kind: cast
+      layers:
+        - { shape: glow, at: ground, r: 120, offset: [0, -24], gradient: ["#D9C2FF", "#7B2CBF", "#12001F"], opacity: 0.55 }
+        - { shape: pool, at: ground, rx: 72, ry: 20, blur: 8, gradient: ["#E6D9FF", "#8F5BFF", "#2A0B4A"], opacity: 0.74 }
+        - { shape: ring, at: ground, r: 54, offset: [0, -30], width: 2, dash: [34, 14], turns: 0.6, gradient: ["#F3E8FF", "#B98CFF", "#6A2CA8"] }
+        - { shape: ring, at: ground, r: 44, offset: [0, -30], width: 1.3, dash: [4, 8], spin: -1, gradient: ["#D9C2FF", "#9D4EDD"] }
+        - { shape: ring, at: ground, r: 33, offset: [0, -30], width: 1.2, gradient: ["#F3E8FF", "#B98CFF"] }
+        - { shape: polygon, at: ground, sides: 3, r: 46, offset: [0, -30], width: 1.6, turns: 0.45, gradient: ["#F3E8FF", "#B98CFF"] }
+        - { shape: polygon, at: ground, sides: 3, r: 28, from: 1.5708, offset: [0, -30], width: 1.2, turns: -0.6, gradient: ["#D9C2FF", "#8F5BFF"] }
+        - { shape: rays, at: ground, count: 16, inner: 34, outer: 52, width: 1.3, offset: [0, -30], turns: 0.25, gradient: ["#B98CFF", "#F3E8FF"] }
+        - { shape: ring, at: ground, r: 64, ry: 19, width: 1.8, dash: [16, 9], spin: 1, gradient: ["#D9C2FF", "#8F5BFF"] }
+        - { shape: pillar, at: ground, w: 26, h: 76, offset: [0, -6], blur: 7, core: 0.3, gradient: ["#F3E8FF", "#B98CFF", "#2A0B4A"] }
+        - { shape: fan, at: ground, inner: 20, outer: 96, arc: 0.7, mirror: true, turns: 1.1, offset: [0, -10], gradient: ["#F3E8FF", "#B98CFF", "#2A0B4A"], opacity: 0.5 }
+        - { shape: motes, at: ground, count: 14, radius: 62, dir: out, color: "#D9C2FF", offset: [0, -26], delayMs: 200 }
+        - { shape: bars, at: board, h: 46 }
+
+    # ── 苍的轨迹：宽柔光带 + 细亮芯（设计稿里那道「打出去的光」）──
+    beam:
+      kind: trace
+      durationMs: 320
+      layers:
+        - { shape: arc, profile: fan, bow: [30, -8], width: 20, core: false, gradient: ["#1B2A6B", "#7FA0FF"] }
+        - { shape: arc, profile: comet, bow: [30, -8], width: 5, gradient: ["#5C79E6", "#E6EEFF"] }
+
+    # ── 赫的轨迹：发丝直线 + 端点箭头 + 中途菱形 ──
+    precision:
+      kind: trace
+      durationMs: 260
+      layers:
+        - { shape: arc, profile: line, bow: [0, 0], width: 1.5, head: chevron, gradient: ["#FF8FA3", "#FFF1F2"] }
+        - { shape: diamond, at: mid, size: 5, gradient: ["#FF2D55", "#FFFFFF"] }
+
+    # ── 茈的轨迹：紫弧 + 金弧交叉（就是「苍 + 赫」撞出来的那一笔）──
+    void:
+      kind: trace
+      durationMs: 380
+      layers:
+        - { shape: arc, profile: comet, bow: [46, -26], width: 10, gradient: ["#3B0A5C", "#C77DFF"] }
+        - { shape: arc, profile: comet, bow: [46, -26], width: 3, gradient: ["#7B2CBF", "#FFFFFF"] }
+        - { shape: arc, profile: blade, bow: [-62, 44], width: 4, color: "#E8C87A" }
+
+    # ── 黑闪的刃：黑 → 红（尾部固定黑，头部跟技能色）──
+    slash:
+      kind: trace
+      durationMs: 200
+      layers:
+        # 红黑：尾部近黑、头部技能红，**芯也是暗的**（白芯会变成一条果冻）
+        - { shape: arc, profile: blade, bow: [-26, -34], width: 15, gradient: ["#0A0003", "#C1121F"], coreColor: "#2A0008" }
+
+    # ── 黑闪的雷弧：六道折线 + 局部闪屏 + 光晕 + 火花 ──
+    lightning:
+      kind: impact
+      layers:
+        - { shape: glow, at: target, r: 104, gradient: ["#FFE1E6", "#FF2F45", "#1A0004"], opacity: 0.55 }
+        - { shape: rays, at: target, count: 8, inner: 12, outer: 52, width: 2.6, gradient: ["#FF2F45", "#FFFFFF"] }
+        - { shape: bolt, at: target, count: 6, lenMin: 36, lenMax: 72, segments: 4, width: 2, gradient: ["#140006"] }
+        - { shape: flash, at: target, radius: 150, alpha: 0.45, color: "#FF4A4A" }
+        - { shape: ring, at: target, r: 26, width: 2, gradient: ["#FFD9DF", "#FF2F45"] }
+        - { shape: sparks, at: target, count: 12 }
+
+    # ── 宿傩的「解」：四道割口（三短一长）──
+    cuts:
+      kind: impact
+      layers:
+        - { shape: cuts, at: target, count: 4, width: 3.6, stagger: 40 }
+
+    # ── 收灵：铁栅栏（横梁 + 竖条逐根砸下来），不是「打一下」──
+    cage:
+      kind: impact
+      layers:
+        - { shape: glow, at: target, r: 52, gradient: ["#CFE0FF", "#6FA8FF", "#0D1430"], opacity: 0.45 }
+        - { shape: cage, at: target, fit: true, w: 0.78, h: 0.72, count: 7, width: 2.4, stagger: 30, gradient: ["#EAF1FF", "#9FB8FF", "#4A66C8"] }
+        - { shape: ring, at: target, r: 30, width: 1.8, dash: [6, 6], gradient: ["#CFE0FF", "#6FA8FF"] }
+
+    # ── 免疫 / 抵抗：六边形盾 + 环 ──
+    shield:
+      kind: impact
+      layers:
+        - { shape: hexagon, at: target, r: 13, gradient: ["#FFF3C4", "#E6C97A"] }
+        - { shape: ring, at: target, r: 20, width: 1.2, dash: [4, 5], gradient: ["#FFF3C4", "#E6C97A"] }
+
+  defaults:
+    result:
+      # 后缀阶梯：`!` 暴击，`!!` 被钩子放大过的暴击
+      suffix: { crit: "!", critTier2: "!!" }
+      critLabel: { text: "CRITICAL" }
+
+  skills:
+    # 体术：最朴素的一套，给「没有术式」的场合一个基准
+    sk-basic-strike:
+      trace: { preset: arrow, width: 2 }
+      impact: { preset: burst }
+    sk-cursed-strike:
+      trace: { preset: slash, color: "#FF6B7F", width: 5 }
+      impact: { preset: cuts }
+
+    # 五条：苍=引力（内吸）、赫=斥力（外扩）、茈=虚式（对撞坍缩）
+    sk-gojo-blue:
+      cast: { preset: converge, durationMs: 560 }
+      trace: { preset: beam, color: "#7C8CFF" }
+      impact: { preset: burst }
+    sk-gojo-red:
+      cast: { preset: repulse, durationMs: 480 }
+      trace: { preset: precision, color: "#FF3B4D", width: 2 }
+      impact: { preset: burst }
+    sk-gojo-hollow-purple:
+      cast: { preset: collapse, durationMs: 720 }
+      trace: { preset: void, color: "#A855FF" }
+      impact: { preset: burst }
+    # 自己身上的增益：没有飞线，轨迹由投影层按「目标=自身」自动落成上升气流。
+    # 不配施法（法阵是召唤/奥义的语言，贴到自己身上太重）。
+    sk-limitless:
+      trace: { preset: updraft }
+    sk-domain-expansion:
+      cast: { preset: ultimate, durationMs: 820, color: "#8F7BFF" }
+      trace: { preset: fan, color: "#8F7BFF" }
+      impact: { preset: burst }
+
+    # 治疗：上升之风，没有受击段
+    sk-reverse-heal:
+      trace: { preset: updraft, color: "#58E3A7", width: 4 }
+      impact: { preset: none }
+    sk-reverse-heal-ally:
+      trace: { preset: updraft, color: "#58E3A7", width: 4 }
+      impact: { preset: none }
+
+    # 十种影法术：召唤只有施法（法阵），没有轨迹；登场由引擎事件驱动
+    sk-ten-shadow: { cast: { preset: mandala, durationMs: 700, color: "#8F7BFF" }, trace: { preset: none } }
+    sk-ten-rabbits: { cast: { preset: mandala, durationMs: 620, color: "#8F7BFF" }, trace: { preset: none } }
+    sk-ten-nue: { cast: { preset: mandala, durationMs: 640, color: "#8F7BFF" }, trace: { preset: none } }
+    sk-ten-gama: { cast: { preset: mandala, durationMs: 640, color: "#8F7BFF" }, trace: { preset: none } }
+    sk-ten-orochi: { cast: { preset: mandala, durationMs: 680, color: "#8F7BFF" }, trace: { preset: none } }
+    sk-ten-enzuru: { cast: { preset: mandala, durationMs: 680, color: "#8F7BFF" }, trace: { preset: none } }
+    sk-ten-kangyu: { cast: { preset: mandala, durationMs: 680, color: "#8F7BFF" }, trace: { preset: none } }
+    sk-ten-mahoraga: { cast: { preset: ultimate, durationMs: 900, color: "#8F7BFF" }, trace: { preset: none } }
+    # 收灵：法阵起手 + 箭头把式神拉回来（反向轨迹）+ 铁栅栏收口
+    sk-ten-recall:
+      cast: { preset: mandala, durationMs: 460, color: "#6FA8FF" }
+      trace: { preset: arrow, color: "#6FA8FF", width: 3 }
+      impact: { preset: cage }
+
+    # 咒灵操术（夏油系）：召灵 / 虹龙 / 收灵 / 漩涡
+    # 之前这四招**一条表现都没配**，所以召灵没有起手、收灵连轨迹都没有。
+    sk-summon-curse:
+      cast: { preset: mandala, durationMs: 640, color: "#B07CFF" }
+      trace: { preset: none }
+    sk-summon-dragon:
+      cast: { preset: ultimate, durationMs: 820, color: "#B07CFF" }
+      trace: { preset: none }
+    sk-recall:
+      cast: { preset: mandala, durationMs: 420, color: "#6FA8FF" }
+      trace: { preset: arrow, color: "#6FA8FF", width: 3 }
+      impact: { preset: cage }
+    sk-uzumaki:
+      cast: { preset: ultimate, durationMs: 900, color: "#8F7BFF" }
+      trace: { preset: fan, color: "#B387FF", width: 6 }
+      impact: { preset: burst }
+
+  hooks:
+    # 被钩子放大的暴击：刃与雷弧走黑→红，数字仍是语义红
+    # 黑闪：手上先「蓄」出一圈星芒（起手），刃划出去，最后在**命中点**炸开。
+    # 三段各占一处，位置由引擎保证：起手在 `hand`、受击在目标卡面中心。
+    black-flash:
+      cast: { preset: aim, durationMs: 320 }
+      trace: { preset: slash, color: "#FF2F45", width: 8 }
+      impact: { preset: lightning }
+      result:
+        label: { text: "黒閃", latin: "BLACK FLASH" }

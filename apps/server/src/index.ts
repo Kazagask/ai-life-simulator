@@ -41,7 +41,7 @@ import {
   type TurnPipelineConfig,
 } from "@life-sim/game-core";
 import { pipelineForTurn, resolveAgentConfig } from "./agent/pipeline.js";
-import { adminEnabled, registerAdminRoutes } from "./admin.js";
+import { adminEnabled, registerAdminGuard, registerAdminRoutes } from "./admin.js";
 import {
   BattleCommandSchema,
   EndingNarrativeOutputSchema,
@@ -84,6 +84,7 @@ import { openingPrologue, prologueFactsOf } from "./narrative/prologue.js";
 import { recordTurnNarrative } from "./narrative/turn.js";
 import { readNarrativeBlocks } from "./narrative/read.js";
 import { registerNarrativeStreamRoute } from "./narrative/stream.js";
+import { registerSyncRoutes } from "./sync.js";
 import {
   captureStructuralSavepoint,
   restoreStructuralSavepoint,
@@ -638,6 +639,8 @@ app.get("/api/templates/:id/:version/package", async (request, reply) => {
     templateId: entry.ref.id,
     version: entry.ref.version,
     fingerprint: entry.semanticFingerprint,
+    // 含 `ui.yaml`：客户端拿它判缓存新鲜度（纯表现改动也要让旧包失效）
+    packageFingerprint: entry.packageFingerprint,
     files: readDeclarativeFiles(entry.ref),
   };
 });
@@ -708,6 +711,8 @@ const openingStepSchema = z.union([
   z.object({ kind: z.literal("roll") }),
   z.object({ kind: z.literal("choose"), optionId: z.string().min(1) }),
   z.object({ kind: z.literal("allocate"), allocation: z.record(z.string(), z.number()) }),
+  // 输入节点（ADR-072 D7）：长度上限只是「别把整段文章塞进来」，真正的规则在模板里。
+  z.object({ kind: z.literal("input"), value: z.string().max(200) }),
 ]);
 const renameSchema = z.object({ name: z.string().min(1).max(20) });
 
@@ -753,7 +758,13 @@ app.post("/api/openings", async (request, reply) => {
     return reply.code(404).send({ error: "opening_dag_not_found", templateId: parsed.data.templateId });
   }
   const seed = parsed.data.seed ?? Math.floor(Math.random() * 0xffffffff);
-  const core = createOpeningSession(entry.openingDag, seed);
+  // 向导里填的名字作为宿主初始参数（ADR-072 D7）：模板的输入节点用 {playerName} 读到它。
+  const typedName = parsed.data.playerName?.trim();
+  const core = createOpeningSession(
+    entry.openingDag,
+    seed,
+    typedName !== undefined && typedName !== "" ? { playerName: typedName } : undefined,
+  );
   const id = `open-${randomUUID()}`;
   // 第一个节点就是 allocate 且预算参数还没落定 ⇒ 模板顺序写反了。
   // 这是模板缺陷，但返回 400 比 500 更好定位（会话不落库，前端能直接看到原因）。
@@ -1546,6 +1557,7 @@ app.post("/api/worlds/:id/archive", async (request, reply) => {
     ending,
     finalEvaluation,
     resolution.endingConfig.endings,
+    found.entry.ui,
   );
   // 响应层装饰：纯函数、不改 state / 不改 V2Snapshot 类型；hidden 结局自动跳过
   archived.record.snapshot = decorateEndingView(archived.record.snapshot, endingOutcome);
@@ -1556,8 +1568,12 @@ app.post("/api/worlds/:id/archive", async (request, reply) => {
 
 // ---------- 本地开发后台（trace / 事件编排）：仅 LIFE_SIM_ADMIN=1 时开门 ----------
 if (adminEnabled()) {
+  // 口令闸先挂：线上用 LIFE_SIM_ADMIN_TOKEN 开门，本地 LIFE_SIM_ADMIN=1 不设防
+  registerAdminGuard(app);
   registerAdminRoutes(app, registry);
-  app.log.info("[admin] /admin 已启用（trace + 事件编排）");
+  app.log.info(
+    process.env.LIFE_SIM_ADMIN_TOKEN ? "[admin] /admin 已启用（口令保护）" : "[admin] /admin 已启用（无口令，仅限本地）",
+  );
 } else {
   // 关着的时候明确回 403，而不是被下面的 web 兜底当成前端路由返回 index.html。
   app.get("/admin", async (_request, reply) =>
@@ -1650,4 +1666,9 @@ app.setNotFoundHandler((request, reply) => {
 const port = Number(process.env.PORT ?? 3000);
 // SSE 叙事流：正文可流式下发，但**结构写入仍在回合事务内**（ADR-0035 §6）。必须在 listen 前注册。
 await registerNarrativeStreamRoute(app);
+/**
+ * 存档同步（ADR-070 第三期 · T5）：本地世界的信封备份，服务端只搬字节。
+ * 刻意挂在 `worldStore` 之外 —— 同步来的档不进注册表，不会被当成"可玩世界"载入。
+ */
+registerSyncRoutes(app, dataDir());
 await app.listen({ port, host: "0.0.0.0" });

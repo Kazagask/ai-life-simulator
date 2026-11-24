@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BattleCommand } from "@life-sim/shared";
+import { BattleFxLayer } from "./BattleFxLayer.js";
 import type { BattleVM, StatusVM } from "@life-sim/shared";
 
 export interface BattleBoardProps {
@@ -11,8 +12,10 @@ export interface BattleBoardProps {
   busy?: boolean;
   /** 战斗命令（技能 / 道具 / 逃跑 / 空过），组件内部不发请求。 */
   onCommand: (command: BattleCommand) => void;
-  /** 战斗结束后「离开战场」的推进函数。 */
-  onContinue: () => void;
+  /**
+   * ADR-077：战斗结束后**不再**由宿主推进（那会让世界在最后一击的动画没播完时就前移）。
+   * 结束态由组件自己渲染战评，玩家点「继续」时发 `{type:"leave"}`。
+   */
   /**
    * 点开某条状态的详情（玩家 / 友军 / 敌人身上的都算）。
    * 不传 ⇒ 芯片只读（自定义前端没有浮层时也不会出现「点了没反应」）。
@@ -43,6 +46,10 @@ function StatusChips({
          */
         // 实线 = 天赋（身份），虚线 = 会掉的东西（修正 / 战斗状态），与个人页同一套语言。
         const cls = `ls-battle-status ls-tone--${s.polarity} ls-battle-status--${s.kind}`;
+        /**
+         * 战斗芯片**不写成长进度**（2026-11-24 用户裁决）：战中是「现在有什么效果」的时刻，
+         * 进度是养成数据，去状态详情看（那里按阶梯展示 1/4 → 4/8 → 8/8 已完成）。
+         */
         const label = s.stacks > 1 ? `${s.name} ×${s.stacks}` : s.name;
         return onSelect === undefined ? (
           <span key={s.id} className={cls}>
@@ -71,7 +78,7 @@ function StatusChips({
  *  - 逃跑按钮**常显但可禁用**（D-12）：不给按钮会让玩家以为「没有逃跑这个选项」。
  */
 
-/** 我方资源条（生命 / 咒力 / 自定义）。整块可被「选自己」的按钮包住。 */
+/** 我方资源条（生命 / 主资源 / 自定义）。整块可被「选自己」的按钮包住。 */
 function PlayerResources({ resources }: { resources: BattleVM["player"]["resources"] }) {
   return (
     <>
@@ -127,6 +134,7 @@ function UnitCard({
     kind,
     unit.tier === "minion" ? "minion" : "",
     !unit.alive ? "dead" : "",
+    unit.departed === true ? "departed" : "",
     selected ? "targeting" : "",
   ]
     .filter(Boolean)
@@ -138,6 +146,7 @@ function UnitCard({
         <span className="unit-summoner">召唤者：{unit.summonerName}</span>
       )}
       {unit.deathReason !== undefined && <span className="unit-death-reason">{unit.deathReason}</span>}
+      {unit.departed === true && <span className="unit-departed">已离场</span>}
       <div className="bar">
         <div className={`bar-fill ${kind}-hp`} style={{ width: `${(unit.hp / Math.max(1, unit.maxHp)) * 100}%` }} />
       </div>
@@ -164,9 +173,9 @@ function UnitCard({
   );
   // 友军平时不可点选（不需要对它下指令）；只有存在「友军单体」技能时才变成可选目标
   // （ADR-012 D6 补）。没给 `onSelect` 就保持只读，旧前端行为不变。
-  if (kind === "ally" && onSelect === undefined) return <div className={cls}>{body}</div>;
+  if (kind === "ally" && onSelect === undefined) return <div className={cls} data-unit-id={unit.id}>{body}</div>;
   return (
-    <button className={cls} disabled={!unit.alive} onClick={() => onSelect?.(unit.id)}>
+    <button className={cls} data-unit-id={unit.id} disabled={!unit.alive} onClick={() => onSelect?.(unit.id)}>
       {body}
     </button>
   );
@@ -176,9 +185,9 @@ export function BattleBoard({
   battle: b,
   busy = false,
   onCommand,
-  onContinue,
   onSelectStatus,
 }: BattleBoardProps) {
+  const boardRef = useRef<HTMLDivElement>(null);
   const [target, setTarget] = useState<string>("");
   /**
    * 友军目标（2026-11-20 用户裁决）：**开局不选**，`null` 就是「还没选」。
@@ -234,9 +243,10 @@ export function BattleBoard({
   const enemyTargetName = targets.find((e) => e.id === effectiveTarget)?.name;
 
   return (
-    <div className={`battle-body ${b.over ? "battle-over" : ""}`}>
+    <div className={`battle-body ${b.over ? "battle-over" : ""}`} ref={boardRef}>
       <div className="row">
         <h3>⚔ 战斗 · 第 {b.round} 回合</h3>
+        {b.crits > 0 && <span className="tag crit">暴击 ×{b.crits}</span>}
         {b.over && (
           <span className={`tag ${b.over}`}>
             {b.over === "victory" ? "胜利" : b.over === "defeat" ? "败北" : "撤离"}
@@ -253,6 +263,7 @@ export function BattleBoard({
       */}
       <div
         className={`battle-self${needsAlly && effectiveAlly === b.player.id ? " is-selected" : ""}`}
+        data-unit-id={b.player.id}
       >
         {needsAlly ? (
           <button
@@ -289,8 +300,8 @@ export function BattleBoard({
                 key={a.id}
                 unit={a}
                 kind="ally"
-                selected={needsAlly && effectiveAlly === a.id}
-                {...(needsAlly ? { onSelect: toggleAllyTarget } : {})}
+                selected={needsAlly && a.departed !== true && effectiveAlly === a.id}
+                {...(needsAlly && a.departed !== true ? { onSelect: toggleAllyTarget } : {})}
                 {...(onSelectStatus !== undefined ? { onSelectStatus } : {})}
               />
             ))}
@@ -463,7 +474,7 @@ export function BattleBoard({
                 <span>{b.player.canFlee ? "尝试脱离战斗" : "退路已被封死"}</span>
               </button>
               {/*
-                跳过回合**常显**（2026-11-20 用户裁决）：咒力不足、技能全灰、道具被禁、
+                跳过回合**常显**（2026-11-20 用户裁决）：资源不足、技能全灰、道具被禁、
                 退路封死时，面板上会一个能点的都没有 —— 那不是「难」，是卡死。
                 引擎的 `{type:"pass"}` 本来就不花 MP / 道具 / 冷却，只是以前只在
                 `cannot_act` 覆盖层里露出一个入口，覆盖层之外无路可走。
@@ -523,11 +534,74 @@ export function BattleBoard({
         </>
       )}
 
+      {/*
+        ADR-077：战斗结束 = 停在战斗界面。
+        技能区换成战评，玩家点「继续」才发 leave（引擎在那一刻才收场 / 推进世界）。
+        样式对齐「结束这一生」：一个虚线框的次要按钮，不做主色 CTA ——
+        战评是给玩家看结果的，不是催他赶路。
+      */}
       {b.over && (
-        <button className="primary" disabled={busy} onClick={onContinue}>
-          离开战场，继续前行
-        </button>
+        <section className="battle-eval" aria-label="战斗评价">
+          <div className="battle-eval__head">
+            <h4>战斗评价</h4>
+            {b.evaluation?.grade !== undefined && (
+              <span className="battle-eval__grade">{b.evaluation.grade}</span>
+            )}
+            <span className={`battle-eval__outcome ${b.over}`}>
+              {b.over === "victory" ? "胜利" : b.over === "defeat" ? "败北" : "撤离"}
+            </span>
+          </div>
+
+          {b.evaluation === undefined ? (
+            <p className="battle-eval__hint">这一场没有留下战评（旧档或旧引擎）。</p>
+          ) : (
+            <>
+              <div className="battle-eval__grid">
+                <div>
+                  <span>回合</span>
+                  <b>{b.evaluation.rounds}</b>
+                </div>
+                <div>
+                  <span>造成伤害</span>
+                  <b>{b.evaluation.player.damageDealt}</b>
+                </div>
+                <div>
+                  <span>承受伤害</span>
+                  <b>{b.evaluation.player.damageTaken}</b>
+                </div>
+                <div>
+                  <span>暴击</span>
+                  <b>{b.evaluation.player.crits}</b>
+                </div>
+                <div>
+                  <span>击破</span>
+                  <b>{b.evaluation.player.kills}</b>
+                </div>
+              </div>
+
+              {b.evaluation.enemies.length > 0 && (
+                <ul className="battle-eval__enemies">
+                  {b.evaluation.enemies.map((e) => (
+                    <li key={e.ref}>
+                      <span className="name">{e.name}</span>
+                      <span className="meta">
+                        {e.defeated ? "已击破" : "仍在"} · 输出 {e.damageByPlayer}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+
+          <button className="battle-leave" disabled={busy} onClick={() => onCommand({ type: "leave" })}>
+            继续
+          </button>
+        </section>
       )}
+
+      {/* ADR-076：四层特效层。只负责画，判断全在投影期。 */}
+      <BattleFxLayer fx={b.fx} boardRef={boardRef} />
 
       <div className="battle-log">
         {b.log.map((line, i) => (

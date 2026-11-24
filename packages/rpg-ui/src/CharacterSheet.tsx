@@ -143,7 +143,12 @@ export function CharacterSheet({ player, evaluation, onSelectStatus }: Character
         <ResourceBar label={`${player.labels.mood} · ${player.moodBandLabel}`} value={player.mood} max={100} cls="mood" />
       </div>
       {/* 首页只列「有什么」：天赋与修正的名片，不摊合计数字（那属于个人页）。 */}
-      <StatusBoard statuses={player.statuses} showLedger={false} onSelectStatus={onSelectStatus} />
+      <StatusBoard
+        statuses={player.statuses}
+        showLedger={false}
+        showDuration={false}
+        onSelectStatus={onSelectStatus}
+      />
       {/* 评价默认不传：收束后由结局卡统一展示（见 props 注释）。 */}
       {evaluation && <EvaluationPanel evaluation={evaluation} />}
     </section>

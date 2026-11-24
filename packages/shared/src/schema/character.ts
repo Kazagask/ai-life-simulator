@@ -66,7 +66,7 @@ export const CharacterSchema = z
      * 初始装备（ADR-010 D3）：物品 id 列表，实例化时转成 `EquipmentInstance`。
      *
      * 词条走与玩家完全相同的 `effectiveAttributes` 链（`dynamicModifier`），所以
-     * 「甚尔拿着天逆鉾」终于是装备，而不是手改 `attributes` 凑出来的数字。
+     * 「某个角色拿着某件装备」终于是装备，而不是手改 `attributes` 凑出来的数字。
      * 槽位取物品自身的 `slot`（缺省 weapon）；引用完整性在 world.ts 顶层校验。
      */
     equipment: z.array(z.string().min(1)).optional(),

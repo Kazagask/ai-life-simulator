@@ -54,6 +54,8 @@ function runJjkOpening(picks: Record<string, string> = {}) {
       const optionId = picks[node.node] ?? node.options?.[0]?.id;
       if (optionId === undefined) throw new Error(`节点无选项：${node.node}`);
       session = resolveStep(dag, session, { kind: "choose", optionId }).session;
+    } else if (node.mode === "input") {
+      session = resolveStep(dag, session, { kind: "input", value: "测试名字" }).session;
     } else if (node.mode === "allocate") {
       // ADR-004：按「第一项吃满」分配，够跑完流程即可。
       const view = describeNode(dag, session, { template: entry.template });

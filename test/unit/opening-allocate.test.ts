@@ -42,6 +42,8 @@ function driveToAllocate(dag: OpeningBranchDag, seed: number) {
     if (node.mode === "roll") session = resolveStep(dag, session, { kind: "roll" }).session;
     else if (node.mode === "choose") {
       session = resolveStep(dag, session, { kind: "choose", optionId: node.options![0]!.id }).session;
+    } else if (node.mode === "input") {
+      session = resolveStep(dag, session, { kind: "input", value: "测试名字" }).session;
     }
   }
   throw new Error("没走到加点节点");
@@ -69,7 +71,7 @@ function baseDag(overrides: Partial<OpeningBranchDag> = {}): OpeningBranchDag {
         kind: "points",
         budget: 2,
         targets: [
-          { attribute: "cursedEnergy", min: 0, max: 2 },
+          { attribute: "energy", min: 0, max: 2 },
           { attribute: "agility", min: 0, max: 2 },
         ],
       },
@@ -95,7 +97,7 @@ describe("ADR-004 · 开局加点（真实模板 jjk-2006@3.0.0）", () => {
       expect(budget).toBeGreaterThan(0);
       // 视图里的 targets 来自模板：4 项、第一项是咒力、带样式（前端直接拿来渲染）。
       expect(view?.allocation?.targets.map((t) => t.attribute)).toEqual([
-        "cursedEnergy",
+        "cursedEnergyTotal",
         "intellect",
         "physique",
         "agility",
@@ -114,23 +116,23 @@ describe("ADR-004 · 开局加点（真实模板 jjk-2006@3.0.0）", () => {
     const session = driveToAllocate(dag, 777);
     const view = describeNode(dag, session, { template: entry.template });
     const budget = view?.allocation?.budget ?? 0;
-    const energyMax = view?.allocation?.targets.find((t) => t.attribute === "cursedEnergy")!.max ?? budget;
+    const energyMax = view?.allocation?.targets.find((t) => t.attribute === "cursedEnergyTotal")!.max ?? budget;
     const agilityMax = view?.allocation?.targets.find((t) => t.attribute === "agility")!.max ?? budget;
 
-    const onEnergy = { cursedEnergy: Math.min(budget, energyMax) };
+    const onEnergy = { cursedEnergyTotal: Math.min(budget, energyMax) };
     const onAgility = { agility: Math.min(budget, agilityMax) };
 
     const after = resolveStep(dag, session, { kind: "allocate", allocation: onEnergy }).session;
     expect(after.results.at(-1)?.nodeId).toBe(ALLOC_NODE);
-    expect(after.results.at(-1)?.allocation?.talentPoints?.cursedEnergy).toBe(onEnergy.cursedEnergy);
+    expect(after.results.at(-1)?.allocation?.talentPoints?.cursedEnergyTotal).toBe(onEnergy.cursedEnergyTotal);
 
     const stateA = commitOpening(dag, finish(dag, session, onEnergy), entry.template, "w-alloc-a");
     const stateB = commitOpening(dag, finish(dag, session, onAgility), entry.template, "w-alloc-b");
 
     // 同一个 seed 的其余步骤完全一致 ⇒ 差值只能来自加点。
-    expect(Number(stateA.player.attributes.cursedEnergy) - Number(stateB.player.attributes.cursedEnergy)).toBe(
-      onEnergy.cursedEnergy,
-    );
+    expect(
+      Number(stateA.player.attributes.cursedEnergyTotal) - Number(stateB.player.attributes.cursedEnergyTotal),
+    ).toBe(onEnergy.cursedEnergyTotal);
     expect(Number(stateB.player.attributes.agility) - Number(stateA.player.attributes.agility)).toBe(
       onAgility.agility,
     );
@@ -142,7 +144,7 @@ describe("ADR-004 · 开局加点（真实模板 jjk-2006@3.0.0）", () => {
     const session = driveToAllocate(dag, 424242);
     const view = describeNode(dag, session, { template: entry.template });
     const budget = view?.allocation?.budget ?? 0;
-    const allocation = { cursedEnergy: budget };
+    const allocation = { cursedEnergyTotal: budget };
     const after = resolveStep(dag, session, { kind: "allocate", allocation }).session;
     const gains = collectOpeningGains(dag, after, entry.template, entry.ui);
     for (const [attribute, amount] of Object.entries(allocation)) {
@@ -150,8 +152,8 @@ describe("ADR-004 · 开局加点（真实模板 jjk-2006@3.0.0）", () => {
       const item = gains.filter((g) => g.category === "attribute" && g.id === attribute).at(-1);
       expect(item?.amount).toBe(amount);
     }
-    const cursedEntry = gains.filter((g) => g.id === "cursedEnergy").at(-1);
-    expect(cursedEntry?.name).toBe("咒力");
+    const cursedEntry = gains.filter((g) => g.id === "cursedEnergyTotal").at(-1);
+    expect(cursedEntry?.name).toBe("咒力总量");
   });
 
   it("预算未落定时报错而不是按 0 处理", () => {
@@ -162,14 +164,14 @@ describe("ADR-004 · 开局加点（真实模板 jjk-2006@3.0.0）", () => {
           id: "pts",
           kind: "points",
           budgetFrom: "roll",
-          targets: [{ attribute: "cursedEnergy", min: 0, max: 5 }],
+          targets: [{ attribute: "energy", min: 0, max: 5 }],
         },
       ],
       nodes: [{ node: "n1", title: "加点", mode: "allocate", param: "pts" }],
     });
     const session = createOpeningSession(dag, 1);
     expect(() => describeNode(dag, session)).toThrow("opening_allocate_budget_unavailable");
-    expect(() => resolveStep(dag, session, { kind: "allocate", allocation: { cursedEnergy: 0 } })).toThrow(
+    expect(() => resolveStep(dag, session, { kind: "allocate", allocation: { energy: 0 } })).toThrow(
       "opening_allocate_budget_unavailable",
     );
   });
@@ -181,16 +183,16 @@ describe("ADR-004 · 开局加点（真实模板 jjk-2006@3.0.0）", () => {
       resolveStep(dag, session, { kind: "allocate", allocation });
 
     expect(() => step({ luck: 2 })).toThrow("opening_allocation_unknown_target");
-    expect(() => step({ cursedEnergy: 1.5 })).toThrow("opening_allocation_invalid_value");
-    expect(() => step({ cursedEnergy: -1, agility: 3 })).toThrow("opening_allocation_invalid_value");
-    expect(() => step({ cursedEnergy: 3 })).toThrow("opening_allocation_above_max");
+    expect(() => step({ energy: 1.5 })).toThrow("opening_allocation_invalid_value");
+    expect(() => step({ energy: -1, agility: 3 })).toThrow("opening_allocation_invalid_value");
+    expect(() => step({ energy: 3 })).toThrow("opening_allocation_above_max");
     // ADR-004 D4 修订：允许放弃余额，只拒绝超支。
-    expect(() => step({ cursedEnergy: 2, agility: 1 })).toThrow("opening_allocation_over_budget");
-    const partial = step({ cursedEnergy: 1 });
+    expect(() => step({ energy: 2, agility: 1 })).toThrow("opening_allocation_over_budget");
+    const partial = step({ energy: 1 });
     expect(partial.session.done).toBe(true);
-    expect(partial.session.results.at(-1)?.allocation?.pts).toEqual({ cursedEnergy: 1, agility: 0 });
+    expect(partial.session.results.at(-1)?.allocation?.pts).toEqual({ energy: 1, agility: 0 });
     // 合法：刚好 2 点
-    const ok = step({ cursedEnergy: 1, agility: 1 });
+    const ok = step({ energy: 1, agility: 1 });
     expect(ok.session.done).toBe(true);
   });
 
@@ -201,14 +203,14 @@ describe("ADR-004 · 开局加点（真实模板 jjk-2006@3.0.0）", () => {
           id: "pts",
           kind: "points",
           budget: 5,
-          targets: [{ attribute: "cursedEnergy", min: 0 }],
+          targets: [{ attribute: "energy", min: 0 }],
         },
       ],
     });
     const session = createOpeningSession(dag, 5);
     const view = describeNode(dag, session);
     expect(view?.allocation?.targets[0]?.max).toBeUndefined();
-    const ok = resolveStep(dag, session, { kind: "allocate", allocation: { cursedEnergy: 5 } });
+    const ok = resolveStep(dag, session, { kind: "allocate", allocation: { energy: 5 } });
     expect(ok.session.done).toBe(true);
   });
 
@@ -220,7 +222,7 @@ describe("ADR-004 · 开局加点（真实模板 jjk-2006@3.0.0）", () => {
           kind: "points",
           budget: 1,
           targets: [
-            { attribute: "cursedEnergy", min: 1, max: 1 },
+            { attribute: "energy", min: 1, max: 1 },
             { attribute: "agility", min: 0, max: 1 },
           ],
         },
@@ -230,7 +232,7 @@ describe("ADR-004 · 开局加点（真实模板 jjk-2006@3.0.0）", () => {
     expect(() => resolveStep(dag, session, { kind: "allocate", allocation: { agility: 1 } })).toThrow(
       "opening_allocation_below_min",
     );
-    const ok = resolveStep(dag, session, { kind: "allocate", allocation: { cursedEnergy: 1 } });
+    const ok = resolveStep(dag, session, { kind: "allocate", allocation: { energy: 1 } });
     expect(ok.session.done).toBe(true);
   });
 
@@ -267,7 +269,7 @@ describe("ADR-004 · 开局加点（真实模板 jjk-2006@3.0.0）", () => {
     const badBudget = baseDag({
       params: [
         { id: "who", kind: "self" },
-        { id: "pts", kind: "points", budgetFrom: "who", targets: [{ attribute: "cursedEnergy" }] },
+        { id: "pts", kind: "points", budgetFrom: "who", targets: [{ attribute: "energy" }] },
       ],
     });
     expect(validateOpeningDag(badBudget, entry.template).some((i) => i.message.includes("kind=number"))).toBe(

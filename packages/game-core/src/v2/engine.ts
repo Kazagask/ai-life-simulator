@@ -1,5 +1,7 @@
 import type {
   AttributeValue,
+  AnyMatch,
+  BattleResult,
   Condition,
   Effect,
   EquipmentInstance,
@@ -27,6 +29,8 @@ import { adjustResourceValue, computeMax } from "./resources.js";
 import { EffectSchema, PLAYER_ID, isAttributeModifier, numericAttr } from "@life-sim/shared";
 import { addEdge, freezeOnDeath, normalizeRelationEndpoint } from "./relations.js";
 import { isAliveActor, selfIdOf, transplantActor, writableActorOf, type TransferableActor } from "./actors.js";
+import { settledTierCount, statusFor, talentProgressOf } from "./talent.js";
+import { anyMatchMet } from "./any-match.js";
 import { resolveExtensionEffect, collectExtensionConditions } from "./extensions.js";
 import {
   createConditionRegistry,
@@ -42,12 +46,30 @@ import {
  */
 export { computeMax } from "./resources.js";
 
-export function maxHp(player: V2Player, template: WorldTemplateV2): number {
-  return computeMax(template.resources.hp, player.growthLevel, player.attributes, 1);
+/**
+ * HP / MP 上限（ADR-074）：公式读的是**有效属性**，不是基础值。
+ *
+ * 为什么这一条必须改：属性转化把「某种资源属性」换走之后，mp 上限必须跟着变成 0；
+ * 派生属性（总量）也一样 —— 只读基础值的实现会让「最终总量 = 0」的人在面板上
+ * 仍然有 60 点 mp，那就等于换算没有发生。
+ *
+ * 第三参缺省 = 基础属性（旧调用点零迁移）；战斗/投影/开局这些有状态的调用点
+ * 必须显式传 effective。
+ */
+export function maxHp(
+  player: V2Player,
+  template: WorldTemplateV2,
+  attrs: Record<string, AttributeValue | number> = player.attributes,
+): number {
+  return computeMax(template.resources.hp, player.growthLevel, attrs as Record<string, AttributeValue>, 1);
 }
 
-export function maxMp(player: V2Player, template: WorldTemplateV2): number {
-  return computeMax(template.resources.mp, player.growthLevel, player.attributes, 0);
+export function maxMp(
+  player: V2Player,
+  template: WorldTemplateV2,
+  attrs: Record<string, AttributeValue | number> = player.attributes,
+): number {
+  return computeMax(template.resources.mp, player.growthLevel, attrs as Record<string, AttributeValue>, 0);
 }
 
 // ---------- 心情档位 ----------
@@ -70,6 +92,94 @@ export const zeroRng: Rng = () => 0;
  * - condGate：装备条件求值入口；由调用方注入（内部须用「不含装备」的基础有效属性
  *   求值 attribute 条件，避免递归）。未提供时带条件的词条当次不生效。
  */
+/**
+ * 派生属性（ADR-074）：`value = base + Σ perPoint × 依赖的最终值`。
+ *
+ * 顺序由 `derivedOrderOf` 给出拓扑序；模板加载期已拒掉循环依赖，
+ * 这里对未校验的夹具（测试用 `as unknown` 铸造的模板）做一次兜底：
+ * 遇到回边就跳过，宁可算错一个数，也不在上限计算里递归到栈溢出。
+ */
+const derivedOrderCache = new WeakMap<WorldTemplateV2, string[]>();
+
+function derivedSpecsOf(template: WorldTemplateV2): Map<string, { base?: number; from: { attribute: string; perPoint: number }[]; min?: number; max?: number }> {
+  const out = new Map<string, { base?: number; from: { attribute: string; perPoint: number }[]; min?: number; max?: number }>();
+  for (const [key, def] of Object.entries(template.attributes.defs ?? {})) {
+    if (def.kind === "number" && def.derived !== undefined) out.set(key, def.derived);
+  }
+  return out;
+}
+
+/** 派生属性的计算顺序（依赖在前）。只含派生属性自己。 */
+export function derivedOrderOf(template: WorldTemplateV2): string[] {
+  const cached = derivedOrderCache.get(template);
+  if (cached !== undefined) return cached;
+  const specs = derivedSpecsOf(template);
+  const order: string[] = [];
+  const mark = new Map<string, 1 | 2>();
+  const visit = (key: string): void => {
+    const state = mark.get(key);
+    if (state !== undefined) return; // 2 = 已完成；1 = 回边（加载期应已拒载）
+    mark.set(key, 1);
+    for (const dep of specs.get(key)?.from ?? []) {
+      if (specs.has(dep.attribute)) visit(dep.attribute);
+    }
+    mark.set(key, 2);
+    order.push(key);
+  };
+  for (const key of specs.keys()) visit(key);
+  derivedOrderCache.set(template, order);
+  return order;
+}
+
+const roleCache = new WeakMap<WorldTemplateV2, Map<string, string>>();
+
+/**
+ * 按**角色**取属性 id（ADR-074）：引擎只认 `role`，不认属性叫什么名字。
+ *
+ * 世界把暴击率叫 `critRate`、`暴击`、`会心` 都行；没声明角色 ⇒ 这条通道不存在，
+ * 引擎退回「世界/技能/状态」的暴击词条，不会去猜某个 id。
+ */
+export function attributeIdOfRole(template: WorldTemplateV2, role: string): string | undefined {
+  let map = roleCache.get(template);
+  if (map === undefined) {
+    map = new Map<string, string>();
+    for (const [id, def] of Object.entries(template.attributes.defs ?? {})) {
+      if (def.kind === "number" && def.role !== undefined) map.set(def.role, id);
+    }
+    roleCache.set(template, map);
+  }
+  return map.get(role);
+}
+
+/** 派生属性 id 集合（投影层据此把「现值」盖到面板上）。 */
+export function derivedAttributeKeys(template: WorldTemplateV2): Set<string> {
+  return new Set(derivedSpecsOf(template).keys());
+}
+
+/**
+ * 纯派生计算（给 NPC 面板用）：只吃一份属性表，不读状态/装备。
+ *
+ * 与 `effectiveAttributes` 用同一个 `derivedOrderOf`，所以「面板上看到的」
+ * 与「战斗里算的」是同一套依赖顺序，不会两边各算一份。
+ */
+export function derivedAttributeValues(
+  attrs: Record<string, AttributeValue>,
+  template: WorldTemplateV2,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(attrs)) if (typeof value === "number") out[key] = value;
+  const specs = derivedSpecsOf(template);
+  for (const key of derivedOrderOf(template)) {
+    const spec = specs.get(key)!;
+    let value = spec.base ?? 0;
+    for (const dep of spec.from) value += dep.perPoint * (out[dep.attribute] ?? 0);
+    if (spec.min !== undefined) value = Math.max(spec.min, value);
+    if (spec.max !== undefined) value = Math.min(spec.max, value);
+    out[key] = value;
+  }
+  return out;
+}
+
 export function effectiveAttributes(
   attrs: Record<string, AttributeValue>,
   statuses: StatusInstance[],
@@ -78,14 +188,28 @@ export function effectiveAttributes(
   equipment?: EquipmentInstance[],
   condGate?: ModifierConditionGate,
 ): Record<string, number> {
+  const template = lookup.template;
+  const specs = derivedSpecsOf(template);
+  /** 有符号属性（`signed: true`）：负值合法，不参与「属性不为负」的兜底。 */
+  const signed = new Set<string>();
+  for (const [id, def] of Object.entries(template.attributes.defs ?? {})) {
+    if (def.kind === "number" && def.signed === true) signed.add(id);
+  }
   /**
    * ADR-003：文本属性不参与数值运算 —— 先把数值键拷出来，之后所有状态只落在它们上面。
    * 加载期已保证 `attributeModifiers` 不会指向文本属性；这里只是最后一道防线。
+   * 派生属性的存档值**不参与**：它的值只能由公式与补正决定（ADR-074）。
    */
   const eff: Record<string, number> = {};
   for (const [key, value] of Object.entries(attrs)) {
-    if (typeof value === "number") eff[key] = value;
+    if (typeof value === "number" && !specs.has(key)) eff[key] = value;
   }
+  /** 落在派生属性上的补正先存起来，等公式算完再加（否则会被公式覆盖）。 */
+  const derivedMods: Record<string, number> = {};
+  const addModifier = (key: string, delta: number): void => {
+    if (specs.has(key)) derivedMods[key] = (derivedMods[key] ?? 0) + delta;
+    else eff[key] = (eff[key] ?? 0) + delta;
+  };
   for (const inst of statuses) {
     /**
      * ADR-018 D2：属性状态在**定义层**，不再住在 `simulation` 面里。
@@ -93,11 +217,9 @@ export function effectiveAttributes(
      * 它本来就是模拟与战斗共用的（这条函数同时服务自由行动与 `buildUnit`），
      * 挂在 simulation 面里只让「战斗态不能改属性」和「面板与结算不一致」同时成立。
      */
-    const modifiers = lookup.status(inst.statusId)?.attributeModifiers;
+    const modifiers = statusFor(lookup.status(inst.statusId), inst)?.attributeModifiers;
     if (!modifiers) continue;
-    for (const [key, delta] of Object.entries(modifiers)) {
-      eff[key] = (eff[key] ?? 0) + delta * inst.stacks;
-    }
+    for (const [key, delta] of Object.entries(modifiers)) addModifier(key, delta * inst.stacks);
   }
   if (equipment?.length) {
     for (const inst of equipment) {
@@ -107,16 +229,42 @@ export function effectiveAttributes(
       for (const spec of item.dynamicModifiers ?? []) {
         if (!isAttributeModifier(spec)) continue;
         const deltas = evaluateDynamicModifier(spec, { effAttrs: eff, statuses, condCtx: condGate });
-        for (const [key, delta] of Object.entries(deltas)) {
-          eff[key] = (eff[key] ?? 0) + delta;
-        }
+        for (const [key, delta] of Object.entries(deltas)) addModifier(key, delta);
       }
     }
   }
-  for (const [key, delta] of Object.entries(moodBand(mood, lookup.template).attributeModifiers)) {
-    eff[key] = (eff[key] ?? 0) + delta;
+  for (const [key, delta] of Object.entries(moodBand(mood, template).attributeModifiers)) {
+    addModifier(key, delta);
   }
-  const caps = lookup.template.attributes.caps;
+  /**
+   * 属性转化（ADR-074）：把源属性的**最终值**按比例搬到目标属性，源归零。
+   * 必须在派生计算之前 —— 源属性被清空之后，由它派生的属性也必须一起归零，
+   * 否则「没有这份资源的人」还会残留一条派生值。
+   */
+  for (const inst of statuses) {
+    const conversions = lookup.status(inst.statusId)?.conversion;
+    if (conversions === undefined) continue;
+    for (const conv of conversions) {
+      if (specs.has(conv.from)) continue; // 派生属性不能被转化（加载期已拒）
+      const value = eff[conv.from] ?? 0;
+      eff[conv.from] = 0;
+      if (value === 0) continue;
+      for (const [to, ratio] of Object.entries(conv.to)) {
+        if (specs.has(to)) continue;
+        eff[to] = (eff[to] ?? 0) + value * ratio;
+      }
+    }
+  }
+  for (const key of derivedOrderOf(template)) {
+    const spec = specs.get(key)!;
+    let value = spec.base ?? 0;
+    for (const dep of spec.from) value += dep.perPoint * (eff[dep.attribute] ?? 0);
+    value += derivedMods[key] ?? 0;
+    if (spec.min !== undefined) value = Math.max(spec.min, value);
+    if (spec.max !== undefined) value = Math.min(spec.max, value);
+    eff[key] = value;
+  }
+  const caps = template.attributes.caps;
   if (caps) {
     for (const [key, cap] of Object.entries(caps)) {
       if (eff[key] !== undefined) eff[key] = Math.min(eff[key], cap);
@@ -125,13 +273,13 @@ export function effectiveAttributes(
   /**
    * 数值属性没有负值（ADR-011 D2）。
    *
-   * 状态可以写 `-8`（天与咒缚「出生时被拿走全部咒力」就是这么写的），但「有效属性 -8」
+   * 状态可以写 `-8`（「出生时被拿走全部资源」这类设定就是这么写的），但「有效属性 -8」
    * 会真的一路算进命中骰与伤害公式，读起来像加法写错了。属性是量，量到 0 为止 ——
    * 「没有」和「欠着」在规则上是同一件事。
    */
   for (const key of Object.keys(eff)) {
     const value = eff[key]!;
-    if (value < 0) eff[key] = 0;
+    if (value < 0 && !signed.has(key)) eff[key] = 0;
   }
   return eff;
 }
@@ -148,7 +296,7 @@ export interface EffectiveAttributeSource {
  * 按固定链路算一个**任意演员**的有效属性（ADR-010 D3）。
  *
  * 存在的理由：NPC 的状态与装备以前在战斗构建时被整个跳过（`buildUnits` 直接读模板
- * `attributes` × levelScale），于是「穿了咒具的甚尔」和「裸的甚尔」数值一样。
+ * `attributes` × levelScale），于是「穿了装备的甲」和「裸装的甲」数值一样。
  * 玩家与 NPC 现在走同一函数，不给 NPC 写第二套。
  */
 export function effectiveAttributesOfActor(
@@ -199,6 +347,9 @@ export function assignAttributeValue(
   }
   if (def?.kind === "composite") {
     throw new Error(`attribute_readonly: ${attribute}（composite 是派生属性）`);
+  }
+  if (def?.kind === "number" && def.derived !== undefined) {
+    throw new Error(`attribute_readonly: ${attribute}（派生属性由公式计算，不能直接赋值）`);
   }
   if (typeof value !== "number") {
     throw new Error(`attribute_not_numeric: ${attribute}（收到字符串值）`);
@@ -298,12 +449,27 @@ export function applyStatusTo(
     else if (!permanent) existing.expiresAt = Math.max(existing.expiresAt ?? 0, expiresAt);
     if (def.stacking === "stack") existing.stacks += stacks;
     else existing.stacks = Math.max(1, existing.stacks);
+    // 旧档 / 手工注入的成长型天赋：补一档初始进度（不补发阶 grant，理由同新建分支）。
+    if (def.kind === "talent" && def.progress !== undefined && existing.progress === undefined) {
+      existing.progress = def.progress.initial ?? 0;
+      existing.tiersApplied = settledTierCount(def, existing.progress);
+    }
   } else {
+    /**
+     * 成长型天赋的初始进度（ADR-075 §7）：按 `progress.initial` 初始化，
+     * `tiersApplied` 直接记成"初始进度已覆盖的阶数" —— **不补发阶 grant**。
+     * 开局自带成长型天赋的人已经在开局 DAG 加过点，再补一笔就是双计。
+     */
+    const progress =
+      def.kind === "talent" && def.progress !== undefined ? (def.progress.initial ?? 0) : undefined;
     actor.statuses.push({
       statusId,
       stacks: Math.max(1, stacks),
       appliedTurn: state.turnIndex,
       appliedAt: now,
+      ...(progress !== undefined
+        ? { progress, tiersApplied: settledTierCount(def, progress) }
+        : {}),
       ...(expiresAt === undefined ? {} : { expiresAt }),
     });
   }
@@ -360,10 +526,22 @@ export interface ConditionContext {
    * 避免装备条件 → 属性 → 装备的递归求值；缺省时按全量管线现算。
    */
   effAttrsOverride?: Record<string, number>;
+  /**
+   * 战评 hooks 里刚生成的战果（ADR-075 §6）。`anyMatch` 的 `battle.*` 集合优先读它；
+   * 缺省回退 `state.lastBattleResult`（死亡路由 / 普通事件）。
+   */
+  battleResult?: BattleResult;
 }
 
 export function checkCondition(cond: Condition, ctx: ConditionContext): boolean {
   const { state, lookup, rng } = ctx;
+  if ("anyMatch" in cond) {
+    return anyMatchMet((cond as { anyMatch: AnyMatch }).anyMatch, {
+      state,
+      battle: ctx.battleResult ?? state.lastBattleResult,
+      template: lookup.template,
+    });
+  }
   if ("flag" in cond) {
     const value = state.flags[cond.flag];
     if (value === undefined) return false;
@@ -536,6 +714,8 @@ export interface EffectContextV2 {
   timeAdvanced?: boolean;
   /** enqueueEvent 效果入队的事件 id；调用方据此在同一次边界 drain 到期实例（入口 3） */
   enqueued?: string[];
+  /** 战评钩子里刚生成的战果：`advanceTalent.amount` 的 metric 形态与 `anyMatch` 读它。 */
+  battleResult?: BattleResult;
 }
 
 /**
@@ -574,6 +754,102 @@ function scopeOfEffect(effect: {
  */
 function isAliveNode(state: WorldStateV2, nodeId: string): boolean {
   return isAliveActor(state, nodeId);
+}
+
+/**
+ * 推进成长型天赋（ADR-075 §7）：**唯一写入口**。
+ *
+ * - 单调递增、夹 `progress.max`、不碰 RNG；
+ * - `create: true` 时没有实例就建一个，**从 0 起算**再加（不重复计 `initial`）；
+ * - 跨阶时从 `tiersApplied` 往后逐阶结算 `grant` 一次；`grant` 里禁止再写 `advanceTalent`
+ *   （加载期已拒），所以这里不会有递归。
+ */
+export function advanceTalent(
+  ctx: EffectContextV2,
+  talentId: string,
+  amount: number,
+  create: boolean,
+): void {
+  if (amount <= 0) return;
+  const { state, lookup } = ctx;
+  const def = lookup.status(talentId);
+  if (def === undefined) return; // 加载期已校验引用；运行期不猜
+  if (def.kind !== "talent") throw new Error(`advanceTalent_not_talent: ${talentId}`);
+
+  let inst = state.player.statuses.find((s) => s.statusId === talentId);
+  if (inst === undefined) {
+    if (!create) return;
+    inst = {
+      statusId: talentId,
+      stacks: 1,
+      appliedTurn: state.turnIndex,
+      appliedAt: state.worldTime,
+      progress: 0,
+      tiersApplied: 0,
+    };
+    state.player.statuses.push(inst);
+  } else if (inst.tiersApplied === undefined) {
+    // 旧档 / 外部注入：把"当前进度已经覆盖的阶"记为已结算，避免补发旧阶的 grant。
+    inst.tiersApplied = settledTierCount(def, talentProgressOf(def, inst));
+  }
+
+  const current = talentProgressOf(def, inst);
+  const max = def.progress?.max ?? Number.POSITIVE_INFINITY;
+  const next = Math.min(max, current + amount);
+  if (next === current) return;
+  inst.progress = next;
+
+  const tiers = def.tiers ?? [];
+  let applied = inst.tiersApplied ?? 0;
+  const crossed: typeof tiers = [];
+  while (applied < tiers.length && tiers[applied]!.at <= next) {
+    crossed.push(tiers[applied]!);
+    // 先记"已结算"再发效果：grant 里若有同 id 的幂等写入，不会把这一阶再走一遍。
+    inst.tiersApplied = applied + 1;
+    applied += 1;
+  }
+  applyTierGrants(ctx, crossed);
+}
+
+/**
+ * 跨阶结算的 `grant`。
+ *
+ * **一次跨两阶必须合并加点**：`grantAllocation` 是「同一时刻只能挂一条」的待办，
+ * 逐阶发会在 `pendingAllocation` 上撞车（`bf-1` 还没分完又来 `bf-4`，直接抛错）。
+ * 而这两笔在语义上本来就是同一件事 —— 「这一场涨了两阶，一共给你 3 点」。
+ *
+ * 合并规则：`budget` 相加；`targets` 按属性去重（保留先出现的上下限）；
+ * `id` 取最后一阶的（同阶重复结算由 `tiersApplied` 挡住，不靠 id 兜底）。
+ */
+function applyTierGrants(ctx: EffectContextV2, tiers: readonly { effects: { grant?: readonly (Effect | UnknownEffect)[] } }[]): void {
+  const flat = tiers.flatMap((t) => t.effects.grant ?? []);
+  if (flat.length === 0) return;
+  const allocs = flat.filter(
+    (e): e is Extract<Effect, { type: "grantAllocation" }> => e.type === "grantAllocation",
+  );
+  if (allocs.length <= 1) {
+    applyEffectsV2(ctx, flat);
+    return;
+  }
+  const budget = allocs.reduce((sum, a) => sum + a.budget, 0);
+  const seen = new Set<string>();
+  const targets: Extract<Effect, { type: "grantAllocation" }>["targets"] = [];
+  for (const a of allocs) {
+    for (const t of a.targets) {
+      if (seen.has(t.attribute)) continue;
+      seen.add(t.attribute);
+      targets.push({ ...t });
+    }
+  }
+  const last = allocs[allocs.length - 1]!;
+  const merged: Extract<Effect, { type: "grantAllocation" }> = {
+    type: "grantAllocation",
+    id: last.id,
+    budget,
+    targets,
+    ...(last.reason !== undefined ? { reason: last.reason } : {}),
+  };
+  applyEffectsV2(ctx, [...flat.filter((e) => e.type !== "grantAllocation"), merged]);
 }
 
 export function applyEffectsV2(
@@ -674,6 +950,31 @@ export function applyEffectsV2(
           sinceTurn: state.turnIndex,
           sinceWorldTime: state.worldTime,
         };
+        break;
+      }
+      case "advanceTalent": {
+        /**
+         * ADR-075 §7。`amount` 的 metric 形态只在战评 hooks 里有意义（那里有 `BattleResult`）；
+         * 世界效果没有战果上下文，静默当 0 会变成"给了但没涨"，所以直接拒。
+         */
+        const amount =
+          typeof effect.amount === "number"
+            ? effect.amount
+            : ctx.battleResult !== undefined
+              ? Math.min(
+                  effect.amount.max ?? Number.POSITIVE_INFINITY,
+                  ctx.battleResult.player.statusStacks[effect.amount.status] ?? 0,
+                )
+              : Number.NaN;
+        if (!Number.isFinite(amount)) {
+          throw new Error("advanceTalent_amount_metric_outside_evaluation");
+        }
+        advanceTalent(ctx, effect.talent, Math.floor(amount), effect.create === true);
+        break;
+      }
+      case "playerDeath": {
+        state.player.hp = 0;
+        state.deathSignal = { ...(effect.reason !== undefined ? { reason: effect.reason } : {}) };
         break;
       }
       case "observeActor": {

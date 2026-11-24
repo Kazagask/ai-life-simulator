@@ -57,7 +57,9 @@ async function commitOneOpening(): Promise<{
         ? { kind: "roll" as const }
         : node.mode === "allocate"
           ? { kind: "allocate" as const, allocation: {} }
-          : { kind: "choose" as const, optionId: node.options?.[0]?.id ?? "" };
+          : node.mode === "input"
+            ? { kind: "input" as const, value: "测试名字" }
+            : { kind: "choose" as const, optionId: node.options?.[0]?.id ?? "" };
     const res = await api<StepResponse>(server.baseUrl, "POST", `/api/openings/${created.sessionId}/step`, step);
     node = res.node;
     done = res.done;

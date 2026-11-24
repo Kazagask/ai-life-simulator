@@ -1,17 +1,18 @@
 import type {
+  BattlePredicate,
+  BattleResult,
+  BattleSideName,
+  DeathAction,
   DeathRoute,
   EndingCondition,
   EndingConfig,
   EndingRecord,
   EndingTemplate,
-  HistoryEntryV2,
   TerminationRecord,
   TerminationSource,
   WorldStateV2,
 } from "@life-sim/shared";
 import { checkAllConditions, type ConditionContext } from "./engine.js";
-import { recordFire } from "./scheduler.js";
-import { createTimeAdapter } from "./time.js";
 import { resolveEndingNarrative, type NarrativeAdapter } from "./narrative.js";
 
 /**
@@ -261,6 +262,32 @@ export interface EndingResolveOptions {
   narrativeAdapter?: NarrativeAdapter;
 }
 
+function endingRecordOf(state: WorldStateV2, chosen: EndingTemplate): EndingRecord {
+  return {
+    endingId: chosen.endingId,
+    evidenceIds: state.history.map((h) => h.id),
+    title: chosen.narrativeConfig.title ?? chosen.name,
+    summary: chosen.narrativeConfig.summary ?? chosen.description,
+    narrativeSource: "template",
+  };
+}
+
+/**
+ * 按 id 直接取结局记录（ADR-075 §5.1）。
+ *
+ * 死亡路由**不跑** `triggerConditions / unlockConditions / priority / exclusiveGroup` ——
+ * 那些是"决胜"，死亡已经由路由决完了。这里只做记录与叙事；隐藏结局的 `masked`
+ * 仍由投影/服务端按模板声明处理。
+ */
+export function resolveEndingById(
+  state: WorldStateV2,
+  templates: readonly EndingTemplate[],
+  endingId: string,
+): EndingRecord | undefined {
+  const chosen = templates.find((t) => t.endingId === endingId);
+  return chosen === undefined ? undefined : endingRecordOf(state, chosen);
+}
+
 /** 固化 EndingRecord（独立类型，不写入 WorldStateV2）。 */
 export function resolveEnding(
   state: WorldStateV2,
@@ -268,28 +295,35 @@ export function resolveEnding(
   ctx: ConditionContext,
   options: EndingResolveOptions = {},
 ): EndingRecord {
+  /**
+   * 已固化的 `termination.endingId` 优先（ADR-075 §5）：死亡路由直接引用结局 id，
+   * 后续的展示 / 归档不能再跑一次 triggerConditions 把它换成别的结局。
+   */
+  const forced =
+    state.termination?.endingId !== undefined
+      ? resolveEndingById(state, templates, state.termination.endingId)
+      : undefined;
   const ranked = selectEndingTemplates(state, templates, ctx);
   const fallbackEnding =
     templates.find((t) => t.endingId === options.fallbackId) ??
     templates.find((t) => t.fallback) ??
     templates[templates.length - 1];
-  const chosen = ranked[0] ?? fallbackEnding;
+  const chosen =
+    state.termination?.endingId !== undefined
+      ? (templates.find((t) => t.endingId === state.termination!.endingId) ?? ranked[0] ?? fallbackEnding)
+      : (ranked[0] ?? fallbackEnding);
   const evidenceIds = state.history.map((h) => h.id);
-  const base: EndingRecord = chosen
-    ? {
-        endingId: chosen.endingId,
-        evidenceIds,
-        title: chosen.narrativeConfig.title ?? chosen.name,
-        summary: chosen.narrativeConfig.summary ?? chosen.description,
-        narrativeSource: "template",
-      }
-    : {
-        endingId: "unresolved",
-        evidenceIds,
-        title: "旅程收束",
-        summary: "本局到此结束。",
-        narrativeSource: "template",
-      };
+  const base: EndingRecord =
+    forced ??
+    (chosen
+      ? endingRecordOf(state, chosen)
+      : {
+          endingId: "unresolved",
+          evidenceIds,
+          title: "旅程收束",
+          summary: "本局到此结束。",
+          narrativeSource: "template",
+        });
   if (!options.narrativeAdapter || !chosen) return base;
   const narrated = resolveEndingNarrative(
     {
@@ -308,95 +342,111 @@ export function resolveEnding(
   };
 }
 
-// ---------- 战败死亡路径（T4-02 / §9.3） ----------
+// ---------- 死亡路由（ADR-075 §5） ----------
 
-export type DeathRouteOutcome =
-  | { kind: "none" }
-  | { kind: "event"; deathEventId: string }
-  | { kind: "direct" };
+/** 死亡从哪来：由**边界**给，不由效果自己写（`playerDeath` 只落信号）。 */
+export type DeathCause = "battle" | "event" | "world";
+
+export interface DeathRouteHit {
+  route: DeathRoute;
+  action: DeathAction;
+}
+
+function withinRange(value: number, range: { gte?: number; lte?: number }): boolean {
+  if (range.gte !== undefined && value < range.gte) return false;
+  if (range.lte !== undefined && value > range.lte) return false;
+  return true;
+}
+
+function sideValue(result: BattleResult, side: BattleSideName): number {
+  switch (side) {
+    case "player":
+      return result.sides.player;
+    case "ally":
+      return result.sides.ally;
+    case "enemy":
+      return result.sides.enemy;
+    case "neutral":
+      return result.sides.neutral;
+    case "playerSide":
+      return result.sides.player + result.sides.ally;
+    case "opposition":
+      return result.sides.enemy + result.sides.neutral;
+  }
+}
+
+/** 除零规则（ADR-075 §4.4）：右 0 左正 ⇒ +∞；两侧都 0 ⇒ 1。 */
+function ratioOf(left: number, right: number): number {
+  if (right > 0) return left / right;
+  return left > 0 ? Number.POSITIVE_INFINITY : 1;
+}
+
+function killerMatches(result: BattleResult, pred: NonNullable<BattlePredicate["killer"]>): boolean {
+  const killer = result.killer;
+  if (killer === undefined) return false;
+  if (typeof pred === "string") return killer.ref === pred;
+  if (pred.ref !== undefined && killer.ref !== pred.ref) return false;
+  if (pred.tier !== undefined && killer.tier !== pred.tier) return false;
+  if (pred.summonedByPlayer !== undefined && killer.summonedByPlayer !== pred.summonedByPlayer) return false;
+  return true;
+}
+
+function battlePredicateMet(pred: BattlePredicate, result: BattleResult): boolean {
+  if (pred.stake !== undefined && result.stake !== pred.stake) return false;
+  if (pred.defeatState !== undefined && result.defeatState !== pred.defeatState) return false;
+  if (pred.killer !== undefined && !killerMatches(result, pred.killer)) return false;
+  if (pred.damageTo !== undefined) {
+    const enemy = result.enemies.find((e) => e.ref === pred.damageTo!.ref);
+    if (enemy === undefined) return false;
+    if (!withinRange(enemy.damageByPlayer, pred.damageTo)) return false;
+  }
+  if (pred.playerPower !== undefined && !withinRange(result.sides.player, pred.playerPower)) return false;
+  if (pred.ratio !== undefined) {
+    const value = ratioOf(sideValue(result, pred.ratio.left), sideValue(result, pred.ratio.right));
+    if (!withinRange(value, pred.ratio)) return false;
+  }
+  if (pred.grade !== undefined && result.grade !== pred.grade) return false;
+  if (pred.rounds !== undefined && !withinRange(result.rounds, pred.rounds)) return false;
+  return true;
+}
 
 /**
- * 战败（over=defeat）且死亡条件满足时按 deathMode 选择路径；
- * 条件不满足、或世界已终止/归档时返回 none（模拟继续）。
+ * 单条死亡条件。`battle` 只在 `cause === "battle"` 时成立（其它原因没有战果上下文）；
+ * 其余形状复用模拟域条件 DSL（flag / attribute / npcState / relation / time…）。
+ */
+function deathConditionMet(
+  cond: NonNullable<DeathRoute["when"]>[number],
+  state: WorldStateV2,
+  ctx: ConditionContext,
+  cause: DeathCause,
+  result: BattleResult | undefined,
+): boolean {
+  if ("battle" in cond) {
+    return cause === "battle" && result !== undefined && battlePredicateMet(cond.battle, result);
+  }
+  if ("cause" in cond) return cond.cause === cause;
+  if ("deathDepth" in cond) return withinRange(state.deathDepth ?? 0, cond.deathDepth);
+  return checkAllConditions([cond], ctx);
+}
+
+/**
+ * 死亡路由决胜：声明顺序，首个命中；**必须有 `when: []` 兜底**（加载期已校验）。
+ *
+ * 没有命中时不"猜一个结局"—— 直接抛错，让模板作者看到"路由没兜住"。
+ * 这正是用户裁决的"引擎不兜底"：兜底是模板声明出来的那一行，不是引擎写死的。
  */
 export function resolveDeathRoute(
   state: WorldStateV2,
-  route: DeathRoute,
-  signal: { battleDefeat: boolean },
+  routes: readonly DeathRoute[],
   ctx: ConditionContext,
-): DeathRouteOutcome {
-  if (!signal.battleDefeat) return { kind: "none" };
-  if (state.termination !== null || state.archived === true) return { kind: "none" };
-  if (!checkAllConditions(route.conditions, ctx)) return { kind: "none" };
-  if (route.deathMode === "event") {
-    return { kind: "event", deathEventId: route.deathEventId ?? "" };
+  cause: DeathCause,
+  result: BattleResult | undefined,
+): DeathRouteHit {
+  for (const route of routes) {
+    if (route.when.every((cond) => deathConditionMet(cond, state, ctx, cause, result))) {
+      return { route, action: route.then };
+    }
   }
-  return { kind: "direct" };
+  throw new Error(`death_route_missing: cause=${cause}（模板必须声明 when: [] 兜底）`);
 }
 
-export interface DeathRouteResult {
-  state: WorldStateV2;
-  ending: EndingRecord | null;
-  termination: TerminationRecord | null;
-  outcome: DeathRouteOutcome;
-}
-
-/**
- * 两条路径统一走 markTerminated()：
- * event —— 登记模板死亡事件（既有 source 类型与待决队列）后触发结局；
- * direct —— 直接触发结局。两者都不改写资源、不新增事件来源枚举。
- */
-export function applyDeathRoute(
-  state: WorldStateV2,
-  route: DeathRoute,
-  signal: { battleDefeat: boolean },
-  templates: readonly EndingTemplate[],
-  ctx: ConditionContext,
-  options: EndingResolveOptions = {},
-): DeathRouteResult {
-  const outcome = resolveDeathRoute(state, route, signal, ctx);
-  if (outcome.kind === "none") {
-    return { state, ending: null, termination: state.termination, outcome };
-  }
-  const next = structuredClone(state);
-  let deathEntry: HistoryEntryV2 | null = null;
-  if (outcome.kind === "event") {
-    const id = outcome.deathEventId;
-    // R-LM-03：触发事实只经 recordFire 一处写齐（firedEvents / lastFiredIndex / eventFires）。
-    recordFire(next, id);
-    deathEntry = {
-      id: `t${next.turnIndex}-death-${id}`,
-      turnIndex: next.turnIndex,
-      worldTime: next.worldTime,
-      formattedTime: createTimeAdapter(ctx.lookup.template).format(next.worldTime),
-      type: "event",
-      summary: `死亡结局事件：${id}`,
-      // 先按事件来源公开入史（需进 evidenceIds）；结局决胜后按掩码回填（协议 §21.1）
-      visibility: "public",
-    };
-    next.history.push(deathEntry);
-    // ADR-0034 §1：死亡结局事件直接占槽（`from: "death"`）——它是"下一次轮次必须处理的那一个"。
-    // 不新增事件来源枚举，复用既有槽语义。
-    next.slot = { eventId: id, from: "death" };
-  }
-  const ending = resolveEnding(next, templates, ctx, options);
-  if (deathEntry) {
-    const chosen = templates.find((t) => t.endingId === ending.endingId);
-    // 隐藏结局（narrativeConfig.masked，ADR-0006）触发的死亡事件条目继承 hidden
-    deathEntry.visibility = chosen?.narrativeConfig.masked ? "hidden" : "public";
-  }
-  const rec: TerminationRecord = {
-    reason: outcome.kind === "event" ? "战败死亡事件结算后触发结局" : "战败直接触发结局",
-    worldTime: next.worldTime,
-    turnIndex: next.turnIndex,
-    source: "battleDefeat",
-    endingId: ending.endingId,
-  };
-  const terminated = markTerminated(next, rec);
-  return {
-    state: terminated,
-    ending,
-    termination: terminated.termination,
-    outcome,
-  };
-}

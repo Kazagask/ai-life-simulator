@@ -151,42 +151,12 @@ export const EndingRecordSchema = z
 
 export type EndingRecord = z.infer<typeof EndingRecordSchema>;
 
-// ---------- 死亡路径（协议 §17 / §9.3） ----------
-
-export const DeathRouteSchema = z
-  .object({
-    deathMode: z.enum(["event", "direct"]),
-    /** event 路径：复用既有事件定义，不新增 source 枚举 */
-    deathEventId: z.string().min(1).optional(),
-    conditions: z.array(TaskConditionSchema).default([]),
-  })
-  .strict()
-  .superRefine((r, ctx) => {
-    if (r.deathMode === "event" && r.deathEventId === undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["deathEventId"],
-        message: "deathMode=event 需要 deathEventId 指向既有事件定义",
-      });
-    }
-    if (referencesHpAsCriterion(r.conditions)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["conditions"],
-        message: "拒绝以 HP 数值 / HP 归零为死亡判据的条件（R-EN-07 / P9）",
-      });
-    }
-  });
-
-export type DeathRoute = z.infer<typeof DeathRouteSchema>;
-
 // ---------- endings.yaml 顶层聚合 ----------
 
 export const EndingConfigSchema = z
   .object({
     terminationConditions: z.array(EndingConditionSchema).default([]),
     endings: z.array(EndingTemplateSchema).default([]),
-    deathRoute: DeathRouteSchema.optional(),
     /** 无专属命中时的兜底结局 id（须指向 endings 中已定义的结局） */
     fallback: z.string().min(1).optional(),
   })

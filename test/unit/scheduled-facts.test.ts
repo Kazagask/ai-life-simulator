@@ -73,8 +73,14 @@ describe("世界时间表（ADR-007 D1）", () => {
     advanceTo(state, entry, 4539);
     const ids = new Set(state.facts.map((f) => f.factId));
     expect(ids.has("fact-toji-2006")).toBe(true);
-    // 2006 单章只有这一条事实：2017 以后的登场随旧章节删了，推得再远也不会有人来。
-    expect(state.facts).toHaveLength(1);
+    // 2006 单章两条事实：甚尔入场（215 天）+ 怀玉之后五条悟的成长（260 天）。
+    expect(ids.has("fact-gojo-growth")).toBe(true);
+    expect(state.facts).toHaveLength(2);
+    // 成长的事实真的落到人身上（不是只写了一条日志）：反转、赫、茈、常时无下限。
+    const gojo = npc(state, "npc-gojo");
+    expect(gojo.skills).toContain("sk-reverse-heal");
+    expect(gojo.skills).toContain("sk-gojo-hollow-purple");
+    expect(gojo.statuses.some((s) => s.statusId === "infinity")).toBe(true);
     expect(npc(state, "npc-yuta").lifecycle.state).toBe("unspawned");
     expect(state.relations.some((e) => e.from === "npc-gojo" && e.to === "npc-megumi")).toBe(false);
   });

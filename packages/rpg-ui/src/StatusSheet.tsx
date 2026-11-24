@@ -17,6 +17,8 @@ export interface DetailSheetData {
   /** 一行元信息（持续时间 / 消耗 / 冷却…）。 */
   meta?: string;
   style?: ResolvedStyle;
+  /** 成长型天赋的进度条（按阶梯：`from/to`，`done` = 已满阶）。 */
+  progress?: { label: string; value: number; current: number; target: number; done: boolean };
   effects?: EffectSummaryVM[];
   /**
    * 常驻状态（召唤物的被动，如魔虚罗的法轮）：渲染成与个人页同一套状态芯片，
@@ -86,6 +88,37 @@ export function DetailSheet({ detail, onClose, onOpenRef, onOpenChip }: DetailSh
         </header>
 
         {detail.meta !== undefined && <p className="ls-sheet__meta">{detail.meta}</p>}
+
+        {/* 成长进度：一条进度 + 下一阶门槛；**不铺整张阶梯表** */}
+        {detail.progress !== undefined && (
+          <div className="ls-sheet__progress">
+            <div className="ls-sheet__progress-head">
+              <span>{detail.progress.label === "" ? "进度" : detail.progress.label}</span>
+              <span>
+                {detail.progress.done
+                  ? `${detail.progress.target}/${detail.progress.target} · 已完成`
+                  : `${detail.progress.current}/${detail.progress.target}`}
+              </span>
+            </div>
+            <div className="ls-sheet__progress-bar">
+              <i
+                style={{
+                  width: `${
+                    detail.progress.done
+                      ? 100
+                      : Math.max(
+                          0,
+                          Math.min(
+                            100,
+                            (detail.progress.current / Math.max(1, detail.progress.target)) * 100,
+                          ),
+                        )
+                  }%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
         {detail.description !== undefined && detail.description !== "" && (
           <p className="ls-sheet__desc">{detail.description}</p>
         )}
@@ -145,6 +178,7 @@ export function statusToDetail(status: StatusVM): DetailSheetData {
     ...(status.description !== undefined ? { description: status.description } : {}),
     ...(meta !== undefined ? { meta } : {}),
     ...(status.style !== undefined ? { style: status.style } : {}),
+    ...(status.progress !== undefined ? { progress: status.progress } : {}),
     ...(status.effects !== undefined ? { effects: status.effects } : {}),
   };
 }

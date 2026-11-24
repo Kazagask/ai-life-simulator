@@ -16,6 +16,17 @@ import { z } from "zod";
  * - `composite`：只读派生称号，由若干数值属性按优先序规则表求值，**不落 state**。
  */
 
+/**
+ * 属性**角色**（ADR-074）：引擎需要知道「哪个属性是暴击率 / 闪避率 / 消耗修正」，
+ * 但不该替世界决定它叫什么。模板在数值属性上声明 `role`，引擎按角色找；
+ * 找不到 = 这个世界没有这条通道（不是错误）。
+ *
+ * 这三个是**模拟器概念**（任何世界都可能有暴击/闪避/消耗），不是某个作品的词。
+ */
+export const ATTRIBUTE_ROLE_IDS = ["critRate", "evadeRate", "mpCostRate"] as const;
+export const AttributeRoleSchema = z.enum(ATTRIBUTE_ROLE_IDS);
+export type AttributeRole = z.infer<typeof AttributeRoleSchema>;
+
 export const ATTRIBUTE_KIND_IDS = ["number", "enum", "ladder", "composite"] as const;
 export const AttributeKindSchema = z.enum(ATTRIBUTE_KIND_IDS);
 export type AttributeKind = z.infer<typeof AttributeKindSchema>;
@@ -84,8 +95,50 @@ const CompositeCaseSchema = z
   })
   .strict();
 
+/**
+ * 派生属性（ADR-074）：值**不落存档**，由其他属性的**最终值**按线性公式算出。
+ *
+ * 为什么需要它：暴击率（读某个属性）、闪避率（读某个属性）、mp 消耗修正（读某个属性）
+ * 这类数字不是「原始天赋」，而是几个属性运算的结果。写死一个属性名进引擎，
+ * 换个世界就得改代码；写成派生声明，引擎只负责拓扑序与循环检测。
+ *
+ * `value = base + Σ perPoint × 依赖属性的最终值`，再夹 `min/max`，
+ * 最后叠加状态/装备对**这个派生属性本身**的 `attributeModifiers`。
+ */
+export const DerivedAttributeSpecSchema = z
+  .object({
+    base: z.number().optional(),
+    from: z
+      .array(
+        z
+          .object({
+            attribute: z.string().min(1),
+            perPoint: z.number(),
+          })
+          .strict(),
+      )
+      .min(1),
+    min: z.number().optional(),
+    max: z.number().optional(),
+  })
+  .strict();
+export type DerivedAttributeSpec = z.infer<typeof DerivedAttributeSpecSchema>;
+
 const NumberAttributeDefSchema = z
-  .object({ kind: z.literal("number"), hidden: z.boolean().optional() })
+  .object({
+    kind: z.literal("number"),
+    hidden: z.boolean().optional(),
+    /**
+     * 允许负值。普通属性是「量」——负的资源没有意义，所以统一夹到 0（ADR-011 D2）；
+     * 但「消耗修正 / 抗性」这类是**有符号的差值**，负值才是它的正常形态
+     * （`mpCostRate: -37.5` = 便宜 37.5%）。
+     */
+    signed: z.boolean().optional(),
+    /** 声明后该属性只读：面板/战斗都按依赖顺序现算，不能 set/adjust。 */
+    derived: DerivedAttributeSpecSchema.optional(),
+    /** 引擎通道角色（暴击率 / 闪避率 / mp 消耗修正）；同一模板内每个角色只能有一个属性。 */
+    role: AttributeRoleSchema.optional(),
+  })
   .strict();
 
 const EnumAttributeDefSchema = z

@@ -283,7 +283,6 @@ function App() {
           labels={live.resourceLabels}
           busy={busy}
           onCommand={(cmd) => void command(cmd)}
-          onContinue={() => undefined}
         />
       )}
       {createPortal(presets, document.getElementById("livePresets") ?? document.body)}

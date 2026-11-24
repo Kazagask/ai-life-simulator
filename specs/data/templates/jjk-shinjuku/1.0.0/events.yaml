@@ -89,6 +89,8 @@ events:
     kind: combat
     settle:
       combat:
+        # ADR-075：默认 stake 是 deaths；本模板未设计死亡路由，打输仍是力竭。
+        stake: hard
         enemies:
           - { ref: enemy-sukuna, levelScale: 0.55 }
         canFlee: true
@@ -365,6 +367,8 @@ events:
     kind: combat
     settle:
       combat:
+        # ADR-075：默认 stake 是 deaths；本模板未设计死亡路由，打输仍是力竭。
+        stake: hard
         enemies:
           - { ref: enemy-kenjaku, levelScale: 0.9 }
           - { ref: enemy-uraume, levelScale: 0.8 }
@@ -457,6 +461,8 @@ events:
     kind: combat
     settle:
       combat:
+        # ADR-075：默认 stake 是 deaths；本模板未设计死亡路由，打输仍是力竭。
+        stake: hard
         enemies:
           - { ref: enemy-sukuna, levelScale: 0.5 }
         allies:

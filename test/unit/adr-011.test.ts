@@ -5,6 +5,7 @@ import {
   createLookup,
   createWorldV2,
   effectiveAttributes,
+  effectiveAttributesOfActor,
   maxHp,
   maxMp,
   performBattleAction,
@@ -132,13 +133,23 @@ describe("ADR-011 D1 · 战斗域再施加", () => {
 });
 
 describe("ADR-011 D2 · 数值属性不为负", () => {
-  it("天与咒缚的 -8 落到 0：基础 5 的人被拿走咒力后是「没有」，不是「欠 3 点」", () => {
+  it("天与咒缚（ADR-074）：总量按比例换成肉体后归零，派生输出/操作/效率一起归零", () => {
     const { lookup } = loadEntry();
     const heavenly: StatusInstance = { statusId: "heavenly-restriction", stacks: 1, appliedTurn: 0, appliedAt: 0 };
-    const eff = effectiveAttributes({ cursedEnergy: 5, physique: 16, agility: 15 }, [heavenly], 50, lookup);
-    expect(eff.cursedEnergy).toBe(0);
-    expect(eff.physique).toBe(36);
-    expect(eff.agility).toBe(27);
+    const eff = effectiveAttributes(
+      { cursedEnergyTotal: 5, physique: 16, agility: 15 },
+      [heavenly],
+      50,
+      lookup,
+    );
+    expect(eff.cursedEnergyTotal).toBe(0);
+    // 0.5 体术 / 0.35 敏捷：16 + 2.5、15 + 1.75。
+    expect(eff.physique).toBe(18.5);
+    expect(eff.agility).toBe(16.75);
+    // 由总量派生的三条也必须是 0 —— 没有咒力的人不该还有「咒力输出」。
+    expect(eff.cursedEnergyOutput).toBe(0);
+    expect(eff.cursedEnergyControl).toBe(0);
+    expect(eff.cursedEnergyEfficiency).toBe(0);
   });
 });
 
@@ -157,8 +168,9 @@ describe("ADR-011 D3 · 咒力上限只由咒力属性决定", () => {
       entry.template,
       "w-mp-toji",
     );
-    // 没有咒力 ⇒ 没有咒力池；血量仍走 HP 公式（75 + 5×0）
-    expect(maxMp(toji.player, entry.template)).toBe(0);
-    expect(maxHp(toji.player, entry.template)).toBe(75);
+    // 没有咒力 ⇒ 没有咒力池；血量走 hp = 75 + 2×体术（换算后 16）。
+    const tojiAttrs = effectiveAttributesOfActor(toji, entry.lookup, toji.player);
+    expect(maxMp(toji.player, entry.template, tojiAttrs)).toBe(0);
+    expect(maxHp(toji.player, entry.template, tojiAttrs)).toBe(107);
   });
 });

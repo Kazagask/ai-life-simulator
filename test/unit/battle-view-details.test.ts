@@ -39,14 +39,14 @@ const battleOf = (state: ReturnType<typeof worldOf>["state"], entry: ReturnType<
   snapshotOf(state, entry).battle;
 
 describe("战斗展示：实际消耗、状态效果与召唤物详情", () => {
-  it("六眼把 MP 价格压到 2；减耗写在状态效果里，不在技能按钮上", () => {
+  it("六眼把 MP 价格压到 2；减耗由咒力效率承担", () => {
     const { state, entry } = worldOf("npc-gojo", 21);
     const snapshot = snapshotOf(state, entry);
     const skill = snapshot.battle?.player.skills.find((s) => s.id === "sk-gojo-blue");
     // 价格只有一份：`costs`（可扩展资源），没有 `costMp` 那个兼容副本。
     expect(skill?.costs).toEqual([{ resource: "mp", label: "咒力", amount: 2 }]);
     const sixEyes = snapshot.player.statuses.find((s) => s.id === "six-eyes");
-    expect(sixEyes?.effects?.some((e) => e.text.includes("战斗中咒力消耗") && e.text.includes("-90%"))).toBe(true);
+    expect(sixEyes?.effects?.some((e) => e.text.includes("咒力效率") && e.text.includes("+90"))).toBe(true);
   });
 
   it("个人技能页的 VM 必须原样透传 summon（少这一步界面上就没有入口）", () => {

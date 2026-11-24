@@ -58,7 +58,8 @@ statusBar:
   - { id: sb-mood, label: 心情, source: mood }
   - { id: sb-hp, label: 生命, source: resource, key: hp }
   - { id: sb-mp, label: 咒力, source: resource, key: mp }
-  - { id: sb-attrs, label: 属性, source: attribute, keys: [cursedEnergy, intellect, physique, agility, luck, reputation] }
+  # 人生首页的状态栏只留基础量；派生属性（输出/操作/效率/暴击/闪避/消耗）只在个人页。
+  - { id: sb-attrs, label: 属性, source: attribute, keys: [cursedEnergyTotal, physique, agility, intellect, luck, reputation] }
   - { id: sb-status, label: 补正, source: status }
   - id: sb-cursed-quality
     label: 咒力质感
@@ -67,12 +68,24 @@ statusBar:
       - { status: cursed-quality, present: true }
 
 attributes:
-  order: [cursedEnergy, intellect, physique, agility, luck, reputation, grade, innateTechnique, infamy, virtue, fame]
-  defaults: { cursedEnergy: 5, intellect: 6, physique: 5, agility: 5, luck: 5, reputation: 0, grade: grade-4, innateTechnique: none, infamy: 0, virtue: 0 }
-  caps: { cursedEnergy: 200, infamy: 2, virtue: 2 }
+  # 2026-11-23 用户裁决：原「咒力」一条拆成四条语义。
+  # `cursedEnergyTotal` 是**唯一存盘**的那条（咒力总量）；输出 / 操作 / 效率由它派生，
+  # 但可以各自被天赋/装备补正（`attributeModifiers` 对派生属性同样有效）。
+  #
+  # 派生属性（ADR-074）不落存档、按依赖顺序现算；面板显示计算后的值。
+  # `critRate / evadeRate / mpCostRate` 是**百分点**：12 = 12%（mpCostRate 负数 = 更便宜）。
+  order: [cursedEnergyTotal, cursedEnergyOutput, cursedEnergyControl, cursedEnergyEfficiency, critRate, evadeRate, mpCostRate, physique, agility, intellect, luck, reputation, grade, innateTechnique, infamy, virtue, fame]
+  defaults: { cursedEnergyTotal: 5, physique: 5, agility: 5, intellect: 6, luck: 5, reputation: 0, grade: grade-4, innateTechnique: none, infamy: 0, virtue: 0 }
+  caps: { cursedEnergyTotal: 200, cursedEnergyOutput: 220, cursedEnergyControl: 120, cursedEnergyEfficiency: 200, critRate: 60, evadeRate: 50, mpCostRate: 100, infamy: 2, virtue: 2 }
   # 显示名由模板声明：引擎/投影/前端一律读这里，不在代码里写死世界观用词
   labels:
-    cursedEnergy: 咒力
+    cursedEnergyTotal: 咒力总量
+    cursedEnergyOutput: 咒力输出
+    cursedEnergyControl: 咒力操作
+    cursedEnergyEfficiency: 咒力效率
+    critRate: 暴击率
+    evadeRate: 闪避率
+    mpCostRate: 咒力消耗
     intellect: 智力
     physique: 体术
     agility: 敏捷
@@ -117,6 +130,45 @@ attributes:
         - { id: fate, label: 命运, style: rainbow }
         - { id: none, label: 无术式, style: gray }
         - { id: latent, label: 未觉醒, style: gray }
+    # ── 派生属性（ADR-074）：value = base + Σ perPoint × 依赖属性的最终值 ──
+    # 拆分口径：输出 = 总量 ×1.0（技能伤害）；操作 = 总量 ×0.4（暴击/黑闪）；
+    # 效率 = 总量 ×0.5（mp 消耗）。三条都能被天赋/装备单独补正。
+    cursedEnergyOutput:
+      kind: number
+      derived:
+        from: [{ attribute: cursedEnergyTotal, perPoint: 1 }]
+    cursedEnergyControl:
+      kind: number
+      derived:
+        from: [{ attribute: cursedEnergyTotal, perPoint: 0.4 }]
+    cursedEnergyEfficiency:
+      kind: number
+      derived:
+        from: [{ attribute: cursedEnergyTotal, perPoint: 0.5 }]
+    # 暴击率：3% 底 + 每点操作 0.2%（操作 50 ⇒ 13%）。上限 40%。
+    critRate:
+      kind: number
+      role: critRate
+      derived:
+        base: 3
+        from: [{ attribute: cursedEnergyControl, perPoint: 0.2 }]
+        max: 40
+    # 闪避率：每点敏捷 1%（敏捷 5 ⇒ 5%）。上限 50%——再高就该用「必中」说话了。
+    evadeRate:
+      kind: number
+      role: evadeRate
+      derived:
+        from: [{ attribute: agility, perPoint: 1 }]
+        max: 50
+    # mp 消耗：每点效率 -0.6%（效率 50 ⇒ -30%）。下限 -80%：永远没有免费术式。
+    mpCostRate:
+      kind: number
+      role: mpCostRate
+      signed: true
+      derived:
+        from: [{ attribute: cursedEnergyEfficiency, perPoint: -0.6 }]
+        min: -90
+
     # 恶名 / 善名：两条隐藏的 0..2 轴，只作为「名誉」的输入，不单独上面板。
     infamy:
       kind: ladder
@@ -167,14 +219,66 @@ attributes:
 # 注意分母变了：玩家开局咒力 5 时 MP 从 50 掉到 10，所以技能消耗（苍 18 / 赫 32）
 # 必须按新的池子重调 —— 这件事不再靠手算，用 `pnpm inspect sim` 打木桩量。
 resources:
-  hp: { base: 75, perLevel: 10, perAttribute: { cursedEnergy: 5 } }
-  mp: { base: 0, perLevel: 5, perAttribute: { cursedEnergy: 2 } }
+  # 体术也进 hp（2026-11-23）：天与咒缚把总量换成肉体之后，血条要跟着长。
+  hp: { base: 75, perLevel: 10, perAttribute: { cursedEnergyTotal: 4, physique: 2 } }
+  mp: { base: 0, perLevel: 5, perAttribute: { cursedEnergyTotal: 2 } }
 
 # 召唤名额：**世界维度、按档共享**（2026-11-20 用户裁决）。
 # 所有英雄档召唤物共用 hero 个位置、所有杂兵共用 minion 个位置 ——
 # 不是「玉犬 1 个、円鹿 1 个」各算各的。技能只写「一次几只」与「强度系数」。
 # 这条也是「十影只能同时站一只式神」的来源：想换手先收回（进 bench，状态原样保留）。
 summonLimits: { minion: 3, hero: 1 }
+
+# 战斗的世界级默认（ADR-073）：引擎不写死任何数值，缺省 = 没有暴击。
+# 6% / 1.5x 是「偶尔会看见一次红字」的量级；真正的黑闪挂在天赋上（见 statuses.yaml），
+# 且必须以这次暴击为前提（`when: [{ crit: true }]`）。
+combat:
+  # 暴击率不再写在这里：它由 `critRate` 派生（3% 底 + 咒力操作 ×0.2）。
+  # 世界这一层只保留倍率；写成 chance 会与派生属性叠成两个底。
+  crit: { multiplier: 1.5 }
+
+  # 黑闪（世界通用规则，2026-11-24 用户裁决）：不是天赋、不是术式，
+  # 而是「打击与咒力卡进百万分之一秒」这件事本身。**任何人**暴击后都可能触发。
+  # 触发率 = 咒力操作 × 0.3%（操作 60 ≈ 18%）；天赋只负责记录成长，不负责放行。
+  hooks:
+    - id: black-flash
+      phase: afterHit
+      when:
+        - { crit: true }
+        - { chance: { attribute: cursedEnergyControl, perPoint: 0.003 } }
+      effects:
+        - { type: critExponent, value: 2.5 }
+        # 不写 rounds：层数留到战斗结束；`stacking: stack` 让它一直累加。
+        - { type: applyStatus, status: black-flash, target: self }
+        - { type: log, text: "打击与咒力在百万分之一秒里重合——黑闪。" }
+
+  # 战评（ADR-075 §2）：黑闪的战后成长挂在这里。引擎不认识黑闪——
+  # 这是**世界规则**，不是内置行为；没有这条，天赋永远停在初始阶。
+  evaluation:
+    hooks:
+      - id: black-flash-growth
+        when:
+          - { statusStacks: black-flash, gte: 1 }
+        effects:
+          # 一场里觉醒几次就记几次（**不设上限**：以前写 `max: 3`，连闪四下也只记 3）。
+          # `create: true` ⇒ **没有天赋的人也能拿到它**：第一次打出黑闪时天赋被建出来，
+          # 阶 1 的加点与咒力操作立刻结算 —— 战评就是「获得可成长天赋」的入口。
+          - type: advanceTalent
+            talent: t-black-flash
+            amount: { metric: statusStacks, status: black-flash }
+            create: true
+
+# 死亡路由（ADR-075 §5）：死亡结局的唯一权威。
+# 2006 只有「挡枪失败」一种死法；兜底也指向它（本模板没有第二种死斗）。
+deathRoutes:
+  - id: hv-early-death
+    when:
+      - { flag: hvEarlyDeath, eq: true }
+    then: { kind: ending, endingId: end-hv-early-death }
+
+  - id: default-death
+    when: []
+    then: { kind: ending, endingId: end-hv-early-death }
 
 # 回复节奏跟模拟轮次
 regen:
@@ -191,7 +295,7 @@ actions:
     description: 打熬咒力与体术。咒力 +1，代价是耗掉一些体力。
     duration: { value: 1, unit: day }
     effects:
-      - { type: adjustAttribute, attribute: cursedEnergy, value: 1 }
+      - { type: adjustAttribute, attribute: cursedEnergyTotal, value: 1 }
       - { type: adjustResource, resource: mp, value: -5 }
   - id: patrol
     label: 巡逻
@@ -316,3 +420,17 @@ scheduledFacts:
     when: [{ time: { gte: { value: 215, unit: day } } }]
     effects:
       - { type: spawnNpc, ruleId: rule-toji-2006 }
+
+  # ── 怀玉之后（第 1 章收束，260 天）────────────────────────
+  # 星浆体那件事过去几个月，五条悟才把反转术式练成 —— 也是从那时起，他不必再「主动开」无下限。
+  # 2006 单章里这是他唯一一次成长；无量空处留到 0 卷那一章（还没有那一章）。
+  - id: fact-gojo-growth
+    note: 怀玉之后五条悟学会反转术式，赫与茈成形，无下限转为常时
+    tidings: 高专里传开一句话：五条最近连睡觉都不关无下限，谁靠近都会被弹开。
+    when: [{ time: { gte: { value: 260, unit: day } } }]
+    effects:
+      - { type: unlockSkill, who: npc-gojo, skillId: sk-reverse-heal }
+      - { type: unlockSkill, who: npc-gojo, skillId: sk-gojo-red }
+      - { type: unlockSkill, who: npc-gojo, skillId: sk-gojo-hollow-purple }
+      - { type: applyStatus, who: npc-gojo, status: infinity }
+

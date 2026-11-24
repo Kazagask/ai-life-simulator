@@ -206,6 +206,8 @@ events:
     trigger: { source: chain }
     settle:
       combat:
+        # ADR-075：默认 stake 是 deaths；本模板未设计死亡路由，打输仍是力竭。
+        stake: hard
         enemies:
           - { ref: npc-duelist }
         canFlee: false
@@ -370,6 +372,8 @@ events:
     trigger: { source: chain }
     settle:
       combat:
+        # ADR-075：默认 stake 是 deaths；本模板未设计死亡路由，打输仍是力竭。
+        stake: hard
         enemies:
           - { ref: npc-godfrey }
         canFlee: false
@@ -406,6 +410,8 @@ events:
     trigger: { source: chain }
     settle:
       combat:
+        # ADR-075：默认 stake 是 deaths；本模板未设计死亡路由，打输仍是力竭。
+        stake: hard
         enemies:
           - { ref: npc-assassin }
         canFlee: false

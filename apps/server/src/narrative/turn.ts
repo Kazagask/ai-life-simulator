@@ -1,6 +1,7 @@
 import type { V2TurnResult, WorldStateV2 } from "@life-sim/shared";
 import type { ReadyTemplateEntry } from "../templates.js";
 import { readNarrativeBlocks } from "./read.js";
+import { composeTurnNarrative } from "@life-sim/game-core";
 import { recordNarrative } from "./trace.js";
 
 /**
@@ -16,38 +17,7 @@ import { recordNarrative } from "./trace.js";
  * 为什么不做得更"文学"：没有 LLM 时宁可平实，也不要假装是 AI 写的。
  */
 
-/** 一回合最多写这么多字，避免模板式罗列把叙事区撑爆（超长由玩家自己读 history）。 */
-const MAX_TEMPLATE_CHARS = 400;
-
-/** 从本回合历史 + 转盘结果合成一段叙事文本；无内容时返回空串（不写空段）。 */
-export function composeTurnNarrative(
-  state: WorldStateV2,
-  turnIndex: number,
-  wheel: V2TurnResult["wheelResult"],
-): string {
-  const parts: string[] = [];
-
-  if (wheel !== null && wheel !== undefined) {
-    parts.push(`⚄ ${wheel.title ?? "随机事件"}：${wheel.label}`);
-  }
-
-  /**
-   * 只取**主角自己的**经历。
-   *
-   * `npc_action` 是世界的背景动态（「某 NPC 找同伴闲聊」「某 NPC 独自打熬咒力」），
-   * 拼进叙事区就变成了「世界状态清单」——用户 2026-11-18 实测反馈正是这个。
-   * 它们该留在历史 / 世界页，不该冒充玩家刚经历的一幕。
-   */
-  const entries = state.history.filter((h) => h.turnIndex === turnIndex && h.type !== "npc_action");
-
-  for (const h of entries) {
-    const text = h.summary.trim();
-    if (text !== "") parts.push(text);
-  }
-
-  const text = parts.join("\n\n").trim();
-  return text.length > MAX_TEMPLATE_CHARS ? `${text.slice(0, MAX_TEMPLATE_CHARS - 1)}…` : text;
-}
+export { composeTurnNarrative } from "@life-sim/game-core";
 
 /**
  * 写回合叙事（幂等：同回合已有块就不写）。

@@ -69,15 +69,15 @@ describe("开局序章", () => {
         name: "夜见",
         gender: "female",
         age: 15,
-        attributes: { cursedEnergy: 12, intellect: 3, virtue: 1 },
+        attributes: { energy: 12, intellect: 3, virtue: 1 },
         statuses: [{ statusId: "tech-space" }],
       },
     } as unknown as Parameters<typeof prologueFactsOf>[0];
     const template = {
       meta: { name: "咒术回战 · 十二年", description: "2006 到 2019。" },
       attributes: {
-        order: ["cursedEnergy", "intellect", "virtue"],
-        labels: { cursedEnergy: "咒力", intellect: "智力", virtue: "善名" },
+        order: ["energy", "intellect", "virtue"],
+        labels: { energy: "咒力", intellect: "智力", virtue: "善名" },
       },
       statuses: [{ id: "tech-space", name: "术式·空间" }],
     } as unknown as Parameters<typeof prologueFactsOf>[1];
@@ -85,8 +85,27 @@ describe("开局序章", () => {
       { id: "stage", title: "舞台", text: "2006 年的东京。", always: true, keys: [], priority: 90 },
       { id: "keyword", title: "关键词", text: "不该进序章。", always: false, keys: ["x"], priority: 10 },
     ]);
-    expect(out.attributes.map((a) => a.name)).toEqual(["咒力", "智力"]);
+    // 属性清单来自模板（statusBar 缺省 ⇒ attributes.order 的数值属性），不再写死。
+    expect(out.attributes.map((a) => a.name)).toEqual(["咒力", "智力", "善名"]);
     expect(out.traits).toEqual(["术式·空间"]);
     expect(out.setting).toEqual(["舞台：2006 年的东京。"]);
+  });
+
+  it("属性清单优先读 statusBar 的 attribute 段：换世界不用改代码", () => {
+    const state = {
+      player: { name: "甲", gender: "female", age: 16, attributes: { energy: 9, wits: 4 }, statuses: [] },
+    } as unknown as Parameters<typeof prologueFactsOf>[0];
+    const template = {
+      meta: { name: "另一个世界", description: "。" },
+      attributes: {
+        order: ["energy", "wits"],
+        labels: { energy: "气", wits: "机敏" },
+      },
+      // 面板只想露「机敏」：序章就只提它，不因为属性表里有「气」就硬塞。
+      statusBar: [{ id: "sb", label: "属性", source: "attribute", keys: ["wits"] }],
+      statuses: [],
+    } as unknown as Parameters<typeof prologueFactsOf>[1];
+    const out = prologueFactsOf(state, template, [], []);
+    expect(out.attributes).toEqual([{ name: "机敏", value: 4 }]);
   });
 });

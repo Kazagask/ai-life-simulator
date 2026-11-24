@@ -26,6 +26,7 @@ import {
   TimeSpecSchema,
   UiConfigSchema,
   WorldTemplateV2Schema,
+  HOOK_EFFECT_TYPES,
   satisfiesVersion,
   sha256Hex,
   type AssetManifest,
@@ -43,6 +44,7 @@ import {
 } from "@life-sim/shared";
 import {
   BUILTIN_CONDITION_OPS,
+  BUILTIN_STAKES,
   collectExtensionConditions,
   getExtensionRuntime,
   hasExtensionRuntime,
@@ -50,6 +52,8 @@ import {
   isKinshipKind,
   registeredUiCapabilities,
   resolveExtensionRuntimes,
+  validateOpeningDag,
+  validateStyleRefs,
 } from "@life-sim/game-core";
 
 export const DECLARATIVE_FILES = [
@@ -202,8 +206,7 @@ export function assertVersionRequirements(template: WorldTemplateV2): void {
  *
  * 非亲属 kind（`friend` / `enemy` / `mentor` / `colleague` …）不受影响：两种模式下都能写。
  *
- * 已在 `scanVersion` 接入：三个内置模板（valmont / jjk-2006 / jjk-shinjuku）均已按各自模式
- * 合规，装了 family 的 valmont 只写指针，jjk-2006 撤掉了 family 声明走边模式。
+ * 已在 `scanVersion` 接入：内置模板均已按各自模式合规（声明了扩展的只写指针，纯边模式的不写 family）。
  */
 export function assertKinshipCompliance(template: WorldTemplateV2): void {
   if (template.extensions?.family === undefined) return;
@@ -217,7 +220,7 @@ export function assertKinshipCompliance(template: WorldTemplateV2): void {
   }
   if (conflicts.length === 0) return;
 
-  // 大模板（valmont 12 人）能写出几十条：全量塞进 reason 会淹没重点，只点名前 5 条 + 总数。
+  // 大模板（十几人）能写出几十条：全量塞进 reason 会淹没重点，只点名前 5 条 + 总数。
   const shown = conflicts.slice(0, 5).join("；");
   const suffix = conflicts.length > 5 ? `；…共 ${conflicts.length} 条` : "";
   throw new TemplateLoadError(
@@ -232,9 +235,15 @@ export function assertKinshipCompliance(template: WorldTemplateV2): void {
  * 内核效果 type 集合：从 `EffectSchema` 派生（与 `engine.ts` 的 `KNOWN_EFFECT_TYPES`
  * 同源 —— 手抄第二份名单必然在某次加效果时漂移）。
  */
-const KERNEL_EFFECT_TYPES: ReadonlySet<string> = new Set(
-  EffectSchema.options.map((option) => option.shape.type.value),
-);
+const KERNEL_EFFECT_TYPES: ReadonlySet<string> = new Set([
+  ...EffectSchema.options.map((option) => option.shape.type.value),
+  /**
+   * 钩子效果（ADR-073）也是内核实现（`battle.ts` 的 `applyHookEffect`），
+   * 只是不走 `applyEffectsV2`。不登记的话，任何带钩子的模板都载不进来。
+   * 词表从联合派生（`HOOK_EFFECT_TYPES`），不在这里手抄。
+   */
+  ...HOOK_EFFECT_TYPES,
+]);
 
 /**
  * 模板里**装着效果数组**的键名。
@@ -386,6 +395,23 @@ export function semanticFingerprintOf(
   return fingerprintOfPairs([...declarative, ...extensionPairs]);
 }
 
+/**
+ * **包指纹**：所有声明式文件（**含 `ui.yaml`**）的哈希。
+ *
+ * 与 `semanticFingerprint` 分工明确：
+ * - 语义指纹用于**存档漂移**判定 —— ui.yaml 不参与回放，改了不该把存档判死；
+ * - 包指纹用于**客户端缓存**判定 —— ui.yaml 决定「长什么样」，改了必须让缓存失效。
+ *
+ * 只有一个语义指纹时，纯表现改动（ADR-078 的整套特效）永远不会让浏览器里的旧包失效：
+ * 演练场（每次拉新）看得见，游戏里看不见。
+ */
+export function packageFingerprintOf(files: ReadonlyArray<{ rel: string; content: string }>): string {
+  const sorted = [...files]
+    .sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0))
+    .map((file) => ({ name: file.rel, content: file.content }));
+  return fingerprintOfPairs(sorted);
+}
+
 export function firstIssue(error: unknown): string {
   if (error instanceof z.ZodError) {
     const issue = error.issues[0];
@@ -422,11 +448,16 @@ const TemplateBranchNodeSchema = z
      * 只有当前 self 是该演员时呈现。self 恒单值 ⇒ 同别名的多个变体天然互斥。
      * **首节点同样可写 `as`**：多个首节点变体共用父 trigger，靠一等条件 `selfIs` /
      * `selfIsNot` 在出队终判互斥（"共用触发器、首节点不一样"）。无 as 的兜底变体沿用父 id。
+     * `as` 也可以写数组（`as: [player-origin, npc-b]`）：几个角色共用同一段剧情，
+     * 加载期炸成多条单值变体；`player-<出身>` 是自建角色的生成 id，不属于 characters 表，
+     * 单独放行（见下方 actorIds 校验）。
      * 变体节点在加载期展开成独立事件；入口处 `goto` 与外部 `nextEventId` 自动翻译成
      * 按 self 门控的同形选项（玩家仍只看到一条、不额外占轮次）。
      * LLM 的 `submitBranch` node 没有这个字段（它参与时角色已确定）。
      */
-    as: z.string().min(1).optional(),
+    as: z
+      .union([z.string().min(1), z.array(z.string().min(1)).min(1).max(8)])
+      .optional(),
     title: z.string().min(1).max(40).optional(),
     text: z.string().min(1).max(600),
     actors: z.array(z.string().min(1)).max(6).optional(),
@@ -490,7 +521,7 @@ const TemplateBranchEventSchema = z
  * 撞车护栏：首节点复用父 id 属于**自我替换**（先从占位集合摘掉自己的 id）；
  * 其余展开 id 与任何手写事件 / 另一条分支的展开 id 重复 ⇒ 加载期拒载。
  *
- * 真样例见 `specs/data/templates/jjk-shinjuku/1.0.0/events.yaml` 的 `evt:north-counter`。
+ * 真样例见模板目录下任意“反击/触发”事件的写法。
  */
 function expandTemplateEvents(
   rawEvents: readonly unknown[],
@@ -530,14 +561,24 @@ function expandTemplateEvents(
     }
     const event = parsed.data;
     const prefix = `${event.id}#`;
-    const firstAlias = event.branch[0]?.node;
+    /**
+     * `as` 数组在展开前**炸成多条同内容变体**：下游所有逻辑（selfGate、goto 门控、入边分派）
+     * 都按单值 `as` 写，炸开后不需要到处判数组。
+     */
+    type ExpandedBranchNode = Omit<(typeof event.branch)[number], "as"> & { as?: string };
+    const branchNodes: ExpandedBranchNode[] = event.branch.flatMap((node) =>
+      Array.isArray(node.as) ? node.as.map((as) => ({ ...node, as })) : [node as ExpandedBranchNode],
+    );
+    /** `player-<出身>` 是自建角色的生成 id（见 opening.yaml 的 who.id），不在 characters 表里。 */
+    const generatedSelfId = (id: string): boolean => id === "player" || id.startsWith("player-");
+    const firstAlias = branchNodes[0]?.node;
     /**
      * 同一 node 别名可写多份 `as` 变体 ⇒ 同一幕、不同 self 看到不同剧情，天然互斥。
      * 必须留一个无 as 的兜底变体，否则未覆盖的角色走到这里会软锁。
      * 首节点同样适用：兜底变体沿用父 id 作稳定入口，as 变体展开成 `<id>#<node>@<as>`。
      */
-    const variantsByNode = new Map<string, typeof event.branch>();
-    for (const node of event.branch) {
+    const variantsByNode = new Map<string, ExpandedBranchNode[]>();
+    for (const node of branchNodes) {
       const list = variantsByNode.get(node.node) ?? [];
       list.push(node);
       variantsByNode.set(node.node, list);
@@ -550,7 +591,12 @@ function expandTemplateEvents(
           throw new Error(`events: ${event.id} 的节点 ${alias} 的 as 重复：${key}`);
         }
         seen.add(key);
-        if (variant.as !== undefined && actorIds !== undefined && !actorIds.has(variant.as)) {
+        if (
+          variant.as !== undefined &&
+          actorIds !== undefined &&
+          !actorIds.has(variant.as) &&
+          !generatedSelfId(variant.as)
+        ) {
           throw new Error(`events: ${event.id} 的节点 ${alias} 的 as 指向未知演员：${variant.as}`);
         }
       }
@@ -570,7 +616,7 @@ function expandTemplateEvents(
         .filter((a): a is string => a !== undefined && a !== selfAs);
     // goto 闭合 + 同一目标 after 一致（与 submitBranch 同一口径）。
     const afterByTarget = new Map<string, { canonical: string; spec?: TimeSpec }>();
-    for (const node of event.branch) {
+    for (const node of branchNodes) {
       for (const option of node.options) {
         if (option.goto === undefined) continue;
         const target = typeof option.goto === "string" ? { node: option.goto } : option.goto;
@@ -612,7 +658,7 @@ function expandTemplateEvents(
       );
     }
 
-    for (const node of event.branch) {
+    for (const node of branchNodes) {
       const id = expandedId(node.node, node.as);
       if (ids.has(id)) {
         throw new Error(
@@ -862,6 +908,148 @@ export function loadOptionalConfig<T>(
   }
 }
 
+// ---------- 运行时包（第三期：服务端与浏览器算同一份） ----------
+
+/**
+ * 一份模板的**完整运行时包**：模板本体 + 所有可选分域。
+ *
+ * 服务端拿它组装 `ReadyTemplateEntry`（再补 ref/mtime/资产），浏览器拿它直接起世界 ——
+ * 两边必须是同一个函数算出来的，否则「同一份模板、两个世界」是迟早的事（ADR-070 D1）。
+ *
+ * 刻意**不含**注册表字段（`ref` / `mtime` / `assetFingerprint` / `assetCount`）与
+ * `semanticFingerprint`：前者是目录扫描的产物，后者由 `semanticFingerprintOf` 算，
+ * 都依赖「文件从哪来」，不属于纯加载。
+ */
+export interface TemplateBundle {
+  template: WorldTemplateV2;
+  openings: OpeningTemplate[];
+  openingDag?: OpeningBranchDag;
+  endingConfig?: EndingConfig;
+  evaluationConfig?: EvaluationConfig;
+  rules?: Rules;
+  lore?: readonly LoreRule[];
+  assetManifest?: AssetManifest;
+  ui?: UiConfig;
+}
+
+/**
+ * 跨文件校验：死亡路由（ADR-075 §5 / §9）。
+ *
+ * 两件事 zod 看不到（endings.yaml 不在 world schema 里）：
+ * 1. `then.endingId` 必须真的存在；
+ * 2. 任何 `defeatState: dead` 的战斗都必须有 `when: []` 兜底 —— 否则运行期会
+ *    "死了但没路可走"。这一条是 fail-fast：宁可拒载，也不要把 hp 0 的世界写进存档。
+ */
+function assertDeathRoutes(template: WorldTemplateV2, endingConfig: EndingConfig | undefined): void {
+  const routes = template.deathRoutes ?? [];
+  const endingIds = new Set((endingConfig?.endings ?? []).map((ending) => ending.endingId));
+  for (const route of routes) {
+    if (route.then.kind === "ending" && !endingIds.has(route.then.endingId)) {
+      throw new Error(
+        `death_route_invalid: 路由 ${route.id} 指向未定义的结局 ${route.then.endingId}（endings.yaml）`,
+      );
+    }
+  }
+  const defaultStake = template.combat?.defaultStake ?? "deaths";
+  const hasFallback = routes.some((route) => route.when.length === 0);
+  for (const event of template.events) {
+    if (event.kind !== "combat") continue;
+    const stakeId = event.settle.combat.stake ?? defaultStake;
+    const stake = template.combat?.stakes?.[stakeId] ?? BUILTIN_STAKES[stakeId];
+    if (stake === undefined || stake.defeatState !== "dead") continue;
+    if (!hasFallback) {
+      throw new Error(
+        `death_route_missing: 战斗 ${event.id} 是死斗（stake=${stakeId}），但 world.deathRoutes 没有 when: [] 兜底`,
+      );
+    }
+  }
+}
+
+/**
+ * 从任意 `TemplateSource` 组装运行时包（**纯函数**，同步，零 `node:`）。
+ *
+ * 与 `apps/server/src/templates.ts` 的历史行为逐条对齐：schema → 身份 → 扩展 → 版本 →
+ * 亲缘模式 → 开局 / 结局 / 评价 → 开放词表 → 独立分域 → 五道交叉校验。
+ * 任何一步失败都抛错，错误文本保持原样（它是服务端 `reason` 的对外契约）。
+ */
+export function loadTemplateBundle(
+  source: TemplateSource,
+  options: { files?: ReadonlySet<string>; expectedId?: string } = {},
+): TemplateBundle {
+  const files = options.files ?? new Set([...DECLARATIVE_SET].filter((rel) => source.exists(rel)));
+  const template = loadTemplate(source, files);
+  // A-7：`meta.id` 是身份的唯一来源，调用方（目录名 / 包封面）必须与它一致。
+  if (options.expectedId !== undefined && template.meta.id !== options.expectedId) {
+    throw new Error(
+      `world.yaml: meta.id (${template.meta.id}) 与模板标识 (${options.expectedId}) 不一致`,
+    );
+  }
+  // 扩展层：声明了没注册的 id ⇒ 拒载，不是「投影期悄悄跳过」。
+  assertExtensionsInstalled(template);
+  assertVersionRequirements(template);
+  assertKinshipCompliance(template);
+
+  const { legacy: openings, branchDag: openingDag } = loadOpenings(source, files);
+  const endingConfig = loadOptionalConfig(source, "endings.yaml", files, EndingConfigSchema);
+  const evaluationConfig = loadOptionalConfig(source, "evaluation.yaml", files, EvaluationConfigSchema);
+  // 跨文件：死亡路由的 endingId 必须存在；死斗必须有兜底（ADR-075 §5 / §9）。
+  assertDeathRoutes(template, endingConfig);
+  // 开放形词表裁定：模板写了扩展效果 / 条件就必须有「谁实现它」的答案。
+  assertOpenVocabularyDeclared(template, openings, endingConfig);
+
+  const rules = files.has("rules.yaml") ? loadRules(source) : undefined;
+  const lore = files.has("lore.md") ? loadLore(source) : undefined;
+  const assetManifest = files.has("assets/manifest.yaml") ? loadAssetManifest(source) : undefined;
+  const ui = files.has("ui.yaml") ? loadUi(source) : undefined;
+
+  // 以下五道是跨文件校验：zod 看不到引用，只能拿到 template + ui 之后查。
+  const styleIssues = validateStyleRefs(template, ui);
+  if (styleIssues.length > 0) {
+    throw new Error(
+      `style_ref_invalid: ${styleIssues.map((i) => `${i.path}: ${i.message}`).join("; ")}`,
+    );
+  }
+  if (openingDag !== undefined) {
+    const openingIssues = validateOpeningDag(openingDag, template, ui);
+    if (openingIssues.length > 0) {
+      throw new Error(
+        `opening_invalid: ${openingIssues.map((i) => `${i.path}: ${i.message}`).join("; ")}`,
+      );
+    }
+  }
+  if (ui?.resources !== undefined) {
+    const unknownResources = Object.keys(ui.resources).filter(
+      (key) => template.resources[key] === undefined,
+    );
+    if (unknownResources.length > 0) {
+      throw new Error(`ui.yaml: 未知资源：${unknownResources.join(", ")}（需先在 world.yaml resources 声明）`);
+    }
+  }
+  if (ui?.playerCard?.attributes !== undefined) {
+    const unknownAttrs = ui.playerCard.attributes.filter(
+      (key) => !template.attributes.order.includes(key),
+    );
+    if (unknownAttrs.length > 0) {
+      throw new Error(
+        `ui.yaml: playerCard 引用了未声明的属性：${unknownAttrs.join(", ")}（需先在 world.yaml attributes.order 声明）`,
+      );
+    }
+  }
+
+  return {
+    template,
+    openings,
+    ...(openingDag !== undefined ? { openingDag } : {}),
+    ...(endingConfig !== undefined ? { endingConfig } : {}),
+    ...(evaluationConfig !== undefined ? { evaluationConfig } : {}),
+    ...(rules !== undefined ? { rules } : {}),
+    ...(lore !== undefined ? { lore } : {}),
+    ...(assetManifest !== undefined ? { assetManifest } : {}),
+    ...(ui !== undefined ? { ui } : {}),
+  };
+}
+
+
 // ---------- T-06：两个独立声明式文件的 loader（Group B：绑定 schema + 加载期 fail-fast） ----------
 
 /**
@@ -1044,7 +1232,10 @@ export const TemplatePackageSchema = z
   .object({
     templateId: z.string().min(1),
     version: z.string().min(1),
+    /** 语义指纹（不含 ui.yaml）：存档漂移判定用 */
     fingerprint: z.string().min(1),
+    /** 包指纹（含 ui.yaml）：客户端缓存判定用；老服务端可能没有 */
+    packageFingerprint: z.string().min(1).optional(),
     /** 相对路径 → 文件正文。必须是**文本**声明式文件（yaml / md）。 */
     files: z.record(z.string(), z.string()),
   })
@@ -1055,9 +1246,13 @@ export type TemplatePackageLoadResult =
   | {
       ok: true;
       template: WorldTemplateV2;
+      /** 完整运行时包（开局 / 结局 / 评价 / 规则 / 设定 / UI）——客户端起世界要用它。 */
+      bundle: TemplateBundle;
       /** 客户端自己算出来的指纹（与 `declaredFingerprint` 相等才会走到这里）。 */
       fingerprint: string;
       declaredFingerprint: string;
+      /** 含 ui.yaml 的包指纹：缓存新鲜度以它为准 */
+      packageFingerprint: string;
     }
   | {
       ok: false;
@@ -1082,12 +1277,17 @@ export function loadTemplatePackage(input: unknown): TemplatePackageLoadResult {
     };
   }
   const pkg = parsed.data;
-  let template: WorldTemplateV2;
+  /**
+   * 只解析一次：运行时包与模板本体出自同一次加载。
+   * （YAML 解析实测 ~100ms/次，客户端再解析一遍是纯浪费。）
+   */
+  let bundle: TemplateBundle;
   try {
-    template = loadTemplateFromSource(new MemoryTemplateSource(pkg.files));
+    bundle = loadTemplateBundle(new MemoryTemplateSource(pkg.files));
   } catch (error) {
     return { ok: false, code: "template_invalid", message: firstIssue(error) };
   }
+  const template = bundle.template;
   // 包封面与内容必须自洽：否则把 A 的文件装进 B 的封套，客户端会以为自己在载 B。
   if (template.meta.id !== pkg.templateId) {
     return {
@@ -1107,5 +1307,12 @@ export function loadTemplatePackage(input: unknown): TemplatePackageLoadResult {
       message: `包内声明的指纹与按文件算出的不一致（声明 ${pkg.fingerprint.slice(0, 23)}…，实算 ${computed.slice(0, 23)}…）`,
     };
   }
-  return { ok: true, template, fingerprint: computed, declaredFingerprint: pkg.fingerprint };
+  return {
+    ok: true,
+    template,
+    bundle,
+    fingerprint: computed,
+    declaredFingerprint: pkg.fingerprint,
+    packageFingerprint: packageFingerprintOf(Object.entries(pkg.files).map(([rel, content]) => ({ rel, content }))),
+  };
 }

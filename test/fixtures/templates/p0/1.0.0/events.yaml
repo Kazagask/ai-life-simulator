@@ -52,6 +52,8 @@ events:
     kind: combat
     settle:
       combat:
+        # ADR-075：默认 stake 是 deaths；夹具要保持"打输只是力竭"的旧行为。
+        stake: hard
         enemies:
           - ref: enemy-x
             levelScale: 1

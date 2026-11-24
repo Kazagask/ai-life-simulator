@@ -3,15 +3,21 @@ import type {
   BattleCommand,
   BattleCondition,
   BattleEnemy,
+  BattleEvent,
+  BattleHook,
+  BattleResult,
   BattleSide,
   BattleState,
   Character,
   CombatSkill,
   CombatSettle,
   CombatDuration,
+  CritSpec,
   Effect,
   EquipmentInstance,
   Formula,
+  HookCondition,
+  HookPhase,
   Reinforcement,
   StatusApplication,
   StatusInstance,
@@ -24,7 +30,7 @@ import type {
 } from "@life-sim/shared";
 import { isCoreEffect, summonLimitOfTier, type RegenAmount } from "@life-sim/shared";
 import { forkRng, pickWeighted, type Rng } from "../rng.js";
-import { computeMax, effectiveAttributes, effectiveAttributesOfActor, maxHp, maxMp, moodBand, rollFormula, applyStatusTo, applyStatusToPlayer, checkCondition, zeroRng } from "./engine.js";
+import { attributeIdOfRole, computeMax, effectiveAttributes, effectiveAttributesOfActor, maxHp, maxMp, moodBand, rollFormula, applyStatusTo, applyStatusToPlayer, checkCondition, zeroRng } from "./engine.js";
 import { EMPTY_EQUIPMENT_COMBAT, equipmentCombatOf, type EquipmentCombat } from "./equipment.js";
 import { buildPublicConditionContext, decide } from "./combat-ai.js";
 import { selfIdOf } from "./actors.js";
@@ -32,22 +38,45 @@ import type { ModifierConditionGate } from "./equipment.js";
 import { amountToMinutes, createTimeAdapter } from "./time.js";
 import type { TemplateLookup } from "./lookup.js";
 import { combatUnitResourceMax, resolveRegenAmount, resourceMax } from "./resources.js";
+import {
+  buildBattleResult,
+  defeatThresholdOf,
+  evaluateBattle,
+  powerOfAttributes,
+  powerOfUnit,
+  powerWeightsOf,
+  settleResources,
+  stakeOf,
+} from "./battle-evaluation.js";
+import { statusFor } from "./talent.js";
 
 /**
- * 战斗内的三条独立随机流，全部从本回合新建的根流 fork（游标固定为 0）：
+ * 战斗内的 5 条独立随机流，全部从本回合新建的根流 fork（游标固定为 0）：
  *
  * - `resolve`：命中 / 闪避 / 状态概率 / 援军概率 / 逃跑 —— 旧称「战斗判定」；
  * - `ai`：选技能 —— 旧称「战斗 AI」；
- * - `target`：选目标。它不从 `ai` 再分叉，否则 AI 多抽一次就会把目标序列整体挪位。
+ * - `target`：选目标。它不从 `ai` 再分叉，否则 AI 多抽一次就会把目标序列整体挪位；
+ * - `crit`：暴击骰（ADR-073）；
+ * - `hook`：钩子内部掷骰（概率条件）。
+ *
+ * 后两条是**新增**的：它们必须独立成流，否则既有命中/闪避序列整体挪位，
+ * 所有数值验收与旧 seed 当场失效。
  *
  * 模拟主线（事件调度 / 开局转盘 / 结算队列）**不在这里**，它的 RNG 消费逐字不变。
- * 传普通 `Rng` 的旧调用点退化为三条流共用同一游标（legacy 行为），
+ * 传普通 `Rng` 的旧调用点退化为所有流共用同一游标（legacy 行为），
  * 生产入口 `battleActionV2` 用 `createBattleRng` 显式拆流。
  */
 export interface BattleRng {
   resolve: Rng;
   ai: Rng;
   target: Rng;
+  /**
+   * 暴击骰（ADR-073）。**必须独立成流**：把它塞进 `resolve` 会让既有命中/闪避序列
+   * 整体挪位，所有数值验收与旧 seed 当场失效。
+   */
+  crit: Rng;
+  /** 钩子内部掷骰（概率条件）。同样独立，理由同上。 */
+  hook: Rng;
 }
 
 type AiTargetPolicy = "lowest" | "random";
@@ -57,11 +86,13 @@ export function createBattleRng(rng: Rng): BattleRng {
     resolve: forkRng(rng, "battle.resolve"),
     ai: forkRng(rng, "battle.ai"),
     target: forkRng(rng, "battle.target"),
+    crit: forkRng(rng, "battle.crit"),
+    hook: forkRng(rng, "battle.hook"),
   };
 }
 
 function battleRngOf(rng: Rng | BattleRng): BattleRng {
-  return "resolve" in rng ? rng : { resolve: rng, ai: rng, target: rng };
+  return "resolve" in rng ? rng : { resolve: rng, ai: rng, target: rng, crit: rng, hook: rng };
 }
 
 // ---------- 战斗内施法者抽象（玩家镜像与敌人统一结算） ----------
@@ -183,12 +214,72 @@ function allUnits(battle: BattleState): BattleEnemy[] {
   return [...battle.enemies, ...battle.allies, ...(battle.neutrals ?? [])];
 }
 
+interface DamageOptions {
+  /** 本次伤害是否暴击（只用于战果计数，不参与结算）。 */
+  crit?: boolean;
+}
+
+/**
+ * **伤害的唯一写入口**（ADR-075 §3）。
+ *
+ * 它只做三件事：扣血、记逐单位战果、记"最后一击来自谁"。日志、钩子、状态仍然由调用方处理 ——
+ * 这里多写一句就会让「伤害」与「伤害的后果」纠缠在一起。
+ *
+ * `source` 缺省 = 无来源伤害（持续伤害 / 环境）：**不会产生 killer**。状态实例上没有
+ * 「谁上的」这一格，凭空补一个来源就是编数据。
+ */
+function dealDamage(
+  battle: BattleState,
+  source: Combatant | undefined,
+  target: Combatant,
+  amount: number,
+  options: DamageOptions = {},
+): number {
+  const damage = Math.max(0, Math.round(amount));
+  if (damage <= 0) return 0;
+  const before = target.hp;
+  target.hp -= damage;
+  const player = battle.player;
+  const sourceIsPlayer = source?.isPlayer === true;
+  const lethal = before > 0 && target.hp <= 0;
+
+  if (target.isPlayer) {
+    player.damageTaken = (player.damageTaken ?? 0) + damage;
+    if (source !== undefined && !sourceIsPlayer) {
+      const src = allUnits(battle).find((u) => u.instanceId === source.id);
+      if (src !== undefined) src.damageToPlayer = (src.damageToPlayer ?? 0) + damage;
+    }
+    if (lethal) {
+      // 自己把自己付死（hp 费用）/ 无来源伤害 ⇒ 没有凶手。
+      if (source !== undefined && !sourceIsPlayer) player.lastHitBy = source.id;
+      else delete player.lastHitBy;
+    }
+    return damage;
+  }
+
+  const unit = unitsOf(battle, target.team).find((u) => u.instanceId === target.id);
+  if (unit !== undefined) {
+    if (sourceIsPlayer) {
+      unit.damageByPlayer = (unit.damageByPlayer ?? 0) + damage;
+      player.damageDealt = (player.damageDealt ?? 0) + damage;
+      player.hits = (player.hits ?? 0) + 1;
+      if (options.crit === true) player.crits = (player.crits ?? 0) + 1;
+    }
+    if (lethal) {
+      if (source !== undefined) unit.lastHitBy = source.id;
+      else delete unit.lastHitBy;
+    }
+  }
+  return damage;
+}
+
 /**
  * 目标 HP 上限：玩家按模板资源公式计算，敌人/友军取战斗实例的 maxHp。
  * 用于治疗 clamp——超出上限的血量会被 finishBattle 持久化，下一轮 regen 再裁掉，属静默数据污染。
  */
 function maxHpOf(target: Combatant, state: WorldStateV2, battle: BattleState, lookup: TemplateLookup): number {
-  if (target.isPlayer) return maxHp(state.player, lookup.template);
+  // ADR-074：玩家的上限读有效属性（属性转化之后，mp 上限可能已经是 0）。
+  if (target.isPlayer) return maxHp(state.player, lookup.template, effectiveAttrsOf(target, lookup, state));
   const unit = allUnits(battle).find((u) => u.instanceId === target.id);
   return unit?.maxHp ?? target.hp;
 }
@@ -202,7 +293,7 @@ function maxHpOf(target: Combatant, state: WorldStateV2, battle: BattleState, lo
  */
 export function controlOf(statuses: StatusInstance[], semantic: string, lookup: TemplateLookup): boolean {
   return statuses.some((inst) => {
-    const control = lookup.status(inst.statusId)?.combat?.control;
+    const control = statusFor(lookup.status(inst.statusId), inst)?.combat?.control;
     return control?.includes(semantic as never) ?? false;
   });
 }
@@ -227,7 +318,7 @@ function multiplierOf(
   // 装备词条与状态走**同一批乘区**：两条来源相加后由调用方统一夹/取整。
   let total = gear?.[key] ?? 0;
   for (const inst of statuses) {
-    const facet = lookup.status(inst.statusId)?.combat;
+    const facet = statusFor(lookup.status(inst.statusId), inst)?.combat;
     const value = facet?.[key];
     if (typeof value !== "number") continue;
     total += facet?.stacksPerLayer ? value * Math.max(1, inst.stacks) : value;
@@ -244,7 +335,7 @@ export function costMultiplierOf(
   let total = 0;
   const sources: Array<{ id: string; name: string; value: number }> = [];
   for (const inst of statuses) {
-    const def = lookup.status(inst.statusId);
+    const def = statusFor(lookup.status(inst.statusId), inst);
     const value = def?.combat?.costMultiplier?.[resource];
     if (typeof value !== "number") continue;
     const applied = def?.combat?.stacksPerLayer ? value * Math.max(1, inst.stacks) : value;
@@ -262,18 +353,35 @@ export function costMultiplierOf(
  * 否则「明明打中了却没伤害」读起来像 bug。
  *
  * 对外导出是给战斗木桩用的（ADR-012）：挑招要算**期望**伤害，不折闪避的话
- * 「无下限 100%」会被当成 0 收益的反面——仪器会一直选那招打不进去的技能。
+ * 「闪避 100%」会被当成 0 收益的反面——仪器会一直选那招打不进去的技能。
  */
 export function evadeOf(
   statuses: StatusInstance[],
   lookup: TemplateLookup,
   gear?: EquipmentCombat,
+  attrs?: Record<string, number>,
 ): { chance: number; source: string } {
   let miss = 1;
   let best = 0;
   let source = "";
+  /**
+   * 敏捷（ADR-074）：`evadeRate` 是百分点，作为**独立一道门**参与合成
+   * （`1-Π(1-x)`，与状态/装备同一条公式）。它不是「命中修正」——命中修正夹在
+   * [0.05,0.95]，永远留 5% 的命中；闪避可以是「到不了」。
+   */
+  const evadeId = attributeIdOfRole(lookup.template, "evadeRate");
+  const baseEvade =
+    evadeId === undefined ? 0 : Math.max(0, Math.min(1, (attrs?.[evadeId] ?? 0) / 100));
+  if (baseEvade > 0 && evadeId !== undefined) {
+    miss *= 1 - baseEvade;
+    if (baseEvade > best) {
+      best = baseEvade;
+      // 名字由模板给（`attributes.labels`），不是写死的「敏捷」。
+      source = lookup.attributeLabel(evadeId);
+    }
+  }
   for (const inst of statuses) {
-    const def = lookup.status(inst.statusId);
+    const def = statusFor(lookup.status(inst.statusId), inst);
     const value = def?.combat?.evade;
     if (typeof value !== "number" || value <= 0) continue;
     /**
@@ -301,6 +409,397 @@ export function evadeOf(
     }
   }
   return { chance: 1 - miss, source };
+}
+
+// ---------- 原生暴击（ADR-073 D2） ----------
+
+/** 合并后的暴击档：`chance` 夹在 [0,1]，`multiplier` 同形累加且不低于 1。 */
+export interface CritProfile {
+  chance: number;
+  multiplier: number;
+}
+
+/**
+ * 暴击档的三处来源（世界默认 / 技能 / 状态），同一乘区「同形累加」：
+ * `chance = Σ`，`multiplier = 1 + Σ(multiplier − 1)` —— 两个 1.5x 叠成 2.0x，不是 2.25x。
+ *
+ * 为什么不做乘法：现有的 `damageDealt / damageTaken` 全是加法乘区，
+ * 暴击如果单独用乘法，模板作者会在两种「+50%」之间反复踩坑。
+ */
+export function critOf(
+  statuses: StatusInstance[],
+  skill: CombatSkill | undefined,
+  lookup: TemplateLookup,
+  attrs?: Record<string, number>,
+): CritProfile {
+  let chance = 0;
+  let bonus = 0;
+  const add = (spec: CritSpec | undefined, stacks = 1): void => {
+    if (spec === undefined) return;
+    if (spec.chance !== undefined) chance += spec.chance * stacks;
+    if (spec.multiplier !== undefined) bonus += (spec.multiplier - 1) * stacks;
+  };
+  add(lookup.template.combat?.crit);
+  add(skill?.crit);
+  /**
+   * 暴击率属性（ADR-074）：由模板声明 `role: critRate` 的属性提供，**百分点**（12 = 12%）。
+   * 它和世界默认/技能/状态是同一乘区相加，所以「必暴技能」仍然写 `chance: 1`。
+   */
+  const critId = attributeIdOfRole(lookup.template, "critRate");
+  if (attrs !== undefined && critId !== undefined) chance += (attrs[critId] ?? 0) / 100;
+  for (const inst of statuses) {
+    const facet = statusFor(lookup.status(inst.statusId), inst)?.combat;
+    add(facet?.crit, facet?.stacksPerLayer ? Math.max(1, inst.stacks) : 1);
+  }
+  return {
+    chance: Math.max(0, Math.min(1, chance)),
+    multiplier: Math.max(1, 1 + bonus),
+  };
+}
+
+/** 掷一次暴击。没有暴击档（chance 0）时不消耗随机数，旧战斗逐字节不变。 */
+function rollCrit(profile: CritProfile, rng: Rng): boolean {
+  if (profile.chance <= 0) return false;
+  return rng() < profile.chance;
+}
+
+// ---------- 战斗钩子（ADR-073） ----------
+
+/** 收集到的一条钩子：来源层级用于同优先级的稳定排序（世界 → 状态 → 技能）。 */
+interface HookEntry {
+  hook: BattleHook;
+  layer: number;
+  order: number;
+  /**
+   * 钩子的**拥有者**（ADR-073）。缺省 = 施放者。
+   *
+   * 防御方的钩子必须也在场，否则「不屈」「替身」这类效果没有挂载点：
+   * 它们关心的是「我挨打的那一刻」，而那一刻施放者不是它们的主人。
+   */
+  owner?: Combatant;
+}
+
+/**
+ * 一个动作内所有生效的钩子。
+ *
+ * 只在**动作开始时收集一次**：动作中途挂上的状态从下一招开始生效（与本回合的
+ * 伤害/命中快照同一口径），否则「先打一拳再挂一个暴击天赋」会在同一次结算里生效。
+ */
+function collectHooks(caster: Combatant, skill: CombatSkill | undefined, lookup: TemplateLookup): HookEntry[] {
+  const entries: HookEntry[] = [];
+  const push = (hooks: readonly BattleHook[] | undefined, layer: number): void => {
+    (hooks ?? []).forEach((hook, order) => entries.push({ hook, layer, order }));
+  };
+  push(lookup.template.combat?.hooks, 0);
+  for (const inst of caster.statuses) push(statusFor(lookup.status(inst.statusId), inst)?.combat?.hooks, 1);
+  push(skill?.hooks, 2);
+  const seen = new Set<string>();
+  const unique = entries.filter((entry) => {
+    if (seen.has(entry.hook.id)) return false;
+    seen.add(entry.hook.id);
+    return true;
+  });
+  return unique.sort(
+    (a, b) => (b.hook.priority ?? 0) - (a.hook.priority ?? 0) || a.layer - b.layer || a.order - b.order,
+  );
+}
+
+/**
+ * 把两方的钩子并成一张表（ADR-073 §2-4）：`priority` 降序 → 来源层级 → 声明顺序；
+ * `id` 相同只留第一条 —— 同一条天赋挂在两个人身上时不该结算两次。
+ */
+function mergeHookEntries(groups: ReadonlyArray<{ entries: HookEntry[]; owner: Combatant }>): HookEntry[] {
+  const all: HookEntry[] = [];
+  for (const group of groups) for (const entry of group.entries) all.push({ ...entry, owner: group.owner });
+  const seen = new Set<string>();
+  return all
+    .filter((entry) => {
+      if (seen.has(entry.hook.id)) return false;
+      seen.add(entry.hook.id);
+      return true;
+    })
+    .sort((a, b) => (b.hook.priority ?? 0) - (a.hook.priority ?? 0) || a.layer - b.layer || a.order - b.order);
+}
+
+/** 一次结算里钩子看到的世界：数值在阶段之间累积，取消标记在阶段内有效。 */
+interface HookContext {
+  battle: BattleState;
+  state: WorldStateV2;
+  caster: Combatant;
+  /** 当前正在执行的钩子的拥有者；`runHooks` 逐条设置。 */
+  owner?: Combatant;
+  target?: Combatant;
+  skill?: CombatSkill;
+  hit: boolean;
+  crit: boolean;
+  critMultiplier: number;
+  /** 钩子对本次伤害的额外倍率 / 加值。 */
+  damageMultiplier: number;
+  damageAdd: number;
+  /** 暴击倍率的指数（模板可写 2.5 这类值）。缺省 1 = 按原倍率。 */
+  critExponent: number;
+  /** 设过 `critExponent` 的钩子 id（ADR-076 §6 的 `!!` 判据）。 */
+  critExponentSource?: string;
+  cancelled: boolean;
+  cancelReason: string;
+  /** 本次动作内的触发计数（`limit.per: action`）。 */
+  actionFires: Map<string, number>;
+}
+
+function hookContextOf(
+  battle: BattleState,
+  state: WorldStateV2,
+  caster: Combatant,
+  skill: CombatSkill | undefined,
+): HookContext {
+  return {
+    battle,
+    state,
+    caster,
+    skill,
+    hit: true,
+    crit: false,
+    critMultiplier: 1,
+    damageMultiplier: 1,
+    damageAdd: 0,
+    critExponent: 1,
+    cancelled: false,
+    cancelReason: "",
+    actionFires: new Map<string, number>(),
+  };
+}
+
+function hookFiresOf(ctx: HookContext, hook: BattleHook): number {
+  switch (hook.limit?.per) {
+    case "action":
+      return ctx.actionFires.get(hook.id) ?? 0;
+    case "round":
+      return ctx.battle.hookRoundFires?.[hook.id] ?? 0;
+    case "battle":
+      return ctx.battle.hookFires?.[hook.id] ?? 0;
+    default:
+      return 0;
+  }
+}
+
+function bumpHookFire(ctx: HookContext, hook: BattleHook): void {
+  switch (hook.limit?.per) {
+    case "action":
+      ctx.actionFires.set(hook.id, hookFiresOf(ctx, hook) + 1);
+      return;
+    case "round":
+      ctx.battle.hookRoundFires = { ...(ctx.battle.hookRoundFires ?? {}), [hook.id]: hookFiresOf(ctx, hook) + 1 };
+      return;
+    case "battle":
+      ctx.battle.hookFires = { ...(ctx.battle.hookFires ?? {}), [hook.id]: hookFiresOf(ctx, hook) + 1 };
+      return;
+    default:
+      return;
+  }
+}
+
+/** 概率条件的取值：数字 = 固定；对象 = `base + 属性 × perPoint`，再夹到 [min,max]。 */
+interface HookChanceSpec {
+  base?: number;
+  attribute?: string;
+  perPoint?: number;
+  min?: number;
+  max?: number;
+}
+
+function chanceValueOf(
+  spec: HookChanceSpec,
+  caster: Combatant,
+  lookup: TemplateLookup,
+  state: WorldStateV2,
+): number {
+  let value = spec.base ?? 0;
+  if (spec.attribute !== undefined) {
+    value += (effectiveAttrsOf(caster, lookup, state)[spec.attribute] ?? 0) * (spec.perPoint ?? 0);
+  }
+  return Math.max(spec.min ?? 0, Math.min(spec.max ?? 1, value));
+}
+
+function hookConditionMet(cond: HookCondition, ctx: HookContext, lookup: TemplateLookup, rng: Rng): boolean {
+  const c = cond as Record<string, unknown>;
+  if (typeof c.crit === "boolean") return ctx.crit === c.crit;
+  if (typeof c.hit === "boolean") return ctx.hit === c.hit;
+  if (c.hpPct !== undefined) {
+    // 读**钩子拥有者**的血线（「我的血低于三成时」）；不是「对面那个人」。
+    const who = ctx.owner ?? ctx.caster;
+    const ratio = who.hp / Math.max(1, maxHpOf(who, ctx.state, ctx.battle, lookup));
+    const spec = c.hpPct as { gte?: number; lte?: number; gt?: number; lt?: number };
+    if (spec.gte !== undefined && ratio < spec.gte) return false;
+    if (spec.lte !== undefined && ratio > spec.lte) return false;
+    if (spec.gt !== undefined && ratio <= spec.gt) return false;
+    if (spec.lt !== undefined && ratio >= spec.lt) return false;
+    return true;
+  }
+  if (c.chance !== undefined) {
+    const chance =
+      typeof c.chance === "number"
+        ? c.chance
+        : chanceValueOf(c.chance as HookChanceSpec, ctx.caster, lookup, ctx.state);
+    return rng() < chance;
+  }
+  // 其余走模拟域条件 DSL（旗标 / 属性 / 状态 / 心情 / 关系 / 随机…），与事件侧同一套求值。
+  return checkCondition(cond as Parameters<typeof checkCondition>[0], { state: ctx.state, lookup, rng });
+}
+
+function pushBattleEvent(battle: BattleState, event: BattleEvent): void {
+  const events = (battle.events ??= []);
+  // 序号由这里统一分配：调用点不需要关心，也不会因为数组截断而错位
+  const seq = (battle.eventSeq ?? 0) + 1;
+  battle.eventSeq = seq;
+  // `round` 也在这里盖：分段（cast）要靠它，不然「连续两轮用同一招」会被并成一段
+  events.push({ ...event, seq, round: battle.round } as BattleEvent);
+  /**
+   * 只保留最近 200 条：`events` 是演出用的，不是账本。一场召唤流的长盘能打出几百条，
+   * 无上限地存进存档只会让读档变慢，而 UI 只看得到最近一屏。
+   */
+  if (events.length > 200) events.splice(0, events.length - 200);
+}
+
+/**
+ * 执行一个阶段。顺序 = `priority` 降序 → 来源层级 → 声明顺序；
+ * 一条钩子取消之后，同阶段后面的钩子不再执行（取消就是取消，不是「排队取消」）。
+ */
+function runHooks(
+  phase: HookPhase,
+  entries: readonly HookEntry[],
+  ctx: HookContext,
+  lookup: TemplateLookup,
+  rng: Rng,
+): void {
+  for (const entry of entries) {
+    if (entry.hook.phase !== phase) continue;
+    ctx.owner = entry.owner ?? ctx.caster;
+    const limit = entry.hook.limit;
+    if (limit !== undefined && hookFiresOf(ctx, entry.hook) >= limit.times) continue;
+    const when = entry.hook.when ?? [];
+    if (!when.every((cond) => hookConditionMet(cond, ctx, lookup, rng))) continue;
+    if (limit !== undefined) bumpHookFire(ctx, entry.hook);
+    for (const eff of entry.hook.effects) applyHookEffect(eff, entry.hook, ctx, lookup);
+    if (ctx.cancelled) return;
+  }
+}
+
+/**
+ * `beforeAction` 的唯一入口（ADR-073）：玩家指令与 AI 共用。
+ *
+ * 为什么 AI 也要跑：钩子是「谁身上挂着就算谁的」，不是「玩家的特权」。
+ * 一个被沉默的敌人在 `aiTurn` 里照样该丢行动 —— 否则同一套模板在玩家和 NPC
+ * 身上会得到两套规则，而这种漂移在战斗里最难被发现。
+ */
+function actionCancelledByHooks(
+  battle: BattleState,
+  state: WorldStateV2,
+  caster: Combatant,
+  skill: CombatSkill,
+  lookup: TemplateLookup,
+  rng: Rng,
+): boolean {
+  const ctx = hookContextOf(battle, state, caster, skill);
+  runHooks("beforeAction", collectHooks(caster, skill, lookup), ctx, lookup, rng);
+  return ctx.cancelled;
+}
+
+function applyHookEffect(
+  eff: BattleHook["effects"][number],
+  hook: BattleHook,
+  ctx: HookContext,
+  lookup: TemplateLookup,
+): void {
+  const owner = ctx.owner ?? ctx.caster;
+  const other = owner === ctx.caster ? ctx.target : ctx.caster;
+  const receiverOf = (target: "self" | "target" | undefined): Combatant =>
+    target === "target" ? (other ?? owner) : owner;
+  const log = (text: string): void => {
+    ctx.battle.log.push(text);
+  };
+  switch (eff.type) {
+    case "scaleDamage":
+      ctx.damageMultiplier *= eff.value;
+      return;
+    case "addDamage":
+      ctx.damageAdd += eff.value;
+      return;
+    case "critExponent":
+      // 只影响「这一次暴击」的倍率；同一动作里多条取最后一条（顺序由 priority 说了算）。
+      ctx.critExponent = eff.value;
+      ctx.critExponentSource = hook.id;
+      return;
+    case "cancel":
+      ctx.cancelled = true;
+      ctx.cancelReason = eff.reason ?? hook.id;
+      pushBattleEvent(ctx.battle, {
+        kind: "cancel",
+        actor: ctx.caster.id,
+        ...(ctx.target !== undefined ? { target: ctx.target.id } : {}),
+        hookId: hook.id,
+        reason: ctx.cancelReason,
+      });
+      return;
+    case "applyStatus":
+      applyStatusCombat(
+        receiverOf(eff.target),
+        eff.status,
+        eff.stacks ?? 1,
+        ctx.state,
+        lookup,
+        log,
+        eff.rounds === undefined ? undefined : { rounds: eff.rounds },
+      );
+      return;
+    case "cureStatus": {
+      const receiver = receiverOf(eff.target);
+      const removed = receiver.statuses.filter((inst) => {
+        const def = lookup.status(inst.statusId);
+        // 天赋在结构上不可驱散（ADR-018）：选择器写得再宽也清不掉身份。
+        if (def === undefined || def.kind === "talent") return false;
+        // `dispellable: false` 是结构性的：写得再宽的选择器也清不掉它（ADR-074）。
+        if (def.dispellable === false) return false;
+        if (eff.kind !== undefined && def.kind !== eff.kind) return false;
+        if (eff.polarity !== undefined && def.polarity !== eff.polarity) return false;
+        if (eff.status !== undefined && inst.statusId !== eff.status) return false;
+        return true;
+      });
+      const targets = eff.max === undefined ? removed : removed.slice(0, eff.max);
+      if (targets.length === 0) return;
+      receiver.statuses = receiver.statuses.filter((inst) => !targets.includes(inst));
+      for (const inst of targets) {
+        log(`${receiver.isPlayer ? "你" : receiver.name}身上的「${lookup.status(inst.statusId)?.name ?? inst.statusId}」被解除了。`);
+      }
+      return;
+    }
+    case "heal": {
+      const receiver = receiverOf(eff.target);
+      const effAttrs = effectiveAttrsOf(ctx.caster, lookup, ctx.state);
+      const amount = Math.max(0, Math.round(rollFormula([eff.formula], effAttrs, ctx.caster.statuses, resourceSheet(ctx.caster))));
+      const cap = maxHpOf(receiver, ctx.state, ctx.battle, lookup);
+      const before = receiver.hp;
+      receiver.hp = Math.min(cap, receiver.hp + amount);
+      const healed = receiver.hp - before;
+      if (healed > 0) {
+        log(`${ctx.caster.name}从${receiver.isPlayer ? "你" : receiver.name}身上取回了 ${healed} 点${lookup.resourceLabel("hp")}。`);
+        pushBattleEvent(ctx.battle, { kind: "heal", actor: ctx.caster.id, target: receiver.id, amount: healed });
+      }
+      return;
+    }
+    case "setHpFloor": {
+      const receiver = receiverOf(eff.target);
+      if (receiver.hp >= eff.value) return;
+      receiver.hp = eff.value;
+      log(`${receiver.isPlayer ? "你" : receiver.name}没有倒下。`);
+      return;
+    }
+    case "log":
+      log(eff.text);
+      pushBattleEvent(ctx.battle, { kind: "hook", hookId: hook.id, text: eff.text });
+      return;
+    default:
+      return;
+  }
 }
 
 function effectiveAttrsOf(c: Combatant, lookup: TemplateLookup, state?: WorldStateV2): Record<string, number> {
@@ -386,10 +885,11 @@ export function createBattle(
   const allies = buildUnits(resolved.allies, state, lookup, "ally");
   const neutrals = buildUnits(resolved.neutrals, state, lookup, "neutral");
 
-  return {
+  const battle: BattleState = {
     eventId,
     settle,
     round: 1,
+    stake: settle.stake ?? lookup.template.combat?.defaultStake ?? "deaths",
     player: {
       hp: state.player.hp,
       mp: state.player.mp,
@@ -405,9 +905,33 @@ export function createBattle(
     bench: [],
     // ADR-012 D3：中途加入的进度表（旧档缺省空表 ⇒ 不会重放）。
     reinforcementFires: {},
+    // ADR-073：钩子触发计数与结构化事件。旧档缺省按空处理。
+    hookFires: {},
+    hookRoundFires: {},
+    events: [],
     log: [],
     over: null,
   };
+  /**
+   * ADR-075：赌注与开场快照。阈值只在这里解析一次，战斗内所有判负读同一格；
+   * 四侧 power 也一并冻结 —— 战评要比较的是「开场谁更强」，不是「死时还剩多少」。
+   */
+  const stake = stakeOf(battle, lookup.template);
+  battle.defeatState = stake.defeatState;
+  battle.defeatThreshold = defeatThresholdOf(stake.defeatState);
+  const pc = playerCombatant(state, battle, lookup);
+  const playerAttrs = effectiveAttrsOf(pc, lookup, state);
+  battle.player.maxHp = maxHp(state.player, lookup.template, playerAttrs);
+  const weights = powerWeightsOf(lookup.template);
+  battle.powerStart = {
+    player: powerOfAttributes(playerAttrs, weights),
+    ally: allies.reduce((sum, unit) => sum + powerOfUnit(unit, weights), 0),
+    enemy: enemies.reduce((sum, unit) => sum + powerOfUnit(unit, weights), 0),
+    neutral: neutrals.reduce((sum, unit) => sum + powerOfUnit(unit, weights), 0),
+  };
+  // ADR-075 §3：新一场开始，上一场不再是"最近战果"。
+  state.lastBattleResult = undefined;
+  return battle;
 }
 
 /** 构建战斗单位的可选参数（ADR-012）：开场单位不传，召唤 / 中途加入才带。 */
@@ -608,15 +1132,27 @@ function payCost(c: Combatant, cost: Record<string, number>): void {
  * 于是「召唤消耗 -20%」这种写法在协议里根本表达不出来。
  * 向上取整是显式的：`18 × 0.1 = 1.8 → 2`，用 round 会让 -90% 漂成 -96%。
  */
-function effectiveCost(cost: Record<string, number>, statuses: StatusInstance[], lookup: TemplateLookup): Record<string, number> {
+function effectiveCost(
+  cost: Record<string, number>,
+  statuses: StatusInstance[],
+  lookup: TemplateLookup,
+  attrs?: Record<string, number>,
+): Record<string, number> {
   let changed = false;
   const out: Record<string, number> = {};
+  /**
+   * 效率属性（ADR-074）：`mpCostRate` 是**百分点**（20 = 贵 20%，-35 = 便宜 35%），
+   * 与状态的 `costMultiplier` 同一乘区相加。只作用于 mp：其他资源的「效率」是另一回事。
+   */
+  const costId = attributeIdOfRole(lookup.template, "mpCostRate");
+  const efficiency = costId === undefined ? 0 : (attrs?.[costId] ?? 0) / 100;
   for (const [key, amount] of Object.entries(cost)) {
     if (amount <= 0) {
       out[key] = amount;
       continue;
     }
-    const factor = Math.max(0, 1 + costMultiplierOf(statuses, lookup, key).total);
+    const direct = costMultiplierOf(statuses, lookup, key).total;
+    const factor = Math.max(0, 1 + direct + (key === "mp" ? efficiency : 0));
     if (factor === 1) {
       out[key] = amount;
       continue;
@@ -759,7 +1295,7 @@ export function effectiveCostOf(
   const caster = combatantOf(battle, state, casterId, lookup);
   const skill = lookup.skill(skillId);
   if (!caster || skill === undefined || skill.kind !== "combat") return {};
-  return effectiveCost(skill.cost, caster.statuses, lookup);
+  return effectiveCost(skill.cost, caster.statuses, lookup, effectiveAttrsOf(caster, lookup, state));
 }
 
 /**
@@ -797,7 +1333,8 @@ export function canUseSkill(
     ? battle.player.skillCooldowns
     : (allUnits(battle).find((u) => u.instanceId === casterId)?.skillCooldowns ?? {});
   if ((cooldowns[skill.id] ?? 0) > 0) return { ok: false, reason: "skill_on_cooldown" };
-  const missing = missingCost(caster, effectiveCost(skill.cost, caster.statuses, lookup));
+  const casterAttrs = effectiveAttrsOf(caster, lookup, state);
+  const missing = missingCost(caster, effectiveCost(skill.cost, caster.statuses, lookup, casterAttrs));
   if (missing !== undefined) {
     return { ok: false, reason: missing === "mp" ? "not_enough_mp" : `not_enough_resource:${missing}` };
   }
@@ -1031,6 +1568,7 @@ function performSummon(
   spec: SummonSpec,
   lookup: TemplateLookup,
   log: (text: string) => void,
+  skillId?: string,
 ): void {
   const def = lookup.character(spec.ref);
   if (!def) return;
@@ -1093,6 +1631,7 @@ function performSummon(
       delete unit.deathReason;
       list.push(unit);
       log(`${unit.name}应召而回。`);
+      pushBattleEvent(battle, { kind: "summon", actor: caster.id, summonId: unit.instanceId, name: unit.name, ...(skillId !== undefined ? { skillId } : {}) });
       continue;
     }
     const unit = buildUnit(def, state, lookup, {
@@ -1107,6 +1646,7 @@ function performSummon(
     });
     list.push(unit);
     log(`${unit.name}应召而来。`);
+    pushBattleEvent(battle, { kind: "summon", actor: caster.id, summonId: unit.instanceId, name: unit.name, ...(skillId !== undefined ? { skillId } : {}) });
   }
   battle.bench = bench;
 }
@@ -1135,6 +1675,14 @@ function nextSummonId(battle: BattleState, base: string): string {
  * 收回 ≠ 阵亡：它还活着，只是不在场上。状态（含 `enteredRound`）原样留着，
  * 同一场里再召就原位回来；战斗结束 `battle` 整个丢掉，于是下一场自动满状态。
  */
+/**
+ * 把刚离场的单位记进 `battle.departed`（收回 / 献祭）。
+ * 它**不参与判定**，只为了让面板上还留一张灰卡 —— 下一回合开始清空。
+ */
+function rememberDeparted(battle: BattleState, unit: BattleEnemy): void {
+  battle.departed = [...(battle.departed ?? []).filter((u) => u.instanceId !== unit.instanceId), unit];
+}
+
 function performRecall(
   battle: BattleState,
   caster: Combatant,
@@ -1142,6 +1690,7 @@ function performRecall(
   /** 玩家点选的那只（`target: ally` 传上来的实例 id）；缺省 = 按入场顺序收最早的。 */
   targetInstanceId: string | undefined,
   log: (text: string) => void,
+  skillId?: string,
 ): void {
   const count = spec.count ?? 1;
   const list = unitsOf(battle, caster.team);
@@ -1159,7 +1708,9 @@ function performRecall(
     const idx = list.findIndex((u) => u.instanceId === unit.instanceId);
     if (idx >= 0) list.splice(idx, 1);
     bench.push(unit);
+    rememberDeparted(battle, unit);
     log(`${unit.name}被收了回去。`);
+    pushBattleEvent(battle, { kind: "recall", actor: caster.id, target: unit.instanceId, name: unit.name, ...(skillId !== undefined ? { skillId } : {}) });
   }
   battle.bench = bench;
 }
@@ -1223,9 +1774,17 @@ function performSacrifice(
   for (const unit of sacrificeTargets(battle, caster.id, spec, caster.team)) {
     removeFromField(battle, unit);
     unit.deathReason = "被献祭";
+    rememberDeparted(battle, unit);
     rememberFallen(battle, unit);
     bonus += (unit.tier === "hero" ? spec.perTier?.hero : spec.perTier?.minion) ?? 0;
     if (unit.tier === "hero") markSummonLost(battle, state, unit);
+    pushBattleEvent(battle, {
+      kind: "sacrifice",
+      actor: caster.id,
+      target: unit.instanceId,
+      name: unit.name,
+      // 刻意**不带 skillId**：献祭会单独成段，与随后的伤害分两拍播（漩涡的第一段）
+    });
     log(`${unit.name}被献祭了。`);
   }
   return bonus;
@@ -1255,15 +1814,23 @@ function executeSkill(
   skill: CombatSkill,
   targetInstanceId: string | undefined,
   lookup: TemplateLookup,
-  rng: Rng,
+  streams: BattleRng,
 ): void {
+  const rng = streams.resolve;
   const log = (text: string) => battle.log.push(text);
   const effC = effectiveAttrsOf(caster, lookup, state);
   const dealtBonus = multiplierOf(caster.statuses, "damageDealt", lookup, caster.gear);
+  /**
+   * 钩子在**动作开始时**收集一次（ADR-073）：本招中途挂上的天赋不参与本招结算，
+   * 否则「先打一拳再挂一个暴击天赋」会在同一次结算里生效。
+   */
+  const casterHooks = collectHooks(caster, skill, lookup);
+  const hookCtx = hookContextOf(battle, state, caster, skill);
+  const critProfile = critOf(caster.statuses, skill, lookup, effC);
 
   // 消耗（mp + 自定义资源；调用方已检查，这里仍按 max(0) 兜底）。
-  // ADR-012 D8：价格走修正后的值（六眼 -90%），否则「AI 觉得放得出、结算却扣不起」。
-  payCost(caster, effectiveCost(skill.cost, caster.statuses, lookup));
+  // ADR-012 D8：价格走修正后的值（状态/效率折扣），否则「AI 觉得放得出、结算却扣不起」。
+  payCost(caster, effectiveCost(skill.cost, caster.statuses, lookup, effC));
   caster.skillCooldowns[skill.id] = skill.cooldownTurns;
 
   /**
@@ -1297,6 +1864,48 @@ function executeSkill(
   for (const target of targets) {
     const who = target.isPlayer ? "你" : target.name;
     /**
+     * 攻防双方的钩子并成一张表：防御方的「替身 / 不屈 / 反伤」必须在打到他身上的
+     * 那一刻才有机会执行，而那一刻的施放者不是它们的主人。
+     */
+    const hookEntries = mergeHookEntries([
+      { entries: casterHooks, owner: caster },
+      { entries: collectHooks(target, undefined, lookup), owner: target },
+    ]);
+    // 每个目标一份干净的钩子上下文：暴击/取消都是「这一次、对这个人」的事。
+    hookCtx.target = target;
+    hookCtx.hit = true;
+    hookCtx.crit = false;
+    hookCtx.critMultiplier = 1;
+    hookCtx.damageMultiplier = 1;
+    hookCtx.damageAdd = 0;
+    hookCtx.critExponent = 1;
+    hookCtx.critExponentSource = undefined;
+    hookCtx.cancelled = false;
+    hookCtx.cancelReason = "";
+
+    /**
+     * `beforeHit`（ADR-073）：命中判定之前。替身、幻术这类「这一击本来就不该落在你身上」
+     * 的效果在这里取消 —— 它比闪避更早，因为连命中骰都不该掷。
+     */
+    // 只对「打向别人」的攻击性技能开放：给自己回血/加状态时，替身类钩子不该把治疗也取消。
+    if (target !== caster && isAttackSkill(skill)) {
+      runHooks("beforeHit", hookEntries, hookCtx, lookup, streams.hook);
+      if (hookCtx.cancelled) {
+        hookCtx.hit = false;
+        log(`${caster.name}的「${skill.name}」没能落在${who}身上。`);
+        pushBattleEvent(battle, {
+          kind: "miss",
+          actor: caster.id,
+          target: target.id,
+          skillId: skill.id,
+          stage: "beforeHit",
+          reason: hookCtx.cancelReason,
+        });
+        continue;
+      }
+    }
+
+    /**
      * 命中判定（ADR-008 D1）：
      * - `hit: guaranteed` ⇒ 整段跳过（必中不掷骰、也不吃闪避）；
      * - 否则先掷命中骰（省略 `hitCheck` 时只掷满值，但仍然**可被闪避**）；
@@ -1309,24 +1918,94 @@ function executeSkill(
       const chance = hitChance(caster, target, skill, lookup, state);
       if (rng() >= chance) {
         log(`${caster.name}的「${skill.name}」被${who}闪开了。`);
+        pushBattleEvent(battle, {
+          kind: "miss",
+          actor: caster.id,
+          target: target.id,
+          skillId: skill.id,
+          stage: "hit",
+        });
         continue;
       }
       if (isAttackSkill(skill)) {
-        const evade = evadeOf(target.statuses, lookup, target.gear);
+        const evade = evadeOf(target.statuses, lookup, target.gear, effectiveAttrsOf(target, lookup, state));
         if (evade.chance > 0 && rng() < evade.chance) {
           log(`${caster.name}的「${skill.name}」没能触及${who}——「${evade.source}」把它隔在了外面。`);
+          pushBattleEvent(battle, {
+            kind: "miss",
+            actor: caster.id,
+            target: target.id,
+            skillId: skill.id,
+            stage: "evade",
+            reason: evade.source,
+          });
           continue;
         }
       }
     }
 
+    /**
+     * 暴击（ADR-073 D2）：命中 + 闪避都过了才掷，且只对**伤害**掷。
+     * 必中也能暴击 —— 必中解决「打不打得中」，不解决「打得多重」。
+     */
+    if (skill.damage?.length) {
+      if (rollCrit(critProfile, streams.crit)) {
+        hookCtx.crit = true;
+        hookCtx.critMultiplier = critProfile.multiplier;
+      }
+    }
+
+    /**
+     * `afterHit`（ADR-073）：伤害之前。「暴击后的二次判定」挂在这里 —— 它读的是
+     * 「本次是否暴击」，而不是再掷一次独立概率（否则「没暴击却触发」会变成可能）。
+     */
+    runHooks("afterHit", hookEntries, hookCtx, lookup, streams.hook);
+    if (hookCtx.cancelled) {
+      log(`${caster.name}的「${skill.name}」在触及${who}之前散掉了。`);
+      pushBattleEvent(battle, {
+        kind: "miss",
+        actor: caster.id,
+        target: target.id,
+        skillId: skill.id,
+        stage: "afterHit",
+        reason: hookCtx.cancelReason,
+      });
+      continue;
+    }
+
+    // `beforeDamage`：护盾、减伤。数值累积在 `hookCtx` 上，下面统一结算。
+    runHooks("beforeDamage", hookEntries, hookCtx, lookup, streams.hook);
+
     // 伤害
     if (skill.damage?.length) {
       const raw = rollFormula(skill.damage, effC, caster.statuses, sheet) + sacrificeBonus;
       const takenBonus = multiplierOf(target.statuses, "damageTaken", lookup, target.gear);
-      const final = Math.max(0, Math.round(raw * (1 + dealtBonus) * (1 + takenBonus)));
-      target.hp -= final;
-      log(`${caster.name}的「${skill.name}」命中${target.isPlayer ? "你" : target.name}，造成 ${final} 点伤害。`);
+      const critFactor = hookCtx.crit ? Math.pow(hookCtx.critMultiplier, hookCtx.critExponent) : 1;
+      const final = Math.max(
+        0,
+        Math.round(raw * (1 + dealtBonus) * (1 + takenBonus) * critFactor * hookCtx.damageMultiplier + hookCtx.damageAdd),
+      );
+      // ADR-075：扣血与战果计数走同一个入口（killer / 逐单位伤害都从这里落）。
+      dealDamage(battle, caster, target, final, { crit: hookCtx.crit });
+      log(
+        `${caster.name}的「${skill.name}」命中${target.isPlayer ? "你" : target.name}，造成 ${final} 点伤害${hookCtx.crit ? "（暴击）" : ""}。`,
+      );
+      pushBattleEvent(battle, {
+        kind: "damage",
+        actor: caster.id,
+        target: target.id,
+        skillId: skill.id,
+        amount: final,
+        critical: hookCtx.crit,
+        ...(hookCtx.crit
+          ? {
+              critTier: (hookCtx.critExponent === 1 ? 1 : 2) as 1 | 2,
+              ...(hookCtx.critExponentSource !== undefined ? { amplifiedBy: hookCtx.critExponentSource } : {}),
+            }
+          : {}),
+      });
+      // `afterDamage`：扣血之后、死亡判定之前。锁血 / 吸血 / 反伤。
+      runHooks("afterDamage", hookEntries, hookCtx, lookup, streams.hook);
     }
 
     // 治疗：不得超过目标 HP 上限（物品治疗同样 clamp，避免 overheal 被持久化）
@@ -1337,12 +2016,16 @@ function executeSkill(
       target.hp = Math.min(cap, target.hp + amount);
       const healed = target.hp - before;
       log(`${caster.name}的「${skill.name}」为${target.isPlayer ? "你" : target.name}回复 ${healed} 点${lookup.resourceLabel("hp")}。`);
+      if (healed > 0) {
+        pushBattleEvent(battle, { kind: "heal", actor: caster.id, target: target.id, skillId: skill.id, amount: healed });
+      }
     }
 
     // 施加状态：只处理「跟技能目标」的那些
     for (const app of perTargetApps) {
       if (rng() >= (app.chance ?? 1)) continue;
       applyStatusCombat(target, app.status, app.stacks ?? 1, state, lookup, log, app.duration);
+      pushBuffEvent(battle, caster.id, target.id, app.status, skill.id, lookup);
     }
   }
 
@@ -1350,6 +2033,7 @@ function executeSkill(
   for (const app of selfApps) {
     if (rng() >= (app.chance ?? 1)) continue;
     applyStatusCombat(caster, app.status, app.stacks ?? 1, state, lookup, log, app.duration);
+    pushBuffEvent(battle, caster.id, caster.id, app.status, skill.id, lookup);
     extraReceivers.add(caster);
   }
 
@@ -1364,6 +2048,7 @@ function executeSkill(
       for (const receiver of receivers) {
         if (rng() >= (app.chance ?? 1)) continue;
         applyStatusCombat(receiver, app.status, app.stacks ?? 1, state, lookup, log, app.duration);
+        pushBuffEvent(battle, caster.id, receiver.id, app.status, skill.id, lookup);
         extraReceivers.add(receiver);
       }
     }
@@ -1392,8 +2077,15 @@ function executeSkill(
     if (gained > 0) log(`${caster.name}的${lookup.resourceLabel(key)}增加了 ${gained} 点。`);
   }
 
-  if (skill.summon !== undefined) performSummon(battle, state, caster, skill.summon, lookup, log);
-  if (skill.recall !== undefined) performRecall(battle, caster, skill.recall, targetInstanceId, log);
+  if (skill.summon !== undefined) performSummon(battle, state, caster, skill.summon, lookup, log, skill.id);
+  if (skill.recall !== undefined) performRecall(battle, caster, skill.recall, targetInstanceId, log, skill.id);
+
+  /**
+   * `afterAction`（ADR-073）：技能结算末尾。此时 `hookCtx.target` 是最后一个目标，
+   * 需要指向别人的效果应该在 `afterHit / afterDamage` 里做 —— 这里只做「施法者自己的余韵」。
+   */
+  hookCtx.target = undefined;
+  runHooks("afterAction", mergeHookEntries([{ entries: casterHooks, owner: caster }]), hookCtx, lookup, streams.hook);
 
   writeBack(battle, caster);
   for (const t of targets) writeBack(battle, t);
@@ -1450,6 +2142,32 @@ function markDeaths(battle: BattleState, state?: WorldStateV2): void {
  * 实例上没有「战后留存」标记 —— **所有**战斗态都会在收场时被丢掉，
  * 想留下痕迹就写状态定义上的 `toModifier`，由战后结算按 `roundsHeld` 折算。
  */
+/**
+ * 状态施加的表现事件（ADR-076 §3.8）。
+ *
+ * 纯状态技能既不造成伤害也不治疗 —— 没有这条事件，表现层只会「点了没反应」。
+ * 名字与极性都从模板取，内核不认识具体状态。
+ */
+function pushBuffEvent(
+  battle: BattleState,
+  actorId: string,
+  targetId: string,
+  statusId: string,
+  skillId: string,
+  lookup: TemplateLookup,
+): void {
+  const def = lookup.status(statusId);
+  pushBattleEvent(battle, {
+    kind: "buff",
+    actor: actorId,
+    target: targetId,
+    skillId,
+    statusId,
+    ...(def?.name !== undefined ? { name: def.name } : {}),
+    ...(def?.polarity !== undefined ? { polarity: def.polarity } : {}),
+  });
+}
+
 function applyStatusCombat(
   receiver: Combatant,
   statusId: string,
@@ -1591,8 +2309,7 @@ function aiTurn(
   unit: BattleEnemy,
   team: "ally" | "enemy" | "neutral",
   lookup: TemplateLookup,
-  rng: Rng,
-  targetRoot: Rng,
+  streams: BattleRng,
 ): void {
   /**
    * ADR-016 D2：**召唤物在登场那一回合就行动**（`summonRef !== undefined`）。
@@ -1641,6 +2358,7 @@ function aiTurn(
       : team === "enemy"
         ? battle.enemies.filter((e) => e.alive && e !== unit)
         : battle.allies.filter((a) => a.alive);
+    const playerAttrs = effectiveAttributesOfActor(state, lookup, state.player);
     const pub = buildPublicConditionContext({
       actor: {
         hp: Math.max(0, c.hp),
@@ -1650,9 +2368,9 @@ function aiTurn(
       },
       player: {
         hp: Math.max(0, battle.player.hp),
-        maxHp: maxHp(state.player, lookup.template),
+        maxHp: maxHp(state.player, lookup.template, playerAttrs),
         mp: Math.max(0, battle.player.mp),
-        maxMp: maxMp(state.player, lookup.template),
+        maxMp: maxMp(state.player, lookup.template, playerAttrs),
       },
       round: battle.round,
       // 玩家恒在友军侧：敌方 / 中立看到的是「友军 + 玩家」，友军看到的是「敌军」。
@@ -1663,7 +2381,11 @@ function aiTurn(
     const decision = decide({ candidates: usable.map((s) => ({ actionId: s.id, skill: s })), profile, pub });
     const chosen = decision.actionId ? usable.find((s) => s.id === decision.actionId) : undefined;
     if (chosen) {
-      const targetRng = forkRng(targetRoot, `ai.target:${battle.round}:${unit.instanceId}:${chosen.id}`);
+      if (actionCancelledByHooks(battle, state, c, chosen, lookup, streams.hook)) {
+        battle.log.push(`${unit.name}没能行动。`);
+        return;
+      }
+      const targetRng = forkRng(streams.target, `ai.target:${battle.round}:${unit.instanceId}:${chosen.id}`);
       executeSkill(
         battle,
         state,
@@ -1671,7 +2393,7 @@ function aiTurn(
         chosen,
         aiTargetOf(battle, state, c, chosen, lookup, profile.targetPolicy, targetRng),
         lookup,
-        rng,
+        streams,
       );
       return;
     }
@@ -1679,16 +2401,20 @@ function aiTurn(
     return;
   }
 
-  const chosen = pickWeighted(usable, (s) => unit.skillWeights[s.id] ?? 1, rng);
+  const chosen = pickWeighted(usable, (s) => unit.skillWeights[s.id] ?? 1, streams.ai);
   if (!chosen) return;
+  if (actionCancelledByHooks(battle, state, c, chosen, lookup, streams.hook)) {
+    battle.log.push(`${unit.name}没能行动。`);
+    return;
+  }
   executeSkill(
     battle,
     state,
     c,
     chosen,
-    aiTargetOf(battle, state, c, chosen, lookup, "lowest", rng),
+    aiTargetOf(battle, state, c, chosen, lookup, "lowest", streams.target),
     lookup,
-    rng,
+    streams,
   );
 }
 
@@ -1711,8 +2437,9 @@ function maxResourceOf(
     : allUnits(battle).find((u) => u.instanceId === c.id)?.resourceMax?.[key];
   if (exclusive !== undefined) return exclusive;
   if (c.isPlayer) {
-    if (key === "hp") return maxHp(state.player, lookup.template);
-    if (key === "mp") return maxMp(state.player, lookup.template);
+    const eff = effectiveAttrsOf(c, lookup, state);
+    if (key === "hp") return maxHp(state.player, lookup.template, eff);
+    if (key === "mp") return maxMp(state.player, lookup.template, eff);
     return resourceMax(state.player, lookup.template, key);
   }
   if (key === "hp") return maxHpOf(c, state, battle, lookup);
@@ -1738,6 +2465,9 @@ function applyCombatRegen(
 ): void {
   if (regen === undefined) return;
   for (const [key, spec] of Object.entries(regen)) {
+    // ADR-075 §1.1：回合末回复不复活 0 血单位。旧实现里"毒到 0 → 回 2 → 继续打"
+    // 会让持续伤害永远打不死人；这条对所有 stake 生效（hard 的 1 血回复不受影响）。
+    if (key === "hp" && c.hp <= 0) continue;
     // ADR-003 D12：支持「基础值 + 属性加权」；加权用该单位的基础属性。
     const amount = resolveRegenAmount(spec, c.attributes);
     if (amount <= 0) continue;
@@ -1761,12 +2491,13 @@ function roundEnd(battle: BattleState, state: WorldStateV2, lookup: TemplateLook
   ];
   for (const c of combatants) {
     for (const inst of [...c.statuses]) {
-      const facet = lookup.status(inst.statusId)?.combat;
+      const facet = statusFor(lookup.status(inst.statusId), inst)?.combat;
       for (const effect of facet?.onRoundEnd ?? []) {
         const eff = effectiveAttrsOf(c, lookup, state);
         if (effect.damage) {
           const dmg = Math.max(0, Math.round(rollFormula([effect.damage], eff, c.statuses)));
-          c.hp -= dmg;
+          // 持续伤害没有"谁打的"这一格 ⇒ 不产生 killer（ADR-075 §3）。
+          dealDamage(battle, undefined, c, dmg);
           // hidden 的状态不点名（名字就是情报）；只报数字，不编名字。
           const statusName = lookup.status(inst.statusId)?.visibility === "known" ? `「${lookup.status(inst.statusId)?.name}」的 ` : "";
           battle.log.push(`${c.isPlayer ? "你" : c.name}受到${statusName}${dmg} 点持续伤害。`);
@@ -1813,6 +2544,8 @@ function roundEnd(battle: BattleState, state: WorldStateV2, lookup: TemplateLook
   markDeaths(battle, state);
   dismissOrphanSummons(battle, selfIdOf(state));
   battle.round += 1;
+  // ADR-073：回合级钩子次数随回合翻页清零（`per: battle` 的计数留着）。
+  battle.hookRoundFires = {};
   /**
    * ADR-012 D3：中途加入在**新回合开始时**判定（`battle.round` 已 +1）。
    * 放在这里而不是 `performBattleAction` 开头，是因为援军属于「回合之间发生的事」，
@@ -1900,8 +2633,13 @@ function applyReinforcements(
 
 // ---------- 胜负判定 ----------
 
-/** 单条胜负条件求值（ADR-012 D4）。 */
-function conditionMet(cond: BattleCondition, battle: BattleState): boolean {
+/** 单条胜负条件求值（ADR-012 D4 / ADR-075 §1.1）。 */
+function conditionMet(
+  cond: BattleCondition,
+  battle: BattleState,
+  state: WorldStateV2,
+  lookup?: TemplateLookup,
+): boolean {
   switch (cond.kind) {
     case "all_enemies":
       return battle.enemies.every((e) => !e.alive);
@@ -1919,7 +2657,15 @@ function conditionMet(cond: BattleCondition, battle: BattleState): boolean {
       // 没带友军的战斗不该因为「友军全灭」立刻判负（空集合的 every 恒真）。
       return battle.allies.length > 0 && battle.allies.every((a) => !a.alive);
     case "player_down":
-      return battle.player.hp <= 1;
+      // 阈值随 stake：死斗 hp ≤ 0，其余 hp ≤ 1（ADR-075 §1.1）。
+      return battle.player.hp <= (battle.defeatThreshold ?? 1);
+    case "hp_below": {
+      const max =
+        lookup !== undefined
+          ? maxHp(state.player, lookup.template, effectiveAttributesOfActor(state, lookup, state.player))
+          : (battle.player.maxHp ?? 1);
+      return battle.player.hp / Math.max(1, max) <= cond.ratio;
+    }
     default:
       return false;
   }
@@ -1931,12 +2677,17 @@ function conditionMet(cond: BattleCondition, battle: BattleState): boolean {
  * 没有声明 `victory` / `defeat` ⇒ 完全走旧的两条 if（ADR-012 D4 的零漂移承诺）；
  * 声明了就把判据换成条件表，仍然是「先判胜、后判负」——顺序保持不动，是因为旧实现
  * 就是这个顺序，改动会让「同回合同时满足」的边界行为静默翻转。
+ *
+ * ADR-075：判负**只写 `over`**，不再把 hp 夹成 1 —— 落点由 `hpOnDefeat` 在收场时统一写。
+ *
+ * ADR-075 §13-2：`victory` / `defeat` 是**静态 OR 列表**，没有复合条件、也没有运行时写入口；
+ * "魔虚罗调伏仪式"（敌人全灭 **且** 魔虚罗倒下）需要单独立 ADR 才能表达。
  */
-export function checkBattleEnd(battle: BattleState, state: WorldStateV2): void {
+export function checkBattleEnd(battle: BattleState, state: WorldStateV2, lookup?: TemplateLookup): void {
   if (battle.over) return;
   const victory = battle.settle.victory;
   const won = victory !== undefined && victory.length > 0
-    ? victory.some((c) => conditionMet(c, battle))
+    ? victory.some((c) => conditionMet(c, battle, state, lookup))
     : battle.enemies.every((e) => !e.alive);
   if (won) {
     battle.over = "victory";
@@ -1945,10 +2696,9 @@ export function checkBattleEnd(battle: BattleState, state: WorldStateV2): void {
   }
   const defeat = battle.settle.defeat;
   const lost = defeat !== undefined && defeat.length > 0
-    ? defeat.some((c) => conditionMet(c, battle))
-    : battle.player.hp <= 1;
+    ? defeat.some((c) => conditionMet(c, battle, state, lookup))
+    : battle.player.hp <= (battle.defeatThreshold ?? 1);
   if (lost) {
-    battle.player.hp = 1;
     battle.over = "defeat";
     battle.log.push("你已无力再战……");
   }
@@ -1967,6 +2717,9 @@ export function performBattleAction(
   if (!battle || battle.over) throw new Error("battle_not_active");
   const pc = playerCombatant(state, battle, lookup);
   const prefix = `R${battle.round}`;
+  // 上一轮留下的灰卡（收回 / 献祭）到**你下一次行动**才真正消失：
+  // 回合推进发生在一次行动内部，在这里清才是「下一轮开始」。
+  battle.departed = [];
 
   if (controlOf(pc.statuses, "cannot_act", lookup)) {
     battle.log.push(`${prefix} 你无法行动。`);
@@ -1978,22 +2731,34 @@ export function performBattleAction(
     if (!playerSkills(state, lookup).includes(skill.id)) throw new Error("skill_not_owned");
     // cannot_attack（协议 §6.3）：只拦攻击性技能，增益/治疗仍可施放
     if (isAttackSkill(skill) && controlOf(pc.statuses, "cannot_attack", lookup)) throw new Error("cannot_attack");
-    const missing = missingCost(pc, effectiveCost(skill.cost, pc.statuses, lookup));
-    if (missing !== undefined) {
-      // mp 保留旧错误码（既有前端 / 测试依赖）；其余资源带 id，便于诊断。
-      throw new Error(missing === "mp" ? "not_enough_mp" : `not_enough_resource:${missing}`);
-    }
-    if ((pc.skillCooldowns[skill.id] ?? 0) > 0) throw new Error("skill_on_cooldown");
     /**
-     * 目标合法性（2026-11-20）：先选目标、再放技能；非法目标直接拒，**不扣钱、不进冷却**。
-     * 与 `canUseSkill` 同一份判定（`legalTargetIssue`），面板置灰只是它的展示面。
+     * `beforeAction`（ADR-073）：控制检查之后、付钱之前。取消 = 整次行动被抹掉，
+     * 但回合照常消耗（与 `cannot_act` 同一语义）—— 否则一个每回合都取消你的效果
+     * 会变成「你永远不进入下一回合」。
      */
-    {
-      const issue = legalTargetIssue(battle, state, pc, skill, command.targetInstanceId);
-      if (issue !== null) throw new Error(issue);
+    if (actionCancelledByHooks(battle, state, pc, skill, lookup, streams.hook)) {
+      battle.log.push(`${prefix} 你没能行动。`);
+    } else {
+      const missing = missingCost(
+        pc,
+        effectiveCost(skill.cost, pc.statuses, lookup, effectiveAttrsOf(pc, lookup, state)),
+      );
+      if (missing !== undefined) {
+        // mp 保留旧错误码（既有前端 / 测试依赖）；其余资源带 id，便于诊断。
+        throw new Error(missing === "mp" ? "not_enough_mp" : `not_enough_resource:${missing}`);
+      }
+      if ((pc.skillCooldowns[skill.id] ?? 0) > 0) throw new Error("skill_on_cooldown");
+      /**
+       * 目标合法性（2026-11-20）：先选目标、再放技能；非法目标直接拒，**不扣钱、不进冷却**。
+       * 与 `canUseSkill` 同一份判定（`legalTargetIssue`），面板置灰只是它的展示面。
+       */
+      {
+        const issue = legalTargetIssue(battle, state, pc, skill, command.targetInstanceId);
+        if (issue !== null) throw new Error(issue);
+      }
+      battle.log.push(`${prefix} 你施放「${skill.name}」。`);
+      executeSkill(battle, state, pc, skill, command.targetInstanceId, lookup, streams);
     }
-    battle.log.push(`${prefix} 你施放「${skill.name}」。`);
-    executeSkill(battle, state, pc, skill, command.targetInstanceId, lookup, streams.resolve);
   } else if (command.type === "item") {
     if (controlOf(pc.statuses, "cannot_use_items", lookup)) throw new Error("bound_items");
     const item = lookup.item(command.itemId);
@@ -2017,9 +2782,12 @@ export function performBattleAction(
         const key = effect.resource;
         const label = lookup.resourceLabel(key);
         if (key === "hp") {
-          pc.hp = Math.max(1, Math.min(maxHp(state.player, lookup.template), pc.hp + effect.value));
+          const hpCap = maxHp(state.player, lookup.template, effectiveAttrsOf(pc, lookup, state));
+          // ADR-075：死斗的下限是 0 —— 喝药不能把"已倒下"抬成 1。
+          pc.hp = Math.max(battle.defeatThreshold ?? 1, Math.min(hpCap, pc.hp + effect.value));
         } else if (key === "mp") {
-          pc.mp = Math.max(0, Math.min(maxMp(state.player, lookup.template), pc.mp + effect.value));
+          const mpCap = maxMp(state.player, lookup.template, effectiveAttrsOf(pc, lookup, state));
+          pc.mp = Math.max(0, Math.min(mpCap, pc.mp + effect.value));
         } else {
           // ADR-012 D9：专属池（`curses` 这类）不在 `template.resources` 里，
           // 上限得先问玩家自己带的那一份，否则「道具补咒灵」会被夹成 0。
@@ -2031,6 +2799,8 @@ export function performBattleAction(
         );
       } else if (effect.type === "cureStatus") {
         // 道具属于世界：镜像与世界两份都要掉。只清镜像的话，收场丢镜像 ⇒ 白用一次解药。
+        // `dispellable: false` 的战斗态在这里同样免疫，否则「解药」会绕过它。
+        if (lookup.status(effect.status)?.dispellable === false) continue;
         pc.statuses = pc.statuses.filter((s) => s.statusId !== effect.status);
         state.player.statuses = state.player.statuses.filter((s) => s.statusId !== effect.status);
         battle.log.push(`${prefix} 「${lookup.status(effect.status)?.name ?? effect.status}」被清除了。`);
@@ -2075,24 +2845,24 @@ export function performBattleAction(
   if (!battle.over) {
     // 友军行动（先于敌人，与主角同阵营）
     for (const ally of battle.allies.filter((a) => a.alive)) {
-      aiTurn(battle, state, ally, "ally", lookup, streams.ai, streams.target);
+      aiTurn(battle, state, ally, "ally", lookup, streams);
     }
   }
   if (!battle.over) {
     for (const enemy of battle.enemies.filter((e) => e.alive)) {
-      aiTurn(battle, state, enemy, "enemy", lookup, streams.ai, streams.target);
+      aiTurn(battle, state, enemy, "enemy", lookup, streams);
     }
   }
   // ADR-012 D5：中立单位最后行动（站在中间抽两边，谁近打谁没有差别，顺序只影响确定性）。
   if (!battle.over) {
     for (const neutral of battle.neutrals.filter((n) => n.alive)) {
-      aiTurn(battle, state, neutral, "neutral", lookup, streams.ai, streams.target);
+      aiTurn(battle, state, neutral, "neutral", lookup, streams);
     }
   }
   if (!battle.over) {
     roundEnd(battle, state, lookup, streams.resolve);
   }
-  checkBattleEnd(battle, state);
+  checkBattleEnd(battle, state, lookup);
 }
 
 // ---------- 战斗收尾：折算 + 资源回写 ----------
@@ -2128,6 +2898,9 @@ function carryOverStatuses(
  * （留活口 / 抓活的 / 打成重伤都是合法剧情），两处写同一件事必然打架。
  *
  * 同一 `characterId` 出现多个实例时按第一个匹配 —— 模板里一个角色一般只有一个实例。
+ *
+ * ADR-075 §13-1：战果已经知道谁倒下了，但"战果 → lifecycle"的协议还没立；
+ * 在那之前，被打倒的 NPC 保持原生命周期（下一场满血回来）。
  */
 function writeBackNpc(unit: BattleEnemy, state: WorldStateV2): V2Npc | undefined {
   if (unit.summonedBy !== undefined) return undefined;
@@ -2159,9 +2932,21 @@ function writeBackNpc(unit: BattleEnemy, state: WorldStateV2): V2Npc | undefined
  * 清掉了，之后这个人连一次都没躲过。这不是某个模板的写法问题：它要么靠给那条护身
  * 硬塞一条假 simulation 绕过，要么就丢了身份。
  */
-export function finishBattle(state: WorldStateV2, lookup: TemplateLookup): void {
+export function finishBattle(
+  state: WorldStateV2,
+  lookup: TemplateLookup,
+  /** 战评已经算好的战果（ADR-075）：避免同一场算两次，也保证 hooks 改过的 grade 一致。 */
+  evaluated?: BattleResult,
+): void {
   const battle = state.battle;
   if (!battle || !battle.over) return;
+
+  /**
+   * ADR-075：战果必须在镜像还在时取。`statusStacks`、逐单位伤害、killer 都只活在
+   * `battle.player.statuses` / `BattleEnemy` 上；下面一丢镜像，战评就只剩一个空壳。
+   */
+  const settled = settleResources(state, battle, lookup);
+  state.lastBattleResult = evaluated ?? buildBattleResult(state, battle, lookup, settled);
 
   /**
    * ADR-013 D4：召唤物**不需要**在收场时返还什么。
@@ -2171,22 +2956,17 @@ export function finishBattle(state: WorldStateV2, lookup: TemplateLookup): void 
    * 回收架里的单位也随 `battle` 一起丢，所以下一场是新的一批（满血满状态）。
    */
 
-  // 回写资源（失败保底 1 点生命）
-  state.player.hp = battle.over === "defeat" ? 1 : Math.max(1, battle.player.hp);
-  state.player.mp = Math.max(0, battle.player.mp);
+  // 回写资源（ADR-075：战败落点由 stake 的 hpOnDefeat 决定，不再写死 1）
+  state.player.hp = settled.hp;
+  state.player.mp = settled.mp;
   /**
    * ADR-003 D8：自定义资源回写。夹到 [0, 当前上限]——战斗中可能因上限变化
    * （升级/装备在战斗内不改，但模板初始值可能超过上限）出现越界值。
    */
   for (const key of Object.keys(state.player.resources)) {
     if (!(key in battle.player.resources)) continue;
-    /**
-     * ADR-012 D9 补三：**专属池（`curses` 这类）不在 `template.resources` 里**，
-     * `resourceMax` 对它们返回 0 ⇒ 收场时会被夹成 0。这是「打一场，咒灵就凭空没了」
-     * 的真正来源（比「没退还」更致命）。上限先问玩家自己带的那一份。
-     */
-    const max = state.player.resourceMax?.[key] ?? resourceMax(state.player, lookup.template, key);
-    state.player.resources[key] = Math.max(0, Math.min(max, battle.player.resources[key]));
+    const value = settled.resources[key];
+    if (value !== undefined) state.player.resources[key] = value;
   }
 
   /**

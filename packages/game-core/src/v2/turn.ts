@@ -44,6 +44,7 @@ import {
 import { computeKnowledgeGrants } from "./knowledge-grants.js";
 import { collectExtensionConditions, resolveExtensionRuntimes } from "./extensions.js";
 import { createRng, deriveTurnSeed, pickWeighted, type Rng } from "../rng.js";
+import { createLookup } from "./lookup.js";
 import type { RunnerContext } from "./runner-context.js";
 import { evaluateLifeV2 } from "./life-evaluation.js";
 import { amountToMinutes, birthTimeFromAge, createTimeAdapter, minutesToAmount, UNIT_MINUTES } from "./time.js";
@@ -60,6 +61,7 @@ import {
   type EffectContextV2,
 } from "./engine.js";
 import { createBattle, createBattleRng, finishBattle, performBattleAction, resolveCombatRefs } from "./battle.js";
+import { evaluateBattle } from "./battle-evaluation.js";
 import { adjustResourceValue, initPlayerResources, resolveRegenAmount } from "./resources.js";
 import { PLAYER_NODE_ID, addEdge, normalizeRelationEndpoint } from "./relations.js";
 import { nextInstanceId } from "./equipment.js";
@@ -80,12 +82,14 @@ import {
   ZERO_SPEC,
 } from "./scheduler.js";
 import {
-  applyDeathRoute,
   assertActive,
   createDefaultEndingConfig,
+  resolveDeathRoute,
   terminateWithEnding,
+  type DeathCause,
   type TerminationSignal,
 } from "./ending.js";
+import type { BattleResult, DeathRoute } from "@life-sim/shared";
 
 /**
  * 扫描 / 呈现前求值的**独立派生流**盐（ADR-0034 §3-5，沿用 ADR-0024 的 `seed + 37` 先例）。
@@ -103,7 +107,7 @@ const MAX_NEXT_TURN_SPINS = 32;
  * self 选择（R-SELF-01 / ADR-001）：决定玩家"是谁"。
  *
  * - 省略 / `kind: "default"`：沿用 playerTemplate，self id = `"player"`（旧行为逐字段不变）。
- * - `kind: "reuse"`：扮演模板已声明的某个角色（如 `npc-gojo`）。**基本属性整组取自该角色**，
+ * - `kind: "reuse"`：扮演模板已声明的某个角色（如 `npc-xxx`）。**基本属性整组取自该角色**，
  *   self id = 该角色 id，该角色不再单独进 `state.npcs`（同一实体，不能有两份真相），
  *   关系边照常按角色声明生成。`input.playerName` 被忽略——名字就是角色名。
  * - `kind: "new"`：新建固定实例化的人物（不进 spawnRules），基本属性由调用方给。
@@ -221,8 +225,8 @@ export function createWorldV2(
   /**
    * 指向 self 的声明边若带强度 ⇒ **折叠进 `npc.relationship` 标量**（ADR-017 D1）。
    *
-   * 只在「复用某个角色当自己」（`as: npc-gojo`）时才会出现：模板写的
-   * `{ to: npc-gojo, kind: disciple, value: 80 }`（夜蛾视五条为弟子）在「你就是五条」这一局
+   * 只在「复用某个角色当自己」（`as: npc-xxx`）时才会出现：模板写的
+   * `{ to: npc-xxx, kind: disciple, value: 80 }`（A 视 B 为弟子）在「你就是 B」这一局
    * 里就是「夜蛾视**你**为弟子，强度 80」。以前这条 value 留在边上，而卡片 chip 读的是
    * `npc-yaga.relationship`（8）—— 同一件事两个数。
    *
@@ -358,7 +362,7 @@ export function createWorldV2(
       })),
     ]
       /**
-       * 复用模板角色当自己（`as: npc-gojo`）时，该角色声明的 `to: player` 会被替换成
+       * 复用模板角色当自己（`as: npc-xxx`）时，该角色声明的 `to: player` 会被替换成
        * 自己的 id ⇒ 自环。schema 明确禁止自环（「关系边不允许自环」），写进去就是一份
        * **载不回来的存档**（GET 直接 `world_state_invalid`）。这里丢掉这条边：
        * 「某角色把玩家当弟子」在玩家就是这个角色时本来也没有语义。
@@ -366,8 +370,8 @@ export function createWorldV2(
       .filter((edge) => edge.from !== edge.to)
       /**
        * **同一条边只能有一条**（2026-11-19 修）：模板通常写两笔 ——
-       * 「夜蛾视五条为弟子（value 80）」＋「夜蛾视**你**为弟子（无 value）」。
-       * 玩家扮演五条时，后者的 `to: player` 归一成 `npc-gojo`，于是同一个
+       * 「A 视 B 为弟子（value 80）」＋「A 视**你**为弟子（无 value）」。
+       * 玩家扮演 B 时，后者的 `to: player` 归一成 `npc-b`，于是同一个
        * `(from,to,kind)` 上出现两条边：一条带强度、一条不带。投影取第一条，
        * 但存档里躺着两条互相矛盾的同一事实。
        *
@@ -395,8 +399,14 @@ export function createWorldV2(
     // F3 / F4 新契约状态：建世界期给最小空值，后续由引擎 API（Wave 1B）填充。
     observationLedger: { player: [] },
   };
-  state.player.hp = maxHp(state.player, template);
-  state.player.mp = maxMp(state.player, template);
+  /**
+   * ADR-074：开局满血/满蓝也要读有效属性 —— 属性转化在开局选项里就生效，
+   * 用基础值算会让「mp 上限 0」的角色带着 10 点 mp 出生。
+   */
+  const bootLookup = createLookup(template);
+  const bootAttrs = playerEffectiveAttributes(state, bootLookup);
+  state.player.hp = maxHp(state.player, template, bootAttrs);
+  state.player.mp = maxMp(state.player, template, bootAttrs);
   // ADR-003 D8：自定义资源按模板 initial（缺省 = 上限）初始化；hp/mp 不进 resources 映射。
   initPlayerResources(state.player, template);
   /**
@@ -1434,38 +1444,84 @@ function applyEndingBoundary(
 }
 
 /**
- * 战败死亡路径接线（§9.3）。只在战败边界调用；applyDeathRoute 返回克隆状态，
- * 这里只回写可能变化的四个字段，保持管线的可变 state 语义。
+ * 死亡边界（ADR-075 §5 / §8.2）：**内容落地之后、回复/后续判定之前**。
+ *
+ * 三种进入方式共用同一条路由：
+ * - 战斗死（`defeatState: dead`）⇒ cause `battle`；
+ * - `playerDeath` 信号（事件 / 行动 / 世界效果）⇒ cause 由调用边界给；
+ * - 死亡事件结算完、没有新信号 ⇒ 收尾 hp1、清 `deathPending`。
+ *
+ * 引擎不设死亡链上限：`deathDepth` 只记录、暴露给条件，收敛由模板负责。
  */
-function applyDeathRouteInPlace(
-  state: WorldStateV2,
-  lookup: TemplateLookup,
-  rng: Rng,
-  pipeline: TurnPipelineConfig | undefined,
-  battleDefeat: boolean,
-): void {
-  const cfg = pipeline?.endingConfig;
-  const route = cfg?.deathRoute;
-  if (!cfg || !route || !battleDefeat) return;
-  if (state.termination !== null) return;
-  const ctx: ConditionContext = { state, lookup, rng };
-  const res = applyDeathRoute(
-    state,
-    route,
-    { battleDefeat },
-    cfg.endings,
-    ctx,
-    cfg.fallback !== undefined ? { fallbackId: cfg.fallback } : {},
-  );
-  if (res.outcome.kind === "none") return;
-  // 克隆路径产生的所有事实/索引必须一起回写（recordFire 三处写入口保持一致）
-  state.firedEvents = res.state.firedEvents;
-  state.lastFiredIndex = res.state.lastFiredIndex;
-  state.eventFires = res.state.eventFires;
-  state.missedEvents = res.state.missedEvents;
-  state.history = res.state.history;
-  assignSlot(state, res.state.slot);
-  state.termination = res.state.termination;
+function applyDeathBoundaryInPlace(input: {
+  state: WorldStateV2;
+  template: WorldTemplateV2;
+  lookup: TemplateLookup;
+  rng: Rng;
+  pipeline: TurnPipelineConfig | undefined;
+  cause: DeathCause;
+  /** 战斗边界才有的战果快照；事件 / 世界边界没有。 */
+  battle?: BattleResult;
+}): { entered: boolean; pending: boolean } {
+  const { state, template, lookup, rng, pipeline, cause, battle } = input;
+  if (state.termination !== null) return { entered: false, pending: false };
+
+  /**
+   * 只有**真的战败**才进死亡边界。
+   *
+   * `defeatState` 描述的是「这场战斗的败北是什么形态」，胜利时它照样是 `dead`
+   * （赌注是死斗），所以光看它会把「赢下来的死斗」也送进死亡路由。
+   * 这里必须带上 `outcome`。
+   */
+  const battleDeath = cause === "battle" && battle?.outcome === "defeat" && battle.defeatState === "dead";
+  const hasSignal = state.deathSignal !== undefined;
+  const hasPending = state.deathPending !== undefined;
+  if (!battleDeath && !hasSignal && !hasPending) return { entered: false, pending: false };
+
+  if (hasSignal) {
+    state.deathDepth = (state.deathDepth ?? 0) + 1;
+    state.player.hp = 0;
+    delete state.deathSignal;
+  } else if (battleDeath) {
+    state.deathDepth = Math.max(1, state.deathDepth ?? 0);
+  } else {
+    // 死亡事件结算完、没有 playerDeath：自动 hp1，链结束。
+    state.player.hp = Math.max(1, state.player.hp);
+    delete state.deathPending;
+    state.deathDepth = 0;
+    return { entered: true, pending: false };
+  }
+
+  const routes = template.deathRoutes ?? [];
+  if (routes.length === 0) {
+    throw new Error(`death_route_missing: cause=${cause}（模板必须声明 deathRoutes 兜底）`);
+  }
+  const hit = resolveDeathRoute(state, routes, { state, lookup, rng }, cause, battle);
+  const action = hit.action;
+  if (action.kind === "ending") {
+    const endings = pipeline?.endingConfig?.endings ?? [];
+    if (!endings.some((ending) => ending.endingId === action.endingId)) {
+      throw new Error(`death_ending_missing: ${action.endingId}（路由 ${hit.route.id}）`);
+    }
+    delete state.deathPending;
+    state.termination = {
+      reason: `死亡路由：${hit.route.id}`,
+      worldTime: state.worldTime,
+      turnIndex: state.turnIndex,
+      source: cause === "battle" ? "battleDefeat" : cause === "event" ? "event" : "condition",
+      endingId: action.endingId,
+    };
+    return { entered: true, pending: false };
+  }
+
+  const event = lookup.event(action.eventId);
+  if (event === undefined || event.kind !== "normal") {
+    throw new Error(`death_event_invalid: ${action.eventId}（路由 ${hit.route.id}）`);
+  }
+  // 死亡事件占槽并顶掉 onDefeat / 普通后继；它是"下一次必须处理的那一个"。
+  assignSlot(state, { eventId: action.eventId, from: "death" });
+  state.deathPending = { routeId: hit.route.id, eventId: action.eventId };
+  return { entered: true, pending: true };
 }
 
 export function advanceTurnV2(
@@ -1478,6 +1534,8 @@ export function advanceTurnV2(
   pipeline?: TurnPipelineConfig,
 ): V2TurnResult {
   assertActive(state);
+  // ADR-075 §8.3：死亡链里只能结算"那一条死亡事件"，普通行动与物品一律拒。
+  if (state.deathPending !== undefined) throw new Error("death_pending");
   // ADR-0024 决策 2.5 的**排空通道**必须排在门禁之前：槽内事件前提已假 ⇒ 先静默清槽，
   // 否则 `pending_event_required` 会把玩家永久挡在自由行动之外（前端看到 `slotEvent === null`
   // 却提交不了任何行动 = 硬死锁）。
@@ -1559,38 +1617,50 @@ export function advanceTurnV2(
     visibility: "public",
   });
 
-  // ---- 4. 占槽判定：行动钩子可产生 `hook` 槽（唯一能写 slot 的自由行动路径） ----
-  resolveHooksV2(state, template, lookup, rng, command.action.type);
-
-  // ---- 5. 模拟域结算（只在自由行动轮执行） ----
   /**
-   * 回复按**全部已声明资源**遍历（ADR-003 D8）：hp/mp 与自定义资源同一条路径，
-   * 缺省键 = 0。这样「每回合回 1 个能量豆」不需要改引擎。
+   * 死亡边界（ADR-075 §8.2）：行动效果落地之后、回复之前。
+   * `playerDeath` 可以来自行动效果 / 世界效果，cause 由这里给 `world`。
    */
-  const bonus = template.regen.actions?.[command.action.type];
-  for (const key of Object.keys(template.resources)) {
-    // ADR-003 D12：回复量可以是常数，也可以是「基础值 + 属性加权」。
-    const regen =
-      resolveRegenAmount(template.regen.perTurn[key], state.player.attributes) +
-      resolveRegenAmount(bonus?.[key], state.player.attributes);
-    if (regen > 0) adjustResourceValue(state.player, template, key, regen);
+  const death = applyDeathBoundaryInPlace({ state, template, lookup, rng, pipeline, cause: "world" });
+
+  if (state.termination === null) {
+    if (!death.pending) {
+      // ---- 4. 占槽判定：行动钩子可产生 `hook` 槽（唯一能写 slot 的自由行动路径） ----
+      resolveHooksV2(state, template, lookup, rng, command.action.type);
+
+      // ---- 5. 模拟域结算（只在自由行动轮执行） ----
+      /**
+       * 回复按**全部已声明资源**遍历（ADR-003 D8）：hp/mp 与自定义资源同一条路径，
+       * 缺省键 = 0。这样「每回合回 1 个能量豆」不需要改引擎。
+       */
+      const bonus = template.regen.actions?.[command.action.type];
+      for (const key of Object.keys(template.resources)) {
+        // ADR-003 D12：回复量可以是常数，也可以是「基础值 + 属性加权」。
+        const regen =
+          resolveRegenAmount(template.regen.perTurn[key], state.player.attributes) +
+          resolveRegenAmount(bonus?.[key], state.player.attributes);
+        if (regen > 0) adjustResourceValue(state.player, template, key, regen);
+      }
+      tickSimulationStatuses(state, lookup, command.action.type === "rest", amountToMinutes(elapsed));
+      state.player.mood = Math.max(template.mood.min, Math.min(template.mood.max, state.player.mood));
+
+      // ---- 6. 其他判定：NPC 自主行动 → pool（pool 只入队；槽已被占时天然跳过） ----
+      postSettleJudgements(state, template, lookup, rng);
+    }
+
+    // ---- 7. nextTurn：槽有则呈现、槽空则扫队列 ----
+    nextTurn(state, template, lookup, rng, result);
+
+    if (!death.pending) {
+      // ---- 8. 终止边界 ----
+      const requested = command.endLife === true;
+      applyEndingBoundary(state, lookup, rng, pipeline, {
+        atBoundary: true,
+        boundary: requested ? "playerRequested" : "afterTimeAdvance",
+        playerRequested: requested,
+      });
+    }
   }
-  tickSimulationStatuses(state, lookup, command.action.type === "rest", amountToMinutes(elapsed));
-  state.player.mood = Math.max(template.mood.min, Math.min(template.mood.max, state.player.mood));
-
-  // ---- 6. 其他判定：NPC 自主行动 → pool（pool 只入队；槽已被占时天然跳过） ----
-  postSettleJudgements(state, template, lookup, rng);
-
-  // ---- 7. nextTurn：槽有则呈现、槽空则扫队列 ----
-  nextTurn(state, template, lookup, rng, result);
-
-  // ---- 8. 终止边界 ----
-  const requested = command.endLife === true;
-  applyEndingBoundary(state, lookup, rng, pipeline, {
-    atBoundary: true,
-    boundary: requested ? "playerRequested" : "afterTimeAdvance",
-    playerRequested: requested,
-  });
 
   const snapshot = revalidateThenProject(state, template, lookup, pipeline, result, true);
   return {
@@ -1713,19 +1783,29 @@ export function chooseOptionV2(
     ...(option.nextEventId !== undefined ? { nextEventId: option.nextEventId } : {}),
   });
 
-  postSettleJudgements(state, template, lookup, rng);
-  nextTurn(state, template, lookup, rng, result);
-
   /**
-   * 终止边界（2026-11-19 补齐）：选项是**唯一靠 `effects` 写结局旗标的结算入口**。
-   * 这里漏一次 `applyEndingBoundary`，玩家就会看到「结局条件已经成立，却还要再多点一轮才结束」
-   * ——因为下一次 `advanceTurnV2` 才在时间推进边界判终止。
-   * 与战斗 / 自由行动 / 转盘确认同口径：判据仍是落盘旗标，不读 HP 数值（R-EN-07 / P9）。
+   * 死亡边界（ADR-075 §8.2）：选项效果落地之后、后续判定之前。
+   * - `playerDeath` 信号 ⇒ 再入死亡路由（cause = event）；
+   * - 死亡链里的事件结算完、没有新信号 ⇒ hp1、链结束。
    */
-  applyEndingBoundary(state, lookup, rng, pipeline, {
-    atBoundary: true,
-    boundary: "afterEventSettle",
-  });
+  const death = applyDeathBoundaryInPlace({ state, template, lookup, rng, pipeline, cause: "event" });
+  if (state.termination === null) {
+    if (!death.pending) postSettleJudgements(state, template, lookup, rng);
+    nextTurn(state, template, lookup, rng, result);
+
+    /**
+     * 终止边界（2026-11-19 补齐）：选项是**唯一靠 `effects` 写结局旗标的结算入口**。
+     * 这里漏一次 `applyEndingBoundary`，玩家就会看到「结局条件已经成立，却还要再多点一轮才结束」
+     * ——因为下一次 `advanceTurnV2` 才在时间推进边界判终止。
+     * 与战斗 / 自由行动 / 转盘确认同口径：判据仍是落盘旗标，不读 HP 数值（R-EN-07 / P9）。
+     */
+    if (!death.pending) {
+      applyEndingBoundary(state, lookup, rng, pipeline, {
+        atBoundary: true,
+        boundary: "afterEventSettle",
+      });
+    }
+  }
 
   const snapshot = revalidateThenProject(state, template, lookup, pipeline, result, true);
   return {
@@ -1752,13 +1832,11 @@ export function battleActionV2(
   pipeline?: TurnPipelineConfig,
 ): V2TurnResult {
   assertActive(state);
+  if (state.deathPending !== undefined) throw new Error("death_pending");
   const droppedAtEntry = revalidateSlot(state, lookup).dropped;
   const battle = state.battle;
-  if (!battle || battle.over) throw new Error("battle_not_active");
+  if (!battle) throw new Error("battle_not_active");
   const rng = createRng(deriveTurnSeed(state.seed + 13, state.turnIndex * 100 + battle.round));
-
-  // 战斗判定与战斗 AI 各走独立子流；模拟主线 rng 本身不再被战斗消费。
-  performBattleAction(state, command, lookup, createBattleRng(rng));
 
   const result: TriggerResult = {
     triggered: [],
@@ -1766,7 +1844,39 @@ export function battleActionV2(
     ...(droppedAtEntry.length > 0 ? { droppedPending: [...droppedAtEntry] } : {}),
   };
 
-  if (battle.over) {
+  /**
+   * ADR-077：**战斗一结束就停住**，不在这一个动作里把世界推进完。
+   *
+   * 以前判定出 `over` 就当场跑战评 / 收场 / 槽位结算 / `nextTurn`，于是前端收到的
+   * 快照里 `battle` 已经是 null —— 最后一击的特效刚起手就被换掉了，玩家看不到收尾，
+   * 更看不到战评。现在：
+   *
+   * 1. 打出 `over` 的这一下：**只算战评**（镜像还在）、留在 `battle.evaluation`，然后原样返回；
+   * 2. 玩家点「继续」（`{type:"leave"}`）：才跑收场 / 槽位 / 死亡路由。
+   *
+   * 世界在两次请求之间完全静止，所以读档 / 刷新都不会把这段跳过去。
+   */
+  if (battle.over === null) {
+    // 战斗判定与战斗 AI 各走独立子流；模拟主线 rng 本身不再被战斗消费。
+    performBattleAction(state, command, lookup, createBattleRng(rng));
+    if (battle.over !== null) {
+      battle.evaluation = evaluateBattle(state, battle, lookup, rng);
+      const snapshot = revalidateThenProject(state, template, lookup, pipeline, result, true);
+      return {
+        state,
+        snapshot,
+        elapsed: { value: 0, unit: "minute" },
+        triggeredEvents: result.triggered,
+        wheelResult: result.wheelResult,
+        playerVisibleHistory: [],
+      };
+    }
+  } else if (command.type !== "leave") {
+    // 已经结束了：只有「继续」合法。技能 / 道具一律拒绝，避免在结算外再改一次状态。
+    throw new Error("battle_over");
+  }
+
+  if (battle.over !== null) {
     const event = lookup.event(battle.eventId);
     const outcome = battle.over;
     const outcomeLabel = outcome === "victory" ? "胜利" : outcome === "defeat" ? "败北" : "撤离";
@@ -1775,8 +1885,10 @@ export function battleActionV2(
       const settle = event.settle.combat;
       const outcomeDef =
         outcome === "victory" ? settle.onVictory : outcome === "defeat" ? settle.onDefeat : settle.onFlee;
-      // 先回写战斗镜像（状态转换/资源），再结算结果效果，避免镜像覆写结果状态
-      finishBattle(state, lookup);
+      // 战评在 `over` 那一刻就算好了（ADR-077）；这里只收场，不重算 ——
+      // 重算会让战评钩子（天赋 / 旗标）在同一次战斗里跑两遍。
+      const evaluated = battle.evaluation ?? evaluateBattle(state, battle, lookup, rng);
+      finishBattle(state, lookup, evaluated);
       // 战斗结束立即清会话：它是槽的内部过程，清得比任何触发都早 ⇒ 不会误伤后继 combat 事件
       state.battle = null;
       settleSlotEvent({
@@ -1794,34 +1906,52 @@ export function battleActionV2(
       });
     } else {
       // 定义缺失兜底：战斗会话照样结束，槽清空并推进一轮（否则玩家永久卡在战斗门禁上）
-      finishBattle(state, lookup);
+      finishBattle(state, lookup, battle.evaluation ?? evaluateBattle(state, battle, lookup, rng));
       state.battle = null;
       assignSlot(state, null);
       state.turnIndex += 1;
     }
+    const fightDead = outcome === "defeat" && state.lastBattleResult?.defeatState === "dead";
     // 战斗结果作为可展示事件返回，前端在结果区呈现胜负
     result.triggered.push({
       id: `battle-${battle.eventId}`,
       title: `战斗${outcomeLabel}`,
-      narrative:
-        outcome === "victory"
+      narrative: fightDead
+        ? "你倒下了。"
+        : outcome === "victory"
           ? "你击溃了敌人，尘埃落定。"
           : outcome === "defeat"
             ? "你身负重伤，勉强脱离了危险。"
             : "你趁隙脱离了战斗。",
     });
 
-    postSettleJudgements(state, template, lookup, rng);
-    nextTurn(state, template, lookup, rng, result);
-
-    // 战败边界：先走死亡路径（具体），再走终止条件（一般）。
-    // 判死只看 battleDefeat 信号，不读取 HP 数值（R-EN-07 / P9）。
-    applyDeathRouteInPlace(state, lookup, rng, pipeline, outcome === "defeat");
-    applyEndingBoundary(state, lookup, rng, pipeline, {
-      atBoundary: true,
-      boundary: "afterBattleSettle",
-      battleDefeat: outcome === "defeat",
+    /**
+     * 死亡边界必须在 `nextTurn` **之前**（ADR-075 §8.1）：
+     * 战败落点已经写进世界，`nextTurn` 会推进时间 / 跑 NPC / 跑事件池 ——
+     * 死斗里让这些先跑，玩家就"死着多过了一轮"。
+     *
+     * 死亡路由为 `event` 时只呈现那条事件，不跑 `postSettleJudgements`（世界在死亡现场停住）。
+     */
+    const death = applyDeathBoundaryInPlace({
+      state,
+      template,
+      lookup,
+      rng,
+      pipeline,
+      cause: "battle",
+      ...(state.lastBattleResult !== undefined ? { battle: state.lastBattleResult } : {}),
     });
+    if (state.termination === null) {
+      if (!death.pending) postSettleJudgements(state, template, lookup, rng);
+      nextTurn(state, template, lookup, rng, result);
+      if (!death.pending) {
+        applyEndingBoundary(state, lookup, rng, pipeline, {
+          atBoundary: true,
+          boundary: "afterBattleSettle",
+          battleDefeat: outcome === "defeat",
+        });
+      }
+    }
   }
 
   const snapshot = revalidateThenProject(state, template, lookup, pipeline, result, true);
@@ -1845,6 +1975,7 @@ export function useItemV2(
   pipeline?: TurnPipelineConfig,
 ): V2TurnResult {
   assertActive(state);
+  if (state.deathPending !== undefined) throw new Error("death_pending");
   // ADR-0034 §5：用物品**不受槽占用限制**（用户原话「不占槽、独立于轮次结算」）。
   // 战斗进行中仍然拒绝：物品的 `usableOutsideBattle` 语义没有变。
   if (state.battle !== null && !state.battle.over) throw new Error("battle_in_progress");

@@ -41,9 +41,8 @@ export function AttributeGrid({
           </strong>
           {attr.kind === "composite" && attr.sources !== undefined && attr.sources.length > 0 && (
             <span className="stat-sources">
-              {attr.sources.map((s, i) => (
+              {attr.sources.map((s) => (
                 <span key={s.key}>
-                  {i > 0 ? " · " : ""}
                   {s.label} <StyledName name={s.display} style={s.style} />
                 </span>
               ))}

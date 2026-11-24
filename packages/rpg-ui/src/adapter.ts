@@ -88,6 +88,7 @@ export function toBattleVM(battle: NonNullable<V2Snapshot["battle"]>): BattleVM 
       effects?: StatusVM["effects"];
       description?: string;
       durationLabel?: string;
+      progress?: StatusVM["progress"];
     }>,
   ) =>
     list.map((s) => ({
@@ -102,6 +103,8 @@ export function toBattleVM(battle: NonNullable<V2Snapshot["battle"]>): BattleVM 
       ...(s.tags !== undefined ? { tags: s.tags } : {}),
       ...(s.effects !== undefined ? { effects: s.effects } : {}),
       ...(s.durationLabel !== undefined ? { durationLabel: s.durationLabel } : {}),
+      // 成长型天赋的进度：漏映射就会消失（第二张皮的老坑）
+      ...(s.progress !== undefined ? { progress: s.progress } : {}),
     }));
   /**
    * 战斗单位 → 展示模型（敌 / 友 / 中立共用）。
@@ -121,6 +124,8 @@ export function toBattleVM(battle: NonNullable<V2Snapshot["battle"]>): BattleVM 
     ...(u.summonRef !== undefined ? { summonRef: u.summonRef } : {}),
     ...(u.deathReason !== undefined ? { deathReason: u.deathReason } : {}),
     ...(u.summonerName !== undefined ? { summonerName: u.summonerName } : {}),
+    // 灰卡标记：漏了这张卡就会当成活的（可选中、不置灰）
+    ...(u.departed === true ? { departed: true } : {}),
   });
 
   return {
@@ -160,6 +165,11 @@ export function toBattleVM(battle: NonNullable<V2Snapshot["battle"]>): BattleVM 
     neutrals: (battle.neutrals ?? []).map(toCombatantVM),
     fallen: (battle.fallen ?? []).map(toCombatantVM),
     log: [...battle.log],
+    crits: battle.crits ?? 0,
+    // ADR-076：四层已经在投影期解析完，这里只是搬运；漏映射就会整段消失
+    ...(battle.fx !== undefined ? { fx: battle.fx } : {}),
+    // ADR-077：同样是「漏映射就消失」—— 战斗结束后整块战评靠它
+    ...(battle.evaluation !== undefined ? { evaluation: battle.evaluation } : {}),
   };
 }
 

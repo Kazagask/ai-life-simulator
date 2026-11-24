@@ -23,6 +23,8 @@ export interface StatusBoardProps {
    */
   showLedger?: boolean;
   onSelectStatus?: (status: StatusVM) => void;
+  /** 芯片是否写剩余回合；首页角色卡传 `false`（战斗面板仍用默认值）。 */
+  showDuration?: boolean;
 }
 
 function signed(value: number): string {
@@ -44,10 +46,12 @@ function StatusGroup({
   title,
   statuses,
   onSelectStatus,
+  showDuration = true,
 }: {
   title: string;
   statuses: readonly StatusVM[];
   onSelectStatus?: (status: StatusVM) => void;
+  showDuration?: boolean;
 }) {
   if (statuses.length === 0) return null;
   return (
@@ -55,7 +59,12 @@ function StatusGroup({
       <div className="status-group__title">{title}</div>
       <div className="status-chips">
         {statuses.map((status) => (
-          <StatusChip key={status.id} status={status} {...(onSelectStatus !== undefined ? { onSelect: onSelectStatus } : {})} />
+          <StatusChip
+            key={status.id}
+            status={status}
+            showDuration={showDuration}
+            {...(onSelectStatus !== undefined ? { onSelect: onSelectStatus } : {})}
+          />
         ))}
       </div>
     </div>
@@ -66,7 +75,7 @@ function StatusGroup({
  * 状态合计：一行一条通道，点开是每一笔的来源。
  *
  * 「详情展示来源」是这一块存在的理由 —— 只给总数等于换个地方藏信息：
- * 玩家看见「咒力 +3」却不知道是六眼还是装备，就没法做取舍。
+ * 玩家看见一条「某属性 +3」却不知道来自天赋还是装备，就没法做取舍。
  */
 function StatusTotals({ channels }: { channels: readonly StatusTotalVM[] }) {
   if (channels.length === 0) return null;
@@ -98,14 +107,20 @@ function StatusTotals({ channels }: { channels: readonly StatusTotalVM[] }) {
   );
 }
 
-export function StatusBoard({ statuses, totals = [], showLedger = true, onSelectStatus }: StatusBoardProps) {
+export function StatusBoard({
+  statuses,
+  totals = [],
+  showLedger = true,
+  onSelectStatus,
+  showDuration = true,
+}: StatusBoardProps) {
   const talents = statuses.filter((s) => s.kind === "talent");
   const states = statuses.filter((s) => s.kind !== "talent");
   if (statuses.length === 0 && totals.length === 0) return null;
   return (
     <div className="status-board">
-      <StatusGroup title="天赋" statuses={talents} onSelectStatus={onSelectStatus} />
-      <StatusGroup title="修正" statuses={states} onSelectStatus={onSelectStatus} />
+      <StatusGroup title="天赋" statuses={talents} onSelectStatus={onSelectStatus} showDuration={showDuration} />
+      <StatusGroup title="修正" statuses={states} onSelectStatus={onSelectStatus} showDuration={showDuration} />
       {showLedger ? <StatusTotals channels={totals} /> : null}
     </div>
   );

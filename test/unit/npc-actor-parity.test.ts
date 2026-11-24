@@ -127,7 +127,7 @@ describe("能力流转的 who（ADR-010 D2）", () => {
 describe("NPC 的装备词条（ADR-010 D3）", () => {
   it("装备进有效属性，与玩家同一条链路", () => {
     const { state, entry } = newWorld();
-    const base = { attributes: { cursedEnergy: 10, physique: 5 }, statuses: [], mood: 50 };
+    const base = { attributes: { cursedEnergyTotal: 10, physique: 5 }, statuses: [], mood: 50 };
     const withGear = effectiveAttributesOfActor(state, entry.lookup, {
       ...base,
       equipment: [{ instanceId: "t#1", itemId: "eq-ten-spear", ownerId: "npc-toji", slot: "weapon" }],
@@ -135,18 +135,19 @@ describe("NPC 的装备词条（ADR-010 D3）", () => {
     const without = effectiveAttributesOfActor(state, entry.lookup, base);
 
     // 天逆鉾的 dynamicModifier 按诅咒能量缩放，所以「穿了」必须比「裸着」高。
-    expect(withGear.cursedEnergy).toBeGreaterThan(without.cursedEnergy);
+    // 天逆鉾的词条加的是「咒力输出」，不是总量。
+    expect(withGear.cursedEnergyOutput).toBeGreaterThan(without.cursedEnergyOutput);
   });
 
   it("没装备时不产生任何额外修正（缺省不改旧行为）", () => {
     const { state, entry } = newWorld();
     const eff = effectiveAttributesOfActor(state, entry.lookup, {
-      attributes: { cursedEnergy: 10 },
+      attributes: { cursedEnergyTotal: 10 },
       statuses: [],
       mood: 50,
       equipment: [],
     });
-    expect(eff.cursedEnergy).toBe(10);
+    expect(eff.cursedEnergyTotal).toBe(10);
   });
 });
 
@@ -157,7 +158,7 @@ describe("演员搬运（ADR-010 D1）", () => {
     const beforeSkills = [...state.player.skills];
     transplantActor(gojo, state.player, ["body"]);
 
-    expect(state.player.attributes.cursedEnergy).toBe(gojo.attributes.cursedEnergy);
+    expect(state.player.attributes.cursedEnergyTotal).toBe(gojo.attributes.cursedEnergyTotal);
     expect(state.player.skills).toEqual(beforeSkills);
   });
 

@@ -23,9 +23,11 @@ import type { RegenAmount } from "./schema/common.js";
 import type { AttributeValue } from "./schema/attribute.js";
 import type { PendingAllocation } from "./schema/allocation.js";
 import type { ResolvedStyle, ResolvedTag } from "./schema/style.js";
+import type { FxEffect } from "./schema/ui.js";
 import type { ObservationLedger } from "./contract/perspective.js";
 import type { StatusTotalVM } from "./contract/view-model.js";
 import type { LlmInvocation } from "./contract/llm-invocation.js";
+import type { BattleResult } from "./schema/battle-evaluation.js";
 
 /**
  * 事件叙事回退工具（F3）：narrative 缺省时回退到 title —— 不是空串。
@@ -67,6 +69,16 @@ export interface StatusInstance {
   roundsHeld?: number;
   /** 模拟域：休息治疗进度（**分钟**，`cureConditions.restDays` 用） */
   restProgress?: number;
+  /**
+   * 成长型天赋的进度（ADR-075 §7）。**不是层数**：天赋实例永远一份，`stacks` 恒 1。
+   * 只有 `kind: talent` 且定义声明了 `progress` 时才有。
+   */
+  progress?: number;
+  /**
+   * 已经结算过 `grant` 的阶数（0..tiers.length）。跨阶时从这一格往后结算，
+   * 保证"每阶一次性奖励"只发一次；旧档缺省 ⇒ 0（读侧会按当前进度补齐）。
+   */
+  tiersApplied?: number;
 }
 
 // ---------- 运行时角色 ----------
@@ -298,8 +310,7 @@ export interface BattleEnemy {
   maxMp?: number;
   attributes: Record<string, AttributeValue>;
   /** 自定义资源（ADR-003 D8）；敌人 / 友军同样携带。 */
-  resources: Record<string, number>;
-  /**
+  resources: Record<string, number>;  /**
    * 专属资源池的上限（ADR-012 D9）：`resources` 只存当前值，上限来自角色声明。
    * 缺省（旧档 / 无专属池）⇒ 空表，投影只显示有名有姓的池。
    */
@@ -316,6 +327,14 @@ export interface BattleEnemy {
   skills: string[];
   skillWeights: Record<string, number>;
   alive: boolean;
+  /**
+   * 战果计数（ADR-075 §3）：只用于 `BattleResult` / `anyMatch`，不参与任何战斗判定。
+   * 旧档缺省 0。
+   */
+  damageByPlayer?: number;
+  damageToPlayer?: number;
+  /** 最后一次把 hp 打到 0 的来源单位实例 id（无 → 不是被技能打死的）。 */
+  lastHitBy?: string;
 
   // ── ADR-012：召唤与中途加入 ──
   /** 展示档位：minion = 小框（缺省）；hero = 与真实战斗角色同版式。 */
@@ -350,6 +369,9 @@ export interface BattleEnemy {
     deathReason?: string;
 }
 
+/** 事件 + 统一戳：`seq` 由 pushBattleEvent 分配，`round` 用来切段（见 fx 分组）。 */
+export type BattleEvent = BattleEventBody & { round?: number };
+
 export type BattleOutcome = "victory" | "defeat" | "flee";
 
 export interface BattleState {
@@ -358,10 +380,33 @@ export interface BattleState {
   /** 结算配置副本 */
   settle: CombatSettle;
   round: number;
+  /**
+   * 本场赌注（ADR-075）：建场时从 `settle.stake ?? world.combat.defaultStake` 解析。
+   * 旧档缺省 ⇒ 按 `hard` 读（当时的全部战斗都是"力竭"）。
+   */
+  stake?: string;
+  /** 战败后的状态；`dead` 是死亡路由的唯一入口。旧档缺省 ⇒ `down`。 */
+  defeatState?: "yielded" | "down" | "dead";
+  /** 判负阈值：`dead → 0`，其余 `1`。旧档缺省 ⇒ 1。 */
+  defeatThreshold?: number;
+  /**
+   * 开场战斗力快照（ADR-075 §4.4）：四侧都在建场时算一次。
+   * 旧档缺省 ⇒ 读侧现算（只能用当前面板，可能已含中途增减益）。
+   */
+  powerStart?: { player: number; ally: number; enemy: number; neutral: number };
   /** 玩家在战斗内的运行时镜像（伤害/治疗结算到镜像，结束后回写主状态） */
   player: {
     hp: number;
     mp: number;
+    /** 开场 HP 上限（hp_below 与战果快照用）。旧档缺省 ⇒ 现算。 */
+    maxHp?: number;
+    /** 战果计数（ADR-075 §3）：只记录，不参与判定。 */
+    damageDealt?: number;
+    damageTaken?: number;
+    crits?: number;
+    hits?: number;
+    /** 最后一次把玩家打到 0 的来源单位实例 id。 */
+    lastHitBy?: string;
     /** 自定义资源镜像（ADR-003 D8）；战斗结束回写 `state.player.resources`。 */
     resources: Record<string, number>;
     statuses: StatusInstance[];
@@ -390,6 +435,18 @@ export interface BattleState {
    */
   bench?: BattleEnemy[];
   /**
+   * 本轮刚离场、还要在面板上留一张灰卡的单位（收回 / 献祭）。
+   * 不参与任何判定，**下一回合开始清空** —— 清太早会让轨迹指向空气。
+   */
+  departed?: BattleEnemy[];
+  /**
+   * 战斗结束时**当场算好**的战评（ADR-077）。
+   *
+   * 判定出 `over` 到玩家点「继续」之间世界是停住的 —— 战评必须在这段时间里可读，
+   * 所以在 `over` 出现的那一刻就算好并落在这里；`leave` 时直接交给 `finishBattle`，不重算。
+   */
+  evaluation?: BattleResult;
+  /**
    * 召唤物实例编号的**单调计数器**（ADR-013）。只增不减：数组长度会因阵亡 / 收回变短，
    * 拿它起算编号就会与在场的单位撞名，而 `writeBack` 是按实例 id 找人的。
    * 旧档没有 ⇒ 从 0 起算，编号仍由在场者去重兜底。
@@ -400,10 +457,108 @@ export interface BattleState {
    * 进存档是为了读档不重放；缺省空表。
    */
   reinforcementFires?: Record<string, number>;
+  /**
+   * 钩子触发次数（ADR-073）：键 = `hook.id`，值 = 本场已触发次数（`limit.per: battle` 用它）。
+   * 进存档是为了读档不复活「每场一次」的不屈。
+   */
+  hookFires?: Record<string, number>;
+  /** 本回合的钩子触发次数（`limit.per: round`）；`roundEnd` 清空。 */
+  hookRoundFires?: Record<string, number>;
+  /**
+   * 结构化战斗事件（ADR-073 §6）：只写不读，UI 之后按需消费。
+   * 与 `log` 并行存在 —— `log` 是人读的句子，这里是机器读的事实，不从字符串反解。
+   */
+  events?: BattleEvent[];
+  /**
+   * 事件序号计数器（ADR-076 §10）：`events` 只留最近 200 条，
+   * 序号不能靠数组下标推算。旧档缺省 0。
+   */
+  eventSeq?: number;
   /** 战斗日志（玩家可见） */
   log: string[];
   over: BattleOutcome | null;
 }
+
+/**
+ * 结构化战斗事件（ADR-073 / ADR-076）：渲染层据此做轨迹、受击与数字。
+ *
+ * `seq` 由 `pushBattleEvent` 统一编号（单调递增、进存档）：UI 只播 `seq > 游标` 的段，
+ * 读档时把游标推到最后一条，避免一进战斗就炸一屏数字。
+ *
+ * `miss` 的出现（ADR-076 §9）是因为「未命中」以前只有一行 log ——
+ * 前端只能正则匹配中文，改文案就崩。
+ */
+type BattleEventBody =
+  | {
+      kind: "damage";
+      seq?: number;
+      actor: string;
+      target: string;
+      /** 技能 id（ADR-076 §3.3 的 P3 覆盖键）；DoT 之类的间接伤害没有它 */
+      skillId?: string;
+      amount: number;
+      critical: boolean;
+      /** 1 = 普通暴击；2 = 被钩子放大过的暴击（倍率指数 ≠ 1） */
+      critTier?: 1 | 2;
+      /** 把这次暴击的倍率再放大的钩子 id（`critExponent` 效果） */
+      amplifiedBy?: string;
+      hookId?: string;
+    }
+  | { kind: "heal"; seq?: number; actor: string; target: string; skillId?: string; amount: number }
+  | {
+      kind: "miss";
+      seq?: number;
+      actor: string;
+      target: string;
+      skillId?: string;
+      /** 断在哪一道判定上：beforeHit 取消 / 命中骰 / 闪避 / afterHit 取消 */
+      stage: "beforeHit" | "hit" | "evade" | "afterHit";
+      /** 只用于浮层解释（如闪避来源的状态名），不参与判定 */
+      reason?: string;
+    }
+  | {
+      /**
+       * 献祭（ADR-076 §3.12）：召唤物被消耗掉，没有伤害也没有治疗。
+       * 不给这条，漩涡的第一段（群体献祭）在画面上就是空的。
+       */
+      kind: "sacrifice";
+      seq?: number;
+      actor: string;
+      target: string;
+      skillId?: string;
+      name?: string;
+    }
+  | {
+      /**
+       * 状态施加（ADR-076 §3.8）：**纯状态技能既没有伤害也没有治疗**，
+       * 不补这条事件，表现层就什么也演不出来（点了没反应）。极性只用于选色。
+       */
+      kind: "buff";
+      seq?: number;
+      actor: string;
+      target: string;
+      skillId?: string;
+      statusId: string;
+      /** 模板里的状态名；内核不写死文案，缺省时前端不显示浮层 */
+      name?: string;
+      polarity?: "positive" | "negative" | "neutral";
+    }
+  | {
+      /**
+       * 召唤 / 收回（ADR-076 §3.7）：目标为空的那类技能没有伤害事件，
+       * 但表现层需要「谁登场了、谁退场了」这条事实，否则召唤就只能靠前端猜。
+       */
+      kind: "summon";
+      seq?: number;
+      actor: string;
+      /** 新登场的召唤物实例 id（友军 / 中立的单位 id） */
+      summonId: string;
+      name?: string;
+      skillId?: string;
+    }
+  | { kind: "recall"; seq?: number; actor: string; target: string; name?: string; skillId?: string }
+  | { kind: "cancel"; seq?: number; actor: string; target?: string; skillId?: string; hookId?: string; reason: string }
+  | { kind: "hook"; seq?: number; hookId: string; text?: string };
 
 // ---------- 呈现槽（ADR-0034 §1） ----------
 
@@ -502,6 +657,14 @@ export function isPlayerVisible(entry: HistoryEntryV2): boolean {
   return (entry.visibility ?? "public") === "public";
 }
 
+/**
+ * 世界状态协议版本（落盘信封的 `schemaVersion`）。
+ *
+ * 唯一出处：服务端拒载旧档、客户端上报 `world_saves.protocol_version` 都用它；
+ * 两处各写一个字面量迟早漂。新增字段若是**可选 + 读侧兜底**，不升这个数。
+ */
+export const WORLD_SCHEMA_VERSION = 5;
+
 export interface WorldStateV2 {
   id: string;
   templateId: string;
@@ -532,7 +695,7 @@ export interface WorldStateV2 {
    * 玩家在**演员表 / 关系图**里的节点 id（ADR-001 / R-SELF-01，2026-11-18 完整切换）。
    *
    * 权威 self 实体**就是 `state.player`**（唯一真源）：`selfId` 是它在图里的名字。
-   * 默认 `"player"`；扮演剧本人物时为角色 id（如 `npc-gojo`），**该角色不再进 `npcs`**
+   * 默认 `"player"`；扮演剧本人物时为角色 id（如 `npc-xxx`），**该角色不再进 `npcs`**
    * （同一实体不建两份，杜绝属性双写补丁）。所有把玩家当图节点的代码一律走
    * `selfIdOf(state)` / `actorOf(state, id)`，不写死字面量 `"player"`。
    * 可选 + 缺省 `"player"` 仅为旧读法兜底；schemaVersion 5 的新档一律显式写入。
@@ -544,7 +707,14 @@ export interface WorldStateV2 {
    */
   opening?: {
     openingId: string;
-    results: Array<{ nodeId: string; optionId?: string; rollIndex?: number; allocation?: Record<string, Record<string, number>> }>;
+    results: Array<{
+      nodeId: string;
+      optionId?: string;
+      rollIndex?: number;
+      allocation?: Record<string, Record<string, number>>;
+      /** input 节点玩家填的原文（ADR-072 D7）。 */
+      input?: string;
+    }>;
   };
   npcs: V2Npc[];
   /**
@@ -606,6 +776,22 @@ export interface WorldStateV2 {
   slot: SlotScene | null;
   /** 进行中的战斗（同一时刻至多一场；over 后保留至下一次轮次推进时清除） */
   battle: BattleState | null;
+  /**
+   * 最近一场战斗的战果快照（ADR-075 §3）。
+   *
+   * 死亡事件可能在这之后的轮次才结算，所以它跨轮存活；新战斗建场时清空。
+   * 注意：它**不是权威状态**，只是"这一场发生了什么"的只读记录。
+   */
+  lastBattleResult?: BattleResult;
+  /**
+   * 死亡链待办（ADR-075 §5.3）：已命中 `then.kind: event` 的路由，等这条事件结算。
+   * 期间禁止普通行动；事件结算后要么 hp1 收尾，要么被 `playerDeath` 再入路由。
+   */
+  deathPending?: { routeId: string; eventId: string };
+  /** `playerDeath` 落下的信号；由死亡边界消费并清空。 */
+  deathSignal?: { reason?: string };
+  /** 当前死亡链深度（进入路由 +1，链结束归零）。引擎不设上限，模板自己收敛。 */
+  deathDepth?: number;
   /** 最近一次转盘结果（持久化到状态，供刷新后回放） */
   lastWheel: WheelResultView | null;
   /**
@@ -719,6 +905,8 @@ export interface SlotEventView {
 export interface BattleEnemyView {
   instanceId: string;
   name: string;
+  /** 本轮离场但保留展示的灰卡（收回 / 献祭）；不参与判定 */
+  departed?: boolean;
   /** 阵营：已退场名册用它决定边框颜色（普通列表按数组分，不依赖它）。 */
   side?: BattleSide;
   hp: number;
@@ -737,6 +925,64 @@ export interface BattleEnemyView {
   deathReason?: string;
   /** 召唤者**名字**（不是实例 id）：战斗卡片只展示这个，详情入口在个人技能页。 */
   summonerName?: string;
+}
+
+// ---------- 战斗表现层（ADR-076） ----------
+
+/** 一个目标身上的「发生了什么」（受击层 + 结算层的结论）。 */
+export interface BattleFxHit {
+  seq: number;
+  targetId: string;
+  /** 语义：决定颜色与符号（`summon` / `depart` / `buff` 没有数字） */
+  kind: "damage" | "heal" | "miss" | "immune" | "summon" | "depart" | "buff" | "sacrifice";
+  /** 轨迹怎么收尾：命中 / 断线 / 撞盾 */
+  outcome: "hit" | "miss" | "immune";
+  /** 结算值（正数；符号由 kind 决定，表现层不可翻转） */
+  amount?: number;
+  /** 已拼好的数字文本（含符号与后缀）：`-225!!` / `+80`。没有数字时缺省 */
+  text?: string;
+  critical?: boolean;
+  critTier?: 1 | 2;
+  /** 数字色（语义色，不吃技能色） */
+  color: string;
+  size: number;
+  stroke: number;
+  labels: Array<{ id: string; text: string; latin?: string }>;
+  /**
+   * 这一击自己的轨迹（覆盖 cast 级默认）。
+   * 「治疗全体」要一人一支：自己上行、友军扇形，靠 cast 级那一条表达不了。
+   */
+  trace?: { preset: string; color?: string; width?: number; def?: FxEffect };
+  /** 受击预设 id；`null` = 这一段没有受击（未命中） */
+  impact: string | null;
+  /** 受击的模板定义（`presentation.effects[id]`）；缺省 = 走内置几何 */
+  def?: FxEffect;
+  /**
+   * 轨迹方向反过来（目标 → 施法者）。
+   *
+   * 收灵 / 吸取这类「把东西拉回来」的动作，箭头必须指回自己；不改方向就只能
+   * 画成「我又打了他一下」。
+   */
+  reverse?: boolean;
+}
+
+/** 一次施放（= 同一 actor + 同一技能 + 连续 seq 的一串事件）。 */
+export interface BattleFxCast {
+  /** 本段最后一条事件的 seq（客户端游标用） */
+  seq: number;
+  eventId: string;
+  actorId: string;
+  skillId?: string;
+  cast: { preset: string | null; color: string; durationMs: number; def?: FxEffect };
+  trace: { preset: string | null; color: string; width: number; durationMs: number; def?: FxEffect };
+  hits: BattleFxHit[];
+}
+
+/** `V2Snapshot.battle.fx`：只带最近几段，旧前端忽略即可。 */
+export interface BattleFxView {
+  /** 当前最大 seq：读档时把游标推到这里，避免重放历史特效 */
+  seq: number;
+  casts: BattleFxCast[];
 }
 
 export interface BattleView {
@@ -808,6 +1054,12 @@ export interface BattleView {
   /** 已退场但仍需解释原因的单位（献祭 / 召唤者倒下连带消失）。 */
   fallen: BattleEnemyView[];
   log: string[];
+  /** 本场暴击次数（ADR-073）；旧快照缺省 0。 */
+  crits?: number;
+  /** ADR-076：最近几段施放的四层解析结果（只读投影）；旧快照缺省。 */
+  fx?: BattleFxView;
+  /** 战斗结束后的战评（`over` 之前缺省）：结束时技能区换成它。 */
+  evaluation?: BattleResult;
 }
 
 export interface StatusView {
@@ -829,6 +1081,12 @@ export interface StatusView {
   kind: "talent" | "battle" | "modifier";
   /** 持续时间的人话（「持续到被移除」/「剩余 3 回合」）。 */
   durationLabel?: string;
+  /**
+   * 成长型天赋的进度（ADR-075 §7），**按阶梯**给（ADR-079）：
+   * `current` = 当前进度（已到顶时夹到最后一阶），`target` = 下一阶门槛（到顶时等于 current），
+   * `done` = 已经在最高阶。展示成 `current/target`，到顶再加「已完成」。
+   */
+  progress?: { label: string; value: number; current: number; target: number; done: boolean };
 }
 
 /**
@@ -1028,7 +1286,7 @@ export interface V2Snapshot {
     resources: ResourceView[];
     statuses: StatusView[];
     /**
-     * 状态合计（ADR-018 D8）：面板上「咒力 +3 / 伤害 +15%」直接读这里，
+     * 状态合计（ADR-018 D8）：面板上「资源 +3 / 伤害 +15%」直接读这里，
      * 明细（每一笔来自谁）也在同一个对象里，前端不自己求和。
      */
     statusTotals: StatusTotalVM[];

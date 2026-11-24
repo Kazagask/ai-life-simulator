@@ -17,6 +17,15 @@
 | 单端口 | `PORT`（默认 3000），绑定 `0.0.0.0`；Fastify 同时托管 API 与 `apps/web/dist` |
 | 云端应用身份 | `wbapp_6BjykHXBJu8kLx2VWyxeie`，云服务 ACTIVE（2026-11-13 `inspect` 核实，billingStatus normal） |
 | 已发布分享链接 | https://cursed-wheel-life.app.workbuddy.host/?sharecode=AWEIS4D6KT |
+
+> **发布注意（2026-11-22 实测）**：发布沙箱的工作区**只覆盖、不删除**，而且**不会带上 `apps/web/dist`**。
+> 因此 `startCmd` 必须显式构建前端，否则线上会继续跑上一次的旧 bundle（实测线上 JS 里没有当轮的
+> 「云端自动同步」文案）：
+> `rm -rf specs/data/templates/jjk-2006/1.0.0 specs/data/templates/jjk-2006/2.0.0 && pnpm --filter @life-sim/web build && pnpm start`
+> 另外，本地已删掉的模板版本会继续留在云端 `specs/data/templates/<id>/` 下，服务端启动扫描撞上旧 schema
+> 会**直接退出**（实测残留 `jjk-2006/1.0.0` 的 `dynamicModifier`）。长期应把“单个版本校验失败”
+> 降级成该版本 `invalid`（服务继续起），不要让一个旧目录拖垮整站。同一原因还会残留旧 `data/worlds`：
+> 本次已清掉线上 51 个不可载入存档（本地存档不受影响）。
 | Git remote | `origin` = `git@github.com:Kazagask/ai-life-simulator.git`（用户 2026-11-13 创建）。**私有仓库**：2026-11-13 匿名 `GET https://api.github.com/repos/...` 与网页均返回 404，故 clone / 拉取必须带凭据（本机 SSH 已可用；`pushurl` 亦为 SSH），详见 `docs/CLOUD_DEV.md §1` |
 | WorkBuddy 云端项目 | `projectId=p_b65216f5322d464eb95088a64eaf38fa`；代码经上述 GitHub 仓库同步，项目内有内置任务管理系统（清单见 `tasks/CLOUD_TASKS.md`） |
 | 当前 HEAD | `2a296d6`（文档收尾）；功能与 ADR 收口于 `0f42bd0` |

@@ -5,21 +5,7 @@ import path from "node:path";
 import { parse } from "yaml";
 import { z } from "zod";
 import {
-  AssetManifestSchema,
-  BUILTIN_UI_CAPABILITIES,
   EffectSchema,
-  EndingConfigSchema,
-  EvaluationConfigSchema,
-  EventTriggerSchema,
-  ENGINE_VERSION,
-  OpeningBranchDagSchema,
-  OpeningTemplateSchema,
-  RulesSchema,
-  satisfiesVersion,
-  TemplateEffectSchema,
-  TimeSpecSchema,
-  UiConfigSchema,
-  WorldTemplateV2Schema,
   type AssetManifest,
   type EndingConfig,
   type EvaluationConfig,
@@ -27,7 +13,6 @@ import {
   type OpeningBranchDag,
   type OpeningTemplate,
   type Rules,
-  type TimeSpec,
   type UiConfig,
   type WorldTemplateV2,
   type TemplateSource,
@@ -37,21 +22,13 @@ import {
   DECLARATIVE_SET,
   NESTED_DECLARATIVE,
   TemplateLoadError,
-  assertExtensionsInstalled,
   assertKinshipCompliance,
-  assertOpenVocabularyDeclared,
-  assertVersionRequirements,
   fingerprintOfPairs,
   firstIssue,
-  loadAssetManifest,
-  loadLore,
-  loadOpenings,
-  loadOptionalConfig,
-  loadRules,
-  loadTemplate,
-  loadUi,
+  loadTemplateBundle,
   readAssetEntries,
   semanticFingerprintOf,
+  packageFingerprintOf,
   type TemplateLoadReasonCode,
 } from "@life-sim/template-loader";
 import { FsTemplateSource } from "./template-source-fs.js";
@@ -69,16 +46,7 @@ export {
 export type { AssetTableEntry } from "@life-sim/template-loader";
 export type { TemplateLoadReasonCode } from "@life-sim/template-loader";
 import {
-  BUILTIN_CONDITION_OPS,
-  collectExtensionConditions,
   createLookup,
-  getExtensionRuntime,
-  hasExtensionRuntime,
-  isKinshipKind,
-  registeredUiCapabilities,
-  resolveExtensionRuntimes,
-  validateOpeningDag,
-  validateStyleRefs,
   type TemplateLookup,
   type TurnPipelineConfig,
 } from "@life-sim/game-core";
@@ -211,6 +179,8 @@ export interface ReadyTemplateEntry extends TemplateEntryBase {
   evaluationConfig?: EvaluationConfig;
   pipeline: TurnPipelineConfig;
   semanticFingerprint: string;
+  /** 含 ui.yaml 的包指纹：客户端缓存新鲜度以它为准 */
+  packageFingerprint: string;
   assetFingerprint: string;
   assetCount: number;
   /** 独立声明式 loader 读取结果：`rules.yaml` / `assets/manifest.yaml`（T-06 Group B 已绑定 schema）。 */
@@ -510,94 +480,37 @@ function scanVersion(
 
   const present = new Set(declarative);
   try {
-    const template = loadTemplate(source, present);
-    // A-7：`world.templateId` 恒等于 `template.meta.id`（createWorldV2 写入），因此
-    // `meta.id ≡ <id> 目录名` 是身份正确性的唯一保证 —— 不等即模板缺陷。
-    if (template.meta.id !== id) {
-      throw new Error(
-        `world.yaml: meta.id (${template.meta.id}) 与模板目录名 (${id}) 不一致`,
-      );
-    }
-    // 扩展层：模板声明了没注册的 id ⇒ 拒载（`unknown_extension`），不是「投影期悄悄跳过」。
-    assertExtensionsInstalled(template);
-    assertVersionRequirements(template);
-    // 亲缘模式互斥：装了 family 又自己写亲属边 ⇒ 加载期拒载（`kinship_conflict`）。
-    // 三个模板已全部合规（valmont 迁到 fatherId/motherId 指针，jjk-2006 撤掉 family 声明），
-    // 闸门自此真正生效；它是软码（只废这一个版本，不拒进程），见 SOFT_REASON_CODES。
-    assertKinshipCompliance(template);
-    const loadedOpenings = loadOpenings(source, present);
-    const openings = loadedOpenings.legacy;
-    const openingDag = loadedOpenings.branchDag;
-    const endingConfig = loadOptionalConfig(source, "endings.yaml", present, EndingConfigSchema);
-    const evaluationConfig = loadOptionalConfig(
-      source,
-      "evaluation.yaml",
-      present,
-      EvaluationConfigSchema,
-    );
-    // 开放形词表裁定：模板写了扩展效果 / 条件就必须有「谁实现它」的答案 ——
-    // 内核白名单之外一律要求在 `extensions:` 里声明过（`unknown_effect_type` /
-    // `unknown_condition_op`）。放在 opening / endings 解析之后，因为扫描要覆盖它们。
-    assertOpenVocabularyDeclared(template, openings, endingConfig);
-    // T-06：两个新声明式文件各有独立 loader，**加载期即 schema 校验并 fail-fast**——
-    // 坏 `rules.yaml` / `assets/manifest.yaml` 走与其它白名单文件同一条失败通道（catch → reason），
-    // 不再「warn + 静默丢文件」（否则 malformed rules 会退化成 undefined，运行时才炸）。
-    const rules = present.has("rules.yaml") ? loadRules(source) : undefined;
-    const lore = present.has("lore.md") ? loadLore(source) : undefined;
-    const assetManifest = present.has("assets/manifest.yaml")
-      ? loadAssetManifest(source)
-      : undefined;
-    const ui = present.has("ui.yaml") ? loadUi(source) : undefined;
-    // ADR-002 D2：未知样式 id 一律拒载（不静默回退）——静默回退会让模板作者以为改了颜色，
-    // 线上却没变，比加载失败更难查。错误带字段路径 + 实体位置。
-    const styleIssues = validateStyleRefs(template, ui);
-    if (styleIssues.length > 0) {
-      throw new Error(
-        `style_ref_invalid: ${styleIssues.map((i) => `${i.path}: ${i.message}`).join("; ")}`,
-      );
-    }
-    // ADR-004：加点节点引用的属性 / 预算参数是跨文件的，zod 看不到，必须在拿到
-    // template + ui 之后交叉校验（与样式引用同一层、同一失败通道）。
-    if (openingDag !== undefined) {
-      const openingIssues = validateOpeningDag(openingDag, template, ui);
-      if (openingIssues.length > 0) {
-        throw new Error(
-          `opening_invalid: ${openingIssues.map((i) => `${i.path}: ${i.message}`).join("; ")}`,
-        );
-      }
-    }
-    // ADR-003 D10：ui.yaml 的资源展示配置只能引用 world.yaml 已声明的资源。
-    if (ui?.resources !== undefined) {
-      const unknownResources = Object.keys(ui.resources).filter(
-        (key) => template.resources[key] === undefined,
-      );
-      if (unknownResources.length > 0) {
-        throw new Error(`ui.yaml: 未知资源：${unknownResources.join(", ")}（需先在 world.yaml resources 声明）`);
-      }
-    }
-    // 人生页人物卡的属性清单（2026-11-19）：只能引用已声明属性，写错就拒载 ——
-    // 静默跳过会让模板作者以为「这张卡应该显示等级」，线上却少一行。
-    if (ui?.playerCard?.attributes !== undefined) {
-      const unknownAttrs = ui.playerCard.attributes.filter(
-        (key) => !template.attributes.order.includes(key),
-      );
-      if (unknownAttrs.length > 0) {
-        throw new Error(
-          `ui.yaml: playerCard 引用了未声明的属性：${unknownAttrs.join(", ")}（需先在 world.yaml attributes.order 声明）`,
-        );
-      }
-    }
+    /**
+     * 运行时包由**纯加载器**组装（第三期）：模板 + 开局 / 结局 / 评价 / 规则 / 设定 / UI，
+     * 连同五道跨文件校验全在 `loadTemplateBundle` 里。服务端只剩目录发现、资产扫描、
+     * mtime、指纹与注册表字段 —— 客户端下载同一份包时，算出来的包必须与此处逐字段相等。
+     */
+    const bundle = loadTemplateBundle(source, { files: present, expectedId: id });
+    const {
+      template,
+      openings,
+      openingDag,
+      endingConfig,
+      evaluationConfig,
+      rules,
+      lore,
+      assetManifest,
+      ui,
+    } = bundle;
     // `ui.yaml` 进白名单但不进指纹：展示声明变更不废旧档（SPEC §1.5）。
-    // 这里显式过滤，防止白名单数组后续调整时误把它算进语义指纹。
-    //
-    // 扩展版本也进指纹：模板里的 `extensions:` 只写 id + config，同样的 yaml 配上
-    // 改过规则的扩展代码仍会算出不同结果 ⇒ 旧档必须拒载。`version` 缺省按 "*"，
-    // 但扩展包改了行为就必须升版本，这是扩展作者的责任（见 SPEC §1.6 / §2.6）。
+    // 扩展版本也进指纹：同样的 yaml 配上改过规则的扩展代码仍会算出不同结果 ⇒ 旧档必须拒载。
     // 指纹的组合规则（14 个文件 + 扩展版本）在加载器包里 —— 客户端下载模板后要算同一个数，
     // 两边各写一份迟早漂；`semanticFingerprintOf` 是唯一实现。
     const semanticFingerprint = semanticFingerprintOf(
       [...declarative].map((file) => ({ rel: file, content: source.read(file) })),
       template,
+    );
+    /**
+     * 包指纹（含 `ui.yaml`）：语义指纹刻意不含 ui，于是**纯表现改动**不会让
+     * 浏览器里的旧缓存失效 —— 演练场看得见、游戏里看不见，就是这么来的。
+     */
+    const packageFingerprint = packageFingerprintOf(
+      [...declarative].map((file) => ({ rel: file, content: source.read(file) })),
     );
     const entry: ReadyTemplateEntry = {
       ref,
@@ -618,6 +531,7 @@ function scanVersion(
         ...(lore !== undefined ? { lore } : {}),
       },
       semanticFingerprint,
+      packageFingerprint,
       assetFingerprint: asset.fingerprint,
       assetCount: asset.count,
       mtime,
@@ -939,6 +853,7 @@ function createRegistry(dir: string, result: ScanResult, logger: TemplateScanLog
                   }
                 : {}),
               fingerprint: entry.semanticFingerprint,
+              packageFingerprint: entry.packageFingerprint,
               assetCount: entry.assetCount,
               assetFingerprint: entry.assetFingerprint,
               // T-06：assetId 列表 + kind + characterRef；不下发 path / 二进制。

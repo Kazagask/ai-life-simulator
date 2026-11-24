@@ -66,6 +66,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@life-sim/agent-runtime':
+        specifier: workspace:*
+        version: link:../../packages/agent-runtime
       '@life-sim/ext-family':
         specifier: workspace:*
         version: link:../../extensions/family

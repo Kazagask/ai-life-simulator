@@ -836,6 +836,11 @@ input::placeholder { color: var(--dim); }
 #liveRoot .attr-name { width: 72px; flex-shrink: 0; color: var(--muted); }
 #liveRoot .attr-value { width: 48px; text-align: right; font-variant-numeric: tabular-nums; }
 #liveRoot .bar { flex: 1; height: 6px; border-radius: 999px; background: var(--bg-sunken); overflow: hidden; }
+/* 单位卡里的血条不许靠 grow 拿空间（竖排卡片里会塌成 0，或被同行的高卡拉粗） */
+#liveRoot .ally > .bar,
+#liveRoot .enemy > .bar,
+#liveRoot .neutral > .bar,
+#liveRoot .battle-self > .bar { flex: 0 0 6px; height: 6px; }
 #liveRoot .bar.bar-sm { height: 4px; }
 #liveRoot .bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
 #liveRoot .bar-fill.hp, #liveRoot .bar-fill.enemy-hp { background: linear-gradient(90deg, #ff7a7a, #ffb199); }
@@ -925,3 +930,22 @@ input::placeholder { color: var(--dim); }
 /* 跳过回合是兜底出口，不是战术选择：虚线 + 弱化，别和技能抢注意力 */
 .battle-actions .action.pass { border-style: dashed; }
 .battle-actions .action.pass strong { font-weight: 600; color: var(--muted); }
+
+/* ---------- 窄屏（手机验收）：单列 + 顶栏换行 ----------
+   后台本来是按桌面三栏写的；手机上验收战斗时只需要「控制台 + 棋盘」能看全，
+   所以窄屏一律降为单列，横向滚动条不该出现（出现就说明还有写死的宽度）。 */
+@media (max-width: 980px) {
+  .topbar { height: auto; flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
+  .brand-sub { display: none; }
+  .tabs { order: 3; width: 100%; justify-content: space-between; }
+  .tab { flex: 1; padding: 6px 4px; font-size: 12px; }
+  .env { max-width: 62vw; }
+  main, .view { height: auto; }
+  .trace-layout,
+  .graph-layout,
+  .sim-layout,
+  .live-layout { grid-template-columns: minmax(0, 1fr); height: auto; padding: 8px; }
+  .panel-body.scroll { max-height: 44vh; }
+  .live-layout .panel-body { max-height: none; }
+  .live-presets { max-height: 140px; }
+}

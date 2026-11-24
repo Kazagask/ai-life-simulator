@@ -22,17 +22,9 @@ terminationConditions:
     combinator: AND
     terminationMode: afterSettle
 
-  # 2006 夏 · 幕 6 挡在甚尔面前失败（ev-hv-06-block 的战败结算）：
-  # 早夭就地收束，不接第七幕，也不回日常。判据只读落盘旗标，不读 HP。
-  - type: worldState
-    params:
-      conditions:
-        - { flag: hvEarlyDeath, eq: true }
-    combinator: AND
-    terminationMode: afterSettle
-
-# 本模板不设 deathRoute：2006 只有「挡枪失败」一种死法，用上面的 worldState 终止条件表达。
-# 其余战斗的战败只给「力竭 / 重伤」，让玩家有时间疗伤。
+# 死亡走 `world.deathRoutes`（ADR-075）：第六幕挡枪是唯一的死斗，
+# 战败信号直接引用 `end-hv-early-death`；`endings.triggerConditions` 不再参与死亡选择。
+# 其余战斗是恶战（stake: hard），战败只给「力竭 / 重伤」。
 
 endings:
   # ---------- 怀玉的四个出口 ----------
@@ -40,9 +32,7 @@ endings:
   - endingId: end-hv-early-death
     name: 早夭
     description: 2006 年夏，你挡在星浆体前面，没能再站起来。
-    triggerConditions:
-      - { flag: hvEarlyDeath, eq: true }
-    # 压过其余全部：这是 2006 年当场收束，不该被「她也没活下来」的结局覆盖。
+    # 死亡结局由 world.deathRoutes 直接引用，这里不再写 triggerConditions。
     priority: 74
     endingType: tragedy
     narrativeConfig:

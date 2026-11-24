@@ -32,6 +32,14 @@ export const BattleCommandSchema = z.discriminatedUnion("type", [
    * 一旦命令分发顺序被调整，「硬撑」就会真的执行逃跑。`pass` 把这个语义补进模型本身。
    */
   z.object({ type: z.literal("pass") }),
+  /**
+   * 离开战场（2026-11-24 用户裁决）：**只在战斗已经结束（`battle.over` 非空）时合法**。
+   *
+   * 战斗判定一结束就不再当场结算槽位：玩家要先在战斗界面看完最后一击、看战评，
+   * 再点「继续」才推进世界。这个命令就是那一下确认 —— 引擎在这一步才跑
+   * 战评 / 收场 / 槽位结算 / 死亡路由。
+   */
+  z.object({ type: z.literal("leave") }),
 ]);
 
 /** 战斗命令（由 `BattleCommandSchema` 派生，勿另行手写联合类型）。 */

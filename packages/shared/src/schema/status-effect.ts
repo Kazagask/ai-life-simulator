@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { PolaritySchema } from "./style.js";
-import { FormulaSchema, TimeAmountSchema } from "./common.js";
+import { EffectSchema, FormulaSchema, TimeAmountSchema } from "./common.js";
 import { StatusApplicationSchema } from "./skill.js";
+import { BattleHookSchema, CritSpecSchema } from "./battle-hooks.js";
 
 /**
  * 状态（Status）Schema：挂在角色身上、持续生效的东西的**统一实体**。
@@ -22,7 +23,7 @@ import { StatusApplicationSchema } from "./skill.js";
  * | `modifier` 修正 | 世界 | 世界（治愈 / 到期） | 世界时间 | 否 | 是 |
  *
  * 「不可驱散」不是标记而是结构：战斗驱散的候选集里只有 `battle`，
- * 所以六眼这类天赋根本不在名单上，不需要 `invincible` 字段。
+ * 所以「天生」这类天赋根本不在名单上，不需要 `invincible` 字段。
  *
  * ## 面与属性
  *
@@ -121,8 +122,39 @@ export const CombatFacetSchema = z
      */
     costMultiplier: z.record(z.string(), z.number()).optional(),
     onRoundEnd: z.array(RoundEndEffectSchema).optional(),
+    /**
+     * 暴击词条（ADR-073 D2）：与世界的默认、技能自己的声明同形累加。
+     * `stacksPerLayer` 对它同样生效（每层一份）。
+     */
+    crit: CritSpecSchema.optional(),
+    /**
+     * 战斗钩子（ADR-073）：**流程**类的被动挂在这里。天赋（`kind: talent`）挂上即永久，
+     * 战斗态随状态一起消失 —— 不需要第二套「谁在战斗里有效」的判定。
+     */
+    hooks: z.array(BattleHookSchema).optional(),
   })
   .strict();
+
+/**
+ * 属性转化（ADR-074）：把 `from` 的**最终值**按比例加到若干目标属性上，`from` 归零。
+ *
+ * 典型用法：把一种属性总量全部换成另外两种属性。做成通用声明而不是写死
+ * 一个 id，是因为「用某种资源换另一种资源」是这套属性系统的通用句式，
+ * 引擎不该知道具体是哪种资源。
+ *
+ * 只能挂在 `kind: talent` 上（身份级的换算，不是临时 buff）：
+ * 战斗态里改属性会让同一场战斗前后半段的口径不一致（见 30-战斗.md 的裁决）。
+ */
+export const AttributeConversionSchema = z
+  .object({
+    from: z.string().min(1),
+    /** 目标属性 → 比例（`to[attr] += from × ratio`）。空表没有意义。 */
+    to: z
+      .record(z.string().min(1), z.number())
+      .refine((t) => Object.keys(t).length > 0, { message: "conversion.to 至少给一个目标属性" }),
+  })
+  .strict();
+export type AttributeConversion = z.infer<typeof AttributeConversionSchema>;
 
 export const CureConditionSchema = z.union([
   z.object({ item: z.string().min(1) }).strict(),
@@ -147,6 +179,49 @@ export const ToModifierSchema = z
     timePerRound: TimeAmountSchema,
   })
   .strict();
+
+/**
+ * 成长型天赋的进度条（ADR-075 §7）。
+ *
+ * `progress` **不是层数**：天赋实例永远一份，层数（`stacks`）在天赋上恒 1。
+ * `initial` 是"授予时就有的进度"（开局自带该天赋 = 1），非成长授予不结算阶 `grant`。
+ */
+export const TalentProgressSchema = z
+  .object({
+    label: z.string().min(1).optional(),
+    /** 进度上限；缺省无上限。 */
+    max: z.number().positive().optional(),
+    /** 初始进度；缺省 0。 */
+    initial: z.number().nonnegative().optional(),
+  })
+  .strict()
+  .refine((p) => p.max === undefined || (p.initial ?? 0) <= p.max, {
+    message: "progress.initial 不能超过 progress.max",
+  });
+export type TalentProgress = z.infer<typeof TalentProgressSchema>;
+
+/**
+ * 阶效果是**替换**：当前阶的 `effects` 就是全部，不累加；要累加就把总数写在这一阶上。
+ * `grant` 只在跨阶时结算一次（`tiersApplied` 防重复）。
+ */
+const TalentTierEffectsSchema = z
+  .object({
+    attributeModifiers: z.record(z.string(), z.number()).optional(),
+    combat: CombatFacetSchema.optional(),
+    grant: z.array(EffectSchema).optional(),
+  })
+  .strict();
+
+export const TalentTierSchema = z
+  .object({
+    /** 进度阈值；`at <= progress` 的最高一阶就是当前阶。 */
+    at: z.number().positive(),
+    /** 品级 id（`ui.qualityStyles` 的键）。 */
+    tier: z.string().min(1),
+    effects: TalentTierEffectsSchema,
+  })
+  .strict();
+export type TalentTier = z.infer<typeof TalentTierSchema>;
 
 export const StatusEffectSchema = z
   .object({
@@ -174,7 +249,19 @@ export const StatusEffectSchema = z
     combat: CombatFacetSchema.optional(),
     /** 战后折算（仅 `battle`）。 */
     toModifier: ToModifierSchema.optional(),
+    /** 属性转化（仅 `talent`，ADR-074）：例如「资源总量 → 体术/敏捷」。 */
+    conversion: z.array(AttributeConversionSchema).min(1).optional(),
+    /** 成长型天赋的进度条（ADR-075 §7，仅 `talent`）。 */
+    progress: TalentProgressSchema.optional(),
+    /** 成长阶梯（ADR-075 §7，仅 `talent`）；没有它就是静态天赋。 */
+    tiers: z.array(TalentTierSchema).min(1).optional(),
     cureConditions: z.array(CureConditionSchema).optional(),
+    /**
+     * 能否被**战斗内**的解除清掉（缺省 true）。只对 `battle` 档有意义：
+     * 天赋在结构上不可驱散，这个字段写上去也不会让它变得可驱散。
+     * 「打出来就留在身上」的层数（不可驱散）写 false。
+     */
+    dispellable: z.boolean().optional(),
     /** 展示标签（ADR-002 D2b）：引用 `ui.tags` 的键，顺序即展示顺序。 */
     tags: z.array(z.string().min(1)).optional(),
     visibility: z.enum(["known", "hidden"]),
@@ -197,13 +284,20 @@ export const StatusEffectSchema = z
       ctx.addIssue({ code: z.ZodIssueCode.custom, path, message });
     };
 
+    /**
+     * 纯成长天赋（只有 `progress` + `tiers`）是合法的：它本身不改数值，
+     * 只在成长时按阶发加点。典型例子是那种「打得出来是世界规则、
+     * 记不记得住才是天赋的事」的里程碑，所以它没有战斗面。
+     */
+    const growthOnlyTalent = s.kind === "talent" && s.progress !== undefined;
     if (
+      !growthOnlyTalent &&
       s.attributeModifiers === undefined &&
       s.simulation === undefined &&
       s.combat === undefined &&
       s.toModifier === undefined
     ) {
-      fail("状态必须声明 attributeModifiers / simulation / combat / toModifier 至少其一");
+      fail("状态必须声明 attributeModifiers / simulation / combat / toModifier 至少其一（纯成长天赋除外：写 progress 即可）");
     }
 
     if (s.kind === "battle") {
@@ -224,6 +318,10 @@ export const StatusEffectSchema = z
       if (s.kind === "modifier" && s.stacking === undefined) fail("kind: modifier 必须声明 stacking", ["stacking"]);
     }
 
+    if (s.kind !== "talent" && s.conversion !== undefined) {
+      fail("conversion 只能写在 kind: talent 上（属性换算是身份级的，不是临时状态）", ["conversion"]);
+    }
+
     if (s.kind === "talent") {
       if (s.stacking !== undefined) {
         fail("kind: talent 不写 stacking（天赋不叠层，再授予是幂等）", ["stacking"]);
@@ -234,6 +332,35 @@ export const StatusEffectSchema = z
       if (s.cureConditions !== undefined) {
         fail("kind: talent 不写 cureConditions（治愈条件属于可移除的状态）", ["cureConditions"]);
       }
+      if (s.dispellable !== undefined) {
+        fail("kind: talent 不写 dispellable（天赋本来就不在驱散候选集里）", ["dispellable"]);
+      }
+    }
+
+    /**
+     * 成长阶梯（ADR-075 §7）：只有天赋能长；有阶梯就必须有进度条；
+     * `at` 严格递增（重复阈值意味着同一阶两套效果）；阶阈值不得超过 `progress.max`（永远不可达）。
+     */
+    if (s.kind !== "talent") {
+      if (s.progress !== undefined) fail("progress 只能写在 kind: talent 上", ["progress"]);
+      if (s.tiers !== undefined) fail("tiers 只能写在 kind: talent 上", ["tiers"]);
+    }
+    if (s.tiers !== undefined) {
+      if (s.progress === undefined) fail("有 tiers 必须声明 progress（阶由进度判定）", ["progress"]);
+      s.tiers.forEach((tier, i) => {
+        if (i > 0 && tier.at <= s.tiers![i - 1]!.at) {
+          fail("tiers.at 必须严格递增", ["tiers", i, "at"]);
+        }
+        if (s.progress?.max !== undefined && tier.at > s.progress.max) {
+          fail(`阶阈值 ${tier.at} 超过 progress.max（永远不可达）`, ["tiers", i, "at"]);
+        }
+        (tier.effects.grant ?? []).forEach((effect, j) => {
+          // 递归成长会让"结算一次 grant"变成不可终止的循环；要连续涨就一次给足 amount。
+          if (effect.type === "advanceTalent") {
+            fail("tiers[].effects.grant 不能再用 advanceTalent", ["tiers", i, "effects", "grant", j]);
+          }
+        });
+      });
     }
   });
 

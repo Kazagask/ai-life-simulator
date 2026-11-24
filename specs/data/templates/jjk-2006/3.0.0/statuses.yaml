@@ -17,7 +17,7 @@ statuses:
   - id: tech-ten-shadow
     name: 术式·十种影法术
     kind: talent
-    attributeModifiers: { cursedEnergy: 4, intellect: 1 }
+    attributeModifiers: { cursedEnergyTotal: 4, intellect: 1 }
     quality: ancient
     description: 影子里的十种式神。你与它们共享同一片阴影——影子越多，你的咒力越沉。
     polarity: positive
@@ -28,7 +28,7 @@ statuses:
   - id: tech-red-blood
     name: 术式·赤血操术
     kind: talent
-    attributeModifiers: { cursedEnergy: 2, physique: 4 }
+    attributeModifiers: { cursedEnergyTotal: 2, physique: 4 }
     quality: epic
     description: 血液即武器。加茂家的血脉，越失血越锋利。
     polarity: positive
@@ -39,7 +39,7 @@ statuses:
   - id: tech-doll
     name: 术式·刍灵咒法
     kind: talent
-    attributeModifiers: { cursedEnergy: 3, luck: 3 }
+    attributeModifiers: { cursedEnergyTotal: 3, luck: 3 }
     quality: excellent
     description: 以草人与钉子代替自己承受因果。你比谁都清楚「名字」有多重。
     polarity: positive
@@ -50,7 +50,7 @@ statuses:
   - id: tech-thunder
     name: 术式·雷电
     kind: talent
-    attributeModifiers: { cursedEnergy: 3, agility: 4 }
+    attributeModifiers: { cursedEnergyTotal: 3, agility: 4 }
     quality: epic
     description: 咒力以雷的形态存在。出手总是比别人快半步。
     polarity: positive
@@ -61,7 +61,7 @@ statuses:
   - id: tech-speech
     name: 术式·咒言
     kind: talent
-    attributeModifiers: { cursedEnergy: 3, intellect: 4 }
+    attributeModifiers: { cursedEnergyTotal: 3, intellect: 4 }
     quality: epic
     description: 说出的话成为规则。代价是喉咙一直在渗血。
     polarity: positive
@@ -69,11 +69,46 @@ statuses:
       damageDealt: 0.08
     visibility: known
 
+  # 原作血继/唯一术式（2026-11-23 起也进玩家开局池）：
+  # 之前只在 NPC 身上，玩家抽不到；现在按出身分流（御三家 / 诅咒师世家）。
+  - id: tech-limitless
+    name: 术式·无下限
+    kind: talent
+    attributeModifiers: { cursedEnergyTotal: 6, intellect: 3 }
+    quality: legend
+    description: 把「无限」夹在中间。你与世界的距离，从出生起就不是同一个量级。
+    polarity: positive
+    combat:
+      damageDealt: 0.15
+    visibility: known
+
+  - id: tech-cursed-spirits
+    name: 术式·咒灵操术
+    kind: talent
+    attributeModifiers: { cursedEnergyTotal: 5, intellect: 3 }
+    quality: legend
+    description: 吞下去，再让它为你所用。你收服的不是怪物，是别人没能消化的怨。
+    polarity: positive
+    combat:
+      damageDealt: 0.08
+    visibility: known
+
+  - id: tech-shrine
+    name: 术式·御厨子
+    kind: talent
+    attributeModifiers: { cursedEnergyTotal: 5, physique: 2 }
+    quality: legend
+    description: 斩击与火焰写在同一条术式里。它不需要理由，只需要一个目标。
+    polarity: positive
+    combat:
+      damageDealt: 0.15
+    visibility: known
+
   # 多重术式：极罕见的体质，一人持有两个生得术式（宿傩、羂索、以及玩家的隐藏分支）
   - id: multi-technique
     name: 多重术式
     kind: talent
-    attributeModifiers: { cursedEnergy: 6 }
+    attributeModifiers: { cursedEnergyTotal: 6 }
     quality: mythic
     description: 你的身体里不止一个术式。这在咒术史上是「不该出现」的东西。
     polarity: positive
@@ -85,7 +120,7 @@ statuses:
   - id: tech-space
     name: 术式·空间
     kind: talent
-    attributeModifiers: { cursedEnergy: 3, agility: 4 }
+    attributeModifiers: { cursedEnergyTotal: 3, agility: 4 }
     quality: epic
     description: 距离在你手里是一件可以折叠的东西。你站过的地方，会一直留着一条能回去的缝。
     polarity: positive
@@ -96,7 +131,7 @@ statuses:
   - id: tech-illusion
     name: 术式·精神幻术
     kind: talent
-    attributeModifiers: { cursedEnergy: 2, intellect: 4 }
+    attributeModifiers: { cursedEnergyTotal: 2, intellect: 4 }
     quality: epic
     description: 你改的不是画面，是一个人确信的那一段。被改过的人不会觉得哪里不对。
     polarity: positive
@@ -107,7 +142,7 @@ statuses:
   - id: tech-flesh
     name: 术式·肉体操控
     kind: talent
-    attributeModifiers: { cursedEnergy: 3, physique: 4 }
+    attributeModifiers: { cursedEnergyTotal: 3, physique: 4 }
     quality: epic
     description: 细胞、骨、血管，都按你的图纸长。每次改动都用这具身体本身结账。
     polarity: positive
@@ -118,7 +153,7 @@ statuses:
   - id: tech-gravity
     name: 术式·重力
     kind: talent
-    attributeModifiers: { cursedEnergy: 4, physique: 3 }
+    attributeModifiers: { cursedEnergyTotal: 4, physique: 3 }
     quality: legend
     description: 哪一边是下，由你来说。走近你的人会先觉得膝盖变沉。
     polarity: positive
@@ -129,7 +164,7 @@ statuses:
   - id: tech-shadow
     name: 术式·影子
     kind: talent
-    attributeModifiers: { cursedEnergy: 3, agility: 4 }
+    attributeModifiers: { cursedEnergyTotal: 3, agility: 4 }
     quality: epic
     description: 有光的地方就有一道门。你从影子里进去，从另一片影子里出来。
     polarity: positive
@@ -141,7 +176,7 @@ statuses:
   - id: tech-sound
     name: 术式·声波
     kind: talent
-    attributeModifiers: { cursedEnergy: 3, intellect: 3 }
+    attributeModifiers: { cursedEnergyTotal: 3, intellect: 3 }
     quality: excellent
     description: 你说话的时候，别人的骨头在跟着震。安静下来反而更危险。
     polarity: positive
@@ -152,7 +187,7 @@ statuses:
   - id: tech-toxin
     name: 术式·毒素
     kind: talent
-    attributeModifiers: { cursedEnergy: 2, physique: 3 }
+    attributeModifiers: { cursedEnergyTotal: 2, physique: 3 }
     quality: excellent
     description: 你呼出的气在别人体内慢慢结算。他们要到第二天才发觉自己病了。
     polarity: positive
@@ -163,7 +198,7 @@ statuses:
   - id: tech-matter
     name: 术式·物质转化
     kind: talent
-    attributeModifiers: { cursedEnergy: 3, intellect: 4 }
+    attributeModifiers: { cursedEnergyTotal: 3, intellect: 4 }
     quality: epic
     description: 血可以变成铁，骨可以变成盐。你碰过的东西不再保证还是原来的东西。
     polarity: positive
@@ -175,7 +210,7 @@ statuses:
   - id: tech-rule
     name: 术式·契约规则
     kind: talent
-    attributeModifiers: { cursedEnergy: 3, intellect: 4 }
+    attributeModifiers: { cursedEnergyTotal: 3, intellect: 4 }
     quality: legend
     description: 你说出口的条件会成立——包括写在自己身上的那一条。
     polarity: positive
@@ -189,7 +224,7 @@ statuses:
     # 2026-11-21：幸运从 +3 提到 +6 —— 它要能在转盘上被看见。
     # 世界内所有 `weightBy: { luck: n }` 的转盘（巡逻 / 探索 / 怀玉的几格）都会读到它，
     # 这是「术式本身加的幸运应用到转盘权重」的唯一落点，不需要额外的运气字段。
-    attributeModifiers: { cursedEnergy: 4, luck: 6 }
+    attributeModifiers: { cursedEnergyTotal: 4, luck: 6 }
     quality: legend
     description: 你不太用力，事情自己会往你这边倒。转盘的指针认得这种运气，只是借来的，迟早要还。
     polarity: positive
@@ -210,6 +245,19 @@ statuses:
   #   · 一品·神话（mythic，静态彩）≤ 3：诅咒之王 / 多重术式 / 天逆鉾；
   #   · 旷古·传说（ancient，金）≤ 5：无下限 / 法轮 / 天与咒缚 / 十种影法术 / 千年术师。
   # 再往上加之前先问：它是不是比上面这几位更稀有？不是就往下走一档。
+
+  # 无下限（主动版，2026-11-23）：三回合内「到不了」。这不是「加了很多闪避」，是「走不完」，
+  # 所以写 1 不写 0.9。破解与常时版一样：必中（领域 / 世界斩）与强行术式解除。
+  # 与 `infinity`（天赋、常时）是同一件事的两个阶段：那时他学会了不用再开。
+  - id: limitless-active
+    name: 无下限
+    kind: battle
+    description: 你把「无限」带到了身边。任何东西都必须先走过无穷多的一半——所以它到不了。
+    stacking: unique
+    polarity: positive
+    combat:
+      evade: 1
+    visibility: known
 
   - id: domain-active
     name: 领域展开
@@ -237,11 +285,60 @@ statuses:
   - id: black-flash
     name: 黑闪
     kind: battle
-    description: 咒力与物理打击在百万分之一秒的偏差内重合。下一击会被这层余韵放大。
-    stacking: unique
+    description: 咒力与物理打击在百万分之一秒的偏差内重合。层数没有上限，也散不掉——它会一直留到这场战斗结束。
+    # 2026-11-23 用户裁决：层数无上限、持续到战斗结束、不可被驱散。
+    # `rounds` 省略 = 撑到整场；`dispellable: false` 让解除类效果（天逆鉾）也清不掉它。
+    stacking: stack
+    dispellable: false
     polarity: positive
     combat:
       damageDealt: 0.5
+    visibility: known
+
+  # 黑闪（2026-11-23 用户裁决）：从「主动技能」改成「天赋 + 资质属性」。
+  #
+  # 不能主动打出 —— 它只可能发生在**一次暴击之后**（`when: [{ crit: true }]`），
+  # 再按「黑闪资质」掷第二道骰；命中则把这次暴击的倍率按 2.5 次方放大
+  # （1.5^2.5 ≈ 2.76），并留下两回合的余韵（`black-flash`，下一击 +50%）。
+  #
+  # 为什么是「天赋 + 属性」而不是技能：黑闪在原作里不是招式，是资质与偶然；
+  # 做成技能会变成「每 4 回合稳定一次」的循环，恰好杀掉它唯一的意思。
+  - id: t-black-flash
+    name: 黑闪
+    kind: talent
+    description: >-
+      打击与咒力在百万分之一秒的误差内重合，误差小到连世界都来不及反应。
+      不是技巧，是资质——有人一辈子碰不到那一下，有人碰上一次就再也忘不掉。
+    quality: legend
+    polarity: positive
+    # 成长阶梯（ADR-075 §7，2026-11-24 补属性面）：0 = 无天赋；拿到就是 1（紫）。
+    #
+    # 每阶除了加点，还**永久提升咒力操作**（`cursedEnergyControl`，派生属性走补正面）——
+    # 这是「越打黑闪越容易再打出黑闪」的唯一来源：触发率 = 操作 × 0.3%，
+    # 所以每一阶都在给下一次铺路。属性面按面覆盖（下一阶写的是**累计值**，不是增量）。
+    progress: { label: 觉醒次数, max: 100, initial: 1 }
+    tiers:
+      - at: 1
+        tier: purple
+        effects:
+          attributeModifiers: { cursedEnergyControl: 4 }
+          grant:
+            - { type: grantAllocation, id: bf-1, budget: 1, targets: [{ attribute: cursedEnergyTotal }, { attribute: physique }, { attribute: agility }] }
+      - at: 4
+        tier: pink
+        effects:
+          attributeModifiers: { cursedEnergyControl: 9 }
+          grant:
+            - { type: grantAllocation, id: bf-4, budget: 2, targets: [{ attribute: cursedEnergyTotal }, { attribute: physique }, { attribute: agility }] }
+      - at: 8
+        tier: orange-red
+        effects:
+          attributeModifiers: { cursedEnergyControl: 15 }
+          grant:
+            - { type: grantAllocation, id: bf-8, budget: 3, targets: [{ attribute: cursedEnergyTotal }, { attribute: physique }, { attribute: agility }] }
+    # 黑闪的**触发规则在世界层**（world.combat.hooks）：它不是某个人的术式，
+    # 谁把打击与咒力卡进那一瞬都能打出来。这条天赋只负责「打出来之后记得住」——
+    # 进度 / 阶梯 / 加点。没天赋的人照样能触发，只是没有成长账本。
     visibility: known
 
   # ══════════════ 角色级特质（原作人物） ══════════════
@@ -249,18 +346,42 @@ statuses:
   - id: six-eyes
     name: 六眼
     kind: talent
-    attributeModifiers: { cursedEnergy: 20, agility: 10, intellect: 10 }
+    # 六眼看穿咒力流动：操作与效率拉满。效率 +90 ⇒ 五条 60+90=150 ⇒ mp 消耗 -90%
+    # （2026-11-23 用户裁决：六眼的折扣回到「只剩十分之一」的量级）。
+    attributeModifiers: { cursedEnergyControl: 30, cursedEnergyEfficiency: 90, agility: 10, intellect: 10 }
+    # 品级由标签表达（mythic-unique → 唯一动虹）；`quality` 是引擎的展示选择器。
     quality: mythic-unique
-    description: 五条家相传的眼睛。看穿咒力的流动，以近乎零损耗运转咒力。
-    # 品级由标签表达（mythic → 神话 / 动虹）；不再写 `quality`——那是引擎的选择器，
-    # 玩家不该在详情里看到「RAINBOW」这种变量名。
+    description: >-
+      「天上天下，唯我独尊。」——《长阿含经》
+      五条家数百年一现的至高天赋，承佛教「五眼」之意，穷尽咒力之相，洞悉术式之理，
+      令咒力运转臻于无漏之境。与天元、星浆体同系于命运，纵历生死，因果不绝。
     polarity: positive
     combat:
       hitChance: 0.2
       damageDealt: 0.3
-      # ADR-012 D8：六眼看穿咒力流动 ⇒ 施放消耗只剩十分之一（ceil 取整）。
-      # 不写这一行，五条 240 点池只够 13 发苍；写了之后战斗节奏会明显变长，这是有意的。
-      costMultiplier: { mp: -0.9 }
+      # 2026-11-23：施放消耗改由「咒力效率」承担（+60 ⇒ mp -36%），不再单独写 -90%。
+      # 两处都写会把五条的每一发术式压到 0 费，等于把资源系统关掉。
+    visibility: known
+
+  # 私设（2026-11-23 用户裁决）：无下限没有六眼几乎无法运转，所以给一条**劣化**的路。
+  # 数值与真六眼**一致**（这是刻意的：它本来就是「同一双眼睛的残影」）；差别在身份与上限——
+  # 它不入六眼之数、不解锁无量空处，也**不能单独**换来天赋无下限（要 反转术式 + 它，
+  # 见 events.yaml 的 pool 事件）。品级降到 mythic（静态彩，不占唯一动虹）。
+  - id: six-eyes-pseudo
+    name: 六眼（伪）· 观空
+    kind: talent
+    attributeModifiers: { cursedEnergyControl: 30, cursedEnergyEfficiency: 90, agility: 10, intellect: 10 }
+    quality: mythic
+    description: >-
+      「慧眼知诸法实相。」——《大智度论》
+      五条家的六眼从不「传」，只「现」；没现的那些年，看见过它的眼睛仍在暗处累加。
+      唯有本具六眼之资、却因与天元的因果牵系而不能觉醒者，才承接得住这层残影——
+      它不入六眼之数，也不受既定命运所缚。所观非咒力之流，而是术式「本该长成什么样」；
+      咒术史上每一次越界，都是从这样一只眼睛里开始的。
+    polarity: positive
+    combat:
+      hitChance: 0.2
+      damageDealt: 0.3
     visibility: known
 
   - id: infinity
@@ -278,7 +399,7 @@ statuses:
   - id: cursed-king
     name: 诅咒之王
     kind: talent
-    attributeModifiers: { cursedEnergy: 60 }
+    attributeModifiers: { cursedEnergyTotal: 60 }
     quality: mythic
     description: 两面宿傩。千年之前让整个咒术界跪下的存在。
     polarity: positive
@@ -290,7 +411,7 @@ statuses:
   - id: kenjaku
     name: 千年术师
     kind: talent
-    attributeModifiers: { cursedEnergy: 12, intellect: 8 }
+    attributeModifiers: { cursedEnergyTotal: 12, intellect: 8 }
     quality: ancient
     description: 换过无数具身体的诅咒师。他记得每一个死在他手里的人的名字。
     polarity: positive
@@ -301,9 +422,11 @@ statuses:
   - id: heavenly-restriction
     name: 天与咒缚
     kind: talent
-    # 2026-11-21：-8 只能抵掉默认的 5 点，抵不掉出身（御三家 +6）与加点（+4）。
-    # 写成 -30 是为了「有效属性下限 0」兜底后**一定是 0**，而不是「刚好够低」。
-    attributeModifiers: { cursedEnergy: -30, physique: 20, agility: 12 }
+    # 2026-11-23：不再是「扣 30 点咒力、加 20 体术」的固定补丁，而是**按比例换算**：
+    # 咒力总量全部转成肉体，源归零（派生输出/操作/效率随之归零，mp 上限也因此是 0）。
+    # 比例：0.5 体术 / 0.35 敏捷。角色卡与开局都给一点基础值，换算后才是最终数。
+    conversion:
+      - { from: cursedEnergyTotal, to: { physique: 0.5, agility: 0.35 } }
     # 2026-11-21：除了「没有咒力」，把肉体优势也写进战斗面 —— 不然它在面板上只是
     # 一组大数字，打起来和普通术师没有区别。术式碰不到他，他碰得到任何人。
     combat:
@@ -317,7 +440,7 @@ statuses:
   - id: special-physique
     name: 特殊体质
     kind: talent
-    attributeModifiers: { physique: 8, cursedEnergy: 6 }
+    attributeModifiers: { physique: 8, cursedEnergyTotal: 6 }
     quality: epic
     description: 生来异于常人的躯体，能承受别人承受不了的咒力。
     polarity: positive
@@ -326,7 +449,7 @@ statuses:
   - id: reverse-mastered
     name: 反转术式·精通
     kind: talent
-    attributeModifiers: { cursedEnergy: 6 }
+    attributeModifiers: { cursedEnergyTotal: 6 }
     quality: legend
     description: 以正向咒力重构肉体。只要还有一口气，就能把伤口合上。
     polarity: positive
@@ -339,7 +462,7 @@ statuses:
   - id: blessed-reverse
     name: 反转术式·天赋
     kind: talent
-    attributeModifiers: { cursedEnergy: 2, physique: 2 }
+    attributeModifiers: { cursedEnergyTotal: 2, physique: 2 }
     quality: epic
     description: 你的身体记得怎么把伤口倒着长回去。没人教过，但流血时它自己会算。
     polarity: positive
@@ -382,7 +505,7 @@ statuses:
   - id: multi-soul
     name: 多重灵魂
     kind: talent
-    attributeModifiers: { cursedEnergy: 3, intellect: 1 }
+    attributeModifiers: { cursedEnergyTotal: 3, intellect: 1 }
     quality: epic
     description: 这具身体里不止一个意识在看着外面。多数时候它们很安静，偶尔会替你做一个决定。
     polarity: positive
@@ -412,7 +535,7 @@ statuses:
   - id: resolved
     name: 觉悟
     kind: talent
-    attributeModifiers: { cursedEnergy: 5 }
+    attributeModifiers: { cursedEnergyTotal: 5 }
     quality: excellent
     description: 你已经想清楚要为什么而战。咒力因此凝实。
     polarity: positive

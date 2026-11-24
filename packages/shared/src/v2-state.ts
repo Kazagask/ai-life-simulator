@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { PendingAllocationSchema } from "./schema/allocation.js";
+import { OpeningStepResultSchema } from "./schema/opening.js";
 import { AttributeValueSchema } from "./schema/attribute.js";
 import { CombatSettleSchema, EventV2Schema } from "./schema/event.js";
+import { BattleResultSchema } from "./schema/battle-evaluation.js";
 import { CharacterSchema } from "./schema/character.js";
 import { EndingConfigSchema } from "./schema/ending.js";
 import { EquipmentInstanceSchema } from "./schema/equipment.js";
@@ -33,6 +35,9 @@ const StatusInstanceSchema = z
     /** ADR-018 D4：战斗态已经历的回合末次数（战后折算世界时间用）。 */
     roundsHeld: z.number().int().nonnegative().optional(),
     restProgress: z.number().int().nonnegative().optional(),
+    /** ADR-075：成长型天赋的进度与已结算阶数（旧档缺省 0）。 */
+    progress: z.number().optional(),
+    tiersApplied: z.number().int().nonnegative().optional(),
   })
   .strict();
 
@@ -174,6 +179,11 @@ const BattleEnemySchema = z
     skills: z.array(z.string().min(1)),
     skillWeights: z.record(z.string(), z.number()),
     alive: z.boolean(),
+    /** ADR-075：战果计数（旧档缺省 0）。 */
+    damageByPlayer: z.number().optional(),
+    damageToPlayer: z.number().optional(),
+    /** ADR-075：最后把 hp 打到 0 的来源实例 id。 */
+    lastHitBy: z.string().min(1).optional(),
     /** ADR-012 D2：展示档位。旧档缺省 ⇒ 按 minion 处理（小框）。 */
     tier: z.enum(["minion", "hero"]).optional(),
     /** 装备战斗轴合计（2026-11-20）：建场时算一次，整场不变；旧档缺省 ⇒ 空。 */
@@ -208,10 +218,30 @@ const BattleStateSchema = z
     /** 结算配置副本：复用模板协议的 combat settle 定义 */
     settle: CombatSettleSchema.shape.combat,
     round: z.number().int().nonnegative(),
+    /** ADR-075：本场赌注与判负口径（旧档缺省 ⇒ hard / down / 1）。 */
+    stake: z.string().min(1).optional(),
+    defeatState: z.enum(["yielded", "down", "dead"]).optional(),
+    defeatThreshold: z.number().int().nonnegative().optional(),
+    powerStart: z
+      .object({
+        player: z.number(),
+        ally: z.number(),
+        enemy: z.number(),
+        neutral: z.number(),
+      })
+      .strict()
+      .optional(),
     player: z
       .object({
         hp: z.number(),
         mp: z.number(),
+        /** ADR-075：开场 HP 上限与战果计数（旧档缺省 ⇒ 现算 / 0）。 */
+        maxHp: z.number().optional(),
+        damageDealt: z.number().optional(),
+        damageTaken: z.number().optional(),
+        crits: z.number().int().nonnegative().optional(),
+        hits: z.number().int().nonnegative().optional(),
+        lastHitBy: z.string().min(1).optional(),
         /** 战斗镜像里的自定义资源（ADR-003 D8）；结束时回写权威状态。 */
         resources: z.record(z.string(), z.number()).default({}),
         statuses: z.array(StatusInstanceSchema),
@@ -226,10 +256,127 @@ const BattleStateSchema = z
     fallen: z.array(BattleEnemySchema).optional(),
     /** ADR-013 D4：已收回的召唤物（战斗内保留状态，重召即原位回来）。旧档 ⇒ 空。 */
     bench: z.array(BattleEnemySchema).optional(),
+    /** 本轮离场的灰卡（收回 / 献祭），下一回合清空。旧档 ⇒ 空。 */
+    departed: z.array(BattleEnemySchema).optional(),
+    /** 结束瞬间算好的战评（`leave` 时交给 finishBattle，不重算）。旧档 ⇒ 空。 */
+    evaluation: BattleResultSchema.optional(),
     /** ADR-013：召唤实例编号的单调计数器（长度会变，不能用长度起算）。 */
     summonSeq: z.number().int().nonnegative().optional(),
     /** ADR-012 D3：中途加入触发进度（键 = id / `#下标`，值 = 次数）。 */
     reinforcementFires: z.record(z.string(), z.number()).optional(),
+    /** ADR-073：钩子触发次数（键 = hook id）。 */
+    hookFires: z.record(z.string(), z.number()).optional(),
+    /** ADR-073：本回合钩子触发次数（`limit.per: round`），回合末清空。 */
+    hookRoundFires: z.record(z.string(), z.number()).optional(),
+    /** ADR-073 / ADR-076：结构化战斗事件（只写不读）。 */
+    events: z
+      .array(
+        z.discriminatedUnion("kind", [
+          z
+            .object({
+              kind: z.literal("damage"),
+              seq: z.number().int().positive().optional(),
+              round: z.number().int().positive().optional(),
+              actor: z.string(),
+              target: z.string(),
+              skillId: z.string().optional(),
+              amount: z.number(),
+              critical: z.boolean(),
+              critTier: z.union([z.literal(1), z.literal(2)]).optional(),
+              amplifiedBy: z.string().optional(),
+              hookId: z.string().optional(),
+            })
+            .strict(),
+          z
+            .object({
+              kind: z.literal("heal"),
+              seq: z.number().int().positive().optional(),
+              round: z.number().int().positive().optional(),
+              actor: z.string(),
+              target: z.string(),
+              skillId: z.string().optional(),
+              amount: z.number(),
+            })
+            .strict(),
+          z
+            .object({
+              kind: z.literal("miss"),
+              seq: z.number().int().positive().optional(),
+              round: z.number().int().positive().optional(),
+              actor: z.string(),
+              target: z.string(),
+              skillId: z.string().optional(),
+              stage: z.enum(["beforeHit", "hit", "evade", "afterHit"]),
+              reason: z.string().optional(),
+            })
+            .strict(),
+          z
+            .object({
+              kind: z.literal("summon"),
+              seq: z.number().int().positive().optional(),
+              round: z.number().int().positive().optional(),
+              actor: z.string(),
+              summonId: z.string(),
+              name: z.string().optional(),
+              skillId: z.string().optional(),
+            })
+            .strict(),
+          z
+            .object({
+              kind: z.literal("recall"),
+              seq: z.number().int().positive().optional(),
+              round: z.number().int().positive().optional(),
+              actor: z.string(),
+              target: z.string(),
+              name: z.string().optional(),
+              skillId: z.string().optional(),
+            })
+            .strict(),
+          z
+            .object({
+              kind: z.literal("sacrifice"),
+              seq: z.number().int().positive().optional(),
+              round: z.number().int().positive().optional(),
+              actor: z.string(),
+              target: z.string(),
+              skillId: z.string().optional(),
+              name: z.string().optional(),
+            })
+            .strict(),
+          z
+            .object({
+              kind: z.literal("buff"),
+              seq: z.number().int().positive().optional(),
+              round: z.number().int().positive().optional(),
+              actor: z.string(),
+              target: z.string(),
+              skillId: z.string().optional(),
+              statusId: z.string(),
+              name: z.string().optional(),
+              polarity: z.enum(["positive", "negative", "neutral"]).optional(),
+            })
+            .strict(),
+          z
+            .object({
+              kind: z.literal("cancel"),
+              seq: z.number().int().positive().optional(),
+              round: z.number().int().positive().optional(),
+              actor: z.string(),
+              target: z.string().optional(),
+              skillId: z.string().optional(),
+              hookId: z.string().optional(),
+              reason: z.string(),
+            })
+            .strict(),
+          z
+            .object({ kind: z.literal("hook"), seq: z.number().int().positive().optional(),
+              round: z.number().int().positive().optional(), hookId: z.string(), text: z.string().optional() })
+            .strict(),
+        ]),
+      )
+      .optional(),
+    /** ADR-076 §10：事件序号计数器（events 只留 200 条，序号不能按数组下标推算）。 */
+    eventSeq: z.number().int().nonnegative().optional(),
     log: z.array(z.string()),
     over: z.enum(["victory", "defeat", "flee"]).nullable(),
   })
@@ -403,17 +550,9 @@ export const WorldStateV2Schema = z
     opening: z
       .object({
         openingId: z.string().min(1),
-        results: z
-          .array(
-            z
-              .object({
-                nodeId: z.string().min(1),
-                optionId: z.string().min(1).optional(),
-                rollIndex: z.number().int().nonnegative().optional(),
-                allocation: z.record(z.string(), z.record(z.string(), z.number())).optional(),
-              })
-              .strict(),
-          ),
+        // 与 `OpeningStepResultSchema` 同源：以前这里手抄了一份，ADR-072 D7 加 `input`
+        // 时立刻漂了一次（旧档没事，新档一提交就 `Unrecognized key`）。直接复用。
+        results: z.array(OpeningStepResultSchema),
       })
       .strict()
       .optional(),
@@ -494,6 +633,15 @@ export const WorldStateV2Schema = z
     /** 呈现槽：`null` = 空槽。写入口只有「队列取出」与「后继占槽」两个（ADR-0034 §4 S4）。 */
     slot: SlotSceneSchema.nullable(),
     battle: BattleStateSchema.nullable(),
+    /** ADR-075：最近一场战果快照。旧档缺省 ⇒ 没有最近战果。 */
+    lastBattleResult: BattleResultSchema.optional(),
+    /** ADR-075：死亡链状态。旧档缺省 ⇒ 不在死亡链里。 */
+    deathPending: z
+      .object({ routeId: z.string().min(1), eventId: z.string().min(1) })
+      .strict()
+      .optional(),
+    deathSignal: z.object({ reason: z.string().min(1).optional() }).strict().optional(),
+    deathDepth: z.number().int().nonnegative().optional(),
     lastWheel: WheelResultViewSchema.nullable(),
     /**
      * 当轮全部转盘结果（D-03）。可缺省：R2.x 旧档无此字段，读侧按 `[]` 处理

@@ -63,7 +63,7 @@ export const RelationKindSchema = z.union([KinshipKindSchema, SocialKindSchema])
  * · `private` —— 仅当事人知道（双方的私情、没人知道的父女）
  *
  * 语义要点：`private` 不是「不存在」——它对当事人双方完全成立，
- * 也照常参与称谓推导（惠叫甚尔「爸爸」不需要外人知道）。
+ * 也照常参与称谓推导（A 叫 B「爸爸」不需要外人知道）。
  */
 export const RelationScopeSchema = z.enum(["public", "limited", "private"]);
 

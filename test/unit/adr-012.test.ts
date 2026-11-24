@@ -92,8 +92,9 @@ describe("ADR-012 D1/D2 · 召唤与两级单位", () => {
       // ADR-013 D1：回收再召靠 `summonRef` 认亲，它就是「技能里点名的那个角色」。
       expect(m.summonRef).toBe("enemy-grade2-curse");
     }
-    // 只花 MP（8 点）；「召唤物数量」不是一个会掉的数字。
-    expect(battle.player.mp).toBe(mpBefore - 8);
+    // 只花 MP（效率折扣后的价格）；「召唤物数量」不是一个会掉的数字。
+    const cost = effectiveCostOf(state, battle, state.player.id, "sk-summon-curse", entry.lookup).mp;
+    expect(battle.player.mp).toBe(mpBefore - cost);
     expect(battle.player.resources.curses).toBeUndefined();
   });
 
@@ -342,19 +343,20 @@ describe("ADR-012 D6/D7/D8 · 层数、授予技能、消耗修正", () => {
     expect(playerSkills(state, entry.lookup)).not.toContain("sk-ten-spear");
   });
 
-  it("mpCostMultiplier：六眼把苍从 18 压到 2（ceil 不是 round）", () => {
+  it("咒力效率：六眼把苍从 18 压到 6（ceil 不是 round）", () => {
     const { state, entry } = getoWorld();
     const battle = battleWith(state, entry, { enemies: [{ ref: "enemy-grade2-curse" }] });
     const before = effectiveCostOf(state, battle, state.player.id, "sk-gojo-blue", entry.lookup);
-    expect(before.mp).toBe(18);
+    // 夏油总量 48 ⇒ 效率 24 ⇒ mp 消耗 -14.4%：18 × 0.856 = 15.4 ⇒ 16。
+    expect(before.mp).toBe(16);
 
     state.player.statuses.push({ statusId: "six-eyes", stacks: 1, appliedTurn: 0, appliedAt: 0 });
     battle.player.statuses.push({ statusId: "six-eyes", stacks: 1, appliedTurn: 0, appliedAt: 0 });
     const after = effectiveCostOf(state, battle, state.player.id, "sk-gojo-blue", entry.lookup);
-    // 18 × 0.1 = 1.8 ⇒ 2（round 会给 2，但 32×0.1=3.2 时 round 给 3、ceil 给 4 —— 所以要显式 ceil）
-    expect(after.mp).toBe(2);
+    // 六眼 +90 效率：24 + 90 = 114 ⇒ -68.4%：18 × 0.316 = 5.69 ⇒ 6（显式 ceil）。
+    expect(after.mp).toBe(6);
     const heavy = effectiveCostOf(state, battle, state.player.id, "sk-gojo-red", entry.lookup);
-    expect(heavy.mp).toBe(4);
+    expect(heavy.mp).toBe(11);
   });
 });
 
@@ -700,12 +702,13 @@ describe("ADR-014 · 未调伏的魔虚罗", () => {
     const maho = mahoragaOf(battle)!;
 
     // ① 友军 → 中立：`target: enemy` 的 hostile 里含中立项，所以「自己的召唤物」打得中。
-    // 命中率在 0.4~0.5 区间（敏捷差 4 点 ×0.05），所以骰子给 0.01 才稳。
+    // 命中率在 0.4~0.5 区间（敏捷差 4 点 ×0.05）；魔虚罗敏捷 4 ⇒ 闪避 4%，
+    // 所以骰子取 0.2：低于命中率、高于闪避率。
     performBattleAction(
       state,
       { type: "skill", skillId: "sk-basic-strike", targetInstanceId: maho.instanceId },
       entry.lookup,
-      () => 0.01,
+      () => 0.2,
     );
     // 它每回合末会被法轮回满血，所以「掉过血」不能靠事后读数断言 —— 看日志。
     expect(battle.log.some((l) => l.includes("命中八握剑异戒神将魔虚罗，造成"))).toBe(true);

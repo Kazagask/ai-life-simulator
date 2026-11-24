@@ -62,6 +62,31 @@ describe("条件 instruction（2026-11-21）", () => {
     expect(asGuard!.context.instruction).toContain("你是被派去护卫星浆体的人");
   });
 
+  it("as 数组：多个角色共用同一段提示词（含自建角色按出身生成的 id）", () => {
+    const { state, entry } = newWorld();
+    state.flags.spJoined = true;
+    const rules = structuredClone(entry.rules!);
+    const trigger = rules.llmTriggers.find((t) => t.invoke.reason === "jjk.hv.departure")!;
+    trigger.invoke.instruction = [
+      { as: ["npc-riko", "player-clan-branch"], text: "两个人共用" },
+      { text: "兜底" },
+    ];
+
+    const instructionFor = (selfId: string): string | undefined => {
+      state.selfId = selfId;
+      const { invocations } = evaluateTriggersEdge(state, rules, createConditionRegistry(), {
+        seed: state.seed,
+        turnIndex: state.turnIndex,
+        template: entry.template,
+      });
+      return invocations.find((inv) => inv.reason === "jjk.hv.departure")?.context.instruction;
+    };
+
+    expect(instructionFor("npc-riko")).toBe("两个人共用");
+    expect(instructionFor("player-clan-branch")).toBe("两个人共用");
+    expect(instructionFor("npc-geto")).toBe("兜底");
+  });
+
   it("条件变体不影响触发器本身的判定（没写旗标就不发）", () => {
     const { state, entry } = newWorld();
     expect(invocationsOf(state, entry).get("jjk.hv.departure")).toBeUndefined();

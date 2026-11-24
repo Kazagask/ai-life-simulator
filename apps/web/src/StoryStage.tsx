@@ -81,8 +81,18 @@ export function StoryStage({
 }: StoryStageProps) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const insetRef = useRef<HTMLDivElement | null>(null);
-  /** 玩家是否贴着底部（贴底 ⇒ 新内容自动跟随；滑上去看历史 ⇒ 不打扰）。 */
+  /** 玩家是否贴着底部（用于「回到底部」按钮的显隐）。 */
   const stickRef = useRef(true);
+  /**
+   * 是否继续跟随最新内容（自动贴底）。
+   *
+   * 与 `stickRef` 分开：`stickRef` 是一次「此刻在不在底部」的测量，而这里是**意图**。
+   * 正文是逐字长出来的 —— 每次长高都会让「此刻的间距」变大，用测量值当判据就会在
+   * 打字过程中把自己判成「玩家正在回看历史」，于是这一轮再也滚不到底（2026-11-22
+   * 用户实测「行动后要切页签才看见结果」，探针复现 gap 77–109px）。
+   * 只有玩家**主动上滑**才会把它关掉。
+   */
+  const followRef = useRef(true);
   const [atBottom, setAtBottom] = useState(true);
   const [scrollable, setScrollable] = useState(false);
 
@@ -90,19 +100,36 @@ export function StoryStage({
     const el = bodyRef.current;
     if (el === null) return;
     stickRef.current = true;
+    followRef.current = true;
     setAtBottom(true);
     if (typeof el.scrollTo === "function") el.scrollTo({ top: el.scrollHeight, behavior });
     else el.scrollTop = el.scrollHeight;
   }, []);
 
+  /** 同步「此刻是否在底部 / 是否可滚」两个测量值；回到最底部时恢复跟随。 */
   const syncScrollState = useCallback(() => {
     const el = bodyRef.current;
     if (el === null) return;
     const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
     const bottom = gap <= STICK_PX;
     stickRef.current = bottom;
+    // 玩家自己滑回底部 ⇒ 重新跟随最新内容（否则要等下一轮才恢复）。
+    if (bottom) followRef.current = true;
     setAtBottom(bottom);
     setScrollable(el.scrollHeight > el.clientHeight + 4);
+  }, []);
+
+  /** 内容长高 / 尺寸变化：跟随中就把最新一行顶到可视区，否则只更新按钮状态。 */
+  const followContent = useCallback(() => {
+    const el = bodyRef.current;
+    if (el === null) return;
+    if (followRef.current) el.scrollTop = el.scrollHeight;
+    syncScrollState();
+  }, [syncScrollState]);
+
+  /** 玩家主动上滑（滚轮 / 触摸拖动 / 键盘）⇒ 停止跟随，别把人从历史里拽回来。 */
+  const stopFollow = useCallback(() => {
+    followRef.current = false;
   }, []);
 
   /**
@@ -130,9 +157,15 @@ export function StoryStage({
    */
   const [typedTurn, setTypedTurn] = useState<number | null>(null);
   const turnRef = useRef(view.turnIndex);
-  useEffect(() => {
-    turnRef.current = view.turnIndex;
-  }, [view.turnIndex]);
+  /**
+   * 🔴 必须在**渲染期**更新，不能放进 effect。
+   *
+   * 子组件的 effect 先于父组件执行：`NarrativeStream` 打完字回调时，若这里还停在上一轮的
+   * 值，`setTypedTurn(旧轮次)` 会让 `typing` 永远为真 —— 新事件卡（inset）被 `insetReady`
+   * 挡住，表现为「推进后人生页什么都不出来，切个页签再回来才有」（2026-11-22 用户实测）。
+   * 渲染期写 ref 是安全的（幂等、不触发重渲染）。
+   */
+  turnRef.current = view.turnIndex;
   const onTypewriterDone = useCallback(() => setTypedTurn(turnRef.current), []);
 
   const streaming = (draft?.length ?? 0) > 0;
@@ -143,7 +176,11 @@ export function StoryStage({
    * 有 LLM 正文的回合本来就因为 `instantTurn` 关掉了打字，这里只影响模板回合。
    */
   const skipTypingForInset = inset !== undefined && inset !== null && !streaming;
-  const typing = typedTurn !== view.turnIndex;
+  /**
+   * 一句正文都没有（本地局未接 LLM / 纯选项回合）时，不存在"正在打字"这回事：
+   * 若仍按 `typedTurn` 判，事件卡会被永远挡住。空正文 ⇒ 立刻算打完。
+   */
+  const typing = view.content.length > 0 && typedTurn !== view.turnIndex;
   /** 盒中盒要等「流式 + 逐字」都结束；两者都没有时立刻为真（无 LLM 回合不空等）。 */
   const insetReady = !streaming && !typing;
 
@@ -154,15 +191,48 @@ export function StoryStage({
 
   const takeoverOn = takeover !== undefined && takeover !== null;
 
-  // 新内容到来：贴底就跟着走（滑上去看历史时不打扰）。
+  /**
+   * 新一轮结算：**强制**回到底部。
+   *
+   * 玩家刚提交了行动，结果必须在他的视野里。以前这里跟「粘底」状态走，但盒中盒的
+   * 「滚到事件顶端」会把 `stickRef` 置为 false（事件卡通常比可视区高），于是之后
+   * 每一轮的结果都停在折叠线以下 —— 表现就是「行动后人生页像没更新，切个页签再回来
+   * 才看见」（2026-11-22 用户实测）。故事区没有「读历史时被打断」的顾虑：这一下是
+   * 玩家自己点的。
+   */
   useLayoutEffect(() => {
     if (takeoverOn) return;
-    if (!stickRef.current) return;
     const el = bodyRef.current;
     if (el === null) return;
-    el.scrollTop = el.scrollHeight;
+    stickRef.current = true;
+    followRef.current = true;
     setAtBottom(true);
-  }, [view.turnIndex, draft, takeoverOn, insetReady]);
+    el.scrollTop = el.scrollHeight;
+  }, [view.turnIndex, takeoverOn]);
+
+  /**
+   * 「跟随窗口」：本轮结算后 1.6 秒内，只要玩家没主动上滑，就每帧把底部顶住。
+   *
+   * 为什么不能只靠一次 layout effect：正文是**逐字长出来**的，effect 执行时
+   * scrollHeight 还是半截；ResizeObserver 也救不了 —— 长高的是内容，容器尺寸没变，
+   * 观察器不会触发（2026-11-22 探针实测：行动后 gap 77–109px，切页签重挂载才回底）。
+   * 一帧一次赋值只在结算后这一小段跑，开销可忽略，但保证结果一定在视野里。
+   */
+  useEffect(() => {
+    if (takeoverOn) return;
+    let raf = 0;
+    const started = performance.now();
+    const tick = () => {
+      const el = bodyRef.current;
+      if (el !== null && followRef.current) {
+        el.scrollTop = el.scrollHeight;
+        setAtBottom(true);
+      }
+      if (followRef.current && performance.now() - started < 1600) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [view.turnIndex, draft, insetReady, takeoverOn]);
 
   /**
    * 盒中盒出现时**强制**把它推到可视区：玩家要看的是它，不是刚才那半页历史。
@@ -193,7 +263,8 @@ export function StoryStage({
     if (el === null) return;
     syncScrollState();
     if (typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => syncScrollState());
+    // 尺寸变化（逐字长高 / 图片加载 / 字体回填）：跟随中就重新贴底。
+    const ro = new ResizeObserver(() => followContent());
     ro.observe(el);
     return () => ro.disconnect();
   }, [syncScrollState]);
@@ -222,7 +293,14 @@ export function StoryStage({
         <div className="story-takeover">{takeover}</div>
       ) : (
         <>
-          <div className="story-body" ref={bodyRef} onScroll={syncScrollState}>
+          <div
+            className="story-body"
+            ref={bodyRef}
+            onScroll={syncScrollState}
+            onWheel={stopFollow}
+            onTouchMove={stopFollow}
+            onKeyDown={stopFollow}
+          >
             <CgStage media={bannerMedia} />
             {portraits.length > 0 && (
               <div className="ls-portrait-row">

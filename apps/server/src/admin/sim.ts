@@ -16,6 +16,9 @@ import {
   createLookup,
   createRng,
   createWorldV2,
+  deriveTurnSeed,
+  critOf,
+  effectiveAttributes,
   effectiveAttributesOfActor,
   effectiveCostOf,
   evadeOf,
@@ -73,6 +76,10 @@ export interface SimActorSpec {
 export interface SimDuelSpec {
   left: SimActorSpec;
   right: SimActorSpec;
+  /** 额外的敌人（默认只有 `right` 一个）：用来演群体 / 多目标 */
+  enemies?: SimActorSpec[];
+  /** 开场友军（演练场的「友军单体 / 全体」需要）：缺省没有 */
+  allies?: SimActorSpec[];
   /** 打几局（不同的 seed 派生），缺省 100。 */
   repeat?: number;
   seed?: number;
@@ -269,9 +276,21 @@ export function chooseCommand(
   // 期望伤害要折闪避：无下限是 evade 1，不折的话「41 点但永远打不进去」会一直压过
   // 天逆鉾的 32 点必中，仪器就永远量不到「必中破无下限」这件事。
   const target = battle.enemies.find((e) => e.alive);
-  const miss = target ? evadeOf(target.statuses, lookup).chance : 0;
+  const targetAttrs = target
+    ? effectiveAttributes(target.attributes, target.statuses, target.mood ?? 50, lookup)
+    : {};
+  const miss = target ? evadeOf(target.statuses, lookup, undefined, targetAttrs).chance : 0;
   for (const skill of usable) {
-    const damage = skill.damage?.length ? rollFormula(skill.damage, eff, pc.statuses, sheet) * dealt : 0;
+    /**
+     * 期望伤害要折暴击（ADR-073）：`1 + chance × (multiplier − 1)`。
+     * 不折的话，高暴击但基础伤害低的招式会被系统性低估 —— 仪器会一直选错招。
+     * 黑闪（暴击后二次判定、倍率取指数）不在仪器里重算：那是模板钩子，不是引擎规则。
+     */
+    const crit = critOf(pc.statuses, skill, lookup, eff);
+    const critFactor = 1 + crit.chance * (crit.multiplier - 1);
+    const damage = skill.damage?.length
+      ? rollFormula(skill.damage, eff, pc.statuses, sheet) * dealt * critFactor
+      : 0;
     // ADR-013 D5：献祭加成也算进期望伤害，否则旋涡只剩 base 10，永远排在普通攻击后面。
     const bonus =
       skill.sacrifice !== undefined ? sacrificeValueOf(battle, selfId, skill.sacrifice, "ally") : 0;
@@ -292,6 +311,8 @@ export interface SimSetup {
   template: WorldTemplateV2;
   lookup: TemplateLookup;
   state: WorldStateV2;
+  /** 本局 seed：每次行动的根流由它 + 回合数派生（见 `actionRootRng`）。 */
+  seed: number;
   rng: Rng;
   maxHpValue: number;
 }
@@ -341,27 +362,59 @@ export function createSimSetup(baseTemplate: WorldTemplateV2, spec: SimDuelSpec,
   for (const [key, pool] of Object.entries(leftDef?.resources ?? {})) {
     state.player.resources[key] = Math.max(0, Math.min(pool.max, pool.value));
   }
-  state.player.hp = maxHp(state.player, template);
-  state.player.mp = maxMp(state.player, template);
+  const playerAttrs = effectiveAttributesOfActor(state, lookup, state.player);
+  state.player.hp = maxHp(state.player, template, playerAttrs);
+  state.player.mp = maxMp(state.player, template, playerAttrs);
 
   const rightRef = spec.right.dummy !== undefined ? DUMMY_ID : spec.right.ref;
   if (!rightRef) throw new Error("sim_right_actor_missing");
-  const battle = createBattle("sim-duel", { enemies: [{ ref: rightRef }], canFlee: false }, state, lookup);
+  const refOf = (a: SimActorSpec): string | undefined => (a.dummy !== undefined ? DUMMY_ID : a.ref);
+  const extraEnemies = (spec.enemies ?? []).map(refOf).filter((r): r is string => r !== undefined);
+  const allyRefs = (spec.allies ?? []).map(refOf).filter((r): r is string => r !== undefined);
+  // ADR-075：仪器是"量数值"的木桩场，不是死斗 —— 打空血只判力竭（hp 1），不在这里演死亡。
+  const battle = createBattle(
+    "sim-duel",
+    {
+      enemies: [rightRef, ...extraEnemies].map((ref) => ({ ref })),
+      ...(allyRefs.length > 0 ? { allies: allyRefs.map((ref) => ({ ref })) } : {}),
+      canFlee: false,
+      stake: "hard",
+    },
+    state,
+    lookup,
+  );
   state.battle = battle;
+  // 右侧（真人对手）也接受状态覆盖（2026-11-23）：要量「有 / 没有某个状态」的差别
+  // （例如 2006 年的五条还没有常时无下限），不应该只能回去改模板。
+  // 与左侧同一个 `statusInstances` —— 仪器只摆条件，不改规则。
+  if (spec.right.statuses !== undefined && battle.enemies[0] !== undefined) {
+    battle.enemies[0].statuses = statusInstances(spec.right.statuses, state);
+  }
   // 木桩的血量直接写在单位上：它本来就是个「给你打的东西」，不该再受 (75 + 5×咒力) 约束。
   const dummyHp = spec.right.dummy?.hp;
-  if (dummyHp !== undefined && battle.enemies[0]) {
-    battle.enemies[0].hp = dummyHp;
-    battle.enemies[0].maxHp = dummyHp;
+  if (dummyHp !== undefined) {
+    for (const unit of [...battle.enemies, ...battle.allies]) {
+      // 木桩单位的实例 id 形如 `sim-dummy#2`
+      if (!unit.instanceId.startsWith(DUMMY_ID)) continue;
+      unit.hp = dummyHp;
+      unit.maxHp = dummyHp;
+    }
   }
 
-  return { template, lookup, state, rng: createRng(seed), maxHpValue: maxHp(state.player, template) };
+  return {
+    template,
+    lookup,
+    state,
+    seed,
+    rng: createRng(seed),
+    maxHpValue: maxHp(state.player, template, effectiveAttributesOfActor(state, lookup, state.player)),
+  };
 }
 
 /** 跑一局。返回原始事实，聚合在 `simulateDuel` 里做。 */
 function runDuel(baseTemplate: WorldTemplateV2, spec: SimDuelSpec, seed: number): SimDuelRow {
   const setup = createSimSetup(baseTemplate, spec, seed);
-  const { state, lookup, rng } = setup;
+  const { state, lookup } = setup;
   const battle = state.battle!;
   const row: SimDuelRow = {
     outcome: "undecided",
@@ -394,7 +447,13 @@ function runDuel(baseTemplate: WorldTemplateV2, spec: SimDuelSpec, seed: number)
       }
       row.skillUse[command.skillId] = (row.skillUse[command.skillId] ?? 0) + 1;
     }
-    performBattleAction(state, command, lookup, createBattleRng(rng));
+    // 与生产入口同一条根流公式：每回合换根，暴击/命中序列才会真的在变。
+    performBattleAction(
+      state,
+      command,
+      lookup,
+      createBattleRng(createRng(deriveTurnSeed(seed + 13, state.turnIndex * 100 + battle.round))),
+    );
 
     const dealt = battle.enemies.reduce(
       (sum, e, i) => sum + Math.max(0, (enemiesBefore[i] ?? 0) - Math.max(0, e.hp)),

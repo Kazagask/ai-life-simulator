@@ -38,18 +38,18 @@ export function makeTestTemplate(): WorldTemplateV2 {
       max: 100,
       defaultValue: 60,
       bands: [
-        { id: "low", label: "消沉", min: 0, max: 39, attributeModifiers: { cursedEnergy: -1 } },
+        { id: "low", label: "消沉", min: 0, max: 39, attributeModifiers: { energy: -1 } },
         { id: "normal", label: "平静", min: 40, max: 100, attributeModifiers: {} },
       ],
     },
     statusBar: [{ id: "sb1", label: "基本", source: "identity" }],
     attributes: {
-      order: ["cursedEnergy", "agility", "luck", "willpower"],
-      defaults: { cursedEnergy: 5, agility: 5, luck: 5, willpower: 3 },
+      order: ["energy", "agility", "luck", "willpower"],
+      defaults: { energy: 5, agility: 5, luck: 5, willpower: 3 },
     },
     resources: {
-      hp: { base: 100, perLevel: 0, perAttribute: { cursedEnergy: 4 } },
-      mp: { base: 50, perLevel: 0, perAttribute: { cursedEnergy: 2 } },
+      hp: { base: 100, perLevel: 0, perAttribute: { energy: 4 } },
+      mp: { base: 50, perLevel: 0, perAttribute: { energy: 2 } },
     },
     regen: { perTurn: { hp: 2, mp: 1 } },
     characters: [
@@ -59,7 +59,7 @@ export function makeTestTemplate(): WorldTemplateV2 {
         visibility: "public",
         identity: { name: "测试敌人", age: 0, gender: "f" },
         mood: { value: 50 },
-        attributes: { cursedEnergy: 5, agility: 1, luck: 0 },
+        attributes: { energy: 5, agility: 1, luck: 0 },
         skills: ["sk-nuke"],
         public: { personality: "测试用" },
         private: { combatHints: { skillWeights: { "sk-nuke": 1 } } },
@@ -69,7 +69,7 @@ export function makeTestTemplate(): WorldTemplateV2 {
     playerTemplate: {
       identity: { age: 16, gender: "f" },
       mood: 60,
-      attributes: { cursedEnergy: 5, agility: 5, luck: 5 },
+      attributes: { energy: 5, agility: 5, luck: 5 },
       skills: ["sk-strike"],
     },
     actions: [
@@ -103,7 +103,7 @@ export function makeTestTemplate(): WorldTemplateV2 {
         name: "旋涡",
         cost: { mp: 0 },
         target: "enemy",
-        hitCheck: { preset: "opposed", attacker: "cursedEnergy", defender: "agility", baseChance: 1 },
+        hitCheck: { preset: "opposed", attacker: "energy", defender: "agility", baseChance: 1 },
         damage: [{ preset: "stack-scaled", base: 10, perStack: 15, status: "absorbed-curses" }],
         consumeStatus: { status: "absorbed-curses" },
         cooldownTurns: 0,

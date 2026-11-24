@@ -1,4 +1,5 @@
 import { encryptCredentialPayload } from "./llmCrypto";
+import type { LocalEngine } from "./local/transport";
 import type {
   BattleCommand,
   ContentBlockVM,
@@ -152,6 +153,11 @@ export interface ApiErrorBody {
   error?: string;
   message?: string;
   code?: string;
+  /**
+   * 具体原因（服务端自己的那一句，例如 `opening_input_too_long: n-name (16 > 12)`）。
+   * `error` 只是分类码，真正能定位问题的是它。
+   */
+  detail?: unknown;
   /** `opening_not_found` 时该版本合法的 openingId 列表（服务端下发，前端只做展示）。 */
   allowed?: string[];
   /** `template_version_required` 时该模板的可载版本列表。 */
@@ -201,6 +207,9 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
       // message（带具体 Content-Type）与 code（FST_ERR_CTP_*），三者一起展示。
       body = (await res.json()) as ApiErrorBody;
       const parts = [body.error ?? `${res.status}`];
+      // 开局 / 加点的失败原因在 `detail`（分类码 + 具体哪一格），不带出来玩家只会看到
+      // 一句 "请求失败：opening_step_invalid"。
+      if (typeof body.detail === "string" && body.detail !== "") parts.push(body.detail);
       if (body.message && body.message !== body.error) parts.push(body.message);
       if (body.code) parts.push(body.code);
       detail = parts.join(" ｜ ");
@@ -230,8 +239,19 @@ export interface OpeningNodeView {
   nodeId: string;
   title: string;
   text?: string;
-  mode: "roll" | "choose" | "allocate";
+  mode: "roll" | "choose" | "allocate" | "input";
   options: Array<{ id: string; text: string; weight?: number }>;
+  /** input 节点（ADR-072 D7）：预填已由引擎解析好，前端只负责塞进输入框。 */
+  input?: {
+    param: string;
+    value: string;
+    placeholder?: string;
+    hint?: string;
+    minLength?: number;
+    maxLength?: number;
+    pattern?: string;
+    defaultValue?: string;
+  };
   allocation?: {
     param: string;
     budget: number;
@@ -256,7 +276,8 @@ export interface OpeningStepResultView {
 export type OpeningStepInput =
   | { kind: "roll" }
   | { kind: "choose"; optionId: string }
-  | { kind: "allocate"; allocation: Record<string, number> };
+  | { kind: "allocate"; allocation: Record<string, number> }
+  | { kind: "input"; value: string };
 
 export interface OpeningStepResponse {
   node: OpeningNodeView | null;
@@ -433,25 +454,57 @@ export interface CreateWorldInput {
   openingId?: string;
 }
 
+/**
+ * 本地引擎桥（ADR-070 第三期 · T4）。
+ *
+ * UI 只认 `api`：每个世界级方法先问一句「这个世界归本地吗」。归属判据只有一条 ——
+ * 这个 `worldId` 有没有本地会话。老档（服务端世界）永远 false，继续走原来的 HTTP 路径；
+ * 本地世界则完全不出网（模板与同步除外）。
+ */
+let localEngine: LocalEngine | null = null;
+
+export function setLocalEngine(engine: LocalEngine | null): void {
+  localEngine = engine;
+}
+
+/** 这个世界是不是本地会话：叙事 / trace 这类服务端产物要据此跳过。 */
+export function isLocalWorldId(id: string): boolean {
+  return localEngine?.owns(id) ?? false;
+}
+
 export const api = {
   listTemplates() {
     return request<{ templates: TemplateSummary[] }>("/api/templates");
   },
   /** 世界列表（R-PS-04）：savedAt 倒序由服务端保证。 */
-  listWorlds() {
-    return request<{ worlds: WorldSummary[] }>("/api/worlds");
+  async listWorlds() {
+    const local = (localEngine?.listWorlds() ?? []) as unknown as WorldSummary[];
+    try {
+      const remote = await request<{ worlds: WorldSummary[] }>("/api/worlds");
+      return { worlds: [...local, ...remote.worlds] };
+    } catch {
+      // 服务端不可用不影响本地档可见（本地优先的第一条体感）。
+      return { worlds: local };
+    }
   },
   deleteWorld(id: string) {
+    if (localEngine?.owns(id)) return localEngine.deleteWorld(id).then(() => ({ deleted: id }));
     return request<{ deleted: string }>(`/api/worlds/${id}`, { method: "DELETE" });
   },
   /** 装备穿脱（R-EQ-08）：不推进时间，返回新快照。 */
   equipItem(id: string, itemId: string) {
+    if (localEngine?.owns(id)) {
+      return localEngine.equipItem(id, itemId) as ReturnType<typeof request<{ worldId: string; snapshot: WorldSnapshot }>>;
+    }
     return request<{ worldId: string; snapshot: WorldSnapshot }>(`/api/worlds/${id}/equipment/equip`, {
       method: "POST",
       body: JSON.stringify({ itemId }),
     });
   },
   unequipItem(id: string, instanceId: string) {
+    if (localEngine?.owns(id)) {
+      return localEngine.unequipItem(id, instanceId) as ReturnType<typeof request<{ worldId: string; snapshot: WorldSnapshot }>>;
+    }
     return request<{ worldId: string; snapshot: WorldSnapshot }>(`/api/worlds/${id}/equipment/unequip`, {
       method: "POST",
       body: JSON.stringify({ instanceId }),
@@ -477,6 +530,10 @@ export const api = {
     playerName?: string;
     seed?: number;
   }) {
+    if (localEngine?.hasTemplate(input.templateId, input.templateVersion)) {
+      const local = localEngine.createOpening(input);
+      return Promise.resolve(local as Awaited<ReturnType<typeof request<{ sessionId: string; seed: number; node: OpeningNodeView | null }>>>);
+    }
     return request<{ sessionId: string; seed: number; node: OpeningNodeView | null }>("/api/openings", {
       method: "POST",
       body: JSON.stringify({
@@ -488,6 +545,9 @@ export const api = {
     });
   },
   stepOpening(sessionId: string, step: OpeningStepInput) {
+    if (localEngine !== null && sessionId.startsWith("local-open-")) {
+      return Promise.resolve(localEngine.stepOpening(sessionId, step) as unknown as OpeningStepResponse);
+    }
     return request<OpeningStepResponse>(`/api/openings/${sessionId}/step`, {
       method: "POST",
       body: JSON.stringify(step),
@@ -501,6 +561,15 @@ export const api = {
    * `prologueSource === "template"` 表示模型没参与（没配 key / 超时 / 输出不合规）。
    */
   commitOpening(sessionId: string) {
+    if (localEngine !== null && sessionId.startsWith("local-open-")) {
+      return localEngine.commitOpening(sessionId) as Promise<{
+        worldId: string;
+        snapshot: WorldSnapshot;
+        gains?: TurnGain[];
+        prologue?: string;
+        prologueSource?: "llm" | "template";
+      }>;
+    }
     return request<{
       worldId: string;
       snapshot: WorldSnapshot;
@@ -511,15 +580,28 @@ export const api = {
   },
   /** 开局后改名：只写权威 self 实体，不推进时间。 */
   renameWorld(id: string, name: string) {
+    if (localEngine?.owns(id)) {
+      return localEngine.renameWorld(id, name) as ReturnType<typeof request<{ worldId: string; snapshot: WorldSnapshot }>>;
+    }
     return request<{ worldId: string; snapshot: WorldSnapshot }>(`/api/worlds/${id}/rename`, {
       method: "POST",
       body: JSON.stringify({ name }),
     });
   },
   getWorld(id: string) {
+    if (localEngine?.owns(id)) {
+      return Promise.resolve(
+        localEngine.getWorld(id) as unknown as Awaited<
+          ReturnType<typeof request<{ worldId: string; snapshot: WorldSnapshot; eventFlavors?: EventFlavorMap }>>
+        >,
+      );
+    }
     return request<{ worldId: string; snapshot: WorldSnapshot; eventFlavors?: EventFlavorMap }>(`/api/worlds/${id}`);
   },
   advanceTurn(id: string, action: { type: string; description: string }, endLife = false) {
+    if (localEngine?.owns(id)) {
+      return localEngine.advanceTurn(id, action, endLife) as Promise<TurnResponse>;
+    }
     return request<TurnResponse>(`/api/worlds/${id}/turns`, {
       method: "POST",
       body: JSON.stringify({ action, mode: "single", ...(endLife ? { endLife: true } : {}) }),
@@ -530,15 +612,18 @@ export const api = {
    * 没有待确认的转盘时服务端回 409 `no_pending_wheel`。
    */
   confirmWheel(id: string) {
+    if (localEngine?.owns(id)) return localEngine.confirmWheel(id) as Promise<TurnResponse>;
     return request<TurnResponse>(`/api/worlds/${id}/wheels/confirm`, { method: "POST" });
   },
   chooseOption(id: string, optionId: string) {
+    if (localEngine?.owns(id)) return localEngine.chooseOption(id, optionId) as Promise<InteractionResponse>;
     return request<InteractionResponse>(`/api/worlds/${id}/events/choose`, {
       method: "POST",
       body: JSON.stringify({ optionId }),
     });
   },
   battleAction(id: string, command: BattleCommand) {
+    if (localEngine?.owns(id)) return localEngine.battleAction(id, command) as Promise<InteractionResponse>;
     return request<InteractionResponse>(`/api/worlds/${id}/battle`, {
       method: "POST",
       body: JSON.stringify(command),
@@ -549,12 +634,20 @@ export const api = {
    * `allocationId` 原样带回，防止旧页面把点数提交到另一笔请求上。
    */
   submitAllocation(id: string, allocationId: string, points: Record<string, number>) {
+    if (localEngine?.owns(id)) {
+      return localEngine.submitAllocation(id, allocationId, points) as Promise<{
+        worldId: string;
+        snapshot: WorldSnapshot;
+        spent: number;
+      }>;
+    }
     return request<{ worldId: string; snapshot: WorldSnapshot; spent: number }>(
       `/api/worlds/${id}/allocation`,
       { method: "POST", body: JSON.stringify({ allocationId, points }) },
     );
   },
   useItem(id: string, itemId: string) {
+    if (localEngine?.owns(id)) return localEngine.useItem(id, itemId) as Promise<InteractionResponse>;
     return request<InteractionResponse>(`/api/worlds/${id}/items/use`, {
       method: "POST",
       body: JSON.stringify({ itemId }),
@@ -565,9 +658,20 @@ export const api = {
    * 响应里的 `archive.snapshot` 已带 evaluation（含五维分项），页面据此刷新即可。
    */
   archiveWorld(id: string) {
+    // 本地局的归档 = 置 archived + 投影 + 落库；服务端根本不知道这局。
+    if (localEngine?.owns(id)) return localEngine.archiveWorld(id) as Promise<ArchiveResponse>;
     return request<ArchiveResponse>(`/api/worlds/${id}/archive`, { method: "POST" });
   },
   history(id: string) {
+    /**
+     * 本地局的历史在存档里（`state.history`，只给 public）。
+     *
+     * 这是「服务端退场」最容易漏的一处：记录页每次切进来都拉一次，
+     * 漏了就是每点一次「记录」一个 `world_not_found`（2026-11-22 用户实测）。
+     */
+    if (localEngine?.owns(id)) {
+      return Promise.resolve(localEngine.history(id) as { history: HistoryEntryV2[] });
+    }
     return request<{ history: HistoryEntryV2[] }>(
       `/api/worlds/${id}/history`,
     ).then((res) => ({
@@ -644,6 +748,8 @@ function toNarrativeBlock(item: unknown): ContentBlockVM | null {
 }
 
 export async function fetchNarrative(worldId: string, fromTurn = 0): Promise<ContentBlockVM[]> {
+  // 本地世界没有服务端 trace：正文由本地会话给（模板兜底 / 网关正文）。
+  if (localEngine?.owns(worldId)) return localEngine.narrative(worldId).blocks;
   let res: unknown;
   try {
     res = await request<unknown>(`/api/worlds/${worldId}/narrative?fromTurn=${fromTurn}`);

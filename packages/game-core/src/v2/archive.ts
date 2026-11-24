@@ -4,6 +4,7 @@ import type {
   EvaluationRecord,
   HistoryEntryV2,
   TerminationRecord,
+  UiConfig,
   V2Snapshot,
   WorldStateV2,
   WorldTemplateV2,
@@ -53,6 +54,13 @@ export function assembleArchive(
   evaluation: EvaluationRecord,
   /** 结局模板集：提供时归档快照携带结局投影（含 hidden 掩码规则） */
   endings?: readonly EndingTemplate[],
+  /**
+   * 展示域配置（`ui.yaml`）：**档案也要带**。
+   *
+   * 少了它，归档快照里所有 `style` 都解析不出来 —— 成长型天赋的阶色（紫 / 粉 / 橙红）
+   * 在档案里会退回绿或金，玩家看到的是「一生走完，天赋从紫变回金色」。
+   */
+  ui?: UiConfig,
 ): ArchiveResult {
   if (state.termination === null) {
     throw new Error("[archive_requires_termination] 尚未终止，拒绝归档");
@@ -61,7 +69,7 @@ export function assembleArchive(
   // 归档快照按**已归档**状态投影：status 应为 archived，而非终止瞬间的 terminated
   const archived = markArchived(state);
   const record: ArchiveRecord = {
-    snapshot: projectSnapshotV2(archived, template, lookup, evaluation, endings),
+    snapshot: projectSnapshotV2(archived, template, lookup, evaluation, endings, ui),
     history: archived.history.map((h) => ({ ...h })),
     ending,
     evaluation,

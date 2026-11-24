@@ -54,6 +54,82 @@ export function validateOpeningDag(
     paramsById.set(param.id, { index: i, kind: param.kind });
   });
 
+  // 节点前置（ADR-072 D3）：只能读已声明、且 `kind: flag` 的参数 ——
+  // 前置判据是「落定值 ∈ 字符串白名单」，number/points/attribute 的参数要么没有字符串值，
+  // 要么值是对象（`{ id, value }`），拿来做白名单比对只会永远不成立。
+  const WHEN_KINDS = new Set(["flag"]);
+  dag.nodes.forEach((node, i) => {
+    (node.when ?? []).forEach((cond, j) => {
+      const decl = paramsById.get(cond.param);
+      if (decl === undefined) {
+        add(`nodes[${i}].when[${j}].param`, `未知参数：${cond.param}`);
+      } else if (!WHEN_KINDS.has(decl.kind)) {
+        add(
+          `nodes[${i}].when[${j}].param`,
+          `节点前置只能读 flag 参数，实际是 ${decl.kind}：${cond.param}`,
+        );
+      }
+    });
+  });
+
+  /**
+   * 输入节点（ADR-072 D7）：落点只能写 `name` / `flag` 参数，且三种模板语法都要能解析。
+   *
+   * 为什么在这里而不是 zod：`param` 的 kind、`{token}` 引用的参数、`pattern` 能不能编译，
+   * 都需要拿到整份 DAG + 世界属性表 —— 与加点目标是同一层「跨文件」校验。
+   */
+  const RESERVED_TOKENS = new Set(["pick", "playerName"]);
+  dag.nodes.forEach((node, i) => {
+    if (node.mode !== "input" || node.input === undefined) return;
+    const cfg = node.input;
+    const path = `nodes[${i}].input`;
+    const decl = paramsById.get(cfg.param);
+    if (decl === undefined) {
+      add(`${path}.param`, `未知参数：${cfg.param}`);
+    } else if (decl.kind !== "name" && decl.kind !== "flag") {
+      add(`${path}.param`, `input 只能写 name / flag 参数，实际是 ${decl.kind}：${cfg.param}`);
+    } else if (decl.kind === "flag" && cfg.flag === undefined) {
+      add(`${path}.flag`, "flag 参数必须声明写到哪个旗标（input.flag）");
+    }
+    if (cfg.flag !== undefined && decl !== undefined && decl.kind !== "flag") {
+      add(`${path}.flag`, "input.flag 只对 kind: flag 的参数有意义");
+    }
+    if (cfg.pattern !== undefined) {
+      try {
+        new RegExp(cfg.pattern, "u");
+      } catch {
+        add(`${path}.pattern`, `正则无法编译：${cfg.pattern}`);
+      }
+    }
+    if (cfg.minLength !== undefined && cfg.maxLength !== undefined && cfg.minLength > cfg.maxLength) {
+      add(`${path}.minLength`, `minLength(${cfg.minLength}) 大于 maxLength(${cfg.maxLength})`);
+    }
+    const texts: string[] =
+      cfg.prefill === undefined
+        ? []
+        : typeof cfg.prefill === "string"
+          ? [cfg.prefill]
+          : cfg.prefill.map((c) => c.text);
+    const usesPick = texts.some((text) => text.includes("{pick}"));
+    if (usesPick && (cfg.suggestions === undefined || cfg.suggestions.length === 0)) {
+      add(`${path}.suggestions`, "用了 {pick} 就必须提供 suggestions");
+    }
+    for (const text of texts) {
+      for (const match of text.matchAll(/\{([A-Za-z0-9_-]+)\}/g)) {
+        const token = match[1] ?? "";
+        if (RESERVED_TOKENS.has(token)) continue;
+        if (!paramsById.has(token)) add(`${path}.prefill`, `{${token}} 引用了未声明的参数`);
+      }
+    }
+    for (const candidate of typeof cfg.prefill === "string" ? [] : (cfg.prefill ?? [])) {
+      for (const id of candidate.require ?? []) {
+        if (!paramsById.has(id) && !RESERVED_TOKENS.has(id)) {
+          add(`${path}.prefill.require`, `未知参数：${id}`);
+        }
+      }
+    }
+  });
+
   const attributeIds = new Set(template.attributes.order);
   const styleKnown = (id: string): boolean => styleSpecFor(id, ui) !== undefined;
 

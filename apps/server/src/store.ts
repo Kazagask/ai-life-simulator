@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import type { ContentBlock, LlmTrace, OpeningTemplate, WorldStateV2, WorldTemplateV2 } from "@life-sim/shared";
-import { LlmTraceSchema, WorldStateV2Schema } from "@life-sim/shared";
+import { LlmTraceSchema, WORLD_SCHEMA_VERSION, WorldStateV2Schema } from "@life-sim/shared";
 import {
   createDefaultOpeningTemplate,
   createRunnerContext,
@@ -40,7 +40,7 @@ import { assertWorldId, dataDir, FsWorldStore } from "./world-store-fs.js";
  *
  * 历史：R2.5 升 1 → 2；ADR-0034 §5 升 2 → 3；F3 升 3 → 4；ADR-001 升 4 → 5。
  */
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = WORLD_SCHEMA_VERSION;
 
 /** 内存保存时间（savedAt），列表接口按其倒序。 */
 const savedAtById = new Map<string, string>();

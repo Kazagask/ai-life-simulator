@@ -25,7 +25,7 @@ import {
  *
  * 为什么在引擎投影期解析而不是各前端自己解析：
  * 用户的原话是「后续所有品质是这个级别的特质/技能都按这个颜色渲染」——这要求
- * 「六眼」在个人页、收获卡、事件区、战斗面板是**同一份**结果。多端各解析必然漂移。
+ * 同一个状态在个人页、收获卡、事件区、战斗面板是**同一份**结果。多端各解析必然漂移。
  */
 
 const PRESETS = new Set<string>(STYLE_PRESET_IDS);
@@ -139,7 +139,7 @@ export function resolveEntityStyle(
   /**
    * 有 `polarity` 时，**语义标签被剔除**（2026-11-20 用户裁决）：
    * `buff` / `abnormal` / `neutral` 不再参与配色，正负只由字段决定。
-   * 品级标签（`mythic-unique` 这类）保留 —— 它们是身份色（如六眼的流动彩虹），
+   * 品级标签（`mythic-unique` 这类）保留 —— 它们是身份色（如唯一档的流动彩虹），
    * 与「战斗中绿/红/灰」是两套口径：后者由 UI 直接读 `polarity`，不经由此处。
    */
   const tags = def.polarity === undefined

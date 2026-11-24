@@ -1,4 +1,5 @@
 import type {
+  AnyMatch,
   LlmBudget,
   LlmInvocation,
   Perspective,
@@ -21,6 +22,7 @@ import { evaluateAttributeCondition } from "./attribute-rules.js";
 import { selfIdOf } from "./actors.js";
 import { normalizeRelationEndpoint } from "./relations.js";
 import { amountToMinutes } from "./time.js";
+import { anyMatchMet } from "./any-match.js";
 
 /**
  * 条件求值器（T-02，纯函数）。
@@ -115,6 +117,17 @@ interface FlatEvaluator {
 const numeric = (v: unknown): number => (typeof v === "number" ? v : 0);
 
 const FLAT_EVALUATORS: readonly FlatEvaluator[] = [
+  {
+    // ADR-075 §6：集合 + 字段谓词。触发期没有"刚打完的那一场"之外的新战果，
+    // 所以 `battle.*` 读 `lastBattleResult`；没有它 ⇒ 空集合 ⇒ false。
+    probe: (c) => "anyMatch" in c,
+    eval: (c, ctx) =>
+      anyMatchMet((c as unknown as { anyMatch: AnyMatch }).anyMatch, {
+        state: ctx.state,
+        battle: ctx.state.lastBattleResult,
+        ...(ctx.template !== undefined ? { template: ctx.template } : {}),
+      }),
+  },
   {
     probe: (c) => "random" in c,
     eval: (c, ctx) => ctx.rng() < numeric((c as { random: number }).random),
@@ -368,14 +381,20 @@ function createTriggerContext(
 /**
  * 条件 instruction 的解析（2026-11-21）：单字符串原样返回；变体数组取**声明序第一条命中**的。
  *
- * 命中 = `as`（当前 self 是不是这个人）+ `when`（条件数组）**同时**成立。
+ * 命中 = `as`（当前 self 是不是这个人/这组人）+ `when`（条件数组）**同时**成立。
  * `as` 是**快捷写法**，与事件节点级的同名语法同一套语义：
- * `as: npc-riko` ⇔ `when: [{ selfIs: npc-riko }]`，不渲染成任何身份前缀 ——
+ * `as: npc-riko` ⇔ `when: [{ selfIs: npc-riko }]`；数组形式
+ * `as: [npc-a, npc-b]` ⇔ 「self 是其中任意一个」，不渲染成任何身份前缀 ——
  * 它只决定「这句话给谁看」，不改变句子本身。
  *
  * 有 `as` 变体却没有兜底 ⇒ 加载期已拒（`InstructionSchema` 的 superRefine），
  * 所以这里 `find` 不到只可能是"条件变体都不满足且无兜底"的旧档，返回 undefined 即可。
  */
+function asMatches(as: string | string[] | undefined, selfId: string): boolean {
+  if (as === undefined) return true;
+  return Array.isArray(as) ? as.includes(selfId) : as === selfId;
+}
+
 function resolveInstruction(
   instruction: Rules["llmTriggers"][number]["invoke"]["instruction"],
   ctx: ConditionEvalContext,
@@ -386,7 +405,7 @@ function resolveInstruction(
   const selfId = selfIdOf(ctx.state);
   const variant = instruction.find(
     (candidate) =>
-      (candidate.as === undefined || candidate.as === selfId) &&
+      asMatches(candidate.as, selfId) &&
       (candidate.when === undefined ||
         candidate.when.length === 0 ||
         evaluateAll(candidate.when, ctx, registry)),

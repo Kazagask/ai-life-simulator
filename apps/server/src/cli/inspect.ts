@@ -18,7 +18,7 @@
  *   pnpm inspect trace                    # trace 时间线（默认最新存档）
  *   pnpm inspect trace --limit 5 --full   # 只看最近 5 条并展开正文
  *   pnpm inspect sim --as npc-gojo --vs npc-toji          # 打一场真人对局 ×100
- *   pnpm inspect sim --as npc-gojo --dummy hp=500,agility=8  # 打木桩量输出
+ *   pnpm inspect sim --as npc-xxx --dummy hp=500,agility=8  # 打木桩量输出
  *   pnpm inspect sim --as npc-geto --dummy hp=900 --stance coverage  # 走完召唤→召回环
  *
  * 通用开关：`--json` 输出机器可读结构；`--tpl jjk-2006@2.0.0` 指定模板；`--all` 不过滤 info。
@@ -950,7 +950,7 @@ function renderTrace(ctx: Ctx, args: Args): void {
  * sim：战斗数值木桩
  * ------------------------------------------------------------------ */
 
-/** `--dummy hp=500,physique=10,agility=5` —— 逗号分隔的 `键=数值`，`hp` 直接定血条。 */
+/** `--dummy hp=500,power=10,speed=5` —— 逗号分隔的 `键=数值`，`hp` 直接定血条。 */
 function parseDummy(spec: string): NonNullable<SimActorSpec["dummy"]> {
   const attributes: Record<string, number> = {};
   let hp: number | undefined;
@@ -983,7 +983,7 @@ function renderSim(ctx: Ctx, args: Args): void {
   const skills = args.skills !== undefined ? args.skills.split(",").map((s) => s.trim()).filter(Boolean) : undefined;
   const rightRef = args.vs ?? args.positional[1];
   if (dummy === undefined && rightRef === undefined) {
-    fail("sim 需要 --vs <角色 id> 或 --dummy hp=500,physique=10,agility=5");
+    fail("sim 需要 --vs <角色 id> 或 --dummy hp=500,power=10,speed=5");
   }
   if (args.stance !== undefined && args.stance !== "damage" && args.stance !== "coverage") {
     fail(`--stance 只接受 damage | coverage：${args.stance}`);
@@ -1095,7 +1095,7 @@ function main(): void {
           "  sim               战斗数值模拟（打木桩 / 对打，打印均值）",
           "    --as <id>       出战方角色 id",
           "    --vs <id>       对手角色 id（与 --dummy 二选一）",
-          "    --dummy hp=500,physique=10,agility=5",
+          "    --dummy hp=500,power=10,speed=5",
           "    --repeat N      局数（默认 100）  --max-rounds N（默认 30）  --seed N",
           "    --skills a,b,c   只带这几招（默认取角色卡上的整套）",
           "    --stance damage|coverage  挑招姿态：堆伤害（默认）/ 先走完召唤环",

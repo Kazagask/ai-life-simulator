@@ -35,7 +35,7 @@ import {
   skillEffectSummaries,
   statusEffectSummaries,
 } from "./presentation/effects.js";
-import { applyStatusToPlayer, assignAttributeValue, maxHp, maxMp } from "./engine.js";
+import { applyStatusToPlayer, assignAttributeValue, maxHp, maxMp, playerEffectiveAttributes } from "./engine.js";
 import { createLookup } from "./lookup.js";
 import { createWorldV2, type SelfSelectionV2 } from "./turn.js";
 import { createTimeAdapter, type TimeUnit } from "./time.js";
@@ -48,16 +48,75 @@ export interface OpeningSessionCore {
   nodeId: string;
   results: OpeningStepResult[];
   done: boolean;
+  /**
+   * 宿主注入的**初始参数**（ADR-072 D7）：例如向导里玩家已经填过的名字。
+   *
+   * 它是 `resolveParamMap` 的底：DAG 的每一步结果覆盖它，但它自己不由任何节点产生。
+   * 这样模板就能用 `{typedName}` 这种引用拿到「向导里填的值」，而不必让引擎知道
+   * 「名字」这件事 —— 引擎只认识「参数」。
+   */
+  initial?: Record<string, unknown>;
 }
 
-export function createOpeningSession(dag: OpeningBranchDag, seed: number): OpeningSessionCore {
-  return { openingId: dag.openingId, seed, nodeId: dag.entry, results: [], done: false };
+export function createOpeningSession(
+  dag: OpeningBranchDag,
+  seed: number,
+  initial?: Record<string, unknown>,
+): OpeningSessionCore {
+  const session: OpeningSessionCore = {
+    openingId: dag.openingId,
+    seed,
+    nodeId: dag.entry,
+    results: [],
+    ...(initial !== undefined ? { initial } : {}),
+    done: false,
+  };
+  const settled = settleNodeId(dag, session, dag.entry);
+  return { ...session, nodeId: settled ?? dag.entry, done: settled === null };
 }
 
 /** 当前节点（done 时为 null）。 */
 export function currentNode(dag: OpeningBranchDag, session: OpeningSessionCore): OpeningBranchNode | null {
   if (session.done) return null;
   return dag.nodes.find((n) => n.node === session.nodeId) ?? null;
+}
+
+/**
+ * 节点前置是否成立（ADR-072 D3）。
+ *
+ * 只读**已落定参数**：`when: [{ param: originTag, in: [clan-branch] }]` 这类声明
+ * 在 `resolveParamMap` 之后求值（同一个解包口径 —— flag 参数存的是 `{ id, value }`）。
+ * 参数还没落定（前面的节点没走到）⇒ 视为不成立：宁可跳过，也不要让一个
+ * 「本该只给御三家看」的格子漏给所有人。
+ */
+function nodeApplies(dag: OpeningBranchDag, session: OpeningSessionCore, node: OpeningBranchNode): boolean {
+  if (node.when === undefined || node.when.length === 0) return true;
+  const params = resolveParamMap(dag, session);
+  return node.when.every((cond) => {
+    const value = unwrapParamValue(params[cond.param]);
+    return typeof value === "string" && cond.in.includes(value);
+  });
+}
+
+/**
+ * 从 `startId` 开始，顺着 `goto ?? 下一个` 跳过前置不成立的节点，返回第一个该上屏的节点 id。
+ *
+ * 跳过**不写 results**：被跳过的格子不存在于玩家的这一局里，历史/结算都不该出现它。
+ * DAG 加载期已拒环，这里加一个步数上限只是防御（模板写坏时宁可报错，不要死循环）。
+ */
+function settleNodeId(dag: OpeningBranchDag, session: OpeningSessionCore, startId: string | null): string | null {
+  let cursor = startId;
+  let hops = 0;
+  while (cursor !== null) {
+    const node = dag.nodes.find((n) => n.node === cursor);
+    // 未知 goto 交给调用方按原口径报 `opening_goto_not_found`，这里不吞。
+    if (node === undefined) return cursor;
+    if (nodeApplies(dag, session, node)) return cursor;
+    hops += 1;
+    if (hops > dag.nodes.length) throw new Error(`opening_when_loop: ${cursor}`);
+    cursor = nextNodeId(dag, node);
+  }
+  return null;
 }
 
 export interface OpeningAllocationTargetView {
@@ -79,6 +138,21 @@ export interface OpeningNodeView {
   options: Array<{ id: string; text: string; weight?: number }>;
   /** allocate 节点：点数规格（param id + budget + targets）。 */
   allocation?: { param: string; budget: number; targets: OpeningAllocationTargetView[] };
+  /**
+   * input 节点：输入框规格（ADR-072 D7）。
+   * `value` 是**已经解析好的预填**（候选已按 when/require 选中、`{pick}` 已抽定），
+   * 所以客户端只管把它塞进输入框，不需要知道候选与 token 的存在。
+   */
+  input?: {
+    param: string;
+    value: string;
+    placeholder?: string;
+    hint?: string;
+    minLength?: number;
+    maxLength?: number;
+    pattern?: string;
+    defaultValue?: string;
+  };
 }
 
 /** describeNode 的可选上下文：只有带上 template/ui 才能解析 label 与 style。 */
@@ -120,6 +194,100 @@ function unwrapParamValue(raw: unknown): unknown {
     return (raw as Record<string, unknown>).value;
   }
   return raw;
+}
+
+/** 前置 / 预填候选共用的判定：`param` 的落定值是否落在白名单里。 */
+function paramIn(params: Record<string, unknown>, cond: { param: string; in: readonly string[] }): boolean {
+  const value = unwrapParamValue(params[cond.param]);
+  return typeof value === "string" && cond.in.includes(value);
+}
+
+/** 参数落定为非空字符串？（`require` 的语义：**有**这个值，而不只是没报错） */
+function paramHasText(params: Record<string, unknown>, id: string): boolean {
+  const value = unwrapParamValue(params[id]);
+  return typeof value === "string" && value.trim() !== "";
+}
+
+/**
+ * `{paramId}` 插值 + `{pick}`（ADR-072 D7）。
+ *
+ * 未落定的参数当空串 —— 模板因此可以写「姓 + 名」而不必关心名有没有值。
+ * `{pick}` 保留字：从 `suggestions` 里按**本节点派生的** seed 取一个（不消耗主流，
+ * 同 seed 同结果），这样「随机一个名字」不需要额外开一个转盘。
+ */
+function interpolatePrefill(
+  text: string,
+  params: Record<string, unknown>,
+  pick: string,
+): string {
+  return text.replace(/\{([A-Za-z0-9_-]+)\}/g, (_all, token: string) => {
+    if (token === "pick") return pick;
+    const value = unwrapParamValue(params[token]);
+    if (typeof value === "string") return value;
+    return typeof value === "number" ? String(value) : "";
+  });
+}
+
+/** 预填结算：候选按声明序，第一个 `when` + `require` 都成立的胜出；都没有 ⇒ 空串。 */
+function resolvePrefill(
+  dag: OpeningBranchDag,
+  session: OpeningSessionCore,
+  node: OpeningBranchNode,
+  cfg: NonNullable<OpeningBranchNode["input"]>,
+): string {
+  const params = resolveParamMap(dag, session);
+  const pool = cfg.suggestions ?? [];
+  const pick =
+    pool.length === 0
+      ? ""
+      : pool[
+          Math.min(
+            pool.length - 1,
+            Math.floor(createRng(deriveOpeningSeed(session.seed, dag.openingId, `${node.node}#pick`))() * pool.length),
+          )
+        ];
+  const candidates =
+    cfg.prefill === undefined
+      ? []
+      : typeof cfg.prefill === "string"
+        ? [{ text: cfg.prefill }]
+        : cfg.prefill;
+  for (const candidate of candidates) {
+    if (candidate.when !== undefined && !candidate.when.every((cond) => paramIn(params, cond))) continue;
+    if (candidate.require !== undefined && !candidate.require.every((id) => paramHasText(params, id))) continue;
+    return interpolatePrefill(candidate.text, params, pick);
+  }
+  return "";
+}
+
+/**
+ * 输入值的收口（ADR-072 D7）：trim → 空串兜底（`defaultValue` → 预填）→ 长度 → 正则。
+ *
+ * 长度按**码点**数：中文一个字算一，`"𠮷"` 这种代理对也只算一 —— 用 `.length` 会把
+ * 一个名字算成两个，模板作者写 `maxLength: 12` 就会莫名少一格。
+ */
+function normalizeInputValue(
+  dag: OpeningBranchDag,
+  session: OpeningSessionCore,
+  node: OpeningBranchNode,
+  cfg: NonNullable<OpeningBranchNode["input"]>,
+  raw: string,
+): string {
+  const trimmed = raw.trim();
+  const fallback = (cfg.defaultValue ?? resolvePrefill(dag, session, node, cfg)).trim();
+  const value = trimmed === "" ? fallback : trimmed;
+  if (value === "") throw new Error(`opening_input_required: ${node.node}`);
+  const length = [...value].length;
+  if (cfg.minLength !== undefined && length < cfg.minLength) {
+    throw new Error(`opening_input_too_short: ${node.node} (${length} < ${cfg.minLength})`);
+  }
+  if (cfg.maxLength !== undefined && length > cfg.maxLength) {
+    throw new Error(`opening_input_too_long: ${node.node} (${length} > ${cfg.maxLength})`);
+  }
+  if (cfg.pattern !== undefined && !new RegExp(cfg.pattern, "u").test(value)) {
+    throw new Error(`opening_input_pattern: ${node.node}`);
+  }
+  return value;
 }
 
 /**
@@ -194,21 +362,39 @@ export function describeNode(
       allocation = { param: pid ?? "", budget: 0, targets: [] };
     }
   }
+  // input 节点：预填在这里解析（候选 / `{param}` / `{pick}` 全部结算完），
+  // 客户端拿到的就是一个「已经写好的字符串」，不需要理解模板语法。
+  let input: OpeningNodeView["input"];
+  if (node.mode === "input" && node.input !== undefined) {
+    const cfg = node.input;
+    input = {
+      param: cfg.param,
+      value: resolvePrefill(dag, session, node, cfg),
+      ...(cfg.placeholder !== undefined ? { placeholder: cfg.placeholder } : {}),
+      ...(cfg.hint !== undefined ? { hint: cfg.hint } : {}),
+      ...(cfg.minLength !== undefined ? { minLength: cfg.minLength } : {}),
+      ...(cfg.maxLength !== undefined ? { maxLength: cfg.maxLength } : {}),
+      ...(cfg.pattern !== undefined ? { pattern: cfg.pattern } : {}),
+      ...(cfg.defaultValue !== undefined ? { defaultValue: cfg.defaultValue } : {}),
+    };
+  }
   return {
     nodeId: node.node,
     title: node.title,
     ...(node.text !== undefined ? { text: node.text } : {}),
     mode: node.mode,
-    // allocate 不展示选项；roll 的选项只用于"转盘扇区"呈现（权重已公开给玩家，与现有转盘一致）。
-    options: node.mode === "allocate" ? [] : options,
+    // allocate / input 不展示选项；roll 的选项只用于"转盘扇区"呈现（权重已公开给玩家，与现有转盘一致）。
+    options: node.mode === "allocate" || node.mode === "input" ? [] : options,
     ...(allocation !== undefined ? { allocation } : {}),
+    ...(input !== undefined ? { input } : {}),
   };
 }
 
 export type ResolveInput =
   | { kind: "roll" }
   | { kind: "choose"; optionId: string }
-  | { kind: "allocate"; allocation: Record<string, number> };
+  | { kind: "allocate"; allocation: Record<string, number> }
+  | { kind: "input"; value: string };
 
 export interface StepOutcome {
   session: OpeningSessionCore;
@@ -223,7 +409,7 @@ function nextNodeId(dag: OpeningBranchDag, node: OpeningBranchNode, option?: Ope
   return i >= 0 && i + 1 < dag.nodes.length ? dag.nodes[i + 1].node : null;
 }
 
-/** 推进一步。roll 自动掷并立即前进；choose / allocate 必须给对应 input。 */
+/** 推进一步。roll 自动掷并立即前进；choose / allocate / input 必须给对应 input。 */
 export function resolveStep(
   dag: OpeningBranchDag,
   session: OpeningSessionCore,
@@ -234,6 +420,7 @@ export function resolveStep(
   if (node.mode === "roll" && input.kind !== "roll") throw new Error("opening_step_expects_roll");
   if (node.mode === "choose" && input.kind !== "choose") throw new Error("opening_step_expects_choose");
   if (node.mode === "allocate" && input.kind !== "allocate") throw new Error("opening_step_expects_allocate");
+  if (node.mode === "input" && input.kind !== "input") throw new Error("opening_step_expects_input");
 
   let option: OpeningBranchOption | undefined;
   let result: OpeningStepResult;
@@ -266,20 +453,37 @@ export function resolveStep(
     if (!checked.ok) throw new Error(`opening_allocation_${checked.code}: ${checked.detail}`);
     // 形状 = paramId -> attribute -> value（与 shared 契约一致）。
     result = { nodeId: node.node, allocation: { [pid ?? ""]: checked.points } };
+  } else if (node.mode === "input" && input.kind === "input") {
+    const cfg = node.input;
+    if (cfg === undefined) throw new Error(`opening_input_no_spec: ${node.node}`);
+    // ADR-072 D7：空串 → defaultValue → 预填；都给不出就拒（不写一个空名字进世界）。
+    const value = normalizeInputValue(dag, session, node, cfg, input.value);
+    result = { nodeId: node.node, input: value };
   } else {
     throw new Error("opening_step_invalid_input");
   }
 
-  const next = nextNodeId(dag, node, option);
-  if (next !== null && !dag.nodes.some((n) => n.node === next)) throw new Error(`opening_goto_not_found: ${next}`);
+  const rawNext = nextNodeId(dag, node, option);
+  if (rawNext !== null && !dag.nodes.some((n) => n.node === rawNext)) throw new Error(`opening_goto_not_found: ${rawNext}`);
   const nextSession: OpeningSessionCore = {
     ...session,
-    nodeId: next ?? session.nodeId,
+    nodeId: rawNext ?? session.nodeId,
     results: [...session.results, result],
-    done: next === null,
+    done: rawNext === null,
+  };
+  // 前置结算必须用**写入本步之后**的会话：`h-yes` 把 `heritage` 写成 inherited，
+  // 紧接着那一格的 `when` 才成立。用旧会话会顺序错位一格（抽到「有传承」却进通用池）。
+  //
+  // `settled === null` 有两种来路：本来就没有下一个节点，或者剩下的全被跳过 ——
+  // 两者都是「这一局到此为止」，所以 done 只看它，不能再回退到旧 nodeId。
+  const settled = rawNext === null ? null : settleNodeId(dag, nextSession, rawNext);
+  const settledSession: OpeningSessionCore = {
+    ...nextSession,
+    nodeId: settled ?? session.nodeId,
+    done: settled === null,
   };
   return {
-    session: nextSession,
+    session: settledSession,
     ...(option !== undefined
       ? { resolved: { nodeId: node.node, optionId: option.id, text: option.text, set: option.set } }
       : {}),
@@ -288,7 +492,8 @@ export function resolveStep(
 
 /** 把 results 顺序折叠成参数表（后者覆盖前者，纯赋值/增量，无副作用链）。 */
 export function resolveParamMap(dag: OpeningBranchDag, session: OpeningSessionCore): Record<string, unknown> {
-  const map: Record<string, unknown> = {};
+  // 宿主注入的初始参数是「底」：它先落，DAG 的每一步再覆盖它（ADR-072 D7）。
+  const map: Record<string, unknown> = { ...(session.initial ?? {}) };
   for (const r of session.results) {
     if (r.allocation !== undefined) {
       // allocation 已按 paramId 分桶：{ paramId: { attribute: value } }
@@ -296,6 +501,14 @@ export function resolveParamMap(dag: OpeningBranchDag, session: OpeningSessionCo
       continue;
     }
     const node = dag.nodes.find((n) => n.node === r.nodeId);
+    if (r.input !== undefined) {
+      const cfg = node?.input;
+      if (cfg !== undefined) {
+        // flag 参数是 `{ id, value }`；其余（name）就是裸字符串。落点由 commit 按 kind 决定。
+        map[cfg.param] = cfg.flag !== undefined ? { id: cfg.flag, value: r.input } : r.input;
+      }
+      continue;
+    }
     const option = node?.options?.find((o) => o.id === r.optionId);
     if (option) Object.assign(map, option.set);
   }
@@ -323,6 +536,11 @@ export function commitOpening(
   session: OpeningSessionCore,
   template: WorldTemplateV2,
   worldId: string,
+  /**
+   * 世界 RNG 的 seed。缺省 ⇒ 随机（服务端行为逐字不变）；
+   * 本地建局传 `session.seed`，让「同 seed 开局 ⇒ 同世界」在浏览器里也成立。
+   */
+  seed?: number,
 ): WorldStateV2 {
   assertSessionDone(session);
   const params = resolveParamMap(dag, session);
@@ -333,7 +551,12 @@ export function commitOpening(
   const reuse = selfSelection.kind === "reuse";
   const name = stringValue(byKind.get("name"));
   const state = createWorldV2(
-    { templateId: template.meta.id, playerName: name, self: selfSelection },
+    {
+      templateId: template.meta.id,
+      playerName: name,
+      self: selfSelection,
+      ...(seed !== undefined ? { seed } : {}),
+    },
     template,
     worldId,
   );
@@ -693,6 +916,8 @@ function applyAdditiveParams(
     if (e) state.extensions = { ...(state.extensions ?? {}), ...e };
   }
   // 资源上限随属性变化重新夹取。
-  state.player.hp = Math.max(1, Math.min(state.player.hp, maxHp(state.player, template)));
-  state.player.mp = Math.max(0, Math.min(state.player.mp, maxMp(state.player, template)));
+  // ADR-074：换算后的上限才是真上限（属性转化可能把 mp 上限归 0）。
+  const capAttrs = playerEffectiveAttributes(state, lookup);
+  state.player.hp = Math.max(1, Math.min(state.player.hp, maxHp(state.player, template, capAttrs)));
+  state.player.mp = Math.max(0, Math.min(state.player.mp, maxMp(state.player, template, capAttrs)));
 }

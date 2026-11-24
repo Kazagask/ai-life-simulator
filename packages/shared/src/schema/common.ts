@@ -234,6 +234,129 @@ export const NpcStateConditionSchema = z
   })
   .strict();
 
+// ---------- anyMatch（ADR-075 §6） ----------
+
+export const ANY_MATCH_COLLECTIONS = [
+  "battle.enemies",
+  "battle.allies",
+  "battle.neutrals",
+  "player.statuses",
+  "player.inventory",
+  "npcs",
+  "relations",
+] as const;
+export type AnyMatchCollection = (typeof ANY_MATCH_COLLECTIONS)[number];
+
+type AnyMatchFieldKind = "number" | "string" | "boolean";
+const ANY_MATCH_FIELDS: Readonly<Record<AnyMatchCollection, Readonly<Record<string, AnyMatchFieldKind>>>> = {
+  "battle.enemies": {
+    ref: "string",
+    name: "string",
+    tier: "string",
+    alive: "boolean",
+    damageByPlayer: "number",
+    damageToPlayer: "number",
+    defeated: "boolean",
+    killer: "boolean",
+    summonedByPlayer: "boolean",
+  },
+  "battle.allies": {
+    ref: "string",
+    name: "string",
+    tier: "string",
+    alive: "boolean",
+    damageByPlayer: "number",
+    damageToPlayer: "number",
+    defeated: "boolean",
+    killer: "boolean",
+    summonedByPlayer: "boolean",
+  },
+  "battle.neutrals": {
+    ref: "string",
+    name: "string",
+    tier: "string",
+    alive: "boolean",
+    damageByPlayer: "number",
+    damageToPlayer: "number",
+    defeated: "boolean",
+    killer: "boolean",
+    summonedByPlayer: "boolean",
+  },
+  "player.statuses": {
+    statusId: "string",
+    kind: "string",
+    stacks: "number",
+    progress: "number",
+  },
+  "player.inventory": { itemId: "string", count: "number" },
+  npcs: { id: "string", name: "string", lifecycle: "string", isEnemy: "boolean", visibility: "string" },
+  relations: { from: "string", to: "string", kind: "string", value: "number", scope: "string", frozen: "boolean" },
+};
+
+const AnyMatchLiteralSchema = z.union([z.string(), z.number(), z.boolean()]);
+
+export const AnyMatchPredicateSchema = z
+  .object({
+    field: z.string().min(1),
+    eq: AnyMatchLiteralSchema.optional(),
+    ne: AnyMatchLiteralSchema.optional(),
+    gt: z.number().optional(),
+    gte: z.number().optional(),
+    lt: z.number().optional(),
+    lte: z.number().optional(),
+    in: z.array(AnyMatchLiteralSchema).min(1).optional(),
+  })
+  .strict()
+  .refine(
+    (p) =>
+      p.eq !== undefined ||
+      p.ne !== undefined ||
+      p.gt !== undefined ||
+      p.gte !== undefined ||
+      p.lt !== undefined ||
+      p.lte !== undefined ||
+      p.in !== undefined,
+    { message: "anyMatch 谓词需要至少一个比较操作" },
+  );
+export type AnyMatchPredicate = z.infer<typeof AnyMatchPredicateSchema>;
+
+export const AnyMatchSchema = z
+  .object({
+    over: z.enum(ANY_MATCH_COLLECTIONS),
+    /** 全部谓词 AND；集合里任意一项满足即 true（按集合顺序短路，无随机）。 */
+    where: z.array(AnyMatchPredicateSchema).min(1),
+  })
+  .strict()
+  .superRefine((m, ctx) => {
+    const fields = ANY_MATCH_FIELDS[m.over];
+    m.where.forEach((pred, i) => {
+      const kind = fields[pred.field];
+      if (kind === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["where", i, "field"],
+          message: `${m.over} 没有字段 ${pred.field}（白名单：${Object.keys(fields).join(" / ")}）`,
+        });
+        return;
+      }
+      const numericOps = (["gt", "gte", "lt", "lte"] as const).filter((k) => pred[k] !== undefined);
+      if (kind !== "number" && numericOps.length > 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["where", i, numericOps[0]!],
+          message: `${pred.field} 是 ${kind}，不能用 ${numericOps.join("/")}`,
+        });
+      }
+      if (pred.in !== undefined && kind === "boolean" && pred.in.some((v) => typeof v !== "boolean")) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["where", i, "in"], message: "布尔字段的 in 只接受 true/false" });
+      }
+      if (pred.in !== undefined && kind === "string" && pred.in.some((v) => typeof v !== "string")) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["where", i, "in"], message: "文本字段的 in 只接受字符串" });
+      }
+    });
+  });
+export type AnyMatch = z.infer<typeof AnyMatchSchema>;
+
 export const ConditionSchema = z.union([
   FlagConditionSchema,
   AttributeConditionSchema,
@@ -247,6 +370,7 @@ export const ConditionSchema = z.union([
   RandomConditionSchema,
   TimeConditionSchema,
   NpcStateConditionSchema,
+  AnyMatchSchema,
 ]);
 
 /** 开放形条件（前向 seam）：引擎不解释，只做结构校验。 */
@@ -302,13 +426,32 @@ export type TaskCondition = z.infer<typeof TaskConditionSchema>;
  */
 const ActorTargetSchema = z.string().min(1).optional();
 
+/**
+ * `advanceTalent` 的增量（ADR-075 §7）。
+ *
+ * - 数字：模板直接给（事件奖励 / 阶奖励）；
+ * - `statusStacks`：读战果里的战斗态层数（例如"每次觉醒最多算 3 层"），**只允许出现在战评 hooks**——
+ *   世界效果没有战果上下文，写了就是静默 0。
+ */
+export const TalentAdvanceAmountSchema = z.union([
+  z.number().int().positive(),
+  z
+    .object({
+      metric: z.literal("statusStacks"),
+      status: z.string().min(1),
+      max: z.number().int().positive().optional(),
+    })
+    .strict(),
+]);
+export type TalentAdvanceAmount = z.infer<typeof TalentAdvanceAmountSchema>;
+
 export const EffectSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("setFlag"), id: z.string().min(1), value: z.union([z.string(), z.number(), z.boolean()]) }).strict(),
   z.object({ type: z.literal("adjustFlag"), id: z.string().min(1), value: z.number() }).strict(),
   z.object({ type: z.literal("clearFlag"), id: z.string().min(1) }).strict(),
   z.object({ type: z.literal("adjustAttribute"), attribute: z.string().min(1), value: z.number(), who: ActorTargetSchema }).strict(),
   /**
-   * 绝对赋值（ADR-003）：数值属性写 number，文本属性写选项 id（如 `"limitless"`）。
+   * 绝对赋值（ADR-003）：数值属性写 number，文本属性写选项 id（如 `"fire"`）。
    * 文本值是否在 `defs[id].values` 内由加载期交叉校验；运行期再兜一次（可诊断）。
    */
   z
@@ -366,6 +509,27 @@ export const EffectSchema = z.discriminatedUnion("type", [
       reason: z.string().min(1).optional(),
     })
     .strict(),
+  /**
+   * **推进成长型天赋**（ADR-075 §7）：唯一写入口，单调递增、夹 `progress.max`、不碰 RNG。
+   *
+   * `create: true` 表示"还没有就给一个"（成长型天赋第一次获得）；从 0 起算再加 `amount`，
+   * 不会把 `progress.initial` 重复计一次。跨阶时按顺序结算各阶 `grant`（每阶一次）。
+   */
+  z
+    .object({
+      type: z.literal("advanceTalent"),
+      talent: z.string().min(1),
+      amount: TalentAdvanceAmountSchema,
+      create: z.boolean().optional(),
+    })
+    .strict(),
+  /**
+   * **死亡信号**（ADR-075 §5.3）：把 hp 置 0 并落 `deathSignal`，由死亡路由决定
+   * "直接结局"还是"再演一段事件"。它不直接终止 —— 终止是路由的事。
+   *
+   * 只该出现在事件 / 行动 / 世界效果里；战斗里判死归 `stake`，钩子效果是另一套闭集。
+   */
+  z.object({ type: z.literal("playerDeath"), reason: z.string().min(1).optional() }).strict(),
   /**
    * **观察者切换**（ADR-010 D4，2026-11-20 模板入口）。
    *
@@ -616,7 +780,7 @@ export type TimeSpec = z.infer<typeof TimeSpecSchema>;
  * 那里能吃到攻击方属性与公式，语义不同，不能混）。
  */
 /**
- * 单个资源的回复量（ADR-003 D12 追加）：`1` 或 `{ base: 1, perAttribute: { physique: 0.2 } }`。
+ * 单个资源的回复量（ADR-003 D12 追加）：`1` 或 `{ base: 1, perAttribute: { strength: 0.2 } }`。
  *
  * 加权用**基础属性**（与资源上限 `perAttribute` 同一口径）：回复量若随状态波动，
  * 「这回合回多少」会变成不可预期的数，玩家也无从校验。

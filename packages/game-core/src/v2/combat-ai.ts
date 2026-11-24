@@ -5,6 +5,7 @@ import type {
   StatusInstance,
 } from "@life-sim/shared";
 import type { TemplateLookup } from "./lookup.js";
+import { statusFor } from "./talent.js";
 
 /**
  * 分层战斗 AI（协议 V2.1 §20 / R-CA-01..06 / P1 / P7）。
@@ -42,7 +43,7 @@ export interface CombatCandidate {
 
 function hasControl(statuses: StatusInstance[], semantic: string, lookup: TemplateLookup): boolean {
   return statuses.some((inst) => {
-    const control = lookup.status(inst.statusId)?.combat?.control as string[] | undefined;
+    const control = statusFor(lookup.status(inst.statusId), inst)?.combat?.control as string[] | undefined;
     return control?.includes(semantic) ?? false;
   });
 }

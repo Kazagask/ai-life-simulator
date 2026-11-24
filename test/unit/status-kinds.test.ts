@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { WorldTemplateV2Schema, type WorldTemplateV2 } from "@life-sim/shared";
-import { createWorldV2, effectiveAttributesOfActor, statusTotalsOf } from "@life-sim/game-core";
+import { createWorldV2, derivedAttributeKeys, derivedAttributeValues, effectiveAttributesOfActor, statusTotalsOf } from "@life-sim/game-core";
 import { loadTemplates } from "../../apps/server/src/templates.ts";
 
 /**
@@ -104,22 +104,34 @@ describe("ADR-018 · 状态合计（一张账本）", () => {
     return { state, template };
   }
 
-  it("六眼：消耗通道 −90%，来源点名六眼", () => {
+  it("六眼：效率 +90 走属性通道（mp 消耗由派生属性承担）", () => {
     const { state } = worldWith(["six-eyes"]);
     const channels = statusTotalsOf(state, entry.lookup);
-    const cost = channels.find((c) => c.id === "cost:mp");
-    expect(cost?.total).toBeCloseTo(-0.9);
-    expect(cost?.sources.map((s) => s.name)).toContain("六眼");
+    const eff = channels.find((c) => c.id === "attr:cursedEnergyEfficiency");
+    expect(eff?.total).toBeCloseTo(90);
+    expect(eff?.sources.map((s) => s.name)).toContain("六眼");
+    // 状态不再直接写 costMultiplier：这条通道现在是空的（派生属性在算账，不在状态上）。
+    expect(channels.find((c) => c.id === "cost:mp")).toBeUndefined();
   });
 
-  it("属性通道的总值就是结算用的值：有效值 − 基础值", () => {
+  it("属性通道的总值就是结算用的值：有效值 − 基础值（派生属性用「公式裸值」作基础）", () => {
     const { state } = worldWith(["six-eyes"]);
-    const total = statusTotalsOf(state, entry.lookup).filter((c) => c.id.startsWith("attr:"));
+    const derived = derivedAttributeKeys(entry.template);
+    const total = statusTotalsOf(state, entry.lookup).filter(
+      (c) => c.id.startsWith("attr:") && !derived.has(c.id.slice("attr:".length)),
+    );
     const eff = effectiveAttributesOfActor(state, entry.lookup, state.player);
     for (const channel of total) {
       const key = channel.id.slice("attr:".length);
       const baseValue = state.player.attributes[key] as number;
       expect(channel.total).toBe(eff[key]! - baseValue);
+    }
+    // 派生通道：总值 = 有效值 − 不含补正的公式值（六眼的效率 +60 就是这么来的）。
+    const bare = derivedAttributeValues(state.player.attributes, entry.template);
+    for (const channel of statusTotalsOf(state, entry.lookup)) {
+      const key = channel.id.slice("attr:".length);
+      if (!derived.has(key)) continue;
+      expect(channel.total).toBe(eff[key]! - (bare[key] ?? 0));
     }
   });
 

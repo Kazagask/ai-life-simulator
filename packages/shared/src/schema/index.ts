@@ -12,6 +12,8 @@ export * from "./skill.js";
 export * from "./item.js";
 export * from "./equipment.js";
 export * from "./combat-ai.js";
+export * from "./battle-hooks.js";
+export * from "./battle-evaluation.js";
 export * from "./status-effect.js";
 export * from "./npc-action.js";
 export * from "./event.js";

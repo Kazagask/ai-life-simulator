@@ -259,7 +259,7 @@ describe("世界模板协议 V2 Schema", () => {
 
   it("接受：资源公式 perAttribute 引用已定义属性", () => {
     const world = loadJjkTemplate();
-    (world.resources as Record<string, unknown>).hp = { base: 75, perLevel: 10, perAttribute: { cursedEnergy: 5 } };
+    (world.resources as Record<string, unknown>).hp = { base: 75, perLevel: 10, perAttribute: { energy: 5 } };
     expect(WorldTemplateV2Schema.safeParse(world).success).toBe(true);
   });
 
@@ -281,7 +281,7 @@ describe("世界模板协议 V2 Schema", () => {
     const world = loadJjkTemplate();
     const event = (world.events as Array<Record<string, unknown>>).find((e) => e.id === "ev-w01");
     const options = (event as { settle: { normal: { options: Array<Record<string, unknown>> } } }).settle.normal.options;
-    options[0].effects = [{ type: "adjustAttribute", attribute: "cursedEnergy", value: 1 }];
+    options[0].effects = [{ type: "adjustAttribute", attribute: "energy", value: 1 }];
     expect(WorldTemplateV2Schema.safeParse(world).success).toBe(true);
   });
 });

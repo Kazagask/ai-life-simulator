@@ -4,7 +4,7 @@ import { checkBattleEnd, resolveCombatRefs } from "@life-sim/game-core";
 import { makeWorld } from "../helpers/world.ts";
 
 describe("battle: 结算 clamp 与参战者判活", () => {
-  it("HP 不降到 1 以下；有存活敌人时判负", () => {
+  it("判负只写 over，不再夹血（落点由收场的 hpOnDefeat 决定，ADR-075）", () => {
     const { state } = makeWorld();
     const battle = {
       eventId: "ev:fight",
@@ -18,7 +18,7 @@ describe("battle: 结算 clamp 与参战者判活", () => {
     } as unknown as BattleState;
 
     checkBattleEnd(battle, state);
-    expect(battle.player.hp).toBe(1);
+    expect(battle.player.hp).toBe(0);
     expect(battle.over).toBe("defeat");
   });
 

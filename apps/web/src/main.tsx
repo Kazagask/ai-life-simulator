@@ -23,7 +23,102 @@ import {
   testLlmCredentials,
 } from "./api";
 import { runLocalEngineSelfCheck } from "./localEngine";
-import { checkVisibleTemplates, type TemplateCheckFailure } from "./templateClient";
+import { createLocalEngine } from "./local/transport";
+import type { LocalSession } from "./local/session";
+import type { LocalWorldRecord } from "./local/worldRepo";
+import { createIndexedWorldRepo } from "./local/worldRepo";
+import { isLocalWorldId, setLocalEngine } from "./api";
+import { cloudSync, createSyncQueue, syncAvailability } from "./cloudSync";
+import {
+  conflictText,
+  mergeSaves,
+  saveConflict,
+  statusOf,
+  type CloudSaveSummary,
+  type SaveEntry,
+  type SaveStatus,
+  type SaveSummary,
+} from "./local/saveList";
+import { isAutoSyncEnabled, setAutoSyncEnabled } from "./local/syncPrefs";
+
+/**
+ * 云同步开关：只在**发布域 + 已登录**时打开（客户端收口）。
+ * 实测数据库路径并不校验 Origin，但仍按发布域启用 —— 不把用户会话带到任意源。
+ */
+const cloudSyncOn = { current: false };
+
+/**
+ * 存档上行队列：同一个世界只保留最后一次状态（连点几下不必逐帧上传）。
+ * 失败不抛错 —— 本地已经落库了，云端只是备份。
+ */
+const saveSyncQueue = createSyncQueue<{
+  record: LocalWorldRecord;
+  status: SaveStatus;
+  worldName: string;
+  session: LocalSession;
+}>(
+  async (item) => {
+    const result = await cloudSync.pushSave(item.record, item.status, item.worldName);
+    if (result === null) return false;
+    // trace 必须**跟着成功的那一版存档**上报：save_id / save_sha256 是它的锚点。
+    flushTraces(item.session, result);
+    return true;
+  },
+  (item) => `${item.record.id}@${item.record.state.turnIndex}`,
+);
+
+/** 把这一局**这一轮**新产生的 trace 报上去（锚到刚刚上传的那一版存档）。 */
+function flushTraces(session: LocalSession, save?: { saveId: number; sha256: string; turnIndex: number }): void {
+  const pending = save === undefined ? session.drainTraces() : session.drainTracesForTurn(save.turnIndex);
+  for (const trace of pending) {
+    const t = trace as { invocationId?: string; turnIndex?: number };
+    if (typeof t.invocationId !== "string") continue;
+    void cloudSync.pushTrace({
+      worldId: session.id,
+      turnIndex: typeof t.turnIndex === "number" ? t.turnIndex : session.state.turnIndex,
+      invocationId: t.invocationId,
+      trace,
+      ...(save !== undefined ? { saveId: save.saveId, saveSha256: save.sha256 } : {}),
+    });
+  }
+}
+
+/**
+ * 本地引擎单例（ADR-070 第三期 · T4）：拿到模板包之后注册，之后新建的世界在本地跑；
+ * 老档（服务端世界）不在这个引擎的会话表里 ⇒ `api` 自动回退远端，行为零变化。
+ */
+const localEngine = createLocalEngine({
+  repo: createIndexedWorldRepo(),
+  // 玩家在设置里填过 key ⇒ 本地回合直接调模型；没填 ⇒ 不接线，模板兜底。
+  agent: () => {
+    const cached = getCachedLlmCredentials();
+    if (cached === null) return null;
+    return {
+      baseUrl: (cached.baseUrl ?? "https://api.openai.com/v1").replace(/\/+$/, ""),
+      model: cached.model,
+      apiKey: cached.apiKey,
+    };
+  },
+  /**
+   * 本地写档之后：本地已经落库，这里只做云端备份（ADR-071）。
+   *
+   * **默认不上传**：只有玩家在档案页显式打开「云端自动同步」才进队列
+   * （2026-11-22 裁决）。手动上传是玩家的当次动作，不经过这里。
+   */
+  onPersist: (record, session) => {
+    if (!cloudSyncOn.current) return;
+    if (!isAutoSyncEnabled()) return;
+    const meta = session.bundle.template.meta;
+    saveSyncQueue.push({
+      record,
+      status: statusOf(session.state),
+      worldName: meta.name ?? meta.id,
+      session,
+    });
+  },
+});
+import { checkCachedTemplates, checkVisibleTemplates, type TemplateCheckFailure, type TemplateScanResult } from "./templateClient";
+import { applyPwaUpdate, registerPwa } from "./pwa";
 import type { EffectSummaryVM, TurnGainVM, DetailSheetData } from "@life-sim/rpg-ui";
 import type {
   BattleCommand,
@@ -110,6 +205,35 @@ const UNIT_NAMES: Record<string, string> = {
 function elapsedText(elapsed: { value: number; unit: string }): string {
   return `${elapsed.value} ${UNIT_NAMES[elapsed.unit] ?? elapsed.unit}`;
 }
+/**
+ * 上屏用的错误文案：网络类 TypeError（Safari "Load failed" / Chrome "Failed to fetch"）
+ * 一律翻成人话 —— 原始英文异常对玩家是黑话，对排查也没有额外信息。
+ */
+function errorText(e: unknown): string {
+  if (e instanceof TypeError) return "网络中断或服务端不可达，请检查连接后重试。";
+  return e instanceof Error ? e.message : String(e);
+}
+
+/**
+ * 开局输入格的错误（ADR-072 D7）。
+ *
+ * 引擎把原因写成 `opening_input_too_long: n-name (16 > 12)` —— 那是给排查用的，
+ * 玩家只需要知道「太长了，最多 12 个字」。模板给了上下限，所以能说人话。
+ */
+function inputErrorText(e: unknown, cfg: { minLength?: number; maxLength?: number } | undefined): string {
+  const detail =
+    e instanceof ApiError && typeof e.body?.detail === "string" ? e.body.detail : e instanceof Error ? e.message : "";
+  if (detail.includes("opening_input_required")) return "总得有个名字。";
+  if (detail.includes("opening_input_too_short")) {
+    return cfg?.minLength !== undefined ? `至少 ${cfg.minLength} 个字。` : "太短了。";
+  }
+  if (detail.includes("opening_input_too_long")) {
+    return cfg?.maxLength !== undefined ? `最多 ${cfg.maxLength} 个字。` : "太长了。";
+  }
+  if (detail.includes("opening_input_pattern")) return "含有不能用的字符。";
+  return errorText(e);
+}
+
 
 /**
  * 「AI 叙事」中性小标记（R2.7 / T-S1 / T-S2）：仅在服务端明确回传 `llm` 来源时渲染。
@@ -203,6 +327,35 @@ const SLOT_BADGE: Record<SlotOccupant, string> = {
   action: "自由行动",
 };
 
+/**
+ * 上次成功启动用的模板（只存 id/version/fingerprint，不存包体）。
+ *
+ * 离线启动时本地可能还没有任何存档（第一次进游戏就断网），靠它找到 IndexedDB 里的模板包。
+ */
+const LAST_TEMPLATE_KEY = "life-sim:last-template";
+
+function readLastTemplate(): { id: string; version: string; fingerprint: string } | null {
+  try {
+    const raw = localStorage.getItem(LAST_TEMPLATE_KEY);
+    if (raw === null) return null;
+    const parsed = JSON.parse(raw) as Partial<{ id: string; version: string; fingerprint: string }>;
+    if (typeof parsed.id !== "string" || typeof parsed.version !== "string" || typeof parsed.fingerprint !== "string") {
+      return null;
+    }
+    return { id: parsed.id, version: parsed.version, fingerprint: parsed.fingerprint };
+  } catch {
+    return null;
+  }
+}
+
+function saveLastTemplate(ref: { id: string; version: string; fingerprint: string }): void {
+  try {
+    localStorage.setItem(LAST_TEMPLATE_KEY, JSON.stringify(ref));
+  } catch {
+    // 隐私模式：不持久化，不影响当次游玩。
+  }
+}
+
 function App() {
   const [worldId, setWorldId] = useState<string | null>(loadWorldId());
   const [openingLaunch, setOpeningLaunch] = useState<OpeningLaunch | null>(null);
@@ -230,8 +383,17 @@ function App() {
    */
   const [templateIssues, setTemplateIssues] = useState<TemplateCheckFailure[]>([]);
   const [templateChecking, setTemplateChecking] = useState(false);
+  /** 离线启动：模板包来自 IndexedDB，所有网络请求都失败了。 */
+  const [offlineMode, setOfflineMode] = useState(false);
   /** 本地引擎自检失败原因（成功时保持 null，只留一条 console）。 */
   const [engineIssue, setEngineIssue] = useState<string | null>(null);
+  /**
+   * 本地引擎是否已经「上膛」（模板包已注册 + 本地档已从 IndexedDB 恢复）。
+   *
+   * 🔴 世界加载必须等它：本地局的 `GET /api/worlds/:id` 在服务端**必然 404**，
+   * 而那个 404 的兜底是「清掉 worldId 回列表」—— 刷新一次就丢局（2026-11-22 实测）。
+   */
+  const [engineReady, setEngineReady] = useState(false);
   const openNpc = useCallback((npcId: string) => {
     setNpcJump((prev) => ({ id: npcId, seq: (prev?.seq ?? 0) + 1 }));
     setTab("world");
@@ -241,12 +403,116 @@ function App() {
     setTemplateChecking(true);
     try {
       // 每条模板的结果由 `checkVisibleTemplates` 自己打日志（缓存 / 下载 / 失败原因）。
-      const scan = await checkVisibleTemplates();
-      setTemplateIssues(scan.failures);
+      let scan: TemplateScanResult = { results: [], failures: [] };
+      let offline = false;
+      try {
+        scan = await checkVisibleTemplates();
+      } catch (error) {
+        // 断网时 fetch 直接 reject：不能让它跳过下面的离线回退。
+        const failure: TemplateCheckFailure = {
+          ok: false,
+          ref: { id: "?", version: "?" },
+          code: "network",
+          message: error instanceof Error ? error.message : String(error),
+        };
+        scan = { results: [failure], failures: [failure] };
+      }
+
+      // 离线回退：模板包已经在 IndexedDB 里，断网也能起本地引擎。
+      if (!scan.results.some((result) => result.ok)) {
+        const records = await localEngine.listRecords().catch(() => []);
+        const refs = new Map<string, { id: string; version: string; fingerprint?: string }>();
+        for (const record of records) {
+          refs.set(`${record.ref.id}@${record.ref.version}`, {
+            id: record.ref.id,
+            version: record.ref.version,
+            fingerprint: record.fingerprint,
+          });
+        }
+        const last = readLastTemplate();
+        if (last !== null) refs.set(`${last.id}@${last.version}`, last);
+        if (refs.size > 0) {
+          const cached = await checkCachedTemplates([...refs.values()]);
+          if (cached.results.some((result) => result.ok)) {
+            scan = cached;
+            offline = true;
+          }
+        }
+      }
+
+      setOfflineMode(offline);
+      // 离线命中缓存时不再报「模板校验失败」；只有真的没有可用包才上错误条。
+      setTemplateIssues(offline ? [] : scan.failures);
       const first = scan.results.find((result) => result.ok);
       if (first !== undefined && first.ok) {
+        saveLastTemplate({ id: first.ref.id, version: first.ref.version, fingerprint: first.fingerprint });
+        /**
+         * 离线时 `/api/templates` 失败，落地页拿不到模板卡片 → 会一直停在「正在载入」。
+         * 这里用已经校验过的缓存包补一份最小摘要：字段全部来自模板本体，不伪造任何能力。
+         */
+        if (offline) {
+          const meta = first.template.meta;
+          const dag = first.bundle.openingDag;
+          setTemplates([
+            {
+              id: first.ref.id,
+              name: meta.name,
+              startVersion: first.ref.version,
+              versions: [
+                {
+                  id: first.ref.id,
+                  version: first.ref.version,
+                  name: meta.name,
+                  description: meta.description ?? "",
+                  startYear: meta.startYear,
+                  openings: first.bundle.openings.map((opening) => ({
+                    id: opening.openingId,
+                    name: opening.name,
+                    description: opening.description ?? "",
+                  })),
+                  ...(dag !== undefined
+                    ? {
+                        openingDag: {
+                          openingId: dag.openingId,
+                          name: dag.name,
+                          ...(dag.description !== undefined ? { description: dag.description } : {}),
+                        },
+                      }
+                    : {}),
+                  assetCount: 0,
+                  assetFingerprint: "",
+                  loadable: true,
+                },
+              ],
+            },
+          ]);
+        }
         // 客户端化的第一颗钉子：在浏览器里起世界 + 推一轮 + 进 IndexedDB 再读回。
         const check = await runLocalEngineSelfCheck(first.template, first.fingerprint, first.ref.version);
+        // 模板包到手 ⇒ 本地引擎可用：注册包 + 接线 + 恢复上次没关掉的本地世界。
+        localEngine.registerTemplate({ ref: first.ref, fingerprint: first.fingerprint, bundle: first.bundle });
+        setLocalEngine(localEngine);
+        // 云端同步：发布域 + 已登录才开；顺手把模板包推一份上去（同版本按指纹覆盖）。
+        void syncAvailability()
+          .then((state) => {
+            cloudSyncOn.current = state === "ok";
+            if (!cloudSyncOn.current) return;
+            const pkg = first.package as { templateId?: string; version?: string; fingerprint?: string; files?: Record<string, string> } | undefined;
+            if (pkg?.templateId !== undefined && pkg.version !== undefined && pkg.fingerprint !== undefined && pkg.files !== undefined) {
+              return cloudSync.pushTemplate({
+                templateId: pkg.templateId,
+                version: pkg.version,
+                fingerprint: pkg.fingerprint,
+                files: pkg.files,
+              });
+            }
+            return undefined;
+          })
+          .catch(() => {
+            cloudSyncOn.current = false;
+          });
+        await localEngine.warmUp().catch(() => undefined);
+        setEngineReady(true);
         if (check.ok) {
           console.info(
             `[local-engine] 自检通过 turn=${check.turnIndex} digest=${check.digest} 持久化=${check.persisted ? "是" : "否"}`,
@@ -268,6 +534,8 @@ function App() {
       ]);
     } finally {
       setTemplateChecking(false);
+      // 模板校验失败也要放行：远端世界不依赖本地引擎。
+      setEngineReady(true);
     }
   }, []);
 
@@ -370,7 +638,7 @@ function App() {
   }, [session, snapshot]);
 
   useEffect(() => {
-    if (!worldId) return;
+    if (!worldId || !engineReady) return;
     api
       .getWorld(worldId)
       .then((res) => {
@@ -386,7 +654,7 @@ function App() {
         setWorldId(null);
         setNotice("这一局已不存在（可能已被删除），已回到列表。");
       });
-  }, [worldId]);
+  }, [worldId, engineReady]);
 
   /**
    * `ui.yaml` 关掉当前页签时把选中态挪到仍可见的第一个页签。
@@ -413,6 +681,7 @@ function App() {
       setNarrative([]);
       return;
     }
+    // 本地世界也有正文（本地会话给的模板兜底 / 网关正文），走同一个 fetchNarrative。
     if (turnIndex === undefined) return;
     let alive = true;
     void fetchNarrative(worldId).then((blocks) => {
@@ -425,8 +694,9 @@ function App() {
 
   useEffect(() => {
     if (worldId) return;
-    api.listTemplates().then((res) => setTemplates(res.templates)).catch((e) => setError(String(e)));
-    api.listWorlds().then((res) => setWorlds(res.worlds)).catch((e) => setError(String(e)));
+    // 列表失败不弹错误：离线时由模板校验的缓存回退补上 `templates`（见 runTemplateCheck）。
+    api.listTemplates().then((res) => setTemplates(res.templates)).catch(() => undefined);
+    api.listWorlds().then((res) => setWorlds(res.worlds)).catch((e) => setError(errorText(e)));
   }, [worldId]);
 
   const refreshWorlds = useCallback(() => {
@@ -445,7 +715,7 @@ function App() {
       api
         .deleteWorld(id)
         .then(() => refreshWorlds())
-        .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+        .catch((e) => setError(errorText(e)));
     },
     [refreshWorlds],
   );
@@ -482,8 +752,10 @@ function App() {
       // 先开 SSE 再发 turn：服务端在锁内 await LLM，订阅必须与 turn 并发才能看到增量。
       // 服务端路由会给「刚发出的 turn」留 3s 的 pendingInvocation 等待窗口。
       const wid = worldIdRef.current;
-      const streamAbort = wid ? new AbortController() : null;
-      const streamDone = wid
+      // 本地世界不出网：没有服务端 trace，也就没有流式正文可订。
+      const local = wid !== null && isLocalWorldId(wid);
+      const streamAbort = wid !== null && !local ? new AbortController() : null;
+      const streamDone = wid !== null && !local
         ? streamNarrative(
             wid,
             {
@@ -519,7 +791,7 @@ function App() {
          * 同一段文字在屏幕上出现两遍，然后闪掉一份（2026-11-19 用户反馈「过渡很生硬」）。
          * 先把块取回来，再连着清草稿一起 set：React 18 在 promise 里也会批处理成一次渲染。
          */
-        const nextBlocks = wid ? await fetchNarrative(wid) : null;
+        const nextBlocks = wid !== null ? await fetchNarrative(wid) : null;
         if (nextBlocks !== null) setNarrative(nextBlocks);
         setNarrativeDraft("");
       } catch (e) {
@@ -679,7 +951,7 @@ function App() {
         void saveLifeRecord(finalSnapshot);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -709,7 +981,7 @@ function App() {
       const res = await api.renameWorld(wid, trimmed);
       setSnapshot(res.snapshot);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     }
   }, [snapshot?.player.name]);
 
@@ -730,6 +1002,7 @@ function App() {
           engineIssue={engineIssue}
           checking={templateChecking}
           onRetry={() => void runTemplateCheck()}
+          offline={offlineMode}
         />
         <OpeningWizard
           launch={openingLaunch}
@@ -748,6 +1021,7 @@ function App() {
           engineIssue={engineIssue}
           checking={templateChecking}
           onRetry={() => void runTemplateCheck()}
+          offline={offlineMode}
         />
         {notice && (
           <div className="banner info" onClick={() => setNotice(null)}>
@@ -890,7 +1164,17 @@ function App() {
           />
         )}
         {tab === "log" && <LogTab snapshot={snapshot} />}
-        {tab === "records" && <RecordsTab authReady={authReady} session={session} />}
+        {tab === "records" && (
+          <RecordsTab
+            authReady={authReady}
+            session={session}
+            onOpenWorld={(id) => {
+              saveWorldId(id);
+              setWorldId(id);
+              setTab("life");
+            }}
+          />
+        )}
       </main>
 
       <nav className="tabbar">
@@ -954,18 +1238,20 @@ function TemplateCheckBanner({
   issues,
   engineIssue,
   checking,
+  offline = false,
   onRetry,
 }: {
   issues: TemplateCheckFailure[];
   engineIssue?: string | null;
   checking: boolean;
+  offline?: boolean;
   onRetry: () => void;
 }) {
-  if (issues.length === 0 && !engineIssue) return null;
+  if (issues.length === 0 && !engineIssue && !offline) return null;
   return (
-    <div className="banner template-check" role="alert">
+    <div className={offline && issues.length === 0 ? "banner info" : "banner template-check"} role="alert">
       <div className="template-check__head">
-        <strong>客户端模板校验未通过</strong>
+        <strong>{offline && issues.length === 0 ? "离线模式" : "客户端模板校验未通过"}</strong>
         <button className="ghost" disabled={checking} onClick={onRetry}>
           {checking ? "校验中…" : "重试"}
         </button>
@@ -978,7 +1264,11 @@ function TemplateCheckBanner({
         ))}
         {engineIssue && <li>本地引擎自检：{engineIssue}</li>}
       </ul>
-      <span className="muted">世界仍由服务端提供；这是「客户端自己载入模板」的预检（ADR-070 第二期）。</span>
+      <span className="muted">
+        {offline
+          ? "当前使用本地缓存的模板与存档，游玩不需要联网；上传存档时再连回来。"
+          : "世界仍由服务端提供；这是「客户端自己载入模板」的预检（ADR-070 第二期）。"}
+      </span>
     </div>
   );
 }
@@ -1233,6 +1523,8 @@ function OpeningWizard({
   const [details, setDetails] = useState<DetailSheetData[]>([]);
   const pushDetail = useCallback((next: DetailSheetData) => setDetails((prev) => [...prev, next]), []);
   const closeTop = useCallback(() => setDetails((prev) => prev.slice(0, -1)), []);
+  /** 输入节点的当前内容（每个节点重置为引擎算好的预填，见下面的 effect）。 */
+  const [typed, setTyped] = useState("");
   const started = useRef(false);
   const stepping = useRef(false);
   /** 同一个 roll 节点只提交一次（重渲染 / 状态回填都不得重复消耗一次掷骰）。 */
@@ -1253,12 +1545,25 @@ function OpeningWizard({
         setSessionId(res.sessionId);
         setNode(res.node);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .catch((e) => setError(errorText(e)))
       .finally(() => setBusy(false));
   }, [launch]);
 
+  // 预填是**每个节点一次**：换节点时重置。不能只依赖初始 useState ——
+  // 向导是同一个组件在换 node，不会重新挂载。
+  useEffect(() => {
+    if (node?.mode === "input" && node.input !== undefined) setTyped(node.input.value);
+  }, [node?.nodeId, node?.mode, node?.input?.value]);
+
   const advance = useCallback(
-    async (input: OpeningStepInput, result: string, title: string, text?: string) => {
+    async (
+      input: OpeningStepInput,
+      result: string,
+      title: string,
+      text?: string,
+      /** 自定义错误文案（输入格用它把引擎码翻成人话）。 */
+      describeError?: (e: unknown) => string,
+    ) => {
       if (sessionId === null || stepping.current) return;
       stepping.current = true;
       setBusy(true);
@@ -1278,7 +1583,7 @@ function OpeningWizard({
           });
         }
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        setError(describeError !== undefined ? describeError(e) : errorText(e));
       } finally {
         stepping.current = false;
         setBusy(false);
@@ -1307,7 +1612,7 @@ function OpeningWizard({
       })
       .catch((e) => {
         rolled.current = null; // 失败允许重试同一节点
-        setError(e instanceof Error ? e.message : String(e));
+        setError(errorText(e));
       })
       .finally(() => setBusy(false));
   }, [sessionId, node, finalWorld, reveal]);
@@ -1328,7 +1633,7 @@ function OpeningWizard({
     api
       .commitOpening(sessionId)
       .then((committed) => setFinalWorld({ id: committed.worldId, snapshot: committed.snapshot }))
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .catch((e) => setError(errorText(e)))
       .finally(() => setBusy(false));
   }, [reveal, sessionId]);
 
@@ -1420,7 +1725,13 @@ function OpeningWizard({
       {node !== null && (
         <section className="card opening-step">
           <span className="tag">
-            {node.mode === "roll" ? "命数转盘" : node.mode === "choose" ? "你的选择" : "分配点数"}
+            {node.mode === "roll"
+              ? "命数转盘"
+              : node.mode === "choose"
+                ? "你的选择"
+                : node.mode === "input"
+                  ? "你的名字"
+                  : "分配点数"}
           </span>
           <h2>{node.title}</h2>
           {node.text && <p>{node.text}</p>}
@@ -1445,6 +1756,48 @@ function OpeningWizard({
               ))}
             </div>
           )}
+
+          {/* 输入节点（ADR-072 D7）：预填、说明、校验规则全部来自模板，前端不写死。 */}
+          {node.mode === "input" && node.input !== undefined && (() => {
+            const cfg = node.input;
+            const trimmed = typed.trim();
+            const length = [...trimmed].length;
+            const issue =
+              trimmed === ""
+                ? null
+                : cfg.minLength !== undefined && length < cfg.minLength
+                  ? `至少 ${cfg.minLength} 个字`
+                  : cfg.maxLength !== undefined && length > cfg.maxLength
+                    ? `最多 ${cfg.maxLength} 个字`
+                    : cfg.pattern !== undefined && !new RegExp(cfg.pattern, "u").test(trimmed)
+                      ? "含有不能用的字符"
+                      : null;
+            const submit = () => {
+              const result = trimmed === "" ? (cfg.defaultValue ?? cfg.value) : trimmed;
+              void advance({ kind: "input", value: typed }, result, node.title, node.text, (e) =>
+                inputErrorText(e, cfg),
+              );
+            };
+            return (
+              <div className="opening-input">
+                <input
+                  value={typed}
+                  onChange={(e) => setTyped(e.target.value)}
+                  placeholder={cfg.placeholder ?? "输入"}
+                  disabled={busy}
+                  aria-label={cfg.hint ?? node.title}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && issue === null && !busy) submit();
+                  }}
+                />
+                {cfg.hint !== undefined && <p className="muted">{cfg.hint}</p>}
+                {issue !== null && <p className="error-text">{issue}</p>}
+                <button className="primary" disabled={busy || issue !== null} onClick={submit}>
+                  就这个
+                </button>
+              </div>
+            );
+          })()}
 
           {/* 加点面板（ADR-004 D6）：组件在 rpg-ui，游戏内加点复用同一实现。 */}
           {node.mode === "allocate" && (
@@ -2155,7 +2508,6 @@ function LifeTab({
                   labels={snapshot.labels.resources}
                   busy={busy}
                   onCommand={onBattle}
-                  onContinue={onConfirmWheel}
                   onSelectStatus={(status) => pushDetail(statusToDetail(status))}
                 />
               )
@@ -2848,10 +3200,11 @@ function LogTab({ snapshot }: { snapshot: V2Snapshot }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // 本地世界由 `api.history` 桥到本地引擎（服务端不知道这局），远端照旧走 HTTP。
     api
       .history(snapshot.worldId)
       .then((res) => setHistory([...res.history].reverse()))
-      .catch((e) => setError(String(e)));
+      .catch((e) => setError(errorText(e)));
   }, [snapshot.worldId, snapshot.turnIndex]);
 
   return (
@@ -2934,12 +3287,201 @@ function RecordCard({ row, onDelete }: { row: LifeRecordRow; onDelete: () => voi
 }
 
 /**
+ * 「存档」卡片（档案页顶部）：本地 + 云端的存档索引，上传 / 恢复 / 冲突裁决都在这。
+ *
+ * 三条口径：
+ * - **本地为准**：两边都有时以本地的轮次为准，云端只是副本。
+ * - **默认不自动上传**：开关是显式的；关着时一个请求都不发，手动按钮仍然可用。
+ * - **冲突只比轮次**：数据库 `turn_index` 是一等字段，不解析 payload、不算哈希。
+ */
+function SavesCard({ session, onOpenWorld }: { session: CloudSession; onOpenWorld: (worldId: string) => void }) {
+  const [auto, setAuto] = useState(isAutoSyncEnabled());
+  const [localSaves, setLocalSaves] = useState<SaveSummary[]>([]);
+  const [cloudSaves, setCloudSaves] = useState<CloudSaveSummary[] | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    // 列的是**仓库里的记录**，不是已加载的会话：指纹漂移 / 模板暂缺的档也要能看见、能上传。
+    let alive = true;
+    void localEngine.listRecords().then((records) => {
+      if (!alive) return;
+      const names = new Map(localEngine.listWorlds().map((world) => [world.id, world.templateName]));
+      setLocalSaves(
+        records.map((record) => ({
+          worldId: record.id,
+          playerName: record.state.player.name,
+          worldName: names.get(record.id) ?? record.ref.id,
+          turnIndex: record.state.turnIndex,
+          savedAt: record.savedAt,
+          status: statusOf(record.state),
+        })),
+      );
+    });
+    return () => {
+      alive = false;
+    };
+  }, [reload]);
+
+  useEffect(() => {
+    let alive = true;
+    setCloudSaves(null);
+    void cloudSync.listSaves().then((rows) => {
+      if (alive) setCloudSaves(rows);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [reload, session]);
+
+  const upload = async (entry: SaveEntry) => {
+    setBusyId(entry.worldId);
+    setError(null);
+    setNotice(null);
+    try {
+      const record = await localEngine.readRecord(entry.worldId);
+      if (record === undefined) throw new Error("本地存档已不存在。");
+      const owner = localEngine.sessions().find((s) => s.id === entry.worldId);
+      const result = await cloudSync.pushSave(record, statusOf(record.state), entry.worldName);
+      if (result === null) throw new Error("上传失败：请确认已登录且网络可用。");
+      if (owner !== undefined) flushTraces(owner, result);
+      setNotice(`已上传「${entry.playerName}」第 ${result.turnIndex} 轮。`);
+      setReload((n) => n + 1);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const pull = async (entry: SaveEntry) => {
+    if (entry.cloud === null) return;
+    if (entry.local !== null) {
+      const ok = window.confirm(
+        `用云端存档覆盖本地？本地 ${entry.local.turnIndex} 轮，云 ${entry.cloud.turnIndex} 轮。`,
+      );
+      if (!ok) return;
+    }
+    setBusyId(entry.worldId);
+    setError(null);
+    setNotice(null);
+    try {
+      const record = await cloudSync.pullSave(entry.worldId);
+      if (record === null) throw new Error("云端存档读取失败。");
+      await localEngine.importRecord(record);
+      setNotice(`已从云端恢复到第 ${record.state.turnIndex} 轮。`);
+      onOpenWorld(entry.worldId);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const entries = mergeSaves(localSaves, cloudSaves ?? []);
+
+  return (
+    <section className="card">
+      <div className="row">
+        <span className="tag">存档</span>
+        <button
+          className={auto ? "primary" : "ghost"}
+          onClick={() => {
+            const next = !auto;
+            setAutoSyncEnabled(next);
+            setAuto(next);
+          }}
+        >
+          云端自动同步：{auto ? "开" : "关"}
+        </button>
+      </div>
+      <p className="muted">
+        本地为准。自动同步关着时不会上传任何存档；下面的手动上传随时可用。
+      </p>
+
+      {error && (
+        <div className="banner error" onClick={() => setError(null)}>
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div className="banner info" onClick={() => setNotice(null)}>
+          {notice}
+        </div>
+      )}
+
+      {cloudSaves === null && <p className="muted">正在读取云存档…</p>}
+      {cloudSaves !== null && entries.length === 0 && <p className="muted">还没有存档。</p>}
+
+      {entries.map((entry) => {
+        const conflict = saveConflict(entry);
+        const busy = busyId === entry.worldId;
+        return (
+          <div key={entry.worldId} className="stack">
+            <div className="row">
+              <div>
+                <strong>{entry.playerName || "无名"}</strong>
+                <p className="muted">
+                  {entry.worldName || entry.worldId} · 第 {entry.turnIndex} 轮 · {formatSavedAt(entry.savedAt)}
+                </p>
+                <p className="muted">
+                  {entry.local ? "本地有" : "本地无"} · {entry.cloud ? "云有" : "云无"}
+                </p>
+              </div>
+              {busy && <span className="muted">处理中…</span>}
+            </div>
+
+            {conflict !== null ? (
+              <>
+                <p className="muted">{conflictText(conflict)}</p>
+                <div className="row">
+                  <button className="primary" disabled={busyId !== null} onClick={() => void upload(entry)}>
+                    用本地覆盖云
+                  </button>
+                  <button className="ghost" disabled={busyId !== null} onClick={() => void pull(entry)}>
+                    用云覆盖本地
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="row">
+                {entry.local !== null && (
+                  <button className="ghost" disabled={busyId !== null} onClick={() => void upload(entry)}>
+                    {entry.cloud ? "重新上传" : "上传到云"}
+                  </button>
+                )}
+                {entry.cloud !== null && (
+                  <button className="ghost" disabled={busyId !== null} onClick={() => void pull(entry)}>
+                    {entry.local ? "从云恢复" : "同步到本地"}
+                  </button>
+                )}
+                {entry.local !== null && entry.cloud !== null && <span className="muted">已同步</span>}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+/**
  * 「档案」页签 —— 唯一要求登录的功能（ADR-0025 决策 5：认证不阻塞游戏）。
  *
  * 未登录时**一个数据库请求都不发**，只渲染登录引导；登录回跳后**不自动补写**，
  * 由玩家在这里显式点「把这局存进档案」（`worldId` 从 localStorage 读，不从 URL 读）。
  */
-function RecordsTab({ authReady, session }: { authReady: boolean; session: CloudSession | null }) {
+function RecordsTab({
+  authReady,
+  session,
+  onOpenWorld,
+}: {
+  authReady: boolean;
+  session: CloudSession | null;
+  onOpenWorld: (worldId: string) => void;
+}) {
   const [rows, setRows] = useState<LifeRecordRow[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [reload, setReload] = useState(0);
@@ -3012,7 +3554,7 @@ function RecordsTab({ authReady, session }: { authReady: boolean; session: Cloud
         setError(result.message);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -3083,6 +3625,8 @@ function RecordsTab({ authReady, session }: { authReady: boolean; session: Cloud
             )}
           </section>
 
+          <SavesCard session={session} onOpenWorld={onOpenWorld} />
+
           {loading && <p className="muted">正在读取档案…</p>}
           {!loading && rows !== null && rows.length === 0 && (
             <p className="muted">还没有云端档案。完成一局后会出现在这里。</p>
@@ -3134,4 +3678,27 @@ function clearWorldId(): void {
  */
 const authBootstrap = bootstrapAuth();
 
-createRoot(document.getElementById("root")!).render(<App />);
+/**
+ * 根组件：PWA 更新提示挂在 `App` 之外，落地页 / 开局向导 / 主界面三条早期 return 都能看见。
+ */
+function Root() {
+  const [updateReady, setUpdateReady] = useState(false);
+  useEffect(() => {
+    registerPwa(() => setUpdateReady(true));
+  }, []);
+  return (
+    <>
+      <App />
+      {updateReady && (
+        <div className="banner info pwa-update">
+          <span>有新版本可用</span>
+          <button className="primary" onClick={applyPwaUpdate}>
+            刷新
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
+createRoot(document.getElementById("root")!).render(<Root />);

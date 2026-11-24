@@ -1,6 +1,8 @@
 import type { StatusTotalVM, StatusTotalSourceVM, V2Player, WorldStateV2 } from "@life-sim/shared";
 import type { TemplateLookup } from "../lookup.js";
-import { effectiveAttributesOfActor } from "../engine.js";
+import { statusFor } from "../talent.js";
+import { derivedAttributeKeys, derivedAttributeValues, effectiveAttributesOfActor } from "../engine.js";
+import { roundAttribute } from "./attributes.js";
 
 /**
  * 状态合计（ADR-018 D8）：**一张账本，一个出口**。
@@ -49,6 +51,16 @@ export function statusTotalsOf(
   for (const [key, value] of Object.entries(actor.attributes)) {
     if (typeof value === "number") base[key] = value;
   }
+  /**
+   * 派生属性（ADR-074）的「基础值」= 不含任何补正的公式值。
+   * 这样账本上的属性通道仍然是「补正贡献」：状态给效率的 +60 看得见，
+   * 而公式本身（总量 ×0.5）不会伪装成一条状态加成。
+   */
+  const derivedKeys = derivedAttributeKeys(template);
+  if (derivedKeys.size > 0) {
+    const bare = derivedAttributeValues(actor.attributes, template);
+    for (const key of derivedKeys) base[key] = bare[key] ?? 0;
+  }
 
   // ---------- 属性：总值取真算出来的有效值，状态逐条归因，差额记「装备 / 心情」 ----------
   const eff = effectiveAttributesOfActor(state, lookup, actor);
@@ -57,15 +69,15 @@ export function statusTotalsOf(
     const sources: StatusTotalSourceVM[] = [];
     let sum = 0;
     for (const inst of actor.statuses) {
-      const def = lookup.status(inst.statusId);
+      const def = statusFor(lookup.status(inst.statusId), inst);
       const delta = def?.attributeModifiers?.[key];
       if (delta === undefined || delta === 0 || def?.visibility !== "known") continue;
-      const value = delta * Math.max(1, inst.stacks);
+      const value = roundAttribute(delta * Math.max(1, inst.stacks));
       sum += value;
       attrStatusSum[key] = (attrStatusSum[key] ?? 0) + value;
       sources.push({ name: def.name, value, ...(inst.stacks > 1 ? { stacks: inst.stacks } : {}) });
     }
-    const total = (eff[key] ?? base[key] ?? 0) - (base[key] ?? 0);
+    const total = roundAttribute((eff[key] ?? base[key] ?? 0) - (base[key] ?? 0));
     if (total === 0) continue;
     const residual = total - sum;
     if (residual !== 0) sources.push({ name: "装备 / 心情", value: residual });
@@ -77,7 +89,7 @@ export function statusTotalsOf(
     const sources: StatusTotalSourceVM[] = [];
     let sum = 0;
     for (const inst of actor.statuses) {
-      const def = lookup.status(inst.statusId);
+      const def = statusFor(lookup.status(inst.statusId), inst);
       const raw = def?.combat?.[key];
       if (raw === undefined || raw === 0 || def?.visibility !== "known") continue;
       const value = def.combat?.stacksPerLayer === true ? raw * Math.max(1, inst.stacks) : raw;
@@ -104,7 +116,7 @@ export function statusTotalsOf(
     const sources: StatusTotalSourceVM[] = [];
     let sum = 0;
     for (const inst of actor.statuses) {
-      const def = lookup.status(inst.statusId);
+      const def = statusFor(lookup.status(inst.statusId), inst);
       const raw = def?.combat?.costMultiplier?.[resource];
       if (raw === undefined || raw === 0 || def?.visibility !== "known") continue;
       const value = def.combat?.stacksPerLayer === true ? raw * Math.max(1, inst.stacks) : raw;
@@ -126,7 +138,7 @@ export function statusTotalsOf(
   const dotSources: StatusTotalSourceVM[] = [];
   const controls = new Set<string>();
   for (const inst of actor.statuses) {
-    const def = lookup.status(inst.statusId);
+    const def = statusFor(lookup.status(inst.statusId), inst);
     if (def === undefined || def.visibility !== "known") continue;
     for (const round of def.combat?.onRoundEnd ?? []) {
       // 只汇总定值伤害：公式可能要属性/装备参与，面板上算一遍就会与战斗不一致。

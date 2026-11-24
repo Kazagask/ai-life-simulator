@@ -5,6 +5,7 @@ import {
   commitOpening,
   createOpeningSession,
   describeNode,
+  optionWeights,
   resolveStep,
 } from "../../packages/game-core/src/v2/opening-dag.ts";
 import type { OpeningBranchDag } from "@life-sim/shared";
@@ -34,8 +35,10 @@ function runOpening(
   template: ReturnType<typeof loadV2>["template"],
   picks: Record<string, string> = {},
   seed = 12345,
+  /** 宿主初始参数（ADR-072 D7）：目前只有 `playerName`（向导里填的名字）。 */
+  initial?: Record<string, unknown>,
 ) {
-  let session = createOpeningSession(dag, seed);
+  let session = createOpeningSession(dag, seed, initial);
   for (let guard = 0; !session.done && guard < 40; guard += 1) {
     const node = dag.nodes.find((n) => n.node === session.nodeId);
     if (node === undefined) break;
@@ -43,6 +46,10 @@ function runOpening(
     if (node.mode === "roll") session = resolveStep(dag, session, { kind: "roll" }).session;
     else if (node.mode === "choose" && optionId !== undefined) {
       session = resolveStep(dag, session, { kind: "choose", optionId }).session;
+    } else if (node.mode === "input") {
+      // 姓名格（ADR-072 D7）：交空串 = 「直接用预填」，正是玩家点「就这个」的那条路径；
+      // 想断言玩家改过名字的用例，自己带 `initial.playerName`。
+      session = resolveStep(dag, session, { kind: "input", value: "" }).session;
     } else if (node.mode === "allocate") {
       const view = describeNode(dag, session, { template });
       let left = view?.allocation?.budget ?? 0;
@@ -130,7 +137,8 @@ describe("jjk-2006 3.0.0 · 前实例化开局（v3 出身转盘）", () => {
     const visited = fresh.session.results.map((r) => r.nodeId);
     expect(visited).toContain("n-origin");
     expect(visited).toContain("n-gender");
-    expect(visited).toContain("n-tech");
+    // 术式池按出身分流（2026-11-23）：普通出身进通用池，御三家「传承没断」才进家传池。
+    expect(visited.includes("n-tech-generic") || visited.includes("n-tech-clan")).toBe(true);
     // 22 个节点里只有**一个**领域节点该被走到（其余九个是编译期分流的落点）。
     expect(visited.filter((n) => n.startsWith("n-dom-"))).toHaveLength(1);
   });
@@ -380,8 +388,8 @@ describe("jjk-2006 3.0.0 · 前实例化开局（v3 出身转盘）", () => {
     // 理子短线的两个 badend 随短线一起删除 —— 不再有「开局就被枪杀」的路径。
     expect(endings).not.toContain("end-riko-shot");
     expect(endings).not.toContain("end-riko-assimilated");
-    // timeReached / playerRequested / hvEarlyDeath（2006 单章不再有 finalEnd）
-    expect(entry.endingConfig?.terminationConditions.length).toBeGreaterThanOrEqual(3);
+    // timeReached / playerRequested（早夭已改走 world.deathRoutes，ADR-075）
+    expect(entry.endingConfig?.terminationConditions.length).toBeGreaterThanOrEqual(2);
   });
 
   it("天赋先抽：天与咒缚只有天赋一个入口，抽到它就没有术式", () => {
@@ -389,15 +397,19 @@ describe("jjk-2006 3.0.0 · 前实例化开局（v3 出身转盘）", () => {
     const dag = entry.openingDag;
     const nodes = dag.nodes;
     // 2026-11-21：顺序必须是 天赋 → 术式（后面几格的 weightByParam 要读天赋）。
-    expect(nodes.findIndex((n) => n.node === "n-talent")).toBeLessThan(
-      nodes.findIndex((n) => n.node === "n-tech"),
-    );
+    // 2026-11-23：术式拆成 传承 → 家传池 → 通用池，三格都在天赋之后。
+    const talentAt = nodes.findIndex((n) => n.node === "n-talent");
+    for (const id of ["n-heritage", "n-tech-clan", "n-tech-generic"]) {
+      expect(talentAt, `${id} 必须在天赋之后`).toBeLessThan(nodes.findIndex((n) => n.node === id));
+    }
     const talent = nodes.find((n) => n.node === "n-talent");
-    const tech = nodes.find((n) => n.node === "n-tech");
     const body = nodes.find((n) => n.node === "n-body");
     expect(talent?.options?.some((o) => o.id === "t-heavenly")).toBe(true);
-    // 池子里只能有一个天与：术式池与体质池都不许再给第二次。
-    expect(tech?.options?.some((o) => o.id === "t-heavenly")).toBe(false);
+    // 池子里只能有一个天与：三个术式池与体质池都不许再给第二次。
+    for (const nodeId of ["n-tech-clan", "n-tech-generic"]) {
+      const pool = nodes.find((n) => n.node === nodeId);
+      expect(pool?.options?.some((o) => o.id === "t-heavenly"), nodeId).toBe(false);
+    }
     expect(body?.options?.some((o) => o.id === "b-restricted")).toBe(false);
 
     let seen = 0;
@@ -414,5 +426,155 @@ describe("jjk-2006 3.0.0 · 前实例化开局（v3 出身转盘）", () => {
       expect(state.player.skills).not.toContain("sk-tech-space-shift");
     }
     expect(seen).toBeGreaterThan(0);
+  });
+
+  it("御三家先转传承：断了进通用池，没断才进家传池；别的出身看不到这一格", () => {
+    const entry = loadV2();
+    const dag = entry.openingDag;
+    const CLAN_TECHS = new Set(["ten-shadows", "red-blood", "limitless"]);
+    let clanInherited = 0;
+    let clanBroken = 0;
+    let others = 0;
+    for (let seed = 1; seed <= 160; seed += 1) {
+      const { state, session } = runOpening(dag, entry.template, {}, seed);
+      // 天与咒缚整段跳过术式与领域，不在本用例的判据里。
+      if (state.flags.talent === "heavenly") continue;
+      const visited = session.results.map((r) => r.nodeId);
+      const tech = String(state.player.attributes.innateTechnique ?? "");
+      if (state.flags.origin === "clan-branch") {
+        expect(visited).toContain("n-heritage");
+        if (state.flags.heritage === "inherited") {
+          clanInherited += 1;
+          expect(visited).toContain("n-tech-clan");
+          expect(visited).not.toContain("n-tech-generic");
+          expect(CLAN_TECHS.has(tech)).toBe(true);
+        } else {
+          clanBroken += 1;
+          expect(visited).toContain("n-tech-generic");
+          expect(visited).not.toContain("n-tech-clan");
+          expect(CLAN_TECHS.has(tech)).toBe(false);
+        }
+      } else {
+        others += 1;
+        // 节点前置不成立 ⇒ 整格不上屏、也不写结果。
+        expect(visited).not.toContain("n-heritage");
+        expect(visited).not.toContain("n-tech-clan");
+        expect(CLAN_TECHS.has(tech)).toBe(false);
+      }
+    }
+    // 三个分支都要真的被走到，否则这条用例只是「断言恒真」。
+    expect(clanInherited).toBeGreaterThan(0);
+    expect(clanBroken).toBeGreaterThan(0);
+    expect(others).toBeGreaterThan(0);
+  });
+
+  it("六眼（伪）：只有旁支接得住，抽到无下限再抬一档权重", () => {
+    const entry = loadV2();
+    const dag = entry.openingDag;
+    const body = dag.nodes.find((n) => n.node === "n-body");
+    const pseudo = (body?.options ?? []).findIndex((o) => o.id === "b-six-eyes-pseudo");
+    expect(pseudo).toBeGreaterThanOrEqual(0);
+
+    // 手搭会话：resolveParamMap 只认「节点 id + 选项 id」，所以可以直接指定前置落点。
+    const weightFor = (originOption: string, techNode: string, techOption: string): number => {
+      const session = {
+        openingId: dag.openingId,
+        seed: 1,
+        nodeId: "n-body",
+        done: false,
+        results: [
+          { nodeId: "n-origin", optionId: originOption },
+          { nodeId: techNode, optionId: techOption },
+        ],
+      };
+      return optionWeights(dag, session, body!)[pseudo] ?? 0;
+    };
+
+    const clanLimitless = weightFor("o-clan", "n-tech-clan", "t-limitless");
+    const clanTenShadows = weightFor("o-clan", "n-tech-clan", "t-ten-shadows");
+    const civilian = weightFor("o-civilian", "n-tech-generic", "t-space");
+
+    expect(clanTenShadows).toBeGreaterThan(0);
+    expect(clanLimitless).toBeGreaterThan(clanTenShadows);
+    // 非旁支 base 0 ⇒ 永远不会出货（不会凭空多出一双六眼）。
+    expect(civilian).toBe(0);
+  });
+
+  it("姓名格：御三家 = 姓 + 你写的名字，其它出身 = 原样；没写就转一个", () => {
+    const entry = loadV2();
+    const dag = entry.openingDag;
+    const nameNode = dag.nodes.find((n) => n.node === "n-name");
+    expect(nameNode?.mode).toBe("input");
+    expect(nameNode?.input?.param).toBe("nick");
+    // 姓名格在加点之前（用户裁决：先定「你是谁」，再定「你往哪儿长」）。
+    expect(dag.nodes.findIndex((n) => n.node === "n-name")).toBeLessThan(
+      dag.nodes.findIndex((n) => n.node === "n-allocate"),
+    );
+
+    let clan = 0;
+    let others = 0;
+    let generated = 0;
+    for (let seed = 1; seed <= 48; seed += 1) {
+      const { state } = runOpening(dag, entry.template, {}, seed, { playerName: "三郎" });
+      if (state.flags.origin === "clan-branch") {
+        // 姓由「家传术式」或「姓氏转盘」给，名字接在后面。
+        expect(state.player.name.endsWith("三郎"), `seed ${seed}`).toBe(true);
+        expect(state.player.name.length).toBeGreaterThan("三郎".length);
+        clan += 1;
+      } else {
+        // 其它出身：写了就原样用，不强行加姓。
+        expect(state.player.name, `seed ${seed}`).toBe("三郎");
+        others += 1;
+      }
+    }
+    expect(clan).toBeGreaterThan(0);
+    expect(others).toBeGreaterThan(0);
+
+    // 没写名字：所有人都会有一个「转出来的名」，不会是空串或「无名氏」。
+    // 例外只有天与咒缚：他们整段跳过姓氏与术式（`goto: n-body`），所以只有名没有姓 ——
+    // 设定上说得通（族谱上没有这个人），也只在 4% 的开局里出现。
+    for (let seed = 1; seed <= 24; seed += 1) {
+      const { state } = runOpening(dag, entry.template, {}, seed);
+      expect(state.player.name).not.toBe("无名氏");
+      expect(state.player.name.length).toBeGreaterThanOrEqual(1);
+      if (state.flags.talent !== "heavenly") expect(state.player.name.length).toBeGreaterThan(1);
+      generated += 1;
+    }
+    expect(generated).toBeGreaterThan(0);
+  });
+
+  it("无下限的越界：赫/茈 要「无下限术式 + 反转术式」，六眼（伪）另开一条给天赋无下限", () => {
+    type Effect = { type: string; skillId?: string; status?: string };
+    type PoolEvent = {
+      id: string;
+      trigger: { conditions?: unknown[] };
+      settle?: { normal?: { options?: Array<{ effects?: Effect[] }> } };
+    };
+    const events = loadV2().template.events as unknown as PoolEvent[];
+    const red = events.find((e) => e.id === "ev-pool-limitless-red");
+    const voided = events.find((e) => e.id === "ev-pool-limitless-void");
+    expect(red).toBeDefined();
+    expect(voided).toBeDefined();
+
+    const conditions = (e: PoolEvent): string => JSON.stringify(e.trigger.conditions ?? []);
+    // 门票：无下限术式 + 已学会反转术式。
+    for (const e of [red!, voided!]) {
+      expect(conditions(e)).toContain("limitless");
+      expect(conditions(e)).toContain("sk-reverse-heal");
+    }
+    // 两条事件靠六眼（伪）互斥：有它走「观空」那条，没有走普通那条。
+    expect(conditions(red!)).toContain("six-eyes-pseudo");
+    expect(conditions(red!)).toContain("false");
+    expect(conditions(voided!)).toContain("true");
+
+    const effectsOf = (e: PoolEvent): Effect[] =>
+      (e.settle?.normal?.options ?? []).flatMap((o) => o.effects ?? []);
+    for (const option of red!.settle?.normal?.options ?? []) {
+      expect(option.effects?.some((f) => f.type === "unlockSkill" && f.skillId === "sk-gojo-red")).toBe(true);
+      expect(option.effects?.some((f) => f.type === "unlockSkill" && f.skillId === "sk-gojo-hollow-purple")).toBe(true);
+    }
+    // 天赋无下限只在「观空」那条里给。
+    expect(effectsOf(red!).some((f) => f.status === "infinity")).toBe(false);
+    expect(effectsOf(voided!).some((f) => f.type === "applyStatus" && f.status === "infinity")).toBe(true);
   });
 });

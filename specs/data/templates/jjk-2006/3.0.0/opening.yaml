@@ -9,14 +9,26 @@
 #   抽到天与咒缚 ⇒ `goto: n-body` 直接跳过术式与领域（没有咒力就没有术式）。
 #
 # 三条硬约束（读代码得出，不是猜的）：
-#   1. `OpeningBranchOptionSchema` 没有 conditions ⇒ 选项不能按前置结果开关；
+#   1. `OpeningBranchOptionSchema` 没有 conditions ⇒ **选项**不能按前置结果开关；
+#      但**节点**可以（2026-11-23 · ADR-072 D3）：节点级 `when: [{ param, in }]` 读已落定参数，
+#      不成立就整格静默跳过。这是「御三家才转传承」唯一不复制通道的写法。
 #   2. DAG 无循环、无计数 ⇒ 「先抽 n，再抽 n 次」写不出来；用「每格可能空」等价实现；
 #   3. 开局 roll 的静态 `weight` 可用，按**世界属性**加权不可用（ADR-001 D-4）。
-#      按**已落定的开局参数**加权走 `weightByParam`（ADR-001 D7）——本稿用在三处：
-#      天赋抬/压术式权重（n-tech 每条一个表）、天与抽不到反转术式（b-reverse -18）、
-#      家学抬天才权重（旁支 +6 / 诅咒师世家 +4）。
-# 能用的分流只有一招：`option.goto` —— 抽到哪个扇区就去哪个节点（编译期展开）。
-# 所以「按术式给领域」是**每术式一个领域节点**，不是运行时判断；十个领域节点都必须
+#      按**已落定的开局参数**加权走 `weightByParam`（ADR-001 D7）——本稿用在五处：
+#      天赋抬/压术式权重（n-tech-* 每条一个表）、天与抽不到反转术式（b-reverse -18）、
+#      家学抬天才权重（旁支 +6 / 诅咒师世家 +4）、**出身分流原作术式**（originTag 0 基偏置）、
+#      六眼（伪）在抽到无下限时加权（b-six-eyes-pseudo +10）。
+#
+# 2026-11-23 术式/天赋重做（按 `archive/.../咒术转盘☆第二版.wheel.json`）：
+#   - 御三家旁支先转「传承」：断了就进通用池；没断才进家传池（十影 / 赤血 / 无下限）。
+#     诅咒师世家与平民直接走通用池（咒灵操术 / 御厨子 / 刍灵 / 雷电 / 咒言 + 九系原创）。
+#     强度不设上限，权重只决定「遇到什么」。
+#   - 高阶三格的「空签 / 高级签」权重按 `rankFlag` 调：天赋越好，实际拿到的数量越多。
+#   - 自建角色 id 按出身生成（`player-civilian` 等），后续剧情/提示词可用
+#     `as: player-clan-branch` 或 `as: [player-clan-branch, npc-gojo]` 分线。
+# 分流有两招：`option.goto`（抽到哪个扇区去哪个节点，编译期展开）与
+# 节点级 `when`（前置不成立就整格跳过，运行期按已落定参数判）。
+# 「按术式给领域」仍然只能靠 goto —— **每术式一个领域节点**，十个领域节点都必须
 # 显式 `goto: n-body`，否则会按数组顺序连抽十个领域。
 #
 # 另一个必须守的纪律：**一个 param id 只能有一个写者**。
@@ -47,6 +59,12 @@ params:
   # ---------- 站位 / 出身（字符串旗标，供事件条件读） ----------
   - { id: line, kind: flag, ui: { label: 站位, order: 10 } }
   - { id: originTag, kind: flag, ui: { label: 出身, order: 11 } }
+  # 御三家才有意义：inherited（书翻到了你）/ broken（书在别人手里）。
+  # 同时作为 `n-tech-clan` 的节点前置 —— 这是「转盘按分支」在现行契约里的落地方式。
+  - { id: heritage, kind: flag, ui: { label: 传承, order: 12 } }
+  # 姓：所有人都会有一个（姓氏那一格转一次）；御三家「传承没断」时由家传术式覆盖成
+  # 禅院 / 加茂 / 五条。它只给「姓名输入框」做预填，不参与任何判定。
+  - { id: surname, kind: flag, ui: { label: 姓, order: 13 } }
   - { id: clan, kind: flag, ui: { label: 家系, hidden: true } }
   - { id: canonRole, kind: flag, ui: { label: 借用的人物, hidden: true } }
 
@@ -79,6 +97,9 @@ params:
   - { id: highSkill1, kind: skill, ui: { label: 技巧·一, hidden: true } }
   - { id: highSkill2, kind: skill, ui: { label: 技巧·二, hidden: true } }
   - { id: highSkill3, kind: skill, ui: { label: 技巧·三, hidden: true } }
+  # 黑闪（ADR-073）：不再是一门技能，而是「天赋 + 资质」。
+  # 资质就是「咒力操作」（派生属性），不需要单独写值；`highStatus` 只负责挂天赋。
+  - { id: highStatus, kind: status, ui: { label: 技巧·特质, hidden: true } }
   # 普通攻击：任何人都会的一手。没有它，咒力耗尽时只能跳回合（2026-11-21 用户裁决）。
   - { id: basicSkill, kind: skill, ui: { label: 基础体术, hidden: true } }
 
@@ -92,7 +113,7 @@ params:
     budgetFrom: talentRoll
     targets:
       # 上限合计 13 ≥ 最大预算 5，任何天赋档都分得完（不靠「必须花完」逼人乱点）。
-      - { attribute: cursedEnergy, min: 0, max: 4, style: purple }
+      - { attribute: cursedEnergyTotal, min: 0, max: 4, style: purple }
       - { attribute: intellect, min: 0, max: 3 }
       - { attribute: physique, min: 0, max: 3 }
       - { attribute: agility, min: 0, max: 3 }
@@ -206,8 +227,15 @@ nodes:
         text: 普通人家，靠自己考进高专 —— 原作线
         weight: 30
         set:
+          # 自建角色的 id 按出身区分（2026-11-23）：后续剧情/提示词用
+          # `as: player-civilian`（或数组里并列多个）精确分线；
+          # 不这么写，所有自建角色都叫 player，as 无法区分出身。
+          who: { kind: new, id: player-civilian }
           line: { id: line, value: canon }
           originTag: { id: origin, value: civilian }
+          # 没有「传承」这回事：写成 none，是为了让姓氏那一格的前置能命中
+          # （与旁支的 broken 同一条判据，见 n-surname）。
+          heritage: { id: heritage, value: none }
           # 原作线：没有背景、没有师承，能做的只有报警、挡一下、收尸。
           originAttr1: { id: luck, value: 2, mode: add }
           originAttr2: { id: intellect, value: 1, mode: add }
@@ -222,10 +250,11 @@ nodes:
         text: 御三家旁支，家里知道「咒术」两个字 —— 高专线
         weight: 22
         set:
+          who: { kind: new, id: player-clan-branch }
           line: { id: line, value: highschool }
           originTag: { id: origin, value: clan-branch }
           clan: { id: clan, value: branch }
-          originAttr1: { id: cursedEnergy, value: 6, mode: add }
+          originAttr1: { id: cursedEnergyTotal, value: 6, mode: add }
           originAttr2: { id: reputation, value: 10, mode: add }
           rel1: { with: npc-gojo, value: 6, kind: colleague }
           rel2: { with: npc-geto, value: 4, kind: colleague }
@@ -238,11 +267,13 @@ nodes:
         text: 诅咒师世家，从小知道钱能买命 —— 诅咒师线
         weight: 14
         set:
+          who: { kind: new, id: player-curse-family }
           line: { id: line, value: curse-user }
           originTag: { id: origin, value: curse-family }
+          heritage: { id: heritage, value: none }
           # 恶名是 0..2 的 ladder，+1 已经是「圈子里有人记得你」的量级。
           originAttr1: { id: infamy, value: 1, mode: add }
-          originAttr2: { id: cursedEnergy, value: 4, mode: add }
+          originAttr2: { id: cursedEnergyTotal, value: 4, mode: add }
           rel1: { with: npc-toji, value: 10, kind: colleague }
           rel2: { with: npc-gojo, value: -30, kind: enemy }
           gEra: { id: era, value: 1 }
@@ -281,9 +312,10 @@ nodes:
 
   # ═══════════════════════════════════════════════════════════════════
   # 3. 生得术式
-  #    池子里**没有**血继 / 唯一术式：无下限（五条家 + 六眼）、十种影法术（禅院血统）、
-  #    赤血操术（加茂血统）、御厨子（宿傩）、无为转变（真人）、咒灵操术（夏油）都在原作
-  #    人物身上，陌生人抽到就是「两个十影」这种硬伤。原作人物复用时不进这个节点。
+  #    2026-11-23：原作术式进池，按出身分流（clan-branch / curse-family / civilian），
+  #    用 `weightByParam.originTag` 做 0 基偏置：base weight 0 ⇒ 没有对应出身就不会出货。
+  #    不再以「两个十影」为由排除血继 / 唯一术式（用户裁决：这部分不限制强度）。
+  #    借用原作人物时仍然跳过整个术式/领域节点（n-canon 直达 n-entrance）。
   # ═══════════════════════════════════════════════════════════════════
   - node: n-talent
     title: 天赋
@@ -297,7 +329,7 @@ nodes:
           talentRoll: 5
           rankFlag: { id: talent, value: none }
           rankAttr: { id: grade, value: grade-4, mode: set }
-          talentAttr: { id: cursedEnergy, value: 1, mode: add }
+          talentAttr: { id: cursedEnergyTotal, value: 1, mode: add }
           talentAttr2: { id: physique, value: 2, mode: add }
       - id: t-ordinary
         text: 普通天赋 · 够用
@@ -306,7 +338,7 @@ nodes:
           talentRoll: 4
           rankFlag: { id: talent, value: ordinary }
           rankAttr: { id: grade, value: grade-3, mode: set }
-          talentAttr: { id: cursedEnergy, value: 3, mode: add }
+          talentAttr: { id: cursedEnergyTotal, value: 3, mode: add }
       - id: t-good
         text: 优秀天赋 · 教官会多看你一眼
         weight: 27
@@ -314,7 +346,7 @@ nodes:
           talentRoll: 4
           rankFlag: { id: talent, value: good }
           rankAttr: { id: grade, value: grade-2, mode: set }
-          talentAttr: { id: cursedEnergy, value: 6, mode: add }
+          talentAttr: { id: cursedEnergyTotal, value: 6, mode: add }
           talentAttr2: { id: intellect, value: 2, mode: add }
       - id: t-genius
         text: 天才级 · 乙骨那种「学一遍就会」
@@ -329,7 +361,7 @@ nodes:
           talentRoll: 3
           rankFlag: { id: talent, value: genius }
           rankAttr: { id: grade, value: grade-1, mode: set }
-          talentAttr: { id: cursedEnergy, value: 12, mode: add }
+          talentAttr: { id: cursedEnergyTotal, value: 12, mode: add }
           talentAttr2: { id: intellect, value: 3, mode: add }
       - id: t-special
         text: 特级苗子 · 上面会把你的名字圈起来
@@ -338,7 +370,7 @@ nodes:
           talentRoll: 3
           rankFlag: { id: talent, value: special-seed }
           rankAttr: { id: grade, value: grade-1, mode: set }
-          talentAttr: { id: cursedEnergy, value: 18, mode: add }
+          talentAttr: { id: cursedEnergyTotal, value: 18, mode: add }
           talentAttr2: { id: reputation, value: 8, mode: add }
       - id: t-anomaly
         text: 异形 · 无法用等级衡量
@@ -347,7 +379,7 @@ nodes:
           talentRoll: 2
           rankFlag: { id: talent, value: anomaly }
           rankAttr: { id: grade, value: special, mode: set }
-          talentAttr: { id: cursedEnergy, value: 26, mode: add }
+          talentAttr: { id: cursedEnergyTotal, value: 26, mode: add }
           talentAttr2: { id: reputation, value: 14, mode: add }
       - id: t-heavenly
         text: 天与咒缚 · 你用全部咒力换了一具不讲道理的肉体
@@ -364,7 +396,104 @@ nodes:
         # 没有咒力 ⇒ 没有术式、没有领域（n-dom-* 整段跳过）。
         goto: n-body
 
-  - node: n-tech
+  # ── 御三家的传承转盘（2026-11-23 · ADR-072 D3）──────────────────────
+  # 旁支不等于「家里有术式」：书在嫡流手里，轮到谁看运气。
+  # 这一格用节点前置 `when` 只给 clan-branch 看；其他人**静默跳过**
+  # （不占步数、不写结果、不上屏），所以它不必被复制到三条 lane 里。
+  - node: n-heritage
+    title: 传承
+    text: 御三家的术式不是抽的，是传的。名字写在族谱上，能不能翻开那本书，是另一回事。
+    mode: roll
+    when:
+      - { param: originTag, in: [clan-branch] }
+    options:
+      - id: h-inherited
+        text: 传承没断 · 那本只给嫡流的书，翻到了你的名字
+        weight: 34
+        set:
+          heritage: { id: heritage, value: inherited }
+        # 故意不写 goto：下一格「姓氏」要靠节点前置决定跑不跑，
+        # goto 会把它整格跳过去（而「断了」的旁支正需要它给姓）。
+      - id: h-broken
+        text: 传承断了 · 你是旁支的旁支，书在别人手里
+        weight: 66
+        set:
+          heritage: { id: heritage, value: broken }
+
+  # ── 姓氏（2026-11-23 · ADR-072 D7）──────────────────────────────────
+  # 只给「没有家传术式的人」：非御三家（heritage=none）与传承断了的旁支。
+  # 传承没断的旁支会跳过它，姓由家传术式那一格覆盖成禅院 / 加茂 / 五条。
+  # 这一格存在的唯一理由：给最后的姓名输入框一个「已经填好的姓」。
+  - node: n-surname
+    title: 姓氏
+    text: 咒术界不问你从哪来，但户口本会。转盘随手给你一个姓。
+    mode: roll
+    when:
+      - { param: heritage, in: [broken, none] }
+    options:
+      - { id: s-kamiya, text: 神谷, weight: 1, set: { surname: { id: surname, value: 神谷 } } }
+      - { id: s-shirai, text: 白井, weight: 1, set: { surname: { id: surname, value: 白井 } } }
+      - { id: s-kiryu, text: 桐生, weight: 1, set: { surname: { id: surname, value: 桐生 } } }
+      - { id: s-asakura, text: 浅仓, weight: 1, set: { surname: { id: surname, value: 浅仓 } } }
+      - { id: s-makihara, text: 槙原, weight: 1, set: { surname: { id: surname, value: 槙原 } } }
+      - { id: s-itami, text: 伊丹, weight: 1, set: { surname: { id: surname, value: 伊丹 } } }
+      - { id: s-saegusa, text: 三枝, weight: 1, set: { surname: { id: surname, value: 三枝 } } }
+      - { id: s-arima, text: 有马, weight: 1, set: { surname: { id: surname, value: 有马 } } }
+
+  # ── 家传术式（只对「传承没断」的旁支开放）──────────────────────────
+  # 三家的书各记各的：十影（禅院）· 赤血（加茂）· 无下限（五条）。
+  # 这一格不写 originTag 偏置 —— 能走到这里的人已经付过 34% 的运气。
+  - node: n-tech-clan
+    title: 家传术式
+    text: 书翻开，第一页只有一行字。你认得那个字，因为它和你从小听到大的说法一模一样。
+    mode: roll
+    when:
+      - { param: heritage, in: [inherited] }
+    options:
+      - id: t-ten-shadows
+        text: 十种影法术 —— 影子里住着十只式神，你只是它们的门
+        weight: 36
+        weightByParam:
+          rankFlag:
+            genius: 2
+            special-seed: 2
+            anomaly: 1
+        set:
+          techFlag: { id: tech, value: ten-shadows }
+          techAttr: { id: innateTechnique, value: ten-shadows, mode: set }
+          techStatus: tech-ten-shadow
+          surname: { id: surname, value: 禅院 }
+          techSkill: [sk-ten-shadow]
+        goto: n-dom-generic
+      - id: t-red-blood
+        text: 赤血操术 —— 血离开身体之后，仍然听你的
+        weight: 36
+        set:
+          techFlag: { id: tech, value: red-blood }
+          techAttr: { id: innateTechnique, value: red-blood, mode: set }
+          techStatus: tech-red-blood
+          surname: { id: surname, value: 加茂 }
+          techSkill: [sk-red-blood]
+        goto: n-dom-generic
+      - id: t-limitless
+        text: 无下限术式 —— 你与任何东西之间，都隔着一层无限
+        weight: 28
+        weightByParam:
+          rankFlag:
+            genius: 2
+            special-seed: 3
+            anomaly: 3
+        set:
+          techFlag: { id: tech, value: limitless }
+          techAttr: { id: innateTechnique, value: limitless, mode: set }
+          techStatus: tech-limitless
+          surname: { id: surname, value: 五条 }
+          # 无下限本身只给「苍」与「把无限贴到身上」：赫要反转术式，
+          # 茈要赫与苍同时在手（见 events.yaml 的 pool 事件）。
+          techSkill: [sk-limitless, sk-gojo-blue]
+        goto: n-dom-generic
+
+  - node: n-tech-generic
     title: 生得术式
     text: 术式不是学来的，是生下来就写在身体里的那一行字。转盘只负责让你知道它写了什么。
     mode: roll
@@ -503,6 +632,77 @@ nodes:
           techStatus: tech-fate
           techSkill: [sk-tech-fate-coin, sk-tech-fate-debt]
         goto: n-dom-fate
+      # ── 原作术式（2026-11-23）────────────────────────────────────
+      # 御三家的三条（十影 / 赤血 / 无下限）**不在这个池子里**：它们走 `n-tech-clan`，
+      # 只有「传承没断」的旁支能抽。这里是通用池，按出身偏置决定「遇到什么」。
+      # 强度不做上限（用户裁决）：权重只决定「遇到什么」，不再为平衡砍效果。
+      - id: t-cursed-spirits
+        text: 咒灵操术 —— 吞下它，然后让它替你走完剩下的路
+        weight: 0
+        weightByParam:
+          originTag:
+            curse-family: 7
+        set:
+          techFlag: { id: tech, value: cursed-spirits }
+          techAttr: { id: innateTechnique, value: cursed-spirits, mode: set }
+          techStatus: tech-cursed-spirits
+          techSkill: [sk-summon-curse]
+        goto: n-dom-generic
+      - id: t-shrine
+        text: 御厨子 —— 斩击与火焰，不需要理由，只需要一个目标
+        weight: 0
+        weightByParam:
+          originTag:
+            curse-family: 4
+          rankFlag:
+            special-seed: 2
+            anomaly: 3
+        set:
+          techFlag: { id: tech, value: shrine }
+          techAttr: { id: innateTechnique, value: shrine, mode: set }
+          techStatus: tech-shrine
+          techSkill: [sk-dismantle, sk-cleaves]
+        goto: n-dom-generic
+      - id: t-doll
+        text: 刍灵咒法 —— 草人与钉子，替你承受一部分因果
+        weight: 0
+        weightByParam:
+          originTag:
+            civilian: 4
+            clan-branch: 1
+        set:
+          techFlag: { id: tech, value: doll }
+          techAttr: { id: innateTechnique, value: doll, mode: set }
+          techStatus: tech-doll
+          techSkill: [sk-doll-curse, sk-doll-nail]
+        goto: n-dom-generic
+      - id: t-thunder
+        text: 雷电术式 —— 你的咒力以雷的形态存在，出手总快半步
+        weight: 0
+        weightByParam:
+          originTag:
+            civilian: 3
+            curse-family: 2
+        set:
+          techFlag: { id: tech, value: thunder }
+          techAttr: { id: innateTechnique, value: thunder, mode: set }
+          techStatus: tech-thunder
+          techSkill: [sk-thunder]
+        goto: n-dom-generic
+      - id: t-speech
+        text: 咒言 —— 说出口的话会成为规则，代价是喉咙一直在渗血
+        weight: 0
+        weightByParam:
+          originTag:
+            civilian: 4
+            clan-branch: 1
+        set:
+          techFlag: { id: tech, value: speech }
+          techAttr: { id: innateTechnique, value: speech, mode: set }
+          techStatus: tech-speech
+          techSkill: [sk-speech-command, sk-speech-seal]
+        goto: n-dom-generic
+
       - id: t-latent
         text: 还没觉醒 —— 转盘这次什么都没说
         weight: 5
@@ -546,7 +746,7 @@ nodes:
           dName: { id: domain, value: 无间回廊 }
           dTier: { id: domainTier, value: 2 }
           dSkill: [sk-domain-space]
-          domAttr: { id: cursedEnergy, value: 4, mode: add }
+          domAttr: { id: cursedEnergyTotal, value: 4, mode: add }
       - id: open
         text: 开放式领域 · 不设结界，把整条街变成回廊
         weight: 3
@@ -554,7 +754,7 @@ nodes:
           dName: { id: domain, value: 无间回廊 }
           dTier: { id: domainTier, value: 3 }
           dSkill: [sk-domain-space]
-          domAttr: { id: cursedEnergy, value: 6, mode: add }
+          domAttr: { id: cursedEnergyTotal, value: 6, mode: add }
 
   - node: n-dom-illusion
     title: 领域 · 百八烦恼
@@ -648,7 +848,7 @@ nodes:
           dName: { id: domain, value: 须弥 }
           dTier: { id: domainTier, value: 2 }
           dSkill: [sk-domain-gravity]
-          domAttr: { id: cursedEnergy, value: 4, mode: add }
+          domAttr: { id: cursedEnergyTotal, value: 4, mode: add }
       - id: open
         text: 开放式领域 · 一片没有重力的空腔，空气先被抽走
         weight: 3
@@ -656,7 +856,7 @@ nodes:
           dName: { id: domain, value: 须弥 }
           dTier: { id: domainTier, value: 3 }
           dSkill: [sk-domain-gravity]
-          domAttr: { id: cursedEnergy, value: 5, mode: add }
+          domAttr: { id: cursedEnergyTotal, value: 5, mode: add }
 
   - node: n-dom-shadow
     title: 领域 · 常夜
@@ -716,7 +916,7 @@ nodes:
           dName: { id: domain, value: 梵钟 }
           dTier: { id: domainTier, value: 2 }
           dSkill: [sk-domain-sound]
-          domAttr: { id: cursedEnergy, value: 4, mode: add }
+          domAttr: { id: cursedEnergyTotal, value: 4, mode: add }
       - id: open
         text: 开放式领域 · 不需要墙，声音本来就是全向的
         weight: 3
@@ -724,7 +924,7 @@ nodes:
           dName: { id: domain, value: 梵钟 }
           dTier: { id: domainTier, value: 3 }
           dSkill: [sk-domain-sound]
-          domAttr: { id: cursedEnergy, value: 5, mode: add }
+          domAttr: { id: cursedEnergyTotal, value: 5, mode: add }
 
   - node: n-dom-toxin
     title: 领域 · 腐海
@@ -868,6 +1068,42 @@ nodes:
   #    出现第二个；写进池子等于免费送「无下限 + 无限」。同理「受肉体（宿傩容器）」也
   #    不进池——那是虎杖的位置，进来就等于自带一个宿傩。
   # ═══════════════════════════════════════════════════════════════════
+  # 原作术式没有专属领域节点：统一走这里（技能用通用的 sk-domain-expansion）。
+  # 不为每个术式造一个领域，是为了先把「原作术式能抽到」落地；以后要写专属领域再加节点。
+  - node: n-dom-generic
+    title: 领域 · 生得领域
+    text: 你的术式有没有走到「用自己的法则覆盖一片空间」那一步？
+    mode: roll
+    goto: n-body
+    options:
+      - id: none
+        text: 不会领域
+        weight: 55
+        set: { dName: { id: domain, value: none } }
+      - id: half
+        text: 半成品 · 要靠咒具或「帐」把边界撑起来
+        weight: 24
+        set:
+          dName: { id: domain, value: 生得领域 }
+          dTier: { id: domainTier, value: 1 }
+          dSkill: [sk-domain-expansion]
+      - id: full
+        text: 完整领域 · 生得领域：术式必中，敌人的防御被压到最低
+        weight: 18
+        set:
+          dName: { id: domain, value: 生得领域 }
+          dTier: { id: domainTier, value: 2 }
+          dSkill: [sk-domain-expansion]
+          domAttr: { id: cursedEnergyTotal, value: 4, mode: add }
+      - id: open
+        text: 开放式领域 · 不设结界，把整片街区变成你的法则
+        weight: 3
+        set:
+          dName: { id: domain, value: 生得领域 }
+          dTier: { id: domainTier, value: 3 }
+          dSkill: [sk-domain-expansion]
+          domAttr: { id: cursedEnergyTotal, value: 6, mode: add }
+
   - node: n-body
     title: 体质
     text: 体质不是术式，是「你这具身体本来是什么样」。它决定你能承受多少，不决定你能打出多少。
@@ -880,6 +1116,10 @@ nodes:
       - id: b-reverse
         text: 反转术式的天赋 · 伤口合得比别人快
         weight: 14
+        weightByParam:
+          originTag:
+            civilian: 2
+            clan-branch: 1
         set:
           bodyFlag: { id: body, value: reverse-apt }
           bodyStatus: blessed-reverse
@@ -887,6 +1127,9 @@ nodes:
       - id: b-poison
         text: 咒毒抗性极强 · 别人中毒你只是难受
         weight: 12
+        weightByParam:
+          originTag:
+            curse-family: 3
         set:
           bodyFlag: { id: body, value: poison-ward }
           bodyStatus: poison-ward
@@ -894,6 +1137,10 @@ nodes:
       - id: b-sense
         text: 咒力感知范围极广 · 你比雷达早半步
         weight: 12
+        weightByParam:
+          originTag:
+            civilian: 2
+            curse-family: 1
         set:
           bodyFlag: { id: body, value: wide-sense }
           bodyStatus: wide-sense
@@ -907,24 +1154,47 @@ nodes:
       - id: b-multi
         text: 多重人格 / 多重灵魂 · 身体里不止一个人
         weight: 6
+        weightByParam:
+          originTag:
+            curse-family: 3
         set:
           bodyFlag: { id: body, value: multi-soul }
           bodyStatus: multi-soul
-          bodyAttr: { id: cursedEnergy, value: 3, mode: add }
+          bodyAttr: { id: cursedEnergyTotal, value: 3, mode: add }
       - id: b-mahoraga
         text: 魔虚罗适配体质 · 你能承受「适应」本身
         weight: 3
+        weightByParam:
+          originTag:
+            clan-branch: 3
         set:
           bodyFlag: { id: body, value: mahoraga-fit }
           bodyStatus: mahoraga-fit
           bodyAttr: { id: physique, value: 3, mode: add }
+      # 六眼（伪）· 观空（2026-11-23 私设）：只有御三家旁支有那点血，抽到无下限再抬一档。
+      # base 0 ⇒ 非旁支永远不出货；旁支 4 / 旁支+无下限 14。
+      - id: b-six-eyes-pseudo
+        text: 六眼（伪）· 观空 —— 一双不该睁开的眼睛，睁开了
+        weight: 0
+        weightByParam:
+          originTag:
+            clan-branch: 4
+          techFlag:
+            limitless: 10
+        set:
+          bodyFlag: { id: body, value: six-eyes-pseudo }
+          bodyStatus: six-eyes-pseudo
       - id: b-vow
         text: 术式束缚 · 你给自己立过一条规矩，换来的是力量
         weight: 3
+        weightByParam:
+          originTag:
+            clan-branch: 1
+            curse-family: 1
         set:
           bodyFlag: { id: body, value: self-binding }
           bodyStatus: self-binding
-          bodyAttr: { id: cursedEnergy, value: 4, mode: add }
+          bodyAttr: { id: cursedEnergyTotal, value: 4, mode: add }
 
   # ═══════════════════════════════════════════════════════════════════
   # 6. 高阶技巧 · 三格
@@ -939,6 +1209,15 @@ nodes:
       - id: none
         text: 不会
         weight: 46
+        weightByParam:
+          rankFlag:
+            none: 30
+            ordinary: 14
+            good: -2
+            genius: -12
+            special-seed: -20
+            anomaly: -24
+            heavenly: 8
         set: { high1: { id: high1, value: none } }
       - id: reverse
         text: 反转术式 · 把负的咒力乘一次负，伤口就合上了
@@ -948,18 +1227,40 @@ nodes:
         weightByParam:
           techFlag:
             none: -18
+          rankFlag:
+            good: 4
+            genius: 10
+            special-seed: 12
+            anomaly: 12
+            none: -10
         set:
           high1: { id: high1, value: reverse }
           highSkill1: [sk-reverse-heal]
       - id: black-flash
-        text: 黑闪 · 打完那一击，你会有一瞬间听懂自己在干什么
+        text: 黑闪 · 你好像天生就知道那一击该落在哪一帧上
         weight: 24
+        weightByParam:
+          rankFlag:
+            none: -12
+            ordinary: -2
+            good: 3
+            genius: 8
+            special-seed: 10
+            anomaly: 10
         set:
           high1: { id: high1, value: black-flash }
-          highSkill1: [sk-black-flash]
+          # 黑闪概率由「咒力操作」决定（每点 0.3%）—— 资质不再是单独一条属性。
+          highStatus: t-black-flash
       - id: simple
         text: 简易领域 · 没有结界，只有一圈「你进不来」
         weight: 10
+        weightByParam:
+          rankFlag:
+            good: 3
+            genius: 5
+            special-seed: 6
+            anomaly: 6
+            none: -4
         set:
           high1: { id: high1, value: simple-domain }
           highSkill1: [sk-simple-domain]
@@ -972,22 +1273,51 @@ nodes:
       - id: none
         text: 不会
         weight: 48
+        weightByParam:
+          rankFlag:
+            none: 28
+            ordinary: 12
+            good: -2
+            genius: -12
+            special-seed: -18
+            anomaly: -22
         set: { high2: { id: high2, value: none } }
       - id: envelop
         text: 领域展延 · 不设结界，只把咒力裹在身上去中和对方的术式
         weight: 16
+        weightByParam:
+          rankFlag:
+            good: 3
+            genius: 7
+            special-seed: 9
+            anomaly: 9
+            none: -8
         set:
           high2: { id: high2, value: domain-envelopment }
           highSkill2: [sk-domain-envelopment]
       - id: disclose
         text: 术式公开 · 把自己的术式讲给对手听，换一次加成
         weight: 24
+        weightByParam:
+          rankFlag:
+            good: 2
+            genius: 6
+            special-seed: 8
+            anomaly: 8
+            none: -6
         set:
           high2: { id: high2, value: disclosure }
           highSkill2: [sk-technique-disclosure]
       - id: kago
         text: 弥虚葛笼 · 真·阴流的奥义，简易领域的原型
         weight: 12
+        weightByParam:
+          rankFlag:
+            good: 2
+            genius: 5
+            special-seed: 7
+            anomaly: 7
+            none: -4
         set:
           high2: { id: high2, value: mishu-kago }
           highSkill2: [sk-mishu-kago]
@@ -1000,25 +1330,85 @@ nodes:
       - id: none
         text: 不会
         weight: 50
+        weightByParam:
+          rankFlag:
+            none: 30
+            ordinary: 14
+            good: -2
+            genius: -12
+            special-seed: -18
+            anomaly: -22
         set: { high3: { id: high3, value: none } }
       - id: curtain
         text: 帐 · 把普通人挡在外面，也把自己关在里面
         weight: 22
+        weightByParam:
+          rankFlag:
+            good: 2
+            genius: 5
+            special-seed: 7
+            anomaly: 7
+            none: -6
         set:
           high3: { id: high3, value: curtain }
           highSkill3: [sk-curtain]
       - id: vow
         text: 束缚 · 你给自己加一条限制，换一次「这次一定成」
         weight: 20
+        weightByParam:
+          rankFlag:
+            good: 3
+            genius: 6
+            special-seed: 8
+            anomaly: 8
+            none: -8
         set:
           high3: { id: high3, value: binding-vow }
           highSkill3: [sk-self-binding-vow]
       - id: sense
         text: 咒力视觉 · 你能看见咒力的流向，等于看见对方的意图
         weight: 8
+        weightByParam:
+          rankFlag:
+            good: 2
+            genius: 4
+            special-seed: 5
+            anomaly: 5
+            none: -2
         set:
           high3: { id: high3, value: curse-sight }
           highSkill3: [sk-curse-sight]
+
+  # ═══════════════════════════════════════════════════════════════════
+  # 6.4 姓名（ADR-072 D7）
+  #     整局唯一一个「你写什么就是什么」的格子。预填由引擎算：姓 + （你在向导里写过的名字
+  #     / 转盘给的 / 你自己改的）。引擎不认识「名字」这个业务 —— 它只知道「写 nick 参数」，
+  #     所以这一格换成任何文本字段都是同一套（`input.param` 改一下就行）。
+  #     放加点之前：先定「你是谁」，再定「你往哪儿长」。
+  # ═══════════════════════════════════════════════════════════════════
+  - node: n-name
+    title: 姓名
+    text: 名字是这一整张转盘上唯一一个不是它写的地方。姓已经替你填好了；想改就整段改掉。
+    mode: input
+    input:
+      param: nick
+      prefill:
+        # 御三家：姓在前，你写过的名字接在后面（没写过就用转盘给的）。
+        - when: [{ param: originTag, in: [clan-branch] }]
+          require: [playerName]
+          text: "{surname}{playerName}"
+        - when: [{ param: originTag, in: [clan-branch] }]
+          text: "{surname}{pick}"
+        # 其它出身：你写了就原样用，没写就转一个。
+        - require: [playerName]
+          text: "{playerName}"
+        - text: "{surname}{pick}"
+      suggestions: [透, 恵, 澪, 悠, 湊, 葵, 律, 環, 旭, 遥, 忍, 熙]
+      placeholder: 输入名字
+      hint: 姓已经填好；不想用就整段改掉，也可以只留一个名。
+      minLength: 1
+      maxLength: 12
+      pattern: "^[^<>]{1,12}$"
 
   # ═══════════════════════════════════════════════════════════════════
   # 6.5 加点（ADR-004）

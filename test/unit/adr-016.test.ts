@@ -94,7 +94,8 @@ describe("ADR-016 D2 · 召唤物在登场的那一回合就行动", () => {
     const battle = arena(state, entry);
     const before = battle.enemies[0].hp;
 
-    performBattleAction(state, { type: "skill", skillId: "sk-ten-shadow" }, entry.lookup, () => 0.01);
+    // 敏捷闪避（ADR-074）：骰子要高于目标的闪避率，否则玉犬这一口会被躲开。
+    performBattleAction(state, { type: "skill", skillId: "sk-ten-shadow" }, entry.lookup, () => 0.2);
 
     expect(allies(battle).map((a) => a.characterId)).toContain("shiki-gyokuken");
     expect(battle.enemies[0].hp).toBeLessThan(before);
