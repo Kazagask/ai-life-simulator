@@ -405,21 +405,14 @@ function App() {
       // 每条模板的结果由 `checkVisibleTemplates` 自己打日志（缓存 / 下载 / 失败原因）。
       let scan: TemplateScanResult = { results: [], failures: [] };
       let offline = false;
-      try {
-        scan = await checkVisibleTemplates();
-      } catch (error) {
-        // 断网时 fetch 直接 reject：不能让它跳过下面的离线回退。
-        const failure: TemplateCheckFailure = {
-          ok: false,
-          ref: { id: "?", version: "?" },
-          code: "network",
-          message: error instanceof Error ? error.message : String(error),
-        };
-        scan = { results: [failure], failures: [failure] };
-      }
+      /** 这次是用 IndexedDB 里的包起的（没等网络）。 */
+      let fromCache = false;
 
-      // 离线回退：模板包已经在 IndexedDB 里，断网也能起本地引擎。
-      if (!scan.results.some((result) => result.ok)) {
+      /**
+       * 缓存先行的 refs：本地存档用过的模板版本 + 上次成功启动记下的那个。
+       * 抽出来是因为下面两处都要用（缓存优先 / 断网回退）。
+       */
+      const cachedRefs = async (): Promise<{ id: string; version: string; fingerprint?: string }[]> => {
         const records = await localEngine.listRecords().catch(() => []);
         const refs = new Map<string, { id: string; version: string; fingerprint?: string }>();
         for (const record of records) {
@@ -431,13 +424,52 @@ function App() {
         }
         const last = readLastTemplate();
         if (last !== null) refs.set(`${last.id}@${last.version}`, last);
-        if (refs.size > 0) {
-          const cached = await checkCachedTemplates([...refs.values()]);
+        return [...refs.values()];
+      };
+      const refs = await cachedRefs();
+
+      /**
+       * **本地优先**（2026-11-24 报障「加载本地存档很慢」）：
+       *
+       * 以前启动一定先 `await /api/templates` 再校验 —— 服务端冷启动要几秒，
+       * 玩家盯着「正在载入」等的就是这一枪。缓存里有包就先起引擎，网络只做补票。
+       */
+      if (refs.length > 0) {
+        const cached = await checkCachedTemplates(refs);
+        if (cached.results.some((result) => result.ok)) {
+          scan = cached;
+          fromCache = true;
+        }
+      }
+
+      if (!fromCache) {
+        try {
+          scan = await checkVisibleTemplates();
+        } catch (error) {
+          // 断网时 fetch 直接 reject：不能让它跳过下面的离线回退。
+          const failure: TemplateCheckFailure = {
+            ok: false,
+            ref: { id: "?", version: "?" },
+            code: "network",
+            message: error instanceof Error ? error.message : String(error),
+          };
+          scan = { results: [failure], failures: [failure] };
+        }
+
+        // 离线回退：模板包已经在 IndexedDB 里，断网也能起本地引擎。
+        if (!scan.results.some((result) => result.ok) && refs.length > 0) {
+          const cached = await checkCachedTemplates(refs);
           if (cached.results.some((result) => result.ok)) {
             scan = cached;
             offline = true;
           }
         }
+      } else {
+        /**
+         * 缓存起得来也要补票：后台跑一次联网校验。命中的话会把新包写进 IndexedDB，
+         * **下一次**启动就是新的；同时把服务端容器焐热。
+         */
+        void checkVisibleTemplates().catch(() => undefined);
       }
 
       setOfflineMode(offline);
@@ -447,10 +479,10 @@ function App() {
       if (first !== undefined && first.ok) {
         saveLastTemplate({ id: first.ref.id, version: first.ref.version, fingerprint: first.fingerprint });
         /**
-         * 离线时 `/api/templates` 失败，落地页拿不到模板卡片 → 会一直停在「正在载入」。
-         * 这里用已经校验过的缓存包补一份最小摘要：字段全部来自模板本体，不伪造任何能力。
+         * 没有走 `/api/templates` 时（离线 / 缓存先行），落地页拿不到模板卡片 → 会一直停在
+         * 「正在载入」。这里用已经校验过的缓存包补一份最小摘要：字段全部来自模板本体，不伪造任何能力。
          */
-        if (offline) {
+        if (offline || fromCache) {
           const meta = first.template.meta;
           const dag = first.bundle.openingDag;
           setTemplates([
@@ -696,11 +728,17 @@ function App() {
     if (worldId) return;
     // 列表失败不弹错误：离线时由模板校验的缓存回退补上 `templates`（见 runTemplateCheck）。
     api.listTemplates().then((res) => setTemplates(res.templates)).catch(() => undefined);
-    api.listWorlds().then((res) => setWorlds(res.worlds)).catch((e) => setError(errorText(e)));
+    api
+      .listWorlds((merged) => setWorlds(merged))
+      .then((res) => setWorlds(res.worlds))
+      .catch((e) => setError(errorText(e)));
   }, [worldId]);
 
   const refreshWorlds = useCallback(() => {
-    api.listWorlds().then((res) => setWorlds(res.worlds)).catch(() => {/* 列表刷新失败不阻断 */});
+    api
+      .listWorlds((merged) => setWorlds(merged))
+      .then((res) => setWorlds(res.worlds))
+      .catch(() => {/* 列表刷新失败不阻断 */});
   }, []);
 
   const openWorld = useCallback((id: string) => {

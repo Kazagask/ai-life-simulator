@@ -255,7 +255,8 @@ export async function checkCachedTemplates(
   );
   for (const result of results) {
     if (result.ok) {
-      console.info(`[template] ${result.ref.id}@${result.ref.version} 离线缓存可用`);
+      // 这条日志也是「本地优先」的体温计：先出现它、再出现「下载 / 缓存」，就说明没等网络。
+      console.info(`[template] ${result.ref.id}@${result.ref.version} 本地缓存命中`);
     }
   }
   return {

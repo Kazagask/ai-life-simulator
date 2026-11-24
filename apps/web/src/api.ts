@@ -476,16 +476,21 @@ export const api = {
   listTemplates() {
     return request<{ templates: TemplateSummary[] }>("/api/templates");
   },
-  /** 世界列表（R-PS-04）：savedAt 倒序由服务端保证。 */
-  async listWorlds() {
+  /**
+   * 世界列表（R-PS-04）：savedAt 倒序由服务端保证。
+   *
+   * **本地优先**（2026-11-24 报障「加载本地存档很慢」）：本地档立刻返回，服务端那一份
+   * 有结果了再通过 `onRemote` 合并。以前是 `await` 远端再拼 —— 网络慢的时候，
+   * 明明存档就在 IndexedDB 里，玩家还是要盯着转圈等一个他不需要的请求。
+   */
+  async listWorlds(onRemote?: (worlds: WorldSummary[]) => void) {
     const local = (localEngine?.listWorlds() ?? []) as unknown as WorldSummary[];
-    try {
-      const remote = await request<{ worlds: WorldSummary[] }>("/api/worlds");
-      return { worlds: [...local, ...remote.worlds] };
-    } catch {
-      // 服务端不可用不影响本地档可见（本地优先的第一条体感）。
-      return { worlds: local };
-    }
+    void request<{ worlds: WorldSummary[] }>("/api/worlds")
+      .then((remote) => onRemote?.([...local, ...remote.worlds]))
+      .catch(() => {
+        // 服务端不可用不影响本地档可见（本地优先的第一条体感）。
+      });
+    return { worlds: local };
   },
   deleteWorld(id: string) {
     if (localEngine?.owns(id)) return localEngine.deleteWorld(id).then(() => ({ deleted: id }));
